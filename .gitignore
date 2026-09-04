@@ -53,6 +53,7 @@ logs/
 # Local databases
 *.sqlite
 *.sqlite3
+*.db
 
 # Local runtime / temporary files
 data/local/
