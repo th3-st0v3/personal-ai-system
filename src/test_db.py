@@ -699,6 +699,10 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         self.assertEqual(len(records), 2)
         self.assertEqual(records[0].result, 49050.0)
         self.assertEqual(records[1].result, 147150.0)
+    def test_get_calculation_records_by_type_returns_empty_for_empty_type(self):
+        records = db.get_calculation_records_by_type("")
+
+        self.assertEqual(records, [])
     def test_current_database_does_not_duplicate_schema_version(self):
         connection = db.get_connection()
 
