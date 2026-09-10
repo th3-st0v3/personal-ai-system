@@ -81,5 +81,22 @@ class TestHydrostaticPressure(unittest.TestCase):
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
         self.assertEqual(retrieved.result, 98100.0)
+    def test_calculation_record_is_immutable(self):
+        record = hydrostatic_pressure_record(
+            density_kg_m3=1000.0,
+            gravity_m_s2=9.81,
+            depth_m=10.0,
+        )
+
+        with self.assertRaises((AttributeError, TypeError)):
+            record.result = 123.0
+
+        with self.assertRaises(TypeError):
+            record.inputs["density"] = 500.0
+
+        with self.assertRaises(TypeError):
+            record.units["density"] = "g/cm^3"
+
+        self.assertIsInstance(record.assumptions, tuple)
 if __name__ == "__main__":
     unittest.main()
