@@ -3,6 +3,7 @@ from pathlib import Path
 
 
 DATABASE_PATH = str(Path(__file__).resolve().parent.parent / "notes.db")
+SCHEMA_VERSION = 2
 
 
 def get_connection():
@@ -13,6 +14,27 @@ def get_connection():
 
 
 def initialize_database(connection):
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER NOT NULL
+        )
+    """)
+
+    version_row = connection.execute(
+        "SELECT version FROM schema_version LIMIT 1"
+    ).fetchone()
+
+    if version_row is None:
+        version = None
+    else:
+        version = version_row[0]
+
+    if version is not None and version > SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Database schema version {version} is newer than "
+            f"supported version {SCHEMA_VERSION}."
+        )
+
     connection.execute("""
         CREATE TABLE IF NOT EXISTS notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,12 +53,12 @@ def initialize_database(connection):
         )
     """)
 
-    columns = {
+    notes_columns = {
         row[1]
         for row in connection.execute("PRAGMA table_info(notes)")
     }
 
-    if "project_id" not in columns:
+    if "project_id" not in notes_columns:
         connection.execute(
             "ALTER TABLE notes ADD COLUMN project_id INTEGER"
         )
@@ -68,6 +90,33 @@ def initialize_database(connection):
             FOREIGN KEY (requirement_id) REFERENCES requirements(id)
         )
     """)
+
+    evidence_columns = {
+        row[1]
+        for row in connection.execute("PRAGMA table_info(evidence)")
+    }
+
+    if "lifecycle_status" not in evidence_columns:
+        connection.execute("""
+            ALTER TABLE evidence
+            ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'Active'
+            CHECK (lifecycle_status IN ('Active', 'Invalidated'))
+        """)
+
+    if version is None:
+        version = SCHEMA_VERSION
+
+        connection.execute("DELETE FROM schema_version")
+        connection.execute(
+            "INSERT INTO schema_version (version) VALUES (?)",
+            (version,),
+        )
+    elif version < SCHEMA_VERSION:
+        connection.execute("DELETE FROM schema_version")
+        connection.execute(
+            "INSERT INTO schema_version (version) VALUES (?)",
+            (SCHEMA_VERSION,),
+        )
 
     connection.commit()
 
@@ -345,6 +394,7 @@ def find_matching_evidence(
           AND result = ?
           AND supports_status = ?
           AND location IS ?
+          AND lifecycle_status = 'Active'
         ORDER BY id
         """,
         (

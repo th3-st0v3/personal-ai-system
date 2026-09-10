@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 import unittest
 
@@ -117,6 +118,33 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         )
 
         self.assertEqual(len(matches), 1)
+
+    def test_find_matching_evidence_ignores_invalidated_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
+
+        evidence_id = db.add_evidence(
+            requirement_id,
+            source="bench_test_log.csv",
+            result="Measured 4.2A peak",
+            supports_status="Verified",
+            location="row 12",
+        )
+
+        db.invalidate_evidence(evidence_id)
+
+        matches = db.find_matching_evidence(
+            requirement_id,
+            source="bench_test_log.csv",
+            result="Measured 4.2A peak",
+            supports_status="Verified",
+            location="row 12",
+        )
+
+        self.assertEqual(len(matches), 0)
 
     def test_find_matching_evidence_returns_empty_for_different_evidence(self):
         project_id = db.create_project("Test Project")
@@ -324,6 +352,191 @@ class TestRequirementsAndEvidence(unittest.TestCase):
 
         self.assertEqual(record[0], evidence_id)
         self.assertEqual(record[1], "Invalidated")
+
+
+    def test_schema_version_is_current(self):
+        connection = db.get_connection()
+
+        version = connection.execute(
+            "SELECT version FROM schema_version"
+        ).fetchone()[0]
+
+        connection.close()
+
+        self.assertEqual(version, db.SCHEMA_VERSION)
+
+    def test_old_database_migrates_without_losing_evidence(self):
+        legacy_path = os.path.join(
+            self.temp_dir.name,
+            "legacy_v1_notes.db",
+        )
+
+        connection = sqlite3.connect(legacy_path)
+        connection.execute("PRAGMA foreign_keys = ON")
+
+        connection.execute("""
+            CREATE TABLE notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'user',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                project_id INTEGER
+            )
+        """)
+
+        connection.execute("""
+            CREATE TABLE projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
+        connection.execute("""
+            CREATE TABLE requirements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                description TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Unverified'
+                    CHECK (
+                        status IN (
+                            'Verified',
+                            'Failed',
+                            'Unverified',
+                            'At risk'
+                        )
+                    ),
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (project_id) REFERENCES projects(id)
+            )
+        """)
+
+        connection.execute("""
+            CREATE TABLE evidence (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                requirement_id INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                location TEXT,
+                result TEXT NOT NULL,
+                supports_status TEXT NOT NULL
+                    CHECK (
+                        supports_status IN (
+                            'Verified',
+                            'Failed',
+                            'Unverified',
+                            'At risk'
+                        )
+                    ),
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (requirement_id)
+                    REFERENCES requirements(id)
+            )
+        """)
+
+        connection.execute("""
+            CREATE TABLE schema_version (
+                version INTEGER NOT NULL
+            )
+        """)
+
+        connection.execute(
+            "INSERT INTO schema_version (version) VALUES (1)"
+        )
+
+        project_cursor = connection.execute(
+            """
+            INSERT INTO projects (name, description)
+            VALUES (?, ?)
+            """,
+            ("Migration Test Project", None),
+        )
+        project_id = project_cursor.lastrowid
+
+        requirement_cursor = connection.execute(
+            """
+            INSERT INTO requirements (project_id, description)
+            VALUES (?, ?)
+            """,
+            (project_id, "Motor shall not exceed 5A"),
+        )
+        requirement_id = requirement_cursor.lastrowid
+
+        connection.execute(
+            """
+            INSERT INTO evidence (
+                requirement_id,
+                source,
+                location,
+                result,
+                supports_status
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                requirement_id,
+                "old_test.csv",
+                "row 7",
+                "Measured 4.2A peak",
+                "Verified",
+            ),
+        )
+
+        connection.commit()
+        connection.close()
+
+        original_database_path = db.DATABASE_PATH
+        db.DATABASE_PATH = legacy_path
+
+        try:
+            connection = db.get_connection()
+
+            evidence = connection.execute(
+                """
+                SELECT
+                    id,
+                    requirement_id,
+                    source,
+                    location,
+                    result,
+                    supports_status,
+                    lifecycle_status
+                FROM evidence
+                """
+            ).fetchall()
+
+            version_rows = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchall()
+
+            connection.close()
+        finally:
+            db.DATABASE_PATH = original_database_path
+
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(
+            evidence[0][1:6],
+            (
+                requirement_id,
+                "old_test.csv",
+                "row 7",
+                "Measured 4.2A peak",
+                "Verified",
+            ),
+        )
+        self.assertEqual(evidence[0][6], "Active")
+        self.assertEqual(version_rows, [(db.SCHEMA_VERSION,)])
+
+    def test_current_database_does_not_duplicate_schema_version(self):
+        connection = db.get_connection()
+
+        rows = connection.execute(
+            "SELECT version FROM schema_version"
+        ).fetchall()
+
+        connection.close()
+
+        self.assertEqual(rows, [(db.SCHEMA_VERSION,)])
 
 
 if __name__ == "__main__":
