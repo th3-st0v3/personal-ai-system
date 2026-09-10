@@ -1,13 +1,32 @@
-from db import add_note, get_notes, search_notes
+from db import (
+    add_note, get_notes, search_notes,
+    create_project, get_projects,
+    create_requirement, get_requirement,
+    add_evidence, get_evidence_for_requirement,
+    find_matching_evidence,
+    update_requirement_status,
+)
 from model import ask_model
 
+STATUS_CHOICES = {
+    "1": "Verified",
+    "2": "Failed",
+    "3": "Unverified",
+    "4": "At risk",
+}
 
 while True:
     print("1. Add a note")
     print("2. View notes")
     print("3. Search notes")
     print("4. Ask AI")
-    print("5. Quit")
+    print("5. Create project")
+    print("6. List projects")
+    print("7. Create requirement")
+    print("8. Add evidence")
+    print("9. View requirement")
+    print("10. Update requirement status")
+    print("11. Quit")
 
     choice = input("Choose an option: ")
 
@@ -18,9 +37,7 @@ while True:
 
     elif choice == "2":
         notes = get_notes()
-
         print("\nYour notes:")
-
         for note in notes:
             print(f"{note[0]}. {note[1]}")
             print(f"   {note[3]}")
@@ -28,28 +45,152 @@ while True:
     elif choice == "3":
         query = input("Search for: ")
         notes = search_notes(query)
-
         print("\nSearch results:")
-
         for note in notes:
             print(f"{note[0]}. {note[1]}")
             print(f"   {note[3]}")
 
     elif choice == "4":
         prompt = input("Ask the AI: ")
-
         try:
             answer = ask_model(prompt)
-
             print("\nAI:")
             print(answer)
-
         except Exception as error:
             print(f"\nAI request failed: {error}")
 
     elif choice == "5":
+        name = input("Project name: ")
+        description = input("Description (optional): ") or None
+        project_id = create_project(name, description)
+        print(f"Project created with id {project_id}.")
+
+    elif choice == "6":
+        projects = get_projects()
+        print("\nProjects:")
+        for project in projects:
+            print(f"{project[0]}. {project[1]} - {project[2] or ''}")
+
+    elif choice == "7":
+        try:
+            project_id = int(input("Project id: "))
+        except ValueError:
+            print("Project id must be a number.")
+        else:
+            description = input("Requirement description: ")
+            requirement_id = create_requirement(project_id, description)
+            print(f"Requirement created with id {requirement_id}.")
+
+    elif choice == "8":
+        try:
+            requirement_id = int(input("Requirement id: "))
+        except ValueError:
+            print("Requirement id must be a number.")
+        else:
+            source = input("Evidence source (e.g. test log, datasheet): ")
+            location = input("Location (page/section/timestamp, optional): ") or None
+            result = input("What did the evidence show?: ")
+
+            print("Does this evidence support:")
+            print("1. Verified")
+            print("2. Failed")
+            print("3. Unverified")
+            print("4. At risk")
+
+            supports_status = STATUS_CHOICES.get(input("Choose 1-4: "))
+
+            if supports_status is None:
+                print("Invalid choice, evidence not saved.")
+            else:
+                matches = find_matching_evidence(
+                    requirement_id,
+                    source,
+                    result,
+                    supports_status,
+                    location,
+                )
+
+                save_evidence = True
+
+                if matches:
+                    print("\nWarning: matching evidence already exists:")
+                    for item in matches:
+                        loc = item[3] or "no location given"
+                        print(
+                            f"  - [{item[5]}] {item[2]} "
+                            f"({loc}): {item[4]}"
+                        )
+
+                    answer = input("Save this evidence anyway? (y/n): ")
+                    save_evidence = answer.strip().lower() == "y"
+
+                if save_evidence:
+                    add_evidence(
+                        requirement_id,
+                        source,
+                        result,
+                        supports_status,
+                        location,
+                    )
+                    print("Evidence saved.")
+                else:
+                    print("Evidence not saved.")
+
+    elif choice == "9":
+        try:
+            requirement_id = int(input("Requirement id: "))
+        except ValueError:
+            print("Requirement id must be a number.")
+        else:
+            requirement = get_requirement(requirement_id)
+
+            if requirement is None:
+                print("No requirement with that id.")
+            else:
+                print(f"\nRequirement {requirement[0]}: {requirement[3]}")
+                print(f"Project: {requirement[2]}")
+                print(f"Status: {requirement[4]}")
+
+                evidence = get_evidence_for_requirement(requirement_id)
+
+                print("Evidence:")
+
+                if not evidence:
+                    print("  (no evidence recorded yet)")
+
+                for item in evidence:
+                    loc = item[3] or "no location given"
+                    print(
+                        f"  - [{item[5]}] {item[2]} "
+                        f"({loc}): {item[4]}"
+                    )
+
+    elif choice == "10":
+        try:
+            requirement_id = int(input("Requirement id: "))
+        except ValueError:
+            print("Requirement id must be a number.")
+        else:
+            print("Set status to:")
+            print("1. Verified")
+            print("2. Failed")
+            print("3. Unverified")
+            print("4. At risk")
+
+            new_status = STATUS_CHOICES.get(input("Choose 1-4: "))
+
+            if new_status is None:
+                print("Invalid choice, status not changed.")
+            else:
+                update_requirement_status(requirement_id, new_status)
+                print(
+                    f"Requirement {requirement_id} "
+                    f"status set to {new_status}."
+                )
+
+    elif choice == "11":
         print("Goodbye.")
         break
 
     else:
-        print("Invalid option. Please choose 1, 2, 3, 4, or 5.")
+        print("Invalid option. Please choose 1-11.")
