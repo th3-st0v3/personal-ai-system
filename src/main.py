@@ -5,6 +5,7 @@ from db import (
     add_evidence, get_evidence_for_requirement,
     find_matching_evidence,
     update_requirement_status,
+    evaluate_requirement_evidence,
 )
 
 STATUS_CHOICES = {
@@ -25,7 +26,8 @@ while True:
     print("8. Add evidence")
     print("9. View requirement")
     print("10. Update requirement status")
-    print("11. Quit")
+    print("11. Evaluate requirement evidence")
+    print("12. Quit")
 
     choice = input("Choose an option: ")
 
@@ -194,8 +196,54 @@ while True:
                 )
 
     elif choice == "11":
+        try:
+            requirement_id = int(input("Requirement id: "))
+        except ValueError:
+            print("Requirement id must be a number.")
+        else:
+            requirement = get_requirement(requirement_id)
+
+            if requirement is None:
+                print("No requirement with that id.")
+            else:
+                evaluation = evaluate_requirement_evidence(
+                    requirement_id
+                )
+
+                print(
+                    f"\nRequirement {requirement[0]}: "
+                    f"{requirement[3]}"
+                )
+                print(f"Current status: {requirement[4]}")
+                print(
+                    "Evidence assessment: "
+                    f"{evaluation['recommendation']}"
+                )
+
+                signals = evaluation["signals"]
+
+                if signals:
+                    print(
+                        "Evidence signals: "
+                        f"{', '.join(signals)}"
+                    )
+                else:
+                    print("Evidence signals: none")
+
+                print(
+                    "Conflict: "
+                    f"{'Yes' if evaluation['conflict'] else 'No'}"
+                )
+
+                if evaluation["conflict"]:
+                    print(
+                        "Review conflicting evidence before "
+                        "changing the requirement status."
+                    )
+
+    elif choice == "12":
         print("Goodbye.")
         break
 
     else:
-        print("Invalid option. Please choose 1-11.")
+        print("Invalid option. Please choose 1-12.")
