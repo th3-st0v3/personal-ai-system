@@ -1,6 +1,6 @@
 import unittest
 
-from calculations import hydrostatic_pressure
+from calculations import hydrostatic_pressure, hydrostatic_pressure_record
 
 
 class TestHydrostaticPressure(unittest.TestCase):
@@ -34,7 +34,24 @@ class TestHydrostaticPressure(unittest.TestCase):
     def test_rejects_negative_depth(self):
         with self.assertRaises(ValueError):
             hydrostatic_pressure(1000.0, 9.81, -10.0)
+    def test_calculates_pressure_record(self):
+        record = hydrostatic_pressure_record(
+            density_kg_m3=1000.0,
+            gravity_m_s2=9.81,
+            depth_m=10.0,
+        )
 
+        self.assertEqual(record.calculation_type, "hydrostatic_pressure")
+        self.assertEqual(record.inputs["density"], 1000.0)
+        self.assertEqual(record.inputs["gravity"], 9.81)
+        self.assertEqual(record.inputs["depth"], 10.0)
+        self.assertEqual(record.units["density"], "kg/m^3")
+        self.assertEqual(record.units["gravity"], "m/s^2")
+        self.assertEqual(record.units["depth"], "m")
+        self.assertEqual(record.result, 98100.0)
+        self.assertEqual(record.result_unit, "Pa")
+        self.assertEqual(record.method, "P = rho * g * h")
+        self.assertEqual(record.source, "deterministic calculation")
 
 if __name__ == "__main__":
     unittest.main()
