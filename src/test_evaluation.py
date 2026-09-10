@@ -98,5 +98,22 @@ class TestEvidenceEvaluation(unittest.TestCase):
         self.assertTrue(evaluation["conflict"])
 
 
+    def test_verified_and_at_risk_evidence_recommends_verified(self):
+        evaluation = evaluate_evidence([
+            evidence_with_status("Verified"),
+            evidence_with_status("At risk"),
+        ])
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "Verified",
+        )
+        self.assertEqual(
+            evaluation["signals"],
+            ["At risk", "Verified"],
+        )
+        self.assertFalse(evaluation["conflict"])
+
+
 if __name__ == "__main__":
     unittest.main()
