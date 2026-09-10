@@ -115,5 +115,21 @@ class TestEvidenceEvaluation(unittest.TestCase):
         self.assertFalse(evaluation["conflict"])
 
 
+    def test_unknown_status_recommends_unverified(self):
+        evaluation = evaluate_evidence([
+            evidence_with_status("Unknown"),
+        ])
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "Unverified",
+        )
+        self.assertEqual(
+            evaluation["signals"],
+            ["Unknown"],
+        )
+        self.assertFalse(evaluation["conflict"])
+
+
 if __name__ == "__main__":
     unittest.main()
