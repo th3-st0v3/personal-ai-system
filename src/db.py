@@ -626,6 +626,9 @@ def get_calculation_records_by_type(calculation_type):
         for row in rows
     ]
 def get_recent_calculation_records(limit):
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+
     connection = get_connection()
 
     rows = connection.execute(
