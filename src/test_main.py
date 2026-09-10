@@ -18,7 +18,6 @@ class TestCalculationCLI(unittest.TestCase):
 
     def test_hydrostatic_calculation_workflow_uses_user_input(self):
         import main
-        from unittest.mock import patch
 
         with patch(
             "builtins.input",
@@ -31,7 +30,6 @@ class TestCalculationCLI(unittest.TestCase):
 
     def test_hydrostatic_calculation_workflow_saves_record(self):
         import main
-        from unittest.mock import patch
 
         with patch(
             "builtins.input",
@@ -46,7 +44,6 @@ class TestCalculationCLI(unittest.TestCase):
     def test_recent_calculations_workflow_displays_saved_records(self):
         import main
         from calculation_records import CalculationRecord
-        from unittest.mock import patch
 
         record = CalculationRecord(
             calculation_type="hydrostatic_pressure",
@@ -82,7 +79,6 @@ class TestCalculationCLI(unittest.TestCase):
 
     def test_recent_calculations_workflow_handles_no_records(self):
         import main
-        from unittest.mock import patch
 
         with patch(
             "main.get_recent_calculation_records",
@@ -95,11 +91,31 @@ class TestCalculationCLI(unittest.TestCase):
         )
 
 
+    def test_darcy_weisbach_calculation_workflow_saves_record(self):
+        from main import run_darcy_weisbach_calculation
+
+        with patch("builtins.input", side_effect=[
+            "0.02",
+            "100",
+            "0.1",
+            "1000",
+            "2",
+        ]):
+            with patch("main.save_calculation_record") as save_record:
+                record = run_darcy_weisbach_calculation()
+
+        self.assertEqual(
+            record.calculation_type,
+            "darcy_weisbach_pressure_loss",
+        )
+        self.assertEqual(record.result, 40000.0)
+        save_record.assert_called_once_with(record)
+
+
 class TestMainMenu(unittest.TestCase):
 
     def test_main_menu_has_organized_top_level_options(self):
         import main
-        from unittest.mock import patch
 
         with patch(
             "builtins.input",
@@ -123,7 +139,6 @@ class TestMainMenu(unittest.TestCase):
 
     def test_notes_menu_has_back_option(self):
         import main
-        from unittest.mock import patch
 
         with patch(
             "builtins.input",
@@ -141,28 +156,6 @@ class TestMainMenu(unittest.TestCase):
         self.assertIn("2. View notes", printed)
         self.assertIn("3. Search notes", printed)
         self.assertIn("4. Back", printed)
-    def test_darcy_weisbach_calculation_workflow_saves_record(self):
-        from main import run_darcy_weisbach_calculation
-
-        with patch("builtins.input", side_effect=[
-            "0.02",
-            "100",
-            "0.1",
-            "1000",
-            "2",
-        ]):
-            with patch("main.save_calculation_record") as save_record:
-                record = run_darcy_weisbach_calculation()
-
-        self.assertEqual(
-            record.calculation_type,
-            "darcy_weisbach_pressure_loss",
-        )
-        self.assertEqual(record.result, 40000.0)
-        save_record.assert_called_once_with(record)
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestCalculationsMenu(unittest.TestCase):
@@ -193,3 +186,7 @@ class TestCalculationsMenu(unittest.TestCase):
             main.calculations_menu()
 
         mock_run.assert_called_once_with()
+
+
+if __name__ == "__main__":
+    unittest.main()

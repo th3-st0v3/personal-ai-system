@@ -828,14 +828,15 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         self.assertIsInstance(retrieved, CalculationRecord)
         if retrieved is None:
             self.fail("Expected calculation record to be retrieved")
+
         self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
         self.assertEqual(retrieved.inputs["density"], 1000.0)
         self.assertEqual(retrieved.inputs["gravity"], 9.81)
         self.assertEqual(retrieved.inputs["depth"], 10.0)
         self.assertEqual(retrieved.result, 98100.0)
         self.assertEqual(retrieved.result_unit, "Pa")
-        def test_get_calculation_record_returns_calculation_record(self):
-            from calculation_records import CalculationRecord
+    def test_get_calculation_record_returns_calculation_record(self):
+        from calculation_records import CalculationRecord
 
         record = CalculationRecord(
             calculation_type="hydrostatic_pressure",
@@ -883,11 +884,14 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         self.assertEqual(retrieved.result, 98100.0)
         self.assertEqual(retrieved.result_unit, "Pa")
         self.assertEqual(retrieved.source, "deterministic calculation")
+
     def test_get_recent_calculation_records_rejects_non_positive_limit(self):
         with self.assertRaises(ValueError):
             db.get_recent_calculation_records(0)
 
         with self.assertRaises(ValueError):
             db.get_recent_calculation_records(-1)
+
+
 if __name__ == "__main__":
     unittest.main()

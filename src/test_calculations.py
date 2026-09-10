@@ -102,6 +102,8 @@ class TestHydrostaticPressure(unittest.TestCase):
             record.units["density"] = "g/cm^3"
 
         self.assertIsInstance(record.assumptions, tuple)
+
+
     def test_calculates_darcy_weisbach_pressure_loss(self):
         from calculations import darcy_weisbach_pressure_loss
 
@@ -129,6 +131,21 @@ class TestHydrostaticPressure(unittest.TestCase):
         for inputs in invalid_inputs:
             with self.assertRaises(ValueError):
                 darcy_weisbach_pressure_loss(*inputs)
+
+
+def test_rejects_zero_darcy_weisbach_pipe_diameter(self):
+    from calculations import darcy_weisbach_pressure_loss
+
+    with self.assertRaises(ValueError):
+        darcy_weisbach_pressure_loss(
+            friction_factor=0.02,
+            pipe_length_m=100.0,
+            pipe_diameter_m=0.0,
+            density_kg_m3=1000.0,
+            velocity_m_s=2.0,
+        )
+
+
     def test_calculates_darcy_weisbach_pressure_loss_record(self):
         from calculations import darcy_weisbach_pressure_loss_record
 
