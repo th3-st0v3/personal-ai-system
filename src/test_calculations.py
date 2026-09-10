@@ -98,5 +98,55 @@ class TestHydrostaticPressure(unittest.TestCase):
             record.units["density"] = "g/cm^3"
 
         self.assertIsInstance(record.assumptions, tuple)
+    def test_calculates_darcy_weisbach_pressure_loss(self):
+        from calculations import darcy_weisbach_pressure_loss
+
+        pressure_loss = darcy_weisbach_pressure_loss(
+            friction_factor=0.02,
+            pipe_length_m=100.0,
+            pipe_diameter_m=0.1,
+            density_kg_m3=1000.0,
+            velocity_m_s=2.0,
+        )
+
+        self.assertAlmostEqual(pressure_loss, 40000.0)
+
+    def test_rejects_negative_darcy_weisbach_inputs(self):
+        from calculations import darcy_weisbach_pressure_loss
+
+        invalid_inputs = [
+            (-0.02, 100.0, 0.1, 1000.0, 2.0),
+            (0.02, -100.0, 0.1, 1000.0, 2.0),
+            (0.02, 100.0, -0.1, 1000.0, 2.0),
+            (0.02, 100.0, 0.1, -1000.0, 2.0),
+            (0.02, 100.0, 0.1, 1000.0, -2.0),
+        ]
+
+        for inputs in invalid_inputs:
+            with self.assertRaises(ValueError):
+                darcy_weisbach_pressure_loss(*inputs)
+    def test_calculates_darcy_weisbach_pressure_loss_record(self):
+        from calculations import darcy_weisbach_pressure_loss_record
+
+        record = darcy_weisbach_pressure_loss_record(
+            friction_factor=0.02,
+            pipe_length_m=100.0,
+            pipe_diameter_m=0.1,
+            density_kg_m3=1000.0,
+            velocity_m_s=2.0,
+        )
+
+        self.assertEqual(record.calculation_type, "darcy_weisbach_pressure_loss")
+        self.assertEqual(record.inputs["friction_factor"], 0.02)
+        self.assertEqual(record.inputs["pipe_length"], 100.0)
+        self.assertEqual(record.inputs["pipe_diameter"], 0.1)
+        self.assertEqual(record.inputs["density"], 1000.0)
+        self.assertEqual(record.inputs["velocity"], 2.0)
+        self.assertEqual(record.result, 40000.0)
+        self.assertEqual(record.result_unit, "Pa")
+        self.assertEqual(
+            record.method,
+            "ΔP = f * (L / D) * (rho * v^2 / 2)",
+        )
 if __name__ == "__main__":
     unittest.main()
