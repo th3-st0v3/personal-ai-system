@@ -1,3 +1,4 @@
+from calculations import hydrostatic_pressure_record
 from db import (
     add_note, get_notes, search_notes,
     create_project, get_projects,
@@ -17,6 +18,22 @@ STATUS_CHOICES = {
     "4": "At risk",
 }
 
+
+def run_hydrostatic_calculation():
+    density = float(input("Density (kg/m^3): "))
+    gravity = float(input("Gravity (m/s^2): "))
+    depth = float(input("Depth (m): "))
+
+    record = hydrostatic_pressure_record(
+        density_kg_m3=density,
+        gravity_m_s2=gravity,
+        depth_m=depth,
+    )
+
+    print(f"Pressure: {record.result} {record.result_unit}")
+    return record
+
+
 def main():
     while True:
         print("1. Add a note")
@@ -33,6 +50,7 @@ def main():
         print("12. View evidence history")
         print("13. Invalidate evidence")
         print("14. Quit")
+        print("15. Run hydrostatic calculation")
 
         choice = input("Choose an option: ")
 
@@ -288,6 +306,9 @@ def main():
         elif choice == "14":
             print("Goodbye.")
             break
+
+        elif choice == "15":
+            run_hydrostatic_calculation()
 
         else:
             print("Invalid option. Please choose 1-14.")
