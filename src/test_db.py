@@ -586,6 +586,56 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         self.assertIsInstance(records[1], CalculationRecord)
         self.assertEqual(records[0].result, 98100.0)
         self.assertEqual(records[1].result, 196200.0)
+    def test_get_calculation_records_by_type_returns_matching_records(self):
+        from calculation_records import CalculationRecord
+
+        hydrostatic = CalculationRecord(
+            calculation_type="hydrostatic_pressure",
+            inputs={
+                "density": 1000.0,
+                "gravity": 9.81,
+                "depth": 10.0,
+            },
+            units={
+                "density": "kg/m^3",
+                "gravity": "m/s^2",
+                "depth": "m",
+            },
+            assumptions=(
+                "constant density",
+                "constant gravitational acceleration",
+            ),
+            method="P = rho * g * h",
+            result=98100.0,
+            result_unit="Pa",
+            source="deterministic calculation",
+        )
+
+        other = CalculationRecord(
+            calculation_type="other_calculation",
+            inputs={"value": 5.0},
+            units={"value": "unit"},
+            assumptions=("test assumption",),
+            method="test method",
+            result=25.0,
+            result_unit="unit",
+            source="deterministic calculation",
+        )
+
+        db.save_calculation_record(hydrostatic)
+        db.save_calculation_record(other)
+
+        records = db.get_calculation_records_by_type(
+            "hydrostatic_pressure"
+        )
+
+        self.assertEqual(len(records), 1)
+        self.assertIsInstance(records[0], CalculationRecord)
+        self.assertEqual(
+            records[0].calculation_type,
+            "hydrostatic_pressure",
+        )
+        self.assertEqual(records[0].result, 98100.0)
     def test_current_database_does_not_duplicate_schema_version(self):
         connection = db.get_connection()
 

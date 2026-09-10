@@ -589,3 +589,39 @@ def get_calculation_records():
         )
         for row in rows
     ]
+def get_calculation_records_by_type(calculation_type):
+    connection = get_connection()
+
+    rows = connection.execute(
+        """
+        SELECT
+            calculation_type,
+            inputs,
+            units,
+            assumptions,
+            method,
+            result,
+            result_unit,
+            source
+        FROM calculation_records
+        WHERE calculation_type = ?
+        ORDER BY id
+        """,
+        (calculation_type,),
+    ).fetchall()
+
+    connection.close()
+
+    return [
+        CalculationRecord(
+            calculation_type=row[0],
+            inputs=json.loads(row[1]),
+            units=json.loads(row[2]),
+            assumptions=json.loads(row[3]),
+            method=row[4],
+            result=row[5],
+            result_unit=row[6],
+            source=row[7],
+        )
+        for row in rows
+    ]
