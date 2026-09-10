@@ -115,6 +115,23 @@ class TestEvidenceEvaluation(unittest.TestCase):
         self.assertFalse(evaluation["conflict"])
 
 
+    def test_failed_and_at_risk_evidence_recommends_failed(self):
+        evaluation = evaluate_evidence([
+            evidence_with_status("Failed"),
+            evidence_with_status("At risk"),
+        ])
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "Failed",
+        )
+        self.assertEqual(
+            evaluation["signals"],
+            ["At risk", "Failed"],
+        )
+        self.assertFalse(evaluation["conflict"])
+
+
     def test_unknown_status_recommends_unverified(self):
         evaluation = evaluate_evidence([
             evidence_with_status("Unknown"),
