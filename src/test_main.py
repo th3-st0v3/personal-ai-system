@@ -1,5 +1,5 @@
 import unittest
-
+from unittest.mock import patch
 
 class TestMain(unittest.TestCase):
 
@@ -141,7 +141,25 @@ class TestMainMenu(unittest.TestCase):
         self.assertIn("2. View notes", printed)
         self.assertIn("3. Search notes", printed)
         self.assertIn("4. Back", printed)
+    def test_darcy_weisbach_calculation_workflow_saves_record(self):
+        from main import run_darcy_weisbach_calculation
 
+        with patch("builtins.input", side_effect=[
+            "0.02",
+            "100",
+            "0.1",
+            "1000",
+            "2",
+        ]):
+            with patch("main.save_calculation_record") as save_record:
+                record = run_darcy_weisbach_calculation()
+
+        self.assertEqual(
+            record.calculation_type,
+            "darcy_weisbach_pressure_loss",
+        )
+        self.assertEqual(record.result, 40000.0)
+        save_record.assert_called_once_with(record)
 
 if __name__ == "__main__":
     unittest.main()

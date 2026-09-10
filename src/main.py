@@ -1,4 +1,7 @@
-from calculations import hydrostatic_pressure_record
+from calculations import (
+    hydrostatic_pressure_record,
+    darcy_weisbach_pressure_loss_record,
+)
 from db import (
     add_note,
     get_notes,
@@ -41,6 +44,27 @@ def run_hydrostatic_calculation():
     save_calculation_record(record)
 
     print(f"Pressure: {record.result} {record.result_unit}")
+    return record
+
+
+def run_darcy_weisbach_calculation():
+    friction_factor = float(input("Friction factor: "))
+    pipe_length = float(input("Pipe length (m): "))
+    pipe_diameter = float(input("Pipe diameter (m): "))
+    density = float(input("Density (kg/m^3): "))
+    velocity = float(input("Velocity (m/s): "))
+
+    record = darcy_weisbach_pressure_loss_record(
+        friction_factor=friction_factor,
+        pipe_length_m=pipe_length,
+        pipe_diameter_m=pipe_diameter,
+        density_kg_m3=density,
+        velocity_m_s=velocity,
+    )
+
+    save_calculation_record(record)
+
+    print(f"Pressure loss: {record.result} {record.result_unit}")
     return record
 
 
@@ -408,22 +432,25 @@ def calculations_menu():
         print("Calculations")
         print("────────────────────────")
         print("1. Run hydrostatic calculation")
-        print("2. View recent calculations")
-        print("3. Back")
-
+        print("2. Run Darcy-Weisbach calculation")
+        print("3. View recent calculations")
+        print("4. Back")
         choice = input("Choose an option: ")
 
         if choice == "1":
             run_hydrostatic_calculation()
 
         elif choice == "2":
-            run_recent_calculations()
+            run_darcy_weisbach_calculation()
 
         elif choice == "3":
+            run_recent_calculations()
+
+        elif choice == "4":
             break
 
         else:
-            print("Invalid option. Please choose 1-3.")
+            print("Invalid option. Please choose 1-4.")
 
 
 def ask_ai():
