@@ -584,6 +584,10 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         self.assertEqual(len(records), 2)
         self.assertIsInstance(records[0], CalculationRecord)
         self.assertIsInstance(records[1], CalculationRecord)
+        if not isinstance(records[0], CalculationRecord):
+            self.fail("Expected first record to be a CalculationRecord")
+        if not isinstance(records[1], CalculationRecord):
+            self.fail("Expected second record to be a CalculationRecord")
         self.assertEqual(records[0].result, 98100.0)
         self.assertEqual(records[1].result, 196200.0)
     def test_get_calculation_records_by_type_returns_matching_records(self):
@@ -631,6 +635,8 @@ class TestRequirementsAndEvidence(unittest.TestCase):
 
         self.assertEqual(len(records), 1)
         self.assertIsInstance(records[0], CalculationRecord)
+        if not isinstance(records[0], CalculationRecord):
+            self.fail("Expected record to be a CalculationRecord")
         self.assertEqual(
             records[0].calculation_type,
             "hydrostatic_pressure",
@@ -820,6 +826,8 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         retrieved = db.get_calculation_record(calculation_id)
 
         self.assertIsInstance(retrieved, CalculationRecord)
+        if retrieved is None:
+            self.fail("Expected calculation record to be retrieved")
         self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
         self.assertEqual(retrieved.inputs["density"], 1000.0)
         self.assertEqual(retrieved.inputs["gravity"], 9.81)
@@ -855,6 +863,8 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         retrieved = db.get_calculation_record(calculation_id)
 
         self.assertIsInstance(retrieved, CalculationRecord)
+        if retrieved is None:
+            self.fail("Expected calculation record to be retrieved")
         self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
         self.assertEqual(retrieved.inputs["density"], 1000.0)
         self.assertEqual(retrieved.inputs["gravity"], 9.81)

@@ -79,8 +79,12 @@ class TestHydrostaticPressure(unittest.TestCase):
         retrieved = db.get_calculation_record(calculation_id)
 
         self.assertIsNotNone(retrieved)
+        if retrieved is None:
+            self.fail("Expected calculation record to be retrieved")
+
         self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
         self.assertEqual(retrieved.result, 98100.0)
+
     def test_calculation_record_is_immutable(self):
         record = hydrostatic_pressure_record(
             density_kg_m3=1000.0,

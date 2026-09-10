@@ -60,10 +60,10 @@ class TestCalculationCLI(unittest.TestCase):
                 "gravity": "m/s^2",
                 "depth": "m",
             },
-            assumptions=[
+            assumptions=(
                 "constant density",
                 "constant gravitational acceleration",
-            ],
+            ),
             method="P = rho * g * h",
             result=98100.0,
             result_unit="Pa",

@@ -41,10 +41,10 @@ def hydrostatic_pressure_record(
             "gravity": "m/s^2",
             "depth": "m",
         },
-        assumptions=[
+        assumptions=(
             "constant density",
             "constant gravitational acceleration",
-        ],
+    ),
         method="P = rho * g * h",
         result=result,
         result_unit="Pa",
@@ -109,10 +109,10 @@ def darcy_weisbach_pressure_loss_record(
             "density": "kg/m^3",
             "velocity": "m/s",
         },
-        assumptions=[
+        assumptions=(
             "constant density",
             "steady flow",
-        ],
+        ),
         method="ΔP = f * (L / D) * (rho * v^2 / 2)",
         result=result,
         result_unit="Pa",
