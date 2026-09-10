@@ -44,12 +44,14 @@ def hydrostatic_pressure_record(
         assumptions=(
             "constant density",
             "constant gravitational acceleration",
-    ),
+        ),
         method="P = rho * g * h",
         result=result,
         result_unit="Pa",
         source="deterministic calculation",
     )
+
+
 def darcy_weisbach_pressure_loss(
     friction_factor: float,
     pipe_length_m: float,
@@ -77,6 +79,8 @@ def darcy_weisbach_pressure_loss(
         * (pipe_length_m / pipe_diameter_m)
         * (density_kg_m3 * velocity_m_s**2 / 2)
     )
+
+
 def darcy_weisbach_pressure_loss_record(
     friction_factor: float,
     pipe_length_m: float,
