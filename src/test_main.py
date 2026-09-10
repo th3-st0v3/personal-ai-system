@@ -163,3 +163,19 @@ class TestMainMenu(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCalculationsMenu(unittest.TestCase):
+
+    def test_calculations_menu_runs_darcy_weisbach(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["2", "4"],
+        ), patch(
+            "main.run_darcy_weisbach_calculation"
+        ) as mock_run:
+            main.calculations_menu()
+
+        mock_run.assert_called_once_with()
