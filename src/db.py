@@ -555,3 +555,37 @@ def get_calculation_record(calculation_id):
         result_unit=row[7],
         source=row[8],
     )
+def get_calculation_records():
+    connection = get_connection()
+
+    rows = connection.execute(
+        """
+        SELECT
+            calculation_type,
+            inputs,
+            units,
+            assumptions,
+            method,
+            result,
+            result_unit,
+            source
+        FROM calculation_records
+        ORDER BY id
+        """
+    ).fetchall()
+
+    connection.close()
+
+    return [
+        CalculationRecord(
+            calculation_type=row[0],
+            inputs=json.loads(row[1]),
+            units=json.loads(row[2]),
+            assumptions=json.loads(row[3]),
+            method=row[4],
+            result=row[5],
+            result_unit=row[6],
+            source=row[7],
+        )
+        for row in rows
+    ]

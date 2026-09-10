@@ -529,7 +529,63 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         )
         self.assertEqual(evidence[0][6], "Active")
         self.assertEqual(version_rows, [(db.SCHEMA_VERSION,)])
+    def test_get_calculation_records_returns_all_records(self):
+        from calculation_records import CalculationRecord
 
+        first = CalculationRecord(
+            calculation_type="hydrostatic_pressure",
+            inputs={
+                "density": 1000.0,
+                "gravity": 9.81,
+                "depth": 10.0,
+            },
+            units={
+                "density": "kg/m^3",
+                "gravity": "m/s^2",
+                "depth": "m",
+            },
+            assumptions=(
+                "constant density",
+                "constant gravitational acceleration",
+            ),
+            method="P = rho * g * h",
+            result=98100.0,
+            result_unit="Pa",
+            source="deterministic calculation",
+        )
+
+        second = CalculationRecord(
+            calculation_type="hydrostatic_pressure",
+            inputs={
+                "density": 1000.0,
+                "gravity": 9.81,
+                "depth": 20.0,
+            },
+            units={
+                "density": "kg/m^3",
+                "gravity": "m/s^2",
+                "depth": "m",
+            },
+            assumptions=(
+                "constant density",
+                "constant gravitational acceleration",
+            ),
+            method="P = rho * g * h",
+            result=196200.0,
+            result_unit="Pa",
+            source="deterministic calculation",
+        )
+
+        db.save_calculation_record(first)
+        db.save_calculation_record(second)
+
+        records = db.get_calculation_records()
+
+        self.assertEqual(len(records), 2)
+        self.assertIsInstance(records[0], CalculationRecord)
+        self.assertIsInstance(records[1], CalculationRecord)
+        self.assertEqual(records[0].result, 98100.0)
+        self.assertEqual(records[1].result, 196200.0)
     def test_current_database_does_not_duplicate_schema_version(self):
         connection = db.get_connection()
 
