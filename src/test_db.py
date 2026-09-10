@@ -636,6 +636,12 @@ class TestRequirementsAndEvidence(unittest.TestCase):
             "hydrostatic_pressure",
         )
         self.assertEqual(records[0].result, 98100.0)
+    def test_get_calculation_records_by_type_returns_empty_for_no_matches(self):
+        records = db.get_calculation_records_by_type(
+            "nonexistent_calculation"
+        )
+
+        self.assertEqual(records, [])
     def test_current_database_does_not_duplicate_schema_version(self):
         connection = db.get_connection()
 
