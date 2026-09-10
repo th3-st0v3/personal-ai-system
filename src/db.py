@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 DATABASE_PATH = str(Path(__file__).resolve().parent.parent / "notes.db")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def get_connection():
@@ -103,6 +103,21 @@ def initialize_database(connection):
             ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'Active'
             CHECK (lifecycle_status IN ('Active', 'Invalidated'))
         """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS calculation_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            calculation_type TEXT NOT NULL,
+            inputs TEXT NOT NULL,
+            units TEXT NOT NULL,
+            assumptions TEXT NOT NULL,
+            method TEXT NOT NULL,
+            result REAL NOT NULL,
+            result_unit TEXT NOT NULL,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
 
     if version is None:
         version = SCHEMA_VERSION
@@ -465,33 +480,65 @@ def evaluate_requirement_evidence(requirement_id):
     evidence = get_evidence_for_requirement(requirement_id)
     return evaluate_evidence(evidence)
 
-    if not evidence:
-        return {
-            "recommendation": "Unverified",
-            "signals": [],
-            "conflict": False,
-        }
 
-    statuses = {item[5] for item in evidence}
+def save_calculation_record(record):
+    import json
 
-    if "Verified" in statuses and "Failed" in statuses:
-        return {
-            "recommendation": "At risk",
-            "signals": sorted(statuses),
-            "conflict": True,
-        }
+    connection = get_connection()
 
-    if "Failed" in statuses:
-        recommendation = "Failed"
-    elif "Verified" in statuses:
-        recommendation = "Verified"
-    elif "At risk" in statuses:
-        recommendation = "At risk"
-    else:
-        recommendation = "Unverified"
+    cursor = connection.execute(
+        """
+        INSERT INTO calculation_records (
+            calculation_type,
+            inputs,
+            units,
+            assumptions,
+            method,
+            result,
+            result_unit,
+            source
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record.calculation_type,
+            json.dumps(dict(record.inputs)),
+            json.dumps(dict(record.units)),
+            json.dumps(list(record.assumptions)),
+            record.method,
+            record.result,
+            record.result_unit,
+            record.source,
+        ),
+    )
 
-    return {
-        "recommendation": recommendation,
-        "signals": sorted(statuses),
-        "conflict": False,
-    }
+    connection.commit()
+    calculation_id = cursor.lastrowid
+    connection.close()
+
+    return calculation_id
+
+
+def get_calculation_record(calculation_id):
+    connection = get_connection()
+
+    record = connection.execute(
+        """
+        SELECT
+            id,
+            calculation_type,
+            inputs,
+            units,
+            assumptions,
+            method,
+            result,
+            result_unit,
+            source
+        FROM calculation_records
+        WHERE id = ?
+        """,
+        (calculation_id,),
+    ).fetchone()
+
+    connection.close()
+    return record
