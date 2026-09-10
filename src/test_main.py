@@ -77,6 +77,74 @@ class TestCalculationCLI(unittest.TestCase):
             "1. hydrostatic_pressure: 98100.0 Pa"
         )
 
+
+    def test_recent_calculations_workflow_displays_multiple_records(self):
+        import main
+        from calculation_records import CalculationRecord
+
+        records = [
+            CalculationRecord(
+                calculation_type="hydrostatic_pressure",
+                inputs={
+                    "density": 1000,
+                    "gravity": 9.81,
+                    "depth": 10,
+                },
+                units={
+                    "density": "kg/m^3",
+                    "gravity": "m/s^2",
+                    "depth": "m",
+                },
+                assumptions=(
+                    "constant density",
+                    "constant gravitational acceleration",
+                ),
+                method="P = rho * g * h",
+                result=98100.0,
+                result_unit="Pa",
+                source="deterministic calculation",
+            ),
+            CalculationRecord(
+                calculation_type="darcy_weisbach_pressure_loss",
+                inputs={
+                    "friction_factor": 0.02,
+                    "pipe_length": 100,
+                    "pipe_diameter": 0.1,
+                    "density": 1000,
+                    "velocity": 2,
+                },
+                units={
+                    "friction_factor": "dimensionless",
+                    "pipe_length": "m",
+                    "pipe_diameter": "m",
+                    "density": "kg/m^3",
+                    "velocity": "m/s",
+                },
+                assumptions=(
+                    "constant density",
+                    "steady flow",
+                ),
+                method="ΔP = f * (L / D) * (rho * v^2 / 2)",
+                result=40000.0,
+                result_unit="Pa",
+                source="deterministic calculation",
+            ),
+        ]
+
+        with patch(
+            "main.get_recent_calculation_records",
+            return_value=records,
+        ), patch("builtins.print") as mock_print:
+            main.run_recent_calculations()
+
+        mock_print.assert_any_call(
+            "1. hydrostatic_pressure: 98100.0 Pa"
+        )
+        mock_print.assert_any_call(
+            "2. darcy_weisbach_pressure_loss: 40000.0 Pa"
+        )
+
+
     def test_recent_calculations_workflow_handles_no_records(self):
         import main
 
