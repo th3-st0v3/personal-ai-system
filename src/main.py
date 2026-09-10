@@ -3,9 +3,11 @@ from db import (
     create_project, get_projects,
     create_requirement, get_requirement,
     add_evidence, get_evidence_for_requirement,
+    get_evidence_history_for_requirement,
     find_matching_evidence,
     update_requirement_status,
     evaluate_requirement_evidence,
+    invalidate_evidence,
 )
 
 STATUS_CHOICES = {
@@ -27,7 +29,9 @@ while True:
     print("9. View requirement")
     print("10. Update requirement status")
     print("11. Evaluate requirement evidence")
-    print("12. Quit")
+    print("12. View evidence history")
+    print("13. Invalidate evidence")
+    print("14. Quit")
 
     choice = input("Choose an option: ")
 
@@ -242,8 +246,47 @@ while True:
                     )
 
     elif choice == "12":
+        try:
+            requirement_id = int(input("Requirement id: "))
+        except ValueError:
+            print("Requirement id must be a number.")
+        else:
+            requirement = get_requirement(requirement_id)
+
+            if requirement is None:
+                print("No requirement with that id.")
+            else:
+                history = get_evidence_history_for_requirement(
+                    requirement_id
+                )
+
+                print(
+                    f"\nEvidence history for requirement "
+                    f"{requirement[0]}: {requirement[3]}"
+                )
+
+                if not history:
+                    print("  (no evidence history recorded yet)")
+
+                for item in history:
+                    loc = item[3] or "no location given"
+                    print(
+                        f"  - [{item[5]}] {item[2]} "
+                        f"({loc}): {item[4]} "
+                        f"[{item[6]}] at {item[7]}"
+                    )
+
+    elif choice == "13":
+        try:
+            evidence_id = int(input("Evidence ID to invalidate: "))
+            invalidate_evidence(evidence_id)
+            print(f"Evidence {evidence_id} invalidated.")
+        except ValueError as error:
+            print(f"Error: {error}")
+
+    elif choice == "14":
         print("Goodbye.")
         break
 
     else:
-        print("Invalid option. Please choose 1-12.")
+        print("Invalid option. Please choose 1-14.")

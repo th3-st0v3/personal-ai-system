@@ -258,5 +258,73 @@ class TestRequirementsAndEvidence(unittest.TestCase):
             evaluation["signals"],
             ["Failed", "Verified"],
         )
+    def test_evidence_history_includes_invalidated_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
+
+        evidence_id = db.add_evidence(
+            requirement_id,
+            source="test.csv",
+            result="Measured 4.2A peak",
+            supports_status="Verified",
+        )
+
+        db.invalidate_evidence(evidence_id)
+
+        history = db.get_evidence_history_for_requirement(requirement_id)
+
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0][0], evidence_id)
+        self.assertEqual(history[0][1], requirement_id)
+        self.assertEqual(history[0][2], "test.csv")
+        self.assertEqual(history[0][4], "Measured 4.2A peak")
+        self.assertEqual(history[0][5], "Verified")
+        self.assertEqual(history[0][6], "Invalidated")
+
+    def test_invalidate_evidence_removes_it_from_active_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
+
+        evidence_id = db.add_evidence(
+            requirement_id,
+            source="test.csv",
+            result="Measured 4.2A peak",
+            supports_status="Verified",
+        )
+
+        active_evidence = db.get_evidence_for_requirement(requirement_id)
+
+        self.assertEqual(len(active_evidence), 1)
+        self.assertEqual(active_evidence[0][0], evidence_id)
+
+        db.invalidate_evidence(evidence_id)
+
+        active_evidence = db.get_evidence_for_requirement(requirement_id)
+
+        self.assertEqual(active_evidence, [])
+
+        connection = db.get_connection()
+
+        record = connection.execute(
+            """
+            SELECT id, lifecycle_status
+            FROM evidence
+            WHERE id = ?
+            """,
+            (evidence_id,),
+        ).fetchone()
+
+        connection.close()
+
+        self.assertEqual(record[0], evidence_id)
+        self.assertEqual(record[1], "Invalidated")
+
+
 if __name__ == "__main__":
     unittest.main()

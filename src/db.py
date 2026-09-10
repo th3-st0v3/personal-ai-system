@@ -1,7 +1,8 @@
 import sqlite3
+from pathlib import Path
 
 
-DATABASE_PATH = "notes.db"
+DATABASE_PATH = str(Path(__file__).resolve().parent.parent / "notes.db")
 
 
 def get_connection():
@@ -61,6 +62,8 @@ def initialize_database(connection):
             result TEXT NOT NULL,
             supports_status TEXT NOT NULL
                 CHECK (supports_status IN ('Verified', 'Failed', 'Unverified', 'At risk')),
+            lifecycle_status TEXT NOT NULL DEFAULT 'Active'
+                CHECK (lifecycle_status IN ('Active', 'Invalidated')),
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (requirement_id) REFERENCES requirements(id)
         )
@@ -295,6 +298,28 @@ def add_evidence(
     return evidence_id
 
 
+def invalidate_evidence(evidence_id):
+    connection = get_connection()
+
+    cursor = connection.execute(
+        """
+        UPDATE evidence
+        SET lifecycle_status = 'Invalidated'
+        WHERE id = ?
+          AND lifecycle_status = 'Active'
+        """,
+        (evidence_id,),
+    )
+
+    connection.commit()
+    connection.close()
+
+    if cursor.rowcount == 0:
+        raise ValueError(
+            f"No active evidence found with ID {evidence_id}."
+        )
+
+
 def find_matching_evidence(
     requirement_id,
     source,
@@ -347,6 +372,32 @@ def get_evidence_for_requirement(requirement_id):
             location,
             result,
             supports_status,
+            created_at
+        FROM evidence
+        WHERE requirement_id = ?
+          AND lifecycle_status = 'Active'
+        ORDER BY id
+        """,
+        (requirement_id,),
+    ).fetchall()
+
+    connection.close()
+    return evidence
+
+
+def get_evidence_history_for_requirement(requirement_id):
+    connection = get_connection()
+
+    evidence = connection.execute(
+        """
+        SELECT
+            id,
+            requirement_id,
+            source,
+            location,
+            result,
+            supports_status,
+            lifecycle_status,
             created_at
         FROM evidence
         WHERE requirement_id = ?
