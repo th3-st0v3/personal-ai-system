@@ -1,3 +1,4 @@
+from evaluation import evaluate_evidence
 import sqlite3
 from pathlib import Path
 
@@ -462,6 +463,7 @@ def get_evidence_history_for_requirement(requirement_id):
 
 def evaluate_requirement_evidence(requirement_id):
     evidence = get_evidence_for_requirement(requirement_id)
+    return evaluate_evidence(evidence)
 
     if not evidence:
         return {
