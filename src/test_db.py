@@ -143,6 +143,120 @@ class TestRequirementsAndEvidence(unittest.TestCase):
 
         self.assertEqual(len(matches), 0)
 
+    def test_evidence_evaluation_with_no_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
 
+        evaluation = db.evaluate_requirement_evidence(requirement_id)
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "Unverified",
+        )
+        self.assertFalse(evaluation["conflict"])
+
+    def test_evidence_evaluation_with_verified_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
+
+        db.add_evidence(
+            requirement_id,
+            source="bench_test_log.csv",
+            result="Measured 4.2A peak",
+            supports_status="Verified",
+        )
+
+        evaluation = db.evaluate_requirement_evidence(requirement_id)
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "Verified",
+        )
+        self.assertEqual(
+            evaluation["signals"],
+            ["Verified"],
+        )
+        self.assertFalse(evaluation["conflict"])
+
+    def test_evidence_evaluation_with_failed_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
+
+        db.add_evidence(
+            requirement_id,
+            source="bench_test_log.csv",
+            result="Measured 6.1A peak",
+            supports_status="Failed",
+        )
+
+        evaluation = db.evaluate_requirement_evidence(requirement_id)
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "Failed",
+        )
+
+    def test_evidence_evaluation_with_at_risk_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
+
+        db.add_evidence(
+            requirement_id,
+            source="inspection_notes.txt",
+            result="Thermal margin is smaller than expected",
+            supports_status="At risk",
+        )
+
+        evaluation = db.evaluate_requirement_evidence(requirement_id)
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "At risk",
+        )
+
+    def test_evidence_evaluation_detects_conflicting_evidence(self):
+        project_id = db.create_project("Test Project")
+        requirement_id = db.create_requirement(
+            project_id,
+            "Motor shall not exceed 5A",
+        )
+
+        db.add_evidence(
+            requirement_id,
+            source="test_a.csv",
+            result="Measured 4.2A peak",
+            supports_status="Verified",
+        )
+
+        db.add_evidence(
+            requirement_id,
+            source="test_b.csv",
+            result="Measured 6.1A peak",
+            supports_status="Failed",
+        )
+
+        evaluation = db.evaluate_requirement_evidence(requirement_id)
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "At risk",
+        )
+        self.assertTrue(evaluation["conflict"])
+        self.assertEqual(
+            evaluation["signals"],
+            ["Failed", "Verified"],
+        )
 if __name__ == "__main__":
     unittest.main()
