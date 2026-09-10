@@ -174,6 +174,27 @@ class TestCalculationsMenu(unittest.TestCase):
         mock_run.assert_called_once_with()
 
 
+    def test_darcy_weisbach_calculation_workflow_uses_user_input(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=[
+                "0.02",
+                "100",
+                "0.1",
+                "1000",
+                "2",
+            ],
+        ), patch("builtins.print") as mock_print:
+            record = main.run_darcy_weisbach_calculation()
+
+        self.assertEqual(record.result, 40000.0)
+        mock_print.assert_called_once_with(
+            "Pressure loss: 40000.0 Pa"
+        )
+
+
     def test_calculations_menu_runs_recent_calculations(self):
         import main
 
