@@ -34,6 +34,19 @@ class TestHydrostaticPressure(unittest.TestCase):
     def test_rejects_negative_depth(self):
         with self.assertRaises(ValueError):
             hydrostatic_pressure(1000.0, 9.81, -10.0)
+
+    def test_record_rejects_negative_density(self):
+        with self.assertRaises(ValueError):
+            hydrostatic_pressure_record(-1.0, 9.81, 10.0)
+
+    def test_record_rejects_negative_gravity(self):
+        with self.assertRaises(ValueError):
+            hydrostatic_pressure_record(1000.0, -9.81, 10.0)
+
+    def test_record_rejects_negative_depth(self):
+        with self.assertRaises(ValueError):
+            hydrostatic_pressure_record(1000.0, 9.81, -10.0)
+
     def test_calculates_pressure_record(self):
         record = hydrostatic_pressure_record(
             density_kg_m3=1000.0,
