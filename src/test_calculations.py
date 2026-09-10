@@ -93,7 +93,7 @@ class TestHydrostaticPressure(unittest.TestCase):
         )
 
         with self.assertRaises((AttributeError, TypeError)):
-            record.result = 123.0
+            record.result = 123.0  # type: ignore[reportAttributeAccessIssue]
 
         with self.assertRaises(TypeError):
             record.inputs["density"] = 500.0

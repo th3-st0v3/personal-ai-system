@@ -50,7 +50,7 @@ class TestCalculationRecord(unittest.TestCase):
         )
 
         with self.assertRaises(AttributeError):
-            record.result = 123.0
+            record.result = 123.0  # type: ignore[reportAttributeAccessIssue]
 
     def test_inputs_are_immutable(self):
         record = CalculationRecord(
@@ -80,7 +80,7 @@ class TestCalculationRecord(unittest.TestCase):
         )
 
         with self.assertRaises(AttributeError):
-            record.assumptions.append("another assumption")
+            record.assumptions.append("another assumption")  # type: ignore[attr-defined]
 
 
 if __name__ == "__main__":
