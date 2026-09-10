@@ -63,6 +63,24 @@ class TestEvidenceEvaluation(unittest.TestCase):
         )
         self.assertFalse(evaluation["conflict"])
 
+
+    def test_duplicate_statuses_produce_unique_signals(self):
+        evaluation = evaluate_evidence([
+            evidence_with_status("Verified"),
+            evidence_with_status("Verified"),
+        ])
+
+        self.assertEqual(
+            evaluation["recommendation"],
+            "Verified",
+        )
+        self.assertEqual(
+            evaluation["signals"],
+            ["Verified"],
+        )
+        self.assertFalse(evaluation["conflict"])
+
+
     def test_verified_and_failed_evidence_is_conflicting(self):
         evaluation = evaluate_evidence([
             evidence_with_status("Verified"),
