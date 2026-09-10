@@ -565,18 +565,60 @@ class TestRequirementsAndEvidence(unittest.TestCase):
         calculation_id = db.save_calculation_record(record)
         retrieved = db.get_calculation_record(calculation_id)
 
-        self.assertEqual(retrieved[0], calculation_id)
-        self.assertEqual(retrieved[1], "hydrostatic_pressure")
-        self.assertEqual(retrieved[2], '{"density": 1000.0, "gravity": 9.81, "depth": 10.0}')
-        self.assertEqual(retrieved[3], '{"density": "kg/m^3", "gravity": "m/s^2", "depth": "m"}')
-        self.assertEqual(
-            retrieved[4],
-            '["constant density", "constant gravitational acceleration"]',
+        self.assertIsInstance(retrieved, CalculationRecord)
+        self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
+        self.assertEqual(retrieved.inputs["density"], 1000.0)
+        self.assertEqual(retrieved.inputs["gravity"], 9.81)
+        self.assertEqual(retrieved.inputs["depth"], 10.0)
+        self.assertEqual(retrieved.result, 98100.0)
+        self.assertEqual(retrieved.result_unit, "Pa")
+        def test_get_calculation_record_returns_calculation_record(self):
+            from calculation_records import CalculationRecord
+
+        record = CalculationRecord(
+            calculation_type="hydrostatic_pressure",
+            inputs={
+                "density": 1000.0,
+                "gravity": 9.81,
+                "depth": 10.0,
+            },
+            units={
+                "density": "kg/m^3",
+                "gravity": "m/s^2",
+                "depth": "m",
+            },
+            assumptions=(
+                "constant density",
+                "constant gravitational acceleration",
+            ),
+            method="P = rho * g * h",
+            result=98100.0,
+            result_unit="Pa",
+            source="deterministic calculation",
         )
-        self.assertEqual(retrieved[5], "P = rho * g * h")
-        self.assertEqual(retrieved[6], 98100.0)
-        self.assertEqual(retrieved[7], "Pa")
-        self.assertEqual(retrieved[8], "deterministic calculation")
+
+        calculation_id = db.save_calculation_record(record)
+        retrieved = db.get_calculation_record(calculation_id)
+
+        self.assertIsInstance(retrieved, CalculationRecord)
+        self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
+        self.assertEqual(retrieved.inputs["density"], 1000.0)
+        self.assertEqual(retrieved.inputs["gravity"], 9.81)
+        self.assertEqual(retrieved.inputs["depth"], 10.0)
+        self.assertEqual(retrieved.units["density"], "kg/m^3")
+        self.assertEqual(retrieved.units["gravity"], "m/s^2")
+        self.assertEqual(retrieved.units["depth"], "m")
+        self.assertEqual(
+            retrieved.assumptions,
+            (
+                "constant density",
+                "constant gravitational acceleration",
+            ),
+        )
+        self.assertEqual(retrieved.method, "P = rho * g * h")
+        self.assertEqual(retrieved.result, 98100.0)
+        self.assertEqual(retrieved.result_unit, "Pa")
+        self.assertEqual(retrieved.source, "deterministic calculation")
 
 if __name__ == "__main__":
     unittest.main()

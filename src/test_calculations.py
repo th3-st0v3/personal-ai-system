@@ -79,7 +79,7 @@ class TestHydrostaticPressure(unittest.TestCase):
         retrieved = db.get_calculation_record(calculation_id)
 
         self.assertIsNotNone(retrieved)
-        self.assertEqual(retrieved[1], "hydrostatic_pressure")
-        self.assertEqual(retrieved[6], 98100.0)
+        self.assertEqual(retrieved.calculation_type, "hydrostatic_pressure")
+        self.assertEqual(retrieved.result, 98100.0)
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,8 @@
 from evaluation import evaluate_evidence
+from calculation_records import CalculationRecord
+import json
 import sqlite3
 from pathlib import Path
-
 
 DATABASE_PATH = str(Path(__file__).resolve().parent.parent / "notes.db")
 SCHEMA_VERSION = 3
@@ -482,7 +483,6 @@ def evaluate_requirement_evidence(requirement_id):
 
 
 def save_calculation_record(record):
-    import json
 
     connection = get_connection()
 
@@ -522,7 +522,7 @@ def save_calculation_record(record):
 def get_calculation_record(calculation_id):
     connection = get_connection()
 
-    record = connection.execute(
+    row = connection.execute(
         """
         SELECT
             id,
@@ -541,4 +541,17 @@ def get_calculation_record(calculation_id):
     ).fetchone()
 
     connection.close()
-    return record
+
+    if row is None:
+        return None
+
+    return CalculationRecord(
+        calculation_type=row[1],
+        inputs=json.loads(row[2]),
+        units=json.loads(row[3]),
+        assumptions=json.loads(row[4]),
+        method=row[5],
+        result=row[6],
+        result_unit=row[7],
+        source=row[8],
+    )
