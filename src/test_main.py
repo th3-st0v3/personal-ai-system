@@ -179,3 +179,17 @@ class TestCalculationsMenu(unittest.TestCase):
             main.calculations_menu()
 
         mock_run.assert_called_once_with()
+
+
+    def test_calculations_menu_runs_recent_calculations(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["3", "4"],
+        ), patch(
+            "main.run_recent_calculations"
+        ) as mock_run:
+            main.calculations_menu()
+
+        mock_run.assert_called_once_with()
