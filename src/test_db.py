@@ -49,7 +49,10 @@ class TestRequirementsAndEvidence(unittest.TestCase):
 
         self.assertEqual(len(evidence), 1)
         self.assertEqual(evidence[0][5], "Verified")
+    def test_get_calculation_record_returns_none_for_missing_id(self):
+        retrieved = db.get_calculation_record(999999)
 
+        self.assertIsNone(retrieved)
     def test_status_does_not_change_automatically_when_evidence_added(self):
         project_id = db.create_project("Test Project")
         requirement_id = db.create_requirement(
