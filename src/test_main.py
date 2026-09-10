@@ -188,5 +188,19 @@ class TestCalculationsMenu(unittest.TestCase):
         mock_run.assert_called_once_with()
 
 
+def test_calculations_menu_runs_hydrostatic(self):
+    import main
+
+    with patch(
+        "builtins.input",
+        side_effect=["1", "4"],
+    ), patch(
+        "main.run_hydrostatic_calculation"
+    ) as mock_run:
+        main.calculations_menu()
+
+    mock_run.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()
