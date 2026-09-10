@@ -71,3 +71,9 @@ sandbox/**/.cache/
 # OS-specific development files
 *.swp
 *.swo
+
+# Local application data
+notes.db
+notes.db-*
+*.db.backup
+notes.db.*

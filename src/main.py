@@ -6,7 +6,6 @@ from db import (
     find_matching_evidence,
     update_requirement_status,
 )
-from model import ask_model
 
 STATUS_CHOICES = {
     "1": "Verified",
@@ -51,6 +50,12 @@ while True:
             print(f"   {note[3]}")
 
     elif choice == "4":
+        try:
+            from model import ask_model
+        except ImportError as error:
+            print(f"\nAI feature unavailable: {error}")
+            continue
+
         prompt = input("Ask the AI: ")
         try:
             answer = ask_model(prompt)
