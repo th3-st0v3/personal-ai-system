@@ -57,6 +57,13 @@ class EngineeringWebApplication:
         if row is None or row[1] != project_id:
             raise ValueError("Design case not found in project.")
 
+    def _require_evidence(self, project_id: int, evidence_id: int) -> dict:
+        evidence = self.engineering.get_evidence(evidence_id)
+        if evidence is None:
+            raise ValueError("Evidence not found.")
+        self._require_requirement(project_id, evidence["requirement_id"])
+        return evidence
+
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
             if len(body) > self.MAX_REQUEST_BODY_BYTES:
@@ -94,7 +101,12 @@ class EngineeringWebApplication:
                 requirement_id = int(parts[5])
                 self._require_requirement(project_id, requirement_id)
                 if method == "GET":
-                    return self._json(200, [self.engineering.get_evidence(e[0]) for e in db.get_evidence_history_for_requirement(requirement_id)])
+                    connection = db.get_connection()
+                    try:
+                        evidence_ids = [row[0] for row in connection.execute("SELECT id FROM evidence WHERE requirement_id = ? ORDER BY id", (requirement_id,)).fetchall()]
+                    finally:
+                        connection.close()
+                    return self._json(200, [self.engineering.get_evidence(evidence_id) for evidence_id in evidence_ids])
                 if method == "POST":
                     source_id = data.get("source_id")
                     if source_id is not None:
@@ -103,10 +115,7 @@ class EngineeringWebApplication:
                     return self._json(201, {"id": evidence_id})
             if resource == "evidence" and len(parts) == 6 and method == "POST" and parts[5] == "invalidate":
                 evidence_id = int(data["id"])
-                evidence = self.engineering.get_evidence(evidence_id)
-                if evidence is None:
-                    raise ValueError("Evidence not found.")
-                self._require_requirement(project_id, evidence["requirement_id"])
+                self._require_evidence(project_id, evidence_id)
                 self.engineering.invalidate_evidence(evidence_id, data["reason"])
                 return self._json(200, {"invalidated": True})
             if method == "GET" and resource == "decisions":
