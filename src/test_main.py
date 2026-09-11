@@ -1143,3 +1143,21 @@ class TestCalculationsMenu(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCalculationsMenuEdgeCases(unittest.TestCase):
+
+    def test_calculations_menu_handles_invalid_option(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["9", "4"],
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.calculations_menu()
+
+        mock_print.assert_any_call(
+            "Invalid option. Please choose 1-4."
+        )
