@@ -3,6 +3,7 @@ import db
 import engineering_schema
 import file_storage
 import workspace_browser
+import workspace_clipboard
 import workspace_file_service
 import workspace_search
 import workspace_storage
@@ -80,6 +81,9 @@ class WorkspaceApplication:
     def search_project_names(self, project_id, query): return workspace_search.search_project_names(project_id, query)
     def move_item(self, kind, item_id, target_folder_id=None): return workspace_browser.move_item(kind, item_id, target_folder_id)
     def rename_item(self, kind, item_id, name): return workspace_browser.rename_item(kind, item_id, name)
+    def duplicate_item(self, project_id, kind, item_id): return workspace_clipboard.duplicate_item(self.storage_root, project_id, kind, item_id)
+    def copy_selection(self, project_id, selection): return workspace_clipboard.copy_selection(self.storage_root, project_id, selection)
+    def paste_selection(self, project_id, target_folder_id, clipboard): return workspace_clipboard.paste_selection(self.storage_root, project_id, target_folder_id, clipboard)
     def delete_selection(self, project_id, selection): return workspace_browser.delete_selection(self.storage_root, project_id, selection)
     def delete_all_files(self, project_id, folder_id=None): return workspace_browser.delete_all_files(self.storage_root, project_id, folder_id)
     def get_context_actions(self, kind, selection_count=1): return workspace_browser.get_context_actions(kind, selection_count=selection_count)
