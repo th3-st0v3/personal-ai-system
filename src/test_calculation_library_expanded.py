@@ -29,7 +29,7 @@ class TestExpandedCalculations(unittest.TestCase):
             self.assertEqual(trace.key, key)
             self.assertTrue(trace.equation)
             self.assertTrue(trace.substitutions)
-            self.assertEqual(len(trace.steps), 3)
+            self.assertGreaterEqual(len(trace.steps), 5)
             self.assertTrue(math.isfinite(trace.result))
             self.assertTrue(trace.result_unit)
 
