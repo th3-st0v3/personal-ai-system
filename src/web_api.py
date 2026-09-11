@@ -15,6 +15,7 @@ class WebApplication:
 
     MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
     _ITEM_KINDS = frozenset(("folder", "note", "file"))
+    ITEM_KINDS = ("folder", "note", "file")
 
     def __init__(self, workspace: WorkspaceApplication, calculations: CalculationApplication | None = None):
         self.workspace = workspace
@@ -33,9 +34,9 @@ class WebApplication:
         return {
             "api_version": 1,
             "workspace": {
-                "kinds": sorted(self._ITEM_KINDS),
+                "kinds": list(self.ITEM_KINDS),
                 "sort_options": list(workspace_browser.SORT_OPTIONS),
-                "context_actions": {kind: list(workspace_browser.get_context_actions(kind)) for kind in ("folder", "note", "file")},
+                "context_actions": {kind: list(workspace_browser.get_context_actions(kind)) for kind in self.ITEM_KINDS},
                 "multi_selection_actions": list(workspace_browser.get_context_actions("file", selection_count=2)),
             },
             "calculations": {"categories": list(self.calculations.list_categories()), "count": len(self.calculations.list_models())},
@@ -115,7 +116,7 @@ class WebApplication:
                     record = self.workspace.get_file(file_id)
                     if record is None or record["project_id"] != project_id:
                         raise ValueError("File not found in project.")
-                    return self._json(200, {"id": file_id, "name": record["name"], "mime_type": record["mime_type"], "data_base64": base64.b64encode(self.workspace.read_file(file_id, project_id=project_id)).decode("ascii")})
+                    return self._json(200, {"id": file_id, "name": record["name"], "mime_type": record["mime_type"], "folder_id": record["folder_id"], "size_bytes": record["size_bytes"], "sha256": record["sha256"], "data_base64": base64.b64encode(self.workspace.read_file(file_id, project_id=project_id)).decode("ascii")})
                 if method == "PUT" and len(parts) == 5 and parts[4] == "files":
                     file_id = int(data["id"])
                     self.workspace._require_project_item("file", file_id, project_id)
