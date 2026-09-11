@@ -38,6 +38,16 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(status, 201)
         self.assertEqual(payload["id"], 2)
 
+    def test_manifest_matches_backend_capabilities(self):
+        status, _, manifest = self.request("GET", "/api/manifest")
+        self.assertEqual(status, 200)
+        self.assertEqual(manifest["api_version"], 1)
+        self.assertEqual(manifest["workspace"]["kinds"], ["folder", "note", "file"])
+        self.assertIn("last_modified_new_old", manifest["workspace"]["sort_options"])
+        self.assertIn("new_note", manifest["workspace"]["context_actions"]["folder"])
+        self.assertIn("delete", manifest["workspace"]["multi_selection_actions"])
+        self.assertGreaterEqual(manifest["calculations"]["count"], 28)
+
     def test_calculation_catalog_and_trace(self):
         status, _, catalog = self.request("GET", "/api/calculations/catalog?category=Reservoir%20Engineering")
         self.assertEqual(status, 200)
