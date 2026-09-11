@@ -99,7 +99,9 @@ class TestWebApplication(unittest.TestCase):
         status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/duplicate", {"kind": "folder", "id": source})
         self.assertEqual(status, 201)
         duplicated_children = self.workspace.list_children(self.project_id, payload["id"])
-        self.assertEqual({item.name for item in duplicated_children}, {"Read me (copy 2)", "data.txt (copy)", "Nested"})
+        self.assertEqual({item.name for item in duplicated_children}, {"Read me", "Read me (copy)", "data.txt", "Nested"})
+        nested_copy = next(item for item in duplicated_children if item.name == "Nested")
+        self.assertEqual([item.name for item in self.workspace.list_children(self.project_id, nested_copy.id)], ["Nested note"])
 
     def test_workspace_actions_are_exposed(self):
         source = self.workspace.create_folder(self.project_id, "Source")
