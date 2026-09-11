@@ -194,18 +194,14 @@ def efficiency(useful_output: float, total_input: float) -> float:
     return useful_output / total_input
 
 
-def electrical_resistance_series(*resistances: float) -> float:
-    if not resistances:
-        raise ValueError("At least one resistance is required")
-    for value in resistances: _nonnegative("resistance", value)
-    return sum(resistances)
+def electrical_resistance_series(resistance_1: float, resistance_2: float) -> float:
+    _nonnegative("resistance_1", resistance_1); _nonnegative("resistance_2", resistance_2)
+    return resistance_1 + resistance_2
 
 
-def electrical_resistance_parallel(*resistances: float) -> float:
-    if not resistances:
-        raise ValueError("At least one resistance is required")
-    for value in resistances: _positive("resistance", value)
-    return 1.0 / sum(1.0 / value for value in resistances)
+def electrical_resistance_parallel(resistance_1: float, resistance_2: float) -> float:
+    _positive("resistance_1", resistance_1); _positive("resistance_2", resistance_2)
+    return 1.0 / (1.0 / resistance_1 + 1.0 / resistance_2)
 
 
 def capacitor_energy(capacitance: float, voltage: float) -> float:
@@ -216,7 +212,6 @@ def capacitor_energy(capacitance: float, voltage: float) -> float:
 def rc_time_constant(resistance: float, capacitance: float) -> float:
     _nonnegative("resistance", resistance); _nonnegative("capacitance", capacitance)
     return resistance * capacitance
-
 
 
 def _fmt(values: dict[str, float], equation: str) -> str:
@@ -251,8 +246,8 @@ SPECS = (
     CalculationSpec("fluid_mass_flow", "Fluid Mass Flow Rate", "fluid_flow", "mdot = rho*Q", "kg/s", fluid_mass_flow, lambda v: _fmt(v, "mdot = ({density})({volumetric_flow_rate})"), ("density represented by supplied value",), ("Compressibility and transient density changes are not modeled.",)),
     CalculationSpec("buoyancy_force", "Buoyant Force", "fluid_statics", "Fb = rho*g*V", "N", buoyancy_force, lambda v: _fmt(v, "Fb = ({fluid_density})({gravity})({displaced_volume})"), ("uniform fluid density", "fully specified displaced volume"), ("Fluid free-surface and dynamic effects are not modeled.",)),
     CalculationSpec("efficiency", "Efficiency", "energy", "eta = useful_output / total_input", "dimensionless", efficiency, lambda v: _fmt(v, "eta = {useful_output} / {total_input}"), ("non-negative input and output quantities", "useful output cannot exceed total input"), ("Loss mechanisms are not resolved individually.",)),
-    CalculationSpec("electrical_resistance_series", "Series Resistance", "electrical", "R = sum(R_i)", "ohm", electrical_resistance_series, lambda v: "R = " + " + ".join(f"{value:g}" for value in v["resistances"]), ("ideal series connection",), ("Parasitic effects are not modeled.",)),
-    CalculationSpec("electrical_resistance_parallel", "Parallel Resistance", "electrical", "1/R = sum(1/R_i)", "ohm", electrical_resistance_parallel, lambda v: "1/R = " + " + ".join(f"1/{value:g}" for value in v["resistances"]), ("ideal parallel connection",), ("Parasitic effects are not modeled.",)),
+    CalculationSpec("electrical_resistance_series", "Series Resistance", "electrical", "R = R1 + R2", "ohm", electrical_resistance_series, lambda v: _fmt(v, "R = {resistance_1} + {resistance_2}"), ("ideal series connection",), ("Parasitic effects are not modeled.",)),
+    CalculationSpec("electrical_resistance_parallel", "Parallel Resistance", "electrical", "R = R1*R2/(R1+R2)", "ohm", electrical_resistance_parallel, lambda v: _fmt(v, "R = ({resistance_1})({resistance_2})/({resistance_1}+{resistance_2})"), ("ideal two-resistor parallel connection",), ("Parasitic effects are not modeled.",)),
     CalculationSpec("capacitor_energy", "Capacitor Stored Energy", "electrical", "E = C*V^2/2", "J", capacitor_energy, lambda v: _fmt(v, "E = ({capacitance})({voltage}^2)/2"), ("ideal capacitor",), ("Leakage and dielectric losses are not modeled.",)),
     CalculationSpec("rc_time_constant", "RC Time Constant", "electrical", "tau = R*C", "s", rc_time_constant, lambda v: _fmt(v, "tau = ({resistance})({capacitance})"), ("first-order ideal RC model",), ("Parasitic inductance and non-ideal component behavior are not modeled.",)),
 )
