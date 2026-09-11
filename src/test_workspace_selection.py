@@ -21,14 +21,10 @@ class TestWorkspaceSelection(unittest.TestCase):
 
     def test_selection_rejects_cross_project_items(self):
         other_project = db.create_project("Other", "Other")
-        file_id = workspace_storage.create_file(
-            other_project, "other.txt", "other-key", 1, "0" * 64
-        )
+        file_id = workspace_storage.create_file(other_project, "other.txt", "other-key", 1, "0" * 64)
 
         with self.assertRaises(ValueError):
-            workspace_selection.validate_selection(
-                self.project_id, [{"type": "file", "id": file_id}]
-            )
+            workspace_selection.validate_selection(self.project_id, [{"type": "file", "id": file_id}])
 
     def test_available_actions_are_intersection_for_multi_selection(self):
         folder = workspace_storage.create_folder(self.project_id, "Folder")
@@ -46,9 +42,7 @@ class TestWorkspaceSelection(unittest.TestCase):
 
     def test_bulk_move_moves_files_and_notes_to_folder(self):
         folder = workspace_storage.create_folder(self.project_id, "Destination")
-        file_id = workspace_storage.create_file(
-            self.project_id, "report.pdf", "report-key", 1, "2" * 64
-        )
+        file_id = workspace_storage.create_file(self.project_id, "report.pdf", "report-key", 1, "2" * 64)
         note_id = workspace_notes.create_note(self.project_id, "Note", "content")
 
         workspace_selection.move_selection(
@@ -75,19 +69,25 @@ class TestWorkspaceSelection(unittest.TestCase):
         self.assertIsNotNone(workspace_storage.get_file(file_id))
         self.assertIsNotNone(workspace_storage.get_folder(folder))
 
-    def test_bulk_delete_cleans_file_and_note_tags(self):
+    def test_bulk_delete_cleans_file_tags(self):
         tag = workspace_storage.create_tag(self.project_id, "important")
-        file_id = workspace_storage.create_file(
-            self.project_id, "report.pdf", "report-key", 1, "4" * 64
-        )
+        file_id = workspace_storage.create_file(self.project_id, "report.pdf", "report-key", 1, "4" * 64)
         note_id = workspace_notes.create_note(self.project_id, "Note", "content")
         workspace_storage.assign_tag(tag, "file", file_id)
-        # Notes are intentionally not yet a tag target; file cleanup remains covered here.
 
         workspace_selection.delete_selection(
             self.project_id, [{"type": "file", "id": file_id}, {"type": "note", "id": note_id}]
         )
-        self.assertEqual(workspace_storage.get_tags_for_target("file", file_id), [])
+
+        connection = db.get_connection()
+        try:
+            assignments = connection.execute(
+                "SELECT id FROM tag_assignments WHERE target_type = 'file' AND target_id = ?",
+                (file_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        self.assertEqual(assignments, [])
 
 
 if __name__ == "__main__":
