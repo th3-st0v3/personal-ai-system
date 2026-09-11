@@ -27,33 +27,33 @@ def main() -> None:
             app = create_app(workspace)
             engineering = create_engineering_app()
             status, project = request(app, "POST", "/api/projects", {"name": "Smoke Project"})
-            assert status == 201 and project["id"] == 1
+            assert status == 201 and project["id"] == 1, project
             project_id = project["id"]
             status, folder = request(app, "POST", f"/api/projects/{project_id}/folders", {"name": "Sources"})
-            assert status == 201
+            assert status == 201, folder
             folder_id = folder["id"]
             payload = base64.b64encode(b"beta smoke").decode("ascii")
             status, file = request(app, "POST", f"/api/projects/{project_id}/files", {"name": "smoke.txt", "mime_type": "text/plain", "folder_id": folder_id, "data_base64": payload})
-            assert status == 201
+            assert status == 201, file
             file_id = file["id"]
             status, downloaded = request(app, "GET", f"/api/projects/{project_id}/files?id={file_id}")
-            assert status == 200 and base64.b64decode(downloaded["data_base64"]) == b"beta smoke"
+            assert status == 200 and base64.b64decode(downloaded["data_base64"]) == b"beta smoke", downloaded
             status, note = request(app, "POST", f"/api/projects/{project_id}/notes", {"title": "Smoke Note", "content": "works", "folder_id": folder_id})
-            assert status == 201
+            assert status == 201, note
             note_id = note["id"]
             status, updated = request(app, "PATCH", f"/api/projects/{project_id}/notes", {"id": note_id, "title": "Edited", "content": "still works"})
-            assert status == 200 and updated["name"] == "Edited"
+            assert status == 200 and updated["name"] == "Edited", updated
             status, trace = request(app, "POST", "/api/calculations/run", {"model_key": "hydrostatic_pressure", "inputs": {"density": 1000, "gravity": 9.80665, "depth": 10}})
-            assert status == 200 and trace["result"] == 98066.5
+            assert status == 200 and trace["result"] == 98066.5, trace
             status, items = request(app, "GET", f"/api/projects/{project_id}/items?folder_id={folder_id}&sort=a_z")
-            assert status == 200 and {item["name"] for item in items} == {"Edited", "smoke.txt"}
+            assert status == 200 and {item["name"] for item in items} == {"Edited", "smoke.txt"}, items
             status, requirement = request(engineering, "POST", f"/api/engineering/projects/{project_id}/requirements", {"description": "Smoke requirement"})
-            assert status == 201
+            assert status == 201, requirement
             requirement_id = requirement["id"]
-            status, source = request(engineering, "POST", f"/api/engineering/projects/{project_id}/sources", {"title": "Smoke source", "source_type": "test"})
-            assert status == 201
+            status, source = request(engineering, "POST", f"/api/engineering/projects/{project_id}/sources", {"title": "Smoke source", "source_type": "datasheet"})
+            assert status == 201, source
             status, evidence = request(engineering, "POST", f"/api/engineering/projects/{project_id}/requirements/{requirement_id}/evidence", {"result": "Confirmed", "supports_status": "Verified", "source_id": source["id"]})
-            assert status == 201 and evidence["id"] > 0
+            assert status == 201 and evidence["id"] > 0, evidence
         finally:
             db.DATABASE_PATH = original
     print("draft beta smoke test: PASS")
