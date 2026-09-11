@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from calculation_application import CalculationApplication
+from calculation_definitions import CALCULATION_DEFINITIONS
 
 
 class TestCalculationApplication(unittest.TestCase):
@@ -12,7 +13,7 @@ class TestCalculationApplication(unittest.TestCase):
         models = self.app.list_models()
         self.assertEqual(
             [model.key for model in models],
-            ["hydrostatic_pressure", "darcy_weisbach_pressure_loss"],
+            [model.key for model, _, _ in CALCULATION_DEFINITIONS],
         )
         self.assertEqual(self.app.get_method("hydrostatic_pressure").version, "1.0")
         self.assertEqual(
@@ -45,6 +46,16 @@ class TestCalculationApplication(unittest.TestCase):
         self.assertEqual(record.method_version, "1.0")
         self.assertEqual(record.result, 40000.0)
         self.assertEqual(record.result_unit, "Pa")
+
+    def test_runs_expanded_model_through_same_generic_boundary(self):
+        record = self.app.run(
+            "electrical_power",
+            {"voltage": 120, "current": 2},
+        )
+        self.assertEqual(record.calculation_type, "electrical_power")
+        self.assertEqual(record.result, 240.0)
+        self.assertEqual(record.result_unit, "W")
+        self.assertEqual(record.units["voltage"], "V")
 
     def test_runs_and_saves_through_application_boundary(self):
         with patch("calculation_application.db.save_calculation_record", return_value=42) as save:
