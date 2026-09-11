@@ -1,12 +1,13 @@
 """Application boundary for deterministic engineering calculations."""
 
+import inspect
 import math
 
 import calculations
 import db
 from calculation_catalog import get_entry, grouped_categories, list_category, list_categories, list_items, search
 from calculation_definitions import CALCULATION_DEFINITIONS
-from calculation_library import CalculationTrace
+from calculation_library import CALCULATION_REGISTRY, CalculationTrace
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 from calculation_records import CalculationRecord
 from calculation_trace_detail import expand_trace
@@ -67,12 +68,16 @@ class CalculationApplication:
         _, method, parameters = definition
         expected = {parameter.name: parameter for parameter in parameters}
         supplied = set(inputs)
-        missing = [name for name, parameter in expected.items() if parameter.required and name not in supplied]
         unknown = supplied - set(expected)
-        if missing:
-            raise ValueError("Missing required inputs: " + ", ".join(missing))
         if unknown:
             raise ValueError("Unknown inputs: " + ", ".join(sorted(unknown)))
+        callable_parameters = inspect.signature(CALCULATION_REGISTRY[model_key].calculate).parameters
+        missing = [
+            name for name, parameter in expected.items()
+            if parameter.required and name not in supplied and callable_parameters[name].default is inspect.Parameter.empty
+        ]
+        if missing:
+            raise ValueError("Missing required inputs: " + ", ".join(missing))
         validated = {}
         for name, value in inputs.items():
             parameter = expected[name]
