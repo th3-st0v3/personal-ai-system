@@ -1,22 +1,22 @@
-const state = { projectId: null, folderId: null, category: null, items: [], drag: null };
+const state = { projectId: null, folderId: null, category: null, drag: null, selected: new Set() };
 const $ = (id) => document.getElementById(id);
 const api = async (path, options = {}) => { const response = await fetch(path, options); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Request failed"); return data; };
+const send = (path, payload) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 
 async function loadProjects() {
   const projects = await api("/api/projects");
   $("projects").innerHTML = projects.map(p => `<button class="nav-item ${p.id === state.projectId ? "active" : ""}" data-project="${p.id}">${escapeHtml(p.name)}</button>`).join("") || `<div class="muted">No projects yet.</div>`;
-  if (state.projectId === null && projects.length) selectProject(projects[0].id);
+  if (state.projectId === null && projects.length) await selectProject(projects[0].id);
 }
-async function selectProject(id) { state.projectId = Number(id); state.folderId = null; $("project-name").textContent = "Project"; await refreshWorkspace(); await loadProjects(); }
+async function selectProject(id) { state.projectId = Number(id); state.folderId = null; state.selected.clear(); $("project-name").textContent = "Project"; await refreshWorkspace(); await loadProjects(); }
 async function refreshWorkspace() {
   if (!state.projectId) return;
   const params = new URLSearchParams({ sort: $("sort").value }); if (state.folderId) params.set("folder_id", state.folderId);
-  state.items = await api(`/api/projects/${state.projectId}/items?${params}`);
-  $("location").textContent = state.folderId ? (state.items[0]?.parent_id ? "Folder" : "Folder") : "Workspace";
+  state.items = await api(`/api/projects/${state.projectId}/items?${params}`); $("location").textContent = state.folderId ? "Folder" : "Workspace";
   renderItems(state.items); renderBreadcrumbs();
 }
 function renderItems(items) {
-  $("items").innerHTML = items.length ? items.map(item => `<article class="item ${item.kind}" draggable="true" data-kind="${item.kind}" data-id="${item.id}"><span class="item-icon" aria-hidden="true">${item.kind === "folder" ? "▰" : item.kind === "note" ? "▤" : "□"}</span><span class="item-name">${escapeHtml(item.name)}</span><span class="item-meta">${item.kind}</span></article>`).join("") : `<div class="empty"><strong>This workspace is empty</strong><span>Create a folder, note, or upload a file to begin.</span></div>`;
+  $("items").innerHTML = items.length ? items.map(item => `<article class="item ${item.kind}" draggable="true" data-kind="${item.kind}" data-id="${item.id}"><span class="item-icon" aria-hidden="true">${item.kind === "folder" ? "▰" : item.kind === "note" ? "▤" : "□"}</span><span class="item-name">${escapeHtml(item.name)}</span><span class="item-meta">${item.kind}</span></article>`).join("") : `<div class="empty"><strong>This workspace is empty</strong><span>Create a folder or note to begin.</span></div>`;
 }
 function renderBreadcrumbs() { $("breadcrumbs").innerHTML = `<button data-root class="crumb">Project</button>` + (state.folderId ? `<span>›</span><span class="crumb current">Folder</span>` : ""); }
 async function loadCategories() {
@@ -32,29 +32,44 @@ async function searchProject(query) {
   if (!query.trim()) return refreshWorkspace();
   const items = await api(`/api/projects/${state.projectId}/search?q=${encodeURIComponent(query)}`); renderItems(items);
 }
-function showMenu(item, x, y) {
-  const actions = item.kind === "folder" ? ["Open", "New note", "New folder", "Rename", "Copy", "Move", "Delete"] : item.kind === "note" ? ["Open", "Edit", "Rename", "Copy", "Move", "Export", "Delete"] : ["Preview", "Download", "Rename", "Copy", "Move", "Replace", "Delete"];
-  $("menu").innerHTML = actions.map(action => `<button data-action="${action.toLowerCase()}" data-kind="${item.kind}" data-id="${item.id}">${action}</button>`).join("");
-  $("menu").style.left = `${Math.min(x, innerWidth - 190)}px`; $("menu").style.top = `${Math.min(y, innerHeight - actions.length * 42)}px`; $("menu").hidden = false;
+async function showMenu(item, x, y) {
+  const actions = item.kind === "folder" ? ["open", "new note", "new folder", "rename", "properties", "delete"] : ["open", "rename", "properties", "delete"];
+  $("menu").innerHTML = actions.map(action => `<button data-action="${action}" data-kind="${item.kind}" data-id="${item.id}">${action[0].toUpperCase() + action.slice(1)}</button>`).join("");
+  $("menu").style.left = `${Math.min(x, innerWidth - 200)}px`; $("menu").style.top = `${Math.min(y, innerHeight - actions.length * 42)}px`; $("menu").hidden = false;
+}
+async function handleAction(action, kind, id) {
+  if (action === "open" && kind === "folder") { state.folderId = Number(id); state.selected.clear(); return refreshWorkspace(); }
+  if (action === "new note") { const title = prompt("Note title"); if (title) await send(`/api/projects/${state.projectId}/notes`, { title, folder_id: Number(id) }); return refreshWorkspace(); }
+  if (action === "new folder") { const name = prompt("Folder name"); if (name) await send(`/api/projects/${state.projectId}/folders`, { name, parent_folder_id: Number(id) }); return refreshWorkspace(); }
+  if (action === "rename") { const name = prompt("New name"); if (name) await send(`/api/projects/${state.projectId}/rename`, { kind, id: Number(id), name }); return refreshWorkspace(); }
+  if (action === "delete") { if (confirm("Delete this item?")) await send(`/api/projects/${state.projectId}/delete`, { kind, id: Number(id) }); return refreshWorkspace(); }
+  if (action === "properties") { const props = await api(`/api/projects/${state.projectId}/properties?kind=${kind}&id=${id}`); $("catalog").innerHTML = `<div class="property-card"><div class="eyebrow">${escapeHtml(props.kind)}</div><h2>${escapeHtml(props.name)}</h2>${Object.entries(props).filter(([key]) => !["kind","name"].includes(key)).map(([key,value]) => `<div><span>${escapeHtml(key)}</span><strong>${escapeHtml(typeof value === "object" ? JSON.stringify(value) : value)}</strong></div>`).join("")}</div>`; }
+}
+async function openCalculation(key) {
+  const detail = await api(`/api/calculations/${key}`); const { model, method, parameters } = detail;
+  $("catalog").innerHTML = `<div class="calc-detail"><div class="eyebrow">${escapeHtml(model.domain)}</div><h2>${escapeHtml(model.name)}</h2><code>${escapeHtml(method.equation)}</code><p>${escapeHtml(model.description)}</p><form id="calc-form">${parameters.map(p => `<label>${escapeHtml(p.name)}<input name="${escapeAttr(p.name)}" type="number" step="any" required placeholder="${escapeAttr(p.default_unit || "value")}"><span>${escapeHtml(p.description)}</span></label>`).join("")}<button class="button" type="submit">Calculate</button></form><div id="calc-result"></div></div>`;
+  $("calc-form").addEventListener("submit", async event => { event.preventDefault(); const inputs = Object.fromEntries([...new FormData(event.target)].map(([name, value]) => [name, Number(value)])); const trace = await send("/api/calculations/run", { model_key: key, inputs }); $("calc-result").innerHTML = `<div class="result"><strong>${trace.result} ${escapeHtml(trace.result_unit)}</strong><ol>${trace.steps.map(step => `<li>${escapeHtml(step)}</li>`).join("")}</ol>${trace.assumptions.length ? `<h3>Assumptions</h3><ul>${trace.assumptions.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</div>`; });
 }
 function escapeHtml(value) { return String(value).replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function escapeAttr(value) { return escapeHtml(value).replace(/'/g, "&#39;"); }
 
-document.addEventListener("click", async (event) => {
-  const project = event.target.closest("[data-project]"); if (project) return selectProject(project.dataset.project);
-  const category = event.target.closest("[data-category]"); if (category) return loadCatalog(category.dataset.category);
-  if (event.target.closest("[data-root]")) { state.folderId = null; return refreshWorkspace(); }
-  const calc = event.target.closest("[data-calculation]"); if (calc) return openCalculation(calc.dataset.calculation);
-  const item = event.target.closest(".item"); if (item) return showMenu({ kind: item.dataset.kind, id: item.dataset.id }, event.clientX, event.clientY);
-  if (!event.target.closest("#menu")) $("menu").hidden = true;
+document.addEventListener("click", async event => {
+  try {
+    const project = event.target.closest("[data-project]"); if (project) return selectProject(project.dataset.project);
+    const category = event.target.closest("[data-category]"); if (category) return loadCatalog(category.dataset.category);
+    if (event.target.closest("[data-root]")) { state.folderId = null; return refreshWorkspace(); }
+    const calc = event.target.closest("[data-calculation]"); if (calc) return openCalculation(calc.dataset.calculation);
+    const menuAction = event.target.closest("#menu [data-action]"); if (menuAction) { $("menu").hidden = true; return handleAction(menuAction.dataset.action, menuAction.dataset.kind, menuAction.dataset.id); }
+  } catch (error) { $("items").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; }
+  if (!event.target.closest("#menu") && !event.target.closest(".item")) $("menu").hidden = true;
 });
 $("sort").addEventListener("change", refreshWorkspace);
 $("global-search").addEventListener("input", event => searchProject(event.target.value));
-$("items").addEventListener("dragstart", event => { const item = event.target.closest(".item"); if (item) { state.drag = { kind: item.dataset.kind, id: Number(item.dataset.id) }; event.dataTransfer.effectAllowed = "move"; } });
-$("items").addEventListener("dblclick", event => { const item = event.target.closest(".folder"); if (item) { state.folderId = Number(item.dataset.id); refreshWorkspace(); } });
-async function openCalculation(key) {
-  const catalog = await api(`/api/calculations/catalog`); const item = catalog.find(entry => entry.key === key); if (!item) return;
-  const inputs = {}; for (const parameter of item.parameters || []) inputs[parameter.name] = 0;
-  $("catalog").innerHTML = `<div class="calc-detail"><div class="eyebrow">${escapeHtml(item.domain)}</div><h2>${escapeHtml(item.name)}</h2><code>${escapeHtml(item.equation)}</code><p>Select this calculation in the full runner to supply its validated inputs.</p></div>`;
-}
+$("items").addEventListener("contextmenu", event => { const item = event.target.closest(".item"); if (item) { event.preventDefault(); showMenu({ kind: item.dataset.kind, id: item.dataset.id }, event.clientX, event.clientY); } });
+$("items").addEventListener("dragstart", event => { const item = event.target.closest(".item"); if (item) { state.drag = { kind: item.dataset.kind, id: Number(item.dataset.id) }; event.dataTransfer.effectAllowed = "move"; item.classList.add("dragging"); } });
+$("items").addEventListener("dragend", event => event.target.closest(".item")?.classList.remove("dragging"));
+$("items").addEventListener("dragover", event => { if (event.target.closest(".folder")) { event.preventDefault(); event.target.closest(".folder").classList.add("drop-target"); } });
+$("items").addEventListener("dragleave", event => event.target.closest(".folder")?.classList.remove("drop-target"));
+$("items").addEventListener("drop", async event => { const folder = event.target.closest(".folder"); if (!folder || !state.drag) return; event.preventDefault(); folder.classList.remove("drop-target"); await send(`/api/projects/${state.projectId}/move`, { ...state.drag, target_folder_id: Number(folder.dataset.id) }); state.drag = null; await refreshWorkspace(); });
+$("items").addEventListener("dblclick", async event => { const item = event.target.closest(".item"); if (item?.dataset.kind === "folder") { state.folderId = Number(item.dataset.id); await refreshWorkspace(); } else if (item?.dataset.kind === "note") { const note = await api(`/api/projects/${state.projectId}/properties?kind=note&id=${item.dataset.id}`); $("catalog").innerHTML = `<div class="property-card"><div class="eyebrow">Note</div><h2>${escapeHtml(note.name)}</h2><pre>${escapeHtml(note.content || "")}</pre></div>`; } });
 (async function init() { try { await Promise.all([loadProjects(), loadCategories()]); } catch (error) { $("items").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; } })();
