@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Personal AI System beta workspace">
+  <title>Personal AI System</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Personal AI System</div>
+    <label class="search"><span aria-hidden="true">⌕</span><input id="global-search" type="search" placeholder="Search this project…" autocomplete="off"></label>
+    <button id="new-project" class="button">New project</button>
+  </header>
+  <main class="shell">
+    <aside class="sidebar panel">
+      <div class="panel-title">Projects</div>
+      <div id="projects" class="stack"></div>
+      <div class="panel-title calculations-title">Calculations</div>
+      <nav id="categories" class="stack" aria-label="Calculation disciplines"></nav>
+    </aside>
+    <section class="workspace panel">
+      <div class="workspace-head">
+        <div>
+          <div id="project-name" class="eyebrow">Select a project</div>
+          <h1 id="location">Workspace</h1>
+          <div id="breadcrumbs" class="breadcrumbs"></div>
+        </div>
+        <label class="sort">Sort <select id="sort"><option value="a_z">A–Z</option><option value="z_a">Z–A</option><option value="recent_old">Recent → old</option><option value="old_recent">Old → recent</option><option value="last_modified_new_old">Modified → old</option><option value="last_modified_old_new">Old → modified</option></select></label>
+      </div>
+      <div id="items" class="items" tabindex="0"></div>
+    </section>
+    <aside class="details panel">
+      <div class="panel-title">Calculation catalog</div>
+      <div id="catalog" class="catalog-empty">Choose a discipline to browse calculations.</div>
+    </aside>
+  </main>
+  <div id="menu" class="context-menu" hidden></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
