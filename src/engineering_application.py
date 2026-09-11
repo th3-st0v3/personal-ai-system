@@ -83,12 +83,24 @@ class EngineeringApplication:
             "created_at": row[9], "updated_at": row[10],
         }
 
+    @staticmethod
+    def _require_text(value, field):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field} must be a non-empty string.")
+        return value.strip()
+
+    @staticmethod
+    def _require_status(status):
+        if status not in {"Verified", "Failed", "Unverified", "At risk"}:
+            raise ValueError("Invalid requirement status.")
+
     def create_workspace(self, name, description=None):
+        name = self._require_text(name, "name")
         connection = db.get_connection()
         try:
             cursor = connection.execute(
                 "INSERT INTO workspaces (name, description) VALUES (?, ?)",
-                (name.strip(), description),
+                (name, description),
             )
             connection.commit()
             return cursor.lastrowid
@@ -107,11 +119,12 @@ class EngineeringApplication:
             connection.close()
 
     def create_user(self, name, email=None):
+        name = self._require_text(name, "name")
         connection = db.get_connection()
         try:
             cursor = connection.execute(
                 "INSERT INTO users (name, email) VALUES (?, ?)",
-                (name.strip(), email),
+                (name, email),
             )
             connection.commit()
             return cursor.lastrowid
@@ -132,8 +145,13 @@ class EngineeringApplication:
             connection.close()
 
     def add_workspace_member(self, workspace_id, user_id, role):
+        role = self._require_text(role, "role")
         connection = db.get_connection()
         try:
+            if connection.execute("SELECT id FROM workspaces WHERE id = ?", (workspace_id,)).fetchone() is None:
+                raise ValueError(f"No workspace found with ID {workspace_id}.")
+            if connection.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone() is None:
+                raise ValueError(f"No user found with ID {user_id}.")
             connection.execute(
                 "INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)",
                 (workspace_id, user_id, role),
@@ -143,11 +161,12 @@ class EngineeringApplication:
             connection.close()
 
     def create_project(self, name, description=None):
+        name = self._require_text(name, "name")
         connection = db.get_connection()
         try:
             cursor = connection.execute(
                 "INSERT INTO projects (name, description) VALUES (?, ?)",
-                (name.strip(), description),
+                (name, description),
             )
             connection.commit()
             return cursor.lastrowid
@@ -155,8 +174,16 @@ class EngineeringApplication:
             connection.close()
 
     def assign_project(self, project_id, workspace_id=None, owner_id=None, status="Active"):
+        if status not in {"Active", "Archived", "Invalidated", "Superseded"}:
+            raise ValueError("Invalid project status.")
         connection = db.get_connection()
         try:
+            if connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
+                raise ValueError(f"No project found with ID {project_id}.")
+            if workspace_id is not None and connection.execute("SELECT id FROM workspaces WHERE id = ?", (workspace_id,)).fetchone() is None:
+                raise ValueError(f"No workspace found with ID {workspace_id}.")
+            if owner_id is not None and connection.execute("SELECT id FROM users WHERE id = ?", (owner_id,)).fetchone() is None:
+                raise ValueError(f"No user found with ID {owner_id}.")
             connection.execute(
                 "UPDATE projects SET workspace_id = ?, owner_id = ?, status = ?, "
                 "updated_at = datetime('now') WHERE id = ?",
@@ -193,9 +220,8 @@ class EngineeringApplication:
 
     def update_requirement(self, requirement_id, *, identifier=None, title=None,
                            acceptance_criteria=None, priority=None, status=None):
-        allowed_statuses = {"Verified", "Failed", "Unverified", "At risk"}
-        if status is not None and status not in allowed_statuses:
-            raise ValueError("Invalid requirement status.")
+        if status is not None:
+            self._require_status(status)
         updates = {
             "identifier": identifier,
             "title": title,
@@ -208,6 +234,8 @@ class EngineeringApplication:
             raise ValueError("At least one requirement field must be provided.")
         connection = db.get_connection()
         try:
+            if connection.execute("SELECT id FROM requirements WHERE id = ?", (requirement_id,)).fetchone() is None:
+                raise ValueError(f"No requirement found with ID {requirement_id}.")
             assignments = ", ".join(f"{key} = ?" for key in changed)
             values = list(changed.values()) + [requirement_id]
             connection.execute(
@@ -220,8 +248,14 @@ class EngineeringApplication:
 
     def create_source(self, project_id, title, source_type, *, author=None, publisher=None,
                       version=None, url=None, file_id=None, checksum=None):
+        title = self._require_text(title, "title")
+        source_type = self._require_text(source_type, "source_type")
         connection = db.get_connection()
         try:
+            if connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
+                raise ValueError(f"No project found with ID {project_id}.")
+            if file_id is not None and connection.execute("SELECT id FROM files WHERE id = ?", (file_id,)).fetchone() is None:
+                raise ValueError(f"No file found with ID {file_id}.")
             cursor = connection.execute(
                 "INSERT INTO sources (project_id, title, author, publisher, source_type, "
                 "version, url, file_id, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -248,8 +282,15 @@ class EngineeringApplication:
     def create_evidence(self, requirement_id, result, supports_status, *, source=None,
                         location=None, calculation_record_id=None, source_id=None,
                         classification=None, description=None):
+        self._require_status(supports_status)
         connection = db.get_connection()
         try:
+            if connection.execute("SELECT id FROM requirements WHERE id = ?", (requirement_id,)).fetchone() is None:
+                raise ValueError(f"No requirement found with ID {requirement_id}.")
+            if source_id is not None and connection.execute("SELECT id FROM sources WHERE id = ?", (source_id,)).fetchone() is None:
+                raise ValueError(f"No source found with ID {source_id}.")
+            if calculation_record_id is not None and connection.execute("SELECT id FROM calculation_records WHERE id = ?", (calculation_record_id,)).fetchone() is None:
+                raise ValueError(f"No calculation record found with ID {calculation_record_id}.")
             cursor = connection.execute(
                 "INSERT INTO evidence (requirement_id, source, location, result, supports_status, "
                 "calculation_record_id, source_id, classification, description) "
@@ -276,8 +317,11 @@ class EngineeringApplication:
             connection.close()
 
     def invalidate_evidence(self, evidence_id, reason):
+        reason = self._require_text(reason, "reason")
         connection = db.get_connection()
         try:
+            if connection.execute("SELECT id FROM evidence WHERE id = ?", (evidence_id,)).fetchone() is None:
+                raise ValueError(f"No evidence found with ID {evidence_id}.")
             connection.execute(
                 "UPDATE evidence SET lifecycle_status = 'Invalidated', invalidated_at = datetime('now'), "
                 "invalidation_reason = ? WHERE id = ?",
@@ -289,8 +333,16 @@ class EngineeringApplication:
 
     def create_decision(self, project_id, title, decision, *, description=None,
                         requirement_id=None, design_case_id=None, rationale=None):
+        title = self._require_text(title, "title")
+        decision = self._require_text(decision, "decision")
         connection = db.get_connection()
         try:
+            if connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
+                raise ValueError(f"No project found with ID {project_id}.")
+            if requirement_id is not None and connection.execute("SELECT id FROM requirements WHERE id = ?", (requirement_id,)).fetchone() is None:
+                raise ValueError(f"No requirement found with ID {requirement_id}.")
+            if design_case_id is not None and connection.execute("SELECT id FROM design_cases WHERE id = ?", (design_case_id,)).fetchone() is None:
+                raise ValueError(f"No design case found with ID {design_case_id}.")
             cursor = connection.execute(
                 "INSERT INTO decisions (project_id, requirement_id, design_case_id, title, "
                 "description, decision, rationale) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -316,15 +368,22 @@ class EngineeringApplication:
 
     def record_audit_event(self, entity_type, entity_id, action, *, workspace_id=None,
                            user_id=None, metadata=None):
+        entity_type = self._require_text(entity_type, "entity_type")
+        action = self._require_text(action, "action")
         connection = db.get_connection()
         try:
-            connection.execute(
+            if workspace_id is not None and connection.execute("SELECT id FROM workspaces WHERE id = ?", (workspace_id,)).fetchone() is None:
+                raise ValueError(f"No workspace found with ID {workspace_id}.")
+            if user_id is not None and connection.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone() is None:
+                raise ValueError(f"No user found with ID {user_id}.")
+            cursor = connection.execute(
                 "INSERT INTO audit_events (workspace_id, user_id, entity_type, entity_id, action, metadata) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (workspace_id, user_id, entity_type, entity_id, action,
                  None if metadata is None else json.dumps(metadata, sort_keys=True)),
             )
             connection.commit()
+            return cursor.lastrowid
         finally:
             connection.close()
 
