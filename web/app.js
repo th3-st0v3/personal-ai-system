@@ -1,9 +1,14 @@
-const state = { projectId: null, folderId: null, category: null, drag: null, selected: new Set() };
+const state = { projectId: null, folderId: null, category: null, drag: null, selected: new Set(), manifest: null };
 const $ = (id) => document.getElementById(id);
 const api = async (path, options = {}) => { const response = await fetch(path, options); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Request failed"); return data; };
 const send = (path, payload) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 const selectedItems = () => [...state.selected].map(token => { const [kind, id] = token.split(":"); return { kind, id: Number(id) }; });
 
+function applyManifest() {
+  const sort = $("sort");
+  sort.innerHTML = state.manifest.workspace.sort_options.map(value => `<option value="${value}">${sortLabel(value)}</option>`).join("");
+}
+function sortLabel(value) { return ({ a_z: "A–Z", z_a: "Z–A", recent_old: "Recent → old", old_recent: "Old → recent", last_modified_new_old: "Modified → old", last_modified_old_new: "Old → modified" })[value] || value; }
 async function loadProjects() {
   const projects = await api("/api/projects");
   $("projects").innerHTML = projects.map(p => `<button class="nav-item ${p.id === state.projectId ? "active" : ""}" data-project="${p.id}">${escapeHtml(p.name)}</button>`).join("") || `<div class="muted">No projects yet.</div>`;
@@ -28,9 +33,11 @@ async function loadCatalog(category) {
 async function searchProject(query) { if (!state.projectId) return; if (!query.trim()) return refreshWorkspace(); renderItems(await api(`/api/projects/${state.projectId}/search?q=${encodeURIComponent(query)}`)); }
 async function showMenu(item, x, y) {
   const multi = state.selected.size > 1 && state.selected.has(`${item.kind}:${item.id}`);
-  const actions = multi ? ["delete"] : item.kind === "folder" ? ["open", "new note", "new folder", "rename", "properties", "delete"] : item.kind === "note" ? ["open", "rename", "properties", "delete"] : ["properties", "delete"];
-  $("menu").innerHTML = actions.map(action => `<button data-action="${action}" data-kind="${item.kind}" data-id="${item.id}">${action[0].toUpperCase() + action.slice(1)}${multi && action === "delete" ? ` (${state.selected.size})` : ""}</button>`).join("");
-  $("menu").style.left = `${Math.min(x, innerWidth - 200)}px`; $("menu").style.top = `${Math.min(y, innerHeight - actions.length * 42)}px`; $("menu").hidden = false;
+  const advertised = multi ? state.manifest.workspace.multi_selection_actions : state.manifest.workspace.context_actions[item.kind];
+  const labels = { open: "Open", new_note: "New note", new_folder: "New folder", rename: "Rename", properties: "Properties", delete: "Delete", copy: "Copy", move: "Move", duplicate: "Duplicate", export: "Export", pin: "Pin", preview: "Preview", download: "Download", replace: "Replace", upload_file: "Upload file", paste: "Paste", sort: "Sort", delete_all_files: "Delete all files", edit: "Edit" };
+  const actions = advertised.filter(action => ["open","new_note","new_folder","rename","properties","delete"].includes(action));
+  $("menu").innerHTML = actions.map(action => `<button data-action="${action}" data-kind="${item.kind}" data-id="${item.id}">${labels[action] || action}${multi && action === "delete" ? ` (${state.selected.size})` : ""}</button>`).join("");
+  $("menu").style.left = `${Math.min(x, innerWidth - 200)}px`; $("menu").style.top = `${Math.min(y, innerHeight - Math.max(actions.length,1) * 42)}px`; $("menu").hidden = false;
 }
 async function openItem(kind, id) {
   if (kind === "folder") { state.folderId = Number(id); state.selected.clear(); return refreshWorkspace(); }
@@ -39,8 +46,8 @@ async function openItem(kind, id) {
 }
 async function handleAction(action, kind, id) {
   if (action === "open") return openItem(kind, id);
-  if (action === "new note") { const title = prompt("Note title"); if (title) await send(`/api/projects/${state.projectId}/notes`, { title, folder_id: Number(id) }); return refreshWorkspace(); }
-  if (action === "new folder") { const name = prompt("Folder name"); if (name) await send(`/api/projects/${state.projectId}/folders`, { name, parent_folder_id: Number(id) }); return refreshWorkspace(); }
+  if (action === "new_note") { const title = prompt("Note title"); if (title) await send(`/api/projects/${state.projectId}/notes`, { title, folder_id: Number(id) }); return refreshWorkspace(); }
+  if (action === "new_folder") { const name = prompt("Folder name"); if (name) await send(`/api/projects/${state.projectId}/folders`, { name, parent_folder_id: Number(id) }); return refreshWorkspace(); }
   if (action === "rename") { const name = prompt("New name"); if (name) await send(`/api/projects/${state.projectId}/rename`, { kind, id: Number(id), name }); return refreshWorkspace(); }
   if (action === "delete") { const selection = state.selected.size > 1 && state.selected.has(`${kind}:${id}`) ? selectedItems() : [{ kind, id: Number(id) }]; if (confirm(`Delete ${selection.length} item${selection.length === 1 ? "" : "s"}?`)) { await send(`/api/projects/${state.projectId}/delete`, { selection }); state.selected.clear(); } return refreshWorkspace(); }
   if (action === "properties") { const props = await api(`/api/projects/${state.projectId}/properties?kind=${kind}&id=${id}`); $("catalog").innerHTML = `<div class="property-card"><div class="eyebrow">${escapeHtml(props.kind)}</div><h2>${escapeHtml(props.name)}</h2>${Object.entries(props).filter(([key]) => !["kind","name"].includes(key)).map(([key,value]) => `<div><span>${escapeHtml(key)}</span><strong>${escapeHtml(typeof value === "object" ? JSON.stringify(value) : value)}</strong></div>`).join("")}</div>`; }
@@ -60,11 +67,11 @@ document.addEventListener("click", async event => {
     if (event.target.closest("[data-root]")) { state.folderId = null; state.selected.clear(); return refreshWorkspace(); }
     const calc = event.target.closest("[data-calculation]"); if (calc) return openCalculation(calc.dataset.calculation);
     const menuAction = event.target.closest("#menu [data-action]"); if (menuAction) { $("menu").hidden = true; return handleAction(menuAction.dataset.action, menuAction.dataset.kind, menuAction.dataset.id); }
-    const item = event.target.closest(".item"); if (item) { const token = `${item.dataset.kind}:${item.dataset.id}`; if (event.ctrlKey || event.metaKey) { state.selected.has(token) ? state.selected.delete(token) : state.selected.add(token); renderItems(state.items); } else { state.selected.clear(); state.selected.add(token); renderItems(state.items); } }
+    const item = event.target.closest(".item"); if (item) { const token = `${item.dataset.kind}:${item.dataset.id}`; if (event.ctrlKey || event.metaKey) { state.selected.has(token) ? state.selected.delete(token) : state.selected.add(token); } else { state.selected.clear(); state.selected.add(token); } renderItems(state.items); }
   } catch (error) { $("items").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; }
   if (!event.target.closest("#menu") && !event.target.closest(".item")) $("menu").hidden = true;
 });
-$("new-project").addEventListener("click", async () => { const name = prompt("Project name"); if (!name) return; await send("/api/projects", { name }); await loadProjects(); });
+$("new-project").addEventListener("click", async () => { try { const name = prompt("Project name"); if (!name) return; await send("/api/projects", { name }); await loadProjects(); } catch (error) { $("items").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; } });
 $("sort").addEventListener("change", refreshWorkspace);
 $("global-search").addEventListener("input", event => searchProject(event.target.value));
 $("items").addEventListener("contextmenu", event => { const item = event.target.closest(".item"); if (item) { event.preventDefault(); showMenu({ kind: item.dataset.kind, id: item.dataset.id }, event.clientX, event.clientY); } });
@@ -74,4 +81,4 @@ $("items").addEventListener("dragover", event => { const folder = event.target.c
 $("items").addEventListener("dragleave", event => event.target.closest(".folder")?.classList.remove("drop-target"));
 $("items").addEventListener("drop", async event => { const folder = event.target.closest(".folder"); if (!folder || !state.drag) return; event.preventDefault(); folder.classList.remove("drop-target"); await send(`/api/projects/${state.projectId}/move`, { ...state.drag, target_folder_id: Number(folder.dataset.id) }); state.drag = null; state.selected.clear(); await refreshWorkspace(); });
 $("items").addEventListener("dblclick", async event => { const item = event.target.closest(".item"); if (item) await openItem(item.dataset.kind, item.dataset.id); });
-(async function init() { try { await Promise.all([loadProjects(), loadCategories()]); } catch (error) { $("items").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; } })();
+(async function init() { try { state.manifest = await api("/api/manifest"); applyManifest(); await Promise.all([loadProjects(), loadCategories()]); } catch (error) { $("items").innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; } })();
