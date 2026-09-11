@@ -144,6 +144,9 @@ class EngineeringApplication:
         finally:
             connection.close()
 
+    def create_project(self, name, description=None):
+        return db.create_project(name, description)
+
     def assign_project(self, project_id, workspace_id=None, owner_id=None, status="Active"):
         if status not in {"Active", "Archived"}:
             raise ValueError("Project status must be Active or Archived.")
