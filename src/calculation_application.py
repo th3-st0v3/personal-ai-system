@@ -1,10 +1,17 @@
-"""Application boundary for deterministic engineering calculations."""
+"""Application boundary for deterministic engineering calculations.
+
+This module provides one stable entry point for selecting a registered
+calculation model, validating its inputs, executing the deterministic
+calculation library, and optionally persisting the resulting record.
+It keeps future UI/API/AI callers from depending on individual calculation
+functions or database details.
+"""
 
 import math
 
 import calculations
 import db
-from calculation_catalog import get_entry, grouped_categories, list_category, list_categories, search
+from calculation_catalog import get_entry, grouped_categories, list_category, list_categories, list_items, search
 from calculation_definitions import CALCULATION_DEFINITIONS
 from calculation_library import CalculationTrace
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
@@ -28,6 +35,10 @@ class CalculationApplication:
     def list_category(self, category: str) -> tuple[str, ...]:
         """Return canonical calculation keys for one discipline/category."""
         return list_category(category)
+
+    def list_catalog_items(self, category: str | None = None):
+        """Return resolved calculation entries for one-pass frontend rendering."""
+        return list_items(category)
 
     def grouped_categories(self) -> dict[str, tuple[str, ...]]:
         """Return the complete category tree for a frontend catalog."""
