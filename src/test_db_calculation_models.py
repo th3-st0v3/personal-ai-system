@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 import db
+from calculation_definitions import CALCULATION_DEFINITIONS
 from calculations import hydrostatic_pressure_record
 
 
@@ -33,8 +34,10 @@ class TestCalculationFoundationPersistence(unittest.TestCase):
         models = connection.execute("SELECT key FROM calculation_models ORDER BY key").fetchall()
         parameter_count = connection.execute("SELECT COUNT(*) FROM calculation_parameters").fetchone()[0]
         connection.close()
-        self.assertEqual(models, [("darcy_weisbach_pressure_loss",), ("hydrostatic_pressure",)])
-        self.assertEqual(parameter_count, 8)
+        expected_models = sorted((model.key,) for model, _, _ in CALCULATION_DEFINITIONS)
+        expected_parameter_count = sum(len(parameters) for _, _, parameters in CALCULATION_DEFINITIONS)
+        self.assertEqual(models, expected_models)
+        self.assertEqual(parameter_count, expected_parameter_count)
 
     def test_new_record_links_to_model_and_method_version(self):
         calculation_id = db.save_calculation_record(hydrostatic_pressure_record(1000.0, 9.81, 10.0))
