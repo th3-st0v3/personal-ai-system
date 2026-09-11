@@ -7,7 +7,8 @@ from calculation_records import CalculationRecord
 from evaluation import evaluate_evidence
 
 DATABASE_PATH = str(Path(__file__).resolve().parent.parent / "notes.db")
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
+LIFECYCLE_STATUSES = {"Active", "Archived", "Invalidated", "Superseded"}
 
 
 def get_connection():
@@ -138,6 +139,59 @@ def _initialize_calculation_schema(connection):
         """, (model_id, method_id, method.version, model.key))
 
 
+def _initialize_engineering_schema(connection):
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS wells (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            identifier TEXT,
+            description TEXT,
+            lifecycle_status TEXT NOT NULL DEFAULT 'Active'
+                CHECK (lifecycle_status IN ('Active', 'Archived', 'Invalidated', 'Superseded')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(project_id, name),
+            UNIQUE(id, project_id),
+            FOREIGN KEY (project_id) REFERENCES projects(id)
+        )
+    """)
+    connection.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_wells_project_identifier
+        ON wells(project_id, identifier)
+        WHERE identifier IS NOT NULL
+    """)
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_wells_project
+        ON wells(project_id)
+    """)
+
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS design_cases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            well_id INTEGER,
+            name TEXT NOT NULL,
+            description TEXT,
+            lifecycle_status TEXT NOT NULL DEFAULT 'Active'
+                CHECK (lifecycle_status IN ('Active', 'Archived', 'Invalidated', 'Superseded')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(project_id, name),
+            FOREIGN KEY (project_id) REFERENCES projects(id),
+            FOREIGN KEY (well_id, project_id) REFERENCES wells(id, project_id)
+        )
+    """)
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_design_cases_project
+        ON design_cases(project_id)
+    """)
+    connection.execute("""
+        CREATE INDEX IF NOT EXISTS idx_design_cases_well
+        ON design_cases(well_id)
+    """)
+
+
 def initialize_database(connection):
     connection.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
     version_row = connection.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
@@ -212,6 +266,7 @@ def initialize_database(connection):
     )
     _add_column_if_missing(connection, "evidence", "calculation_record_id", "INTEGER REFERENCES calculation_records(id)")
     _initialize_calculation_schema(connection)
+    _initialize_engineering_schema(connection)
 
     if version is None or version < SCHEMA_VERSION:
         connection.execute("DELETE FROM schema_version")
@@ -466,3 +521,123 @@ def get_recent_calculation_records(limit):
         return [_calculation_record_from_row(row) for row in rows]
     finally:
         connection.close()
+
+
+def create_well(project_id, name, identifier=None, description=None):
+    return _write(
+        "INSERT INTO wells (project_id, name, identifier, description) VALUES (?, ?, ?, ?)",
+        (project_id, name, identifier, description),
+    )[0]
+
+
+def get_well(well_id):
+    connection = get_connection()
+    try:
+        return connection.execute("""
+            SELECT id, project_id, name, identifier, description,
+                   lifecycle_status, created_at, updated_at
+            FROM wells
+            WHERE id = ?
+        """, (well_id,)).fetchone()
+    finally:
+        connection.close()
+
+
+def get_wells(project_id=None):
+    connection = get_connection()
+    try:
+        if project_id is None:
+            return connection.execute("""
+                SELECT id, project_id, name, identifier, description,
+                       lifecycle_status, created_at, updated_at
+                FROM wells ORDER BY id
+            """).fetchall()
+        return connection.execute("""
+            SELECT id, project_id, name, identifier, description,
+                   lifecycle_status, created_at, updated_at
+            FROM wells WHERE project_id = ? ORDER BY id
+        """, (project_id,)).fetchall()
+    finally:
+        connection.close()
+
+
+def update_well_lifecycle_status(well_id, lifecycle_status):
+    if lifecycle_status not in LIFECYCLE_STATUSES:
+        raise ValueError(
+            "Invalid lifecycle status. Choose Active, Archived, Invalidated, or Superseded."
+        )
+    _, rowcount = _write(
+        "UPDATE wells SET lifecycle_status = ?, updated_at = datetime('now') WHERE id = ?",
+        (lifecycle_status, well_id),
+    )
+    if rowcount == 0:
+        raise ValueError(f"No well found with ID {well_id}.")
+
+
+def create_design_case(project_id, name, well_id=None, description=None):
+    return _write(
+        """
+        INSERT INTO design_cases (project_id, well_id, name, description)
+        VALUES (?, ?, ?, ?)
+        """,
+        (project_id, well_id, name, description),
+    )[0]
+
+
+def get_design_case(design_case_id):
+    connection = get_connection()
+    try:
+        return connection.execute("""
+            SELECT id, project_id, well_id, name, description,
+                   lifecycle_status, created_at, updated_at
+            FROM design_cases
+            WHERE id = ?
+        """, (design_case_id,)).fetchone()
+    finally:
+        connection.close()
+
+
+def get_design_cases(project_id=None, well_id=None):
+    connection = get_connection()
+    try:
+        if project_id is None and well_id is None:
+            return connection.execute("""
+                SELECT id, project_id, well_id, name, description,
+                       lifecycle_status, created_at, updated_at
+                FROM design_cases ORDER BY id
+            """).fetchall()
+        if project_id is not None and well_id is not None:
+            return connection.execute("""
+                SELECT id, project_id, well_id, name, description,
+                       lifecycle_status, created_at, updated_at
+                FROM design_cases
+                WHERE project_id = ? AND well_id = ? ORDER BY id
+            """, (project_id, well_id)).fetchall()
+        if project_id is not None:
+            return connection.execute("""
+                SELECT id, project_id, well_id, name, description,
+                       lifecycle_status, created_at, updated_at
+                FROM design_cases
+                WHERE project_id = ? ORDER BY id
+            """, (project_id,)).fetchall()
+        return connection.execute("""
+            SELECT id, project_id, well_id, name, description,
+                   lifecycle_status, created_at, updated_at
+            FROM design_cases
+            WHERE well_id = ? ORDER BY id
+        """, (well_id,)).fetchall()
+    finally:
+        connection.close()
+
+
+def update_design_case_lifecycle_status(design_case_id, lifecycle_status):
+    if lifecycle_status not in LIFECYCLE_STATUSES:
+        raise ValueError(
+            "Invalid lifecycle status. Choose Active, Archived, Invalidated, or Superseded."
+        )
+    _, rowcount = _write(
+        "UPDATE design_cases SET lifecycle_status = ?, updated_at = datetime('now') WHERE id = ?",
+        (lifecycle_status, design_case_id),
+    )
+    if rowcount == 0:
+        raise ValueError(f"No design case found with ID {design_case_id}.")
