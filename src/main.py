@@ -224,27 +224,33 @@ def requirements_menu():
             except ValueError:
                 print("Requirement id must be a number.")
             else:
-                print("Set status to:")
-                print("1. Verified")
-                print("2. Failed")
-                print("3. Unverified")
-                print("4. At risk")
+                requirement = get_requirement(requirement_id)
 
-                new_status = STATUS_CHOICES.get(
-                    input("Choose 1-4: ")
-                )
-
-                if new_status is None:
-                    print("Invalid choice, status not changed.")
+                if requirement is None:
+                    print("No requirement with that id.")
                 else:
-                    update_requirement_status(
-                        requirement_id,
-                        new_status,
+                    print("Set status to:")
+                    print("1. Verified")
+                    print("2. Failed")
+                    print("3. Unverified")
+                    print("4. At risk")
+
+                    new_status = STATUS_CHOICES.get(
+                        input("Choose 1-4: ")
                     )
-                    print(
-                        f"Requirement {requirement_id} "
-                        f"status set to {new_status}."
-                    )
+
+                    if new_status is None:
+                        print("Invalid choice, status not changed.")
+                    else:
+                        update_requirement_status(
+                            requirement_id,
+                            new_status,
+                        )
+                        print(
+                            f"Requirement {requirement_id} "
+                            f"status set to {new_status}."
+                        )
+
 
         elif choice == "4":
             try:

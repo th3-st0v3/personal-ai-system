@@ -132,9 +132,20 @@ class TestMain(unittest.TestCase):
     def test_requirements_menu_updates_requirement_status(self):
         import main
 
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
         with patch(
             "builtins.input",
             side_effect=["3", "42", "1", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
         ), patch(
             "main.update_requirement_status"
         ) as mock_update, patch("builtins.print"):
@@ -279,6 +290,98 @@ class TestMain(unittest.TestCase):
 
         mock_print.assert_any_call(
             "No requirement with that id."
+        )
+
+
+    def test_requirements_menu_status_handles_missing_requirement(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["3", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=None,
+        ), patch(
+            "main.update_requirement_status"
+        ) as mock_update, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_update.assert_not_called()
+        mock_print.assert_any_call(
+            "No requirement with that id."
+        )
+
+    def test_requirements_menu_status_handles_invalid_status_choice(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        with patch(
+            "builtins.input",
+            side_effect=["3", "42", "9", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.update_requirement_status"
+        ) as mock_update, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_update.assert_not_called()
+        mock_print.assert_any_call(
+            "Invalid choice, status not changed."
+        )
+
+
+    def test_requirements_menu_evaluation_handles_non_numeric_requirement_id(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["4", "not-a-number", "6"],
+        ), patch(
+            "main.evaluate_requirement_evidence"
+        ) as mock_evaluate, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_evaluate.assert_not_called()
+        mock_print.assert_any_call(
+            "Requirement id must be a number."
+        )
+
+
+    def test_requirements_menu_history_handles_non_numeric_requirement_id(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["5", "not-a-number", "6"],
+        ), patch(
+            "main.get_requirement"
+        ) as mock_get, patch(
+            "main.get_evidence_history_for_requirement"
+        ) as mock_history, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_get.assert_not_called()
+        mock_history.assert_not_called()
+        mock_print.assert_any_call(
+            "Requirement id must be a number."
         )
 
 
