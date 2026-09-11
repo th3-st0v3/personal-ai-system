@@ -24,17 +24,20 @@ class TestSiteApplication(unittest.TestCase):
 
     def call(self, path):
         captured = {}
-        def start_response(status, headers):
-            captured["status"], captured["headers"] = status, dict(headers)
+        def start_response(status, headers): captured["status"], captured["headers"] = status, dict(headers)
         body = b"".join(self.site({"REQUEST_METHOD": "GET", "PATH_INFO": path, "QUERY_STRING": "", "CONTENT_LENGTH": "0", "wsgi.input": io.BytesIO(b"")}, start_response))
         return captured, body
 
-    def test_serves_index_javascript_and_css(self):
-        for path, content_type in (("/", "text/html"), ("/app.js", "text/javascript"), ("/styles.css", "text/css")):
+    def test_serves_interactive_client_assets(self):
+        for path, content_type in (("/", "text/html"), ("/app.js", "text/javascript"), ("/keyboard.js", "text/javascript"), ("/workspace-root.js", "text/javascript"), ("/workspace-interactions.js", "text/javascript"), ("/styles.css", "text/css")):
             response, body = self.call(path)
             self.assertEqual(response["status"], "200 OK")
             self.assertIn(content_type, response["headers"]["Content-Type"])
             self.assertGreater(len(body), 100)
+        _, index = self.call("/")
+        text = index.decode()
+        for asset in ("/keyboard.js", "/workspace-root.js", "/workspace-interactions.js"):
+            self.assertIn(asset, text)
 
     def test_delegates_api_routes(self):
         response, body = self.call("/api/health")
