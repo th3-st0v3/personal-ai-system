@@ -1,16 +1,10 @@
-"""Application boundary for deterministic engineering calculations.
-
-This module provides one stable entry point for selecting a registered
-calculation model, validating its inputs, executing the deterministic
-calculation library, and optionally persisting the resulting record.
-It keeps future UI/API/AI callers from depending on individual calculation
-functions or database details.
-"""
+"""Application boundary for deterministic engineering calculations."""
 
 import math
 
 import calculations
 import db
+from calculation_catalog import get_entry, grouped_categories, list_category, list_categories, search
 from calculation_definitions import CALCULATION_DEFINITIONS
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 from calculation_records import CalculationRecord
@@ -20,14 +14,32 @@ class CalculationApplication:
     """Run registered deterministic calculation models through one interface."""
 
     def __init__(self):
-        self._definitions = {
-            model.key: (model, method, parameters)
-            for model, method, parameters in CALCULATION_DEFINITIONS
-        }
+        self._definitions = {model.key: (model, method, parameters) for model, method, parameters in CALCULATION_DEFINITIONS}
 
     def list_models(self) -> list[CalculationModel]:
         """Return registered calculation models in definition order."""
         return [definition[0] for definition in self._definitions.values()]
+
+    def list_categories(self) -> tuple[str, ...]:
+        """Return the navigation categories used by the calculation catalog."""
+        return list_categories()
+
+    def list_category(self, category: str) -> tuple[str, ...]:
+        """Return canonical calculation keys for one discipline/category."""
+        return list_category(category)
+
+    def grouped_categories(self) -> dict[str, tuple[str, ...]]:
+        """Return the complete category tree for a frontend catalog."""
+        return grouped_categories()
+
+    def search(self, query: str, category: str | None = None) -> tuple[str, ...]:
+        """Search the calculation catalog, optionally constrained to a category."""
+        return search(query, category=category)
+
+    def get_catalog_entry(self, model_key: str):
+        """Return discipline and use-case metadata for a calculation."""
+        self.get_model(model_key)
+        return get_entry(model_key)
 
     def get_model(self, model_key: str) -> CalculationModel:
         """Return a model definition or raise for an unknown model key."""
@@ -55,17 +67,13 @@ class CalculationApplication:
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
-
         if not isinstance(inputs, dict):
             raise ValueError("inputs must be a dictionary.")
 
         _, method, parameters = definition
         expected = {parameter.name: parameter for parameter in parameters}
         supplied = set(inputs)
-        missing = [
-            name for name, parameter in expected.items()
-            if parameter.required and name not in supplied
-        ]
+        missing = [name for name, parameter in expected.items() if parameter.required and name not in supplied]
         unknown = supplied - set(expected)
         if missing:
             raise ValueError("Missing required inputs: " + ", ".join(missing))
