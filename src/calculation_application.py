@@ -102,8 +102,9 @@ class CalculationApplication:
 
     def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
         """Validate inputs and execute any registered deterministic model."""
-        method, parameters, _ = self._validated_inputs(model_key, inputs)
         trace = self.run_trace(model_key, inputs)
+        method = self.get_method(model_key)
+        parameters = self.get_parameters(model_key)
         return CalculationRecord(
             calculation_type=trace.key,
             inputs=trace.inputs,
