@@ -69,8 +69,11 @@ def initialize(connection):
     _add_column_if_missing(
         connection, "projects", "status", "TEXT NOT NULL DEFAULT 'Active'"
     )
+    # SQLite does not allow a non-constant expression as the default of an
+    # ALTER TABLE ... ADD COLUMN migration, so this remains nullable until
+    # project writes are migrated to populate it explicitly.
     _add_column_if_missing(
-        connection, "projects", "updated_at", "TEXT NOT NULL DEFAULT (datetime('now'))"
+        connection, "projects", "updated_at", "TEXT"
     )
 
     connection.execute(
@@ -80,21 +83,13 @@ def initialize(connection):
         "CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_id)"
     )
 
-    _add_column_if_missing(
-        connection, "requirements", "identifier", "TEXT"
-    )
-    _add_column_if_missing(
-        connection, "requirements", "title", "TEXT"
-    )
+    _add_column_if_missing(connection, "requirements", "identifier", "TEXT")
+    _add_column_if_missing(connection, "requirements", "title", "TEXT")
     _add_column_if_missing(
         connection, "requirements", "acceptance_criteria", "TEXT"
     )
-    _add_column_if_missing(
-        connection, "requirements", "priority", "TEXT"
-    )
-    _add_column_if_missing(
-        connection, "requirements", "updated_at", "TEXT NOT NULL DEFAULT (datetime('now'))"
-    )
+    _add_column_if_missing(connection, "requirements", "priority", "TEXT")
+    _add_column_if_missing(connection, "requirements", "updated_at", "TEXT")
     connection.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_requirements_project_identifier "
         "ON requirements(project_id, identifier) WHERE identifier IS NOT NULL"
@@ -147,15 +142,9 @@ def initialize(connection):
     _add_column_if_missing(
         connection, "evidence", "source_id", "INTEGER REFERENCES sources(id)"
     )
-    _add_column_if_missing(
-        connection, "evidence", "classification", "TEXT"
-    )
-    _add_column_if_missing(
-        connection, "evidence", "description", "TEXT"
-    )
-    _add_column_if_missing(
-        connection, "evidence", "invalidated_at", "TEXT"
-    )
+    _add_column_if_missing(connection, "evidence", "classification", "TEXT")
+    _add_column_if_missing(connection, "evidence", "description", "TEXT")
+    _add_column_if_missing(connection, "evidence", "invalidated_at", "TEXT")
     _add_column_if_missing(
         connection, "evidence", "invalidation_reason", "TEXT"
     )
@@ -244,7 +233,9 @@ def initialize(connection):
 
 
 def _add_column_if_missing(connection, table_name, column_name, definition):
-    columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table_name})")}
+    columns = {
+        row[1] for row in connection.execute(f"PRAGMA table_info({table_name})")
+    }
     if column_name not in columns:
         connection.execute(
             f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"
