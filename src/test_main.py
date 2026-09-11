@@ -1114,6 +1114,32 @@ class TestMainMenu(unittest.TestCase):
         mock_ask_ai.assert_called_once_with()
 
 
+    def test_main_handles_invalid_option(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["9", "7"],
+        ), patch("builtins.print") as mock_print:
+            main.main()
+
+        mock_print.assert_any_call(
+            "Invalid option. Please choose 1-7."
+        )
+
+
+    def test_main_quit_prints_goodbye(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["7"],
+        ), patch("builtins.print") as mock_print:
+            main.main()
+
+        mock_print.assert_any_call("Goodbye.")
+
+
     def test_notes_menu_has_back_option(self):
         import main
 
