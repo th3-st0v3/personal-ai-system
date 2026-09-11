@@ -47,6 +47,16 @@ class TestCalculationApplication(unittest.TestCase):
         self.assertEqual(record.result, 40000.0)
         self.assertEqual(record.result_unit, "Pa")
 
+    def test_explain_returns_reproducible_steps_and_interpretation(self):
+        explanation = self.app.explain(
+            "hydrostatic_pressure",
+            {"density": 1000, "gravity": 9.81, "depth": 10},
+        )
+        self.assertEqual(explanation["record"].result, 98100.0)
+        self.assertGreaterEqual(len(explanation["steps"]), 2)
+        self.assertIn("pressure gradient", explanation["steps"][0])
+        self.assertIn("fluid column", explanation["interpretation"])
+
     def test_runs_and_saves_through_application_boundary(self):
         with patch("calculation_application.db.save_calculation_record", return_value=42) as save:
             calculation_id, record = self.app.run_and_save(
