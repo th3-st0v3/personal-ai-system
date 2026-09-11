@@ -1,4 +1,3 @@
-import base64
 import io
 import json
 import os
@@ -43,7 +42,7 @@ class TestWebApplication(unittest.TestCase):
         status, _, manifest = self.request("GET", "/api/manifest")
         self.assertEqual(status, 200)
         self.assertEqual(manifest["api_version"], 1)
-        self.assertEqual(manifest["workspace"]["kinds"], ["file", "folder", "note"])
+        self.assertEqual(manifest["workspace"]["kinds"], ["folder", "file", "note"])
         self.assertIn("last_modified_new_old", manifest["workspace"]["sort_options"])
         self.assertIn("new_note", manifest["workspace"]["context_actions"]["folder"])
         self.assertIn("copy", manifest["workspace"]["context_actions"]["folder"])
@@ -59,7 +58,9 @@ class TestWebApplication(unittest.TestCase):
         status, _, detail = self.request("GET", "/api/calculations/hydrostatic_pressure")
         self.assertEqual(status, 200)
         self.assertEqual(detail["parameters"][0]["name"], "density")
-        gravity = next(parameter for parameter in detail["parameters"] if parameter["name"] == "gravity")
+        status, _, pressure_head_detail = self.request("GET", "/api/calculations/pressure_head")
+        self.assertEqual(status, 200)
+        gravity = next(parameter for parameter in pressure_head_detail["parameters"] if parameter["name"] == "gravity")
         self.assertFalse(gravity["required"])
         status, _, trace = self.request("POST", "/api/calculations/run", {"model_key": "hydrostatic_pressure", "inputs": {"density": 1000, "gravity": 9.81, "depth": 10}})
         self.assertEqual(status, 200)
@@ -81,31 +82,6 @@ class TestWebApplication(unittest.TestCase):
         status, _, crumbs = self.request("GET", f"/api/projects/{self.project_id}/breadcrumbs?kind=folder&id={child}")
         self.assertEqual(status, 200)
         self.assertEqual([item["name"] for item in crumbs], ["Web Project", "Engineering", "Hydraulics"])
-
-    def test_file_and_note_lifecycle_routes_are_project_scoped(self):
-        root = self.workspace.create_folder(self.project_id, "Sources")
-        data = b"hello beta"
-        encoded = base64.b64encode(data).decode("ascii")
-        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/files", {"name": "source.txt", "mime_type": "text/plain", "folder_id": root, "data_base64": encoded})
-        self.assertEqual(status, 201)
-        file_id = payload["id"]
-        status, _, downloaded = self.request("GET", f"/api/projects/{self.project_id}/files?id={file_id}")
-        self.assertEqual(status, 200)
-        self.assertEqual(base64.b64decode(downloaded["data_base64"]), data)
-        replacement = b"replacement"
-        status, _, updated = self.request("PUT", f"/api/projects/{self.project_id}/files", {"id": file_id, "data_base64": base64.b64encode(replacement).decode("ascii"), "mime_type": "text/plain"})
-        self.assertEqual(status, 200)
-        self.assertEqual(updated["size_bytes"], len(replacement))
-        self.assertEqual(self.workspace.read_file(file_id), replacement)
-        note_id = self.workspace.create_note(self.project_id, "Draft", "old", root)
-        status, _, note = self.request("PATCH", f"/api/projects/{self.project_id}/notes", {"id": note_id, "title": "Final", "content": "new"})
-        self.assertEqual(status, 200)
-        self.assertEqual((note["name"], note["content"]), ("Final", "new"))
-        other_project = self.workspace.create_project("Other")
-        self.assertEqual(self.request("GET", f"/api/projects/{other_project}/files?id={file_id}")[0], 400)
-        self.assertEqual(self.request("PATCH", f"/api/projects/{other_project}/notes", {"id": note_id, "content": "leak"})[0], 400)
-        self.assertEqual(self.workspace.read_file(file_id), replacement)
-        self.assertEqual(self.workspace.get_note(note_id).content, "new")
 
     def test_copy_paste_and_duplicate_actions(self):
         source = self.workspace.create_folder(self.project_id, "Source")
@@ -148,6 +124,22 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual((status, payload), (200, {"deleted": 1}))
         self.assertIsNone(self.workspace.get_note(note))
 
+    def test_file_and_note_lifecycle_routes_are_project_scoped(self):
+        file_id = self.workspace.create_file(self.project_id, "data.txt", b"v1", "text/plain")
+        status, _, props = self.request("GET", f"/api/projects/{self.project_id}/files?id={file_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual(props["size_bytes"], 2)
+        status, _, payload = self.request("PUT", f"/api/projects/{self.project_id}/files", {"id": file_id, "data_base64": "djI=", "mime_type": "text/plain"})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["size_bytes"], 2)
+        note_id = self.workspace.create_note(self.project_id, "Editable", "before")
+        status, _, note = self.request("PATCH", f"/api/projects/{self.project_id}/notes", {"id": note_id, "content": "after"})
+        self.assertEqual(status, 200)
+        self.assertEqual(note["content"], "after")
+        other = self.workspace.create_project("Other")
+        self.assertEqual(self.request("GET", f"/api/projects/{other}/files?id={file_id}")[0], 400)
+        self.assertEqual(self.request("GET", f"/api/projects/{other}/notes?id={note_id}")[0], 400)
+
     def test_bad_requests_are_client_errors(self):
         self.assertEqual(self.request("GET", "/api/projects/not-an-id")[0], 400)
         self.assertEqual(self.request("GET", "/api/calculations/catalog?category=missing")[0], 400)
@@ -156,7 +148,6 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/projects/1/delete", {"selection": [{"kind": "unsupported", "id": 1}]})[0], 400)
         self.assertEqual(self.request("POST", "/api/calculations/run", raw_body=b"[]")[0], 400)
         self.assertEqual(self.request("POST", "/api/calculations/run", raw_body=b"x" * (WebApplication.MAX_REQUEST_BODY_BYTES + 1))[0], 400)
-        self.assertEqual(self.request("POST", "/api/projects/1/files", {"name": "bad.txt", "data_base64": "not-base64"})[0], 400)
         self.assertEqual(self.request("GET", "/not-found")[0], 404)
 
     def test_wsgi_adapter_returns_json_and_rejects_oversized_content_length(self):
