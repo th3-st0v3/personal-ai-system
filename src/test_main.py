@@ -587,6 +587,127 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_views_requirement_with_missing_evidence_location(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        evidence = [
+            (
+                7,
+                42,
+                "Pressure test",
+                "",
+                "Pressure held at 100 psi",
+                "verified",
+            )
+        ]
+
+        with patch(
+            "builtins.input",
+            side_effect=["2", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.get_evidence_for_requirement",
+            return_value=evidence,
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_print.assert_any_call(
+            "  - [verified] Pressure test "
+            "(no location given): Pressure held at 100 psi"
+        )
+
+
+    def test_requirements_menu_views_evidence_history_with_missing_location(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        history = [
+            (
+                7,
+                42,
+                "Pressure test",
+                "",
+                "Pressure held at 100 psi",
+                "Verified",
+                0,
+                "2026-09-10T12:00:00",
+            )
+        ]
+
+        with patch(
+            "builtins.input",
+            side_effect=["5", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.get_evidence_history_for_requirement",
+            return_value=history,
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_print.assert_any_call(
+            "  - [Verified] Pressure test "
+            "(no location given): Pressure held at 100 psi "
+            "[0] at 2026-09-10T12:00:00"
+        )
+
+
+    def test_requirements_menu_updates_requirement_status_prints_confirmation(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        with patch(
+            "builtins.input",
+            side_effect=["3", "42", "1", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.update_requirement_status"
+        ) as mock_update, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_update.assert_called_once_with(
+            42,
+            "Verified",
+        )
+
+        mock_print.assert_any_call(
+            "Requirement 42 status set to Verified."
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
