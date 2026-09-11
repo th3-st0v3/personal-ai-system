@@ -74,3 +74,40 @@ def delete_file(storage_root, file_id):
             "the storage object requires cleanup."
         ) from exc
     return deleted
+
+
+def delete_files(storage_root, file_ids):
+    """Delete multiple files and clean their physical byte objects.
+
+    Metadata is removed as one database operation before byte cleanup. If
+    physical cleanup fails, the metadata remains deleted and ``FileServiceError``
+    identifies that one or more storage objects require cleanup.
+    """
+    unique_ids = list(dict.fromkeys(file_ids))
+    if not unique_ids:
+        return 0
+    if any(not isinstance(file_id, int) for file_id in unique_ids):
+        raise ValueError("file_ids must contain only integers.")
+
+    records = []
+    for file_id in unique_ids:
+        record = workspace_storage.get_file(file_id)
+        if record is None:
+            raise ValueError(f"No file found with ID {file_id}.")
+        records.append(record)
+
+    workspace_storage.delete_files(unique_ids)
+
+    failed_keys = []
+    for record in records:
+        try:
+            file_storage.delete_bytes(storage_root, record[4])
+        except Exception:
+            failed_keys.append(record[4])
+
+    if failed_keys:
+        raise FileServiceError(
+            "File metadata was deleted, but physical byte cleanup failed for "
+            f"{len(failed_keys)} storage object(s); cleanup is required."
+        )
+    return len(records)
