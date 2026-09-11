@@ -32,47 +32,80 @@ class WorkspaceApplication:
     @staticmethod
     def _attachment(record): return {"id": record[0], "file_id": record[1], "target_type": record[2], "target_id": record[3], "created_at": record[4]}
 
+    @staticmethod
+    def _require_project_item(kind, item_id, project_id):
+        item = WorkspaceApplication._browser_item(kind, item_id)
+        if item.project_id != project_id:
+            raise ValueError(f"{kind.capitalize()} belongs to another project.")
+        return item
+
     def create_project(self, name, description=None): return db.create_project(name, description)
     def list_projects(self): return [self._project(r) for r in db.get_projects()]
     def create_folder(self, project_id, name, parent_folder_id=None): return workspace_storage.create_folder(project_id, name, parent_folder_id)
     def get_folder(self, folder_id):
         r = workspace_storage.get_folder(folder_id); return None if r is None else self._folder(r)
     def list_folders(self, project_id, parent_folder_id=None): return [self._folder(r) for r in workspace_storage.get_folders(project_id, parent_folder_id)]
-    def rename_folder(self, folder_id, name): workspace_storage.rename_folder(folder_id, name)
-    def move_folder(self, folder_id, parent_folder_id=None): workspace_storage.move_folder(folder_id, parent_folder_id)
-    def set_folder_lifecycle(self, folder_id, lifecycle_status): workspace_storage.update_folder_lifecycle_status(folder_id, lifecycle_status)
-    def delete_folder(self, folder_id): workspace_storage.delete_folder(folder_id)
+    def rename_folder(self, folder_id, name, *, project_id=None):
+        if project_id is not None: self._require_project_item("folder", folder_id, project_id)
+        workspace_storage.rename_folder(folder_id, name)
+    def move_folder(self, folder_id, parent_folder_id=None, *, project_id=None):
+        if project_id is not None: self._require_project_item("folder", folder_id, project_id)
+        workspace_storage.move_folder(folder_id, parent_folder_id)
+    def set_folder_lifecycle(self, folder_id, lifecycle_status, *, project_id=None):
+        if project_id is not None: self._require_project_item("folder", folder_id, project_id)
+        workspace_storage.update_folder_lifecycle_status(folder_id, lifecycle_status)
+    def delete_folder(self, folder_id, *, project_id=None):
+        if project_id is not None: self._require_project_item("folder", folder_id, project_id)
+        workspace_storage.delete_folder(folder_id)
     def create_file(self, project_id, name, data, mime_type=None, folder_id=None): return workspace_file_service.create_file(self.storage_root, project_id, name, data, mime_type, folder_id)
     def get_file(self, file_id):
         r = workspace_storage.get_file(file_id); return None if r is None else self._file(r)
     def list_files(self, project_id, folder_id=None): return [self._file(r) for r in workspace_storage.get_files(project_id, folder_id)]
-    def read_file(self, file_id):
+    def read_file(self, file_id, *, project_id=None):
         r = workspace_storage.get_file(file_id)
         if r is None: raise ValueError(f"No file found with ID {file_id}.")
+        if project_id is not None and r[1] != project_id: raise ValueError("File belongs to another project.")
         return file_storage.read_bytes(self.storage_root, r[4])
-    def verify_file(self, file_id):
+    def verify_file(self, file_id, *, project_id=None):
         r = workspace_storage.get_file(file_id)
         if r is None: raise ValueError(f"No file found with ID {file_id}.")
+        if project_id is not None and r[1] != project_id: raise ValueError("File belongs to another project.")
         return file_storage.verify_sha256(self.storage_root, r[4], r[7])
-    def replace_file(self, file_id, data, mime_type=None): return self._file(workspace_file_service.replace_file(self.storage_root, file_id, data, mime_type))
-    def rename_file(self, file_id, name): workspace_storage.rename_file(file_id, name)
-    def move_file(self, file_id, folder_id=None): workspace_storage.move_file(file_id, folder_id)
-    def set_file_lifecycle(self, file_id, lifecycle_status): workspace_storage.update_file_lifecycle_status(file_id, lifecycle_status)
-    def delete_file(self, file_id): return workspace_file_service.delete_file(self.storage_root, file_id)
-    def delete_files(self, file_ids): return workspace_file_service.delete_files(self.storage_root, file_ids)
+    def replace_file(self, file_id, data, mime_type=None, *, project_id=None):
+        if project_id is not None: self._require_project_item("file", file_id, project_id)
+        return self._file(workspace_file_service.replace_file(self.storage_root, file_id, data, mime_type))
+    def rename_file(self, file_id, name, *, project_id=None):
+        if project_id is not None: self._require_project_item("file", file_id, project_id)
+        workspace_storage.rename_file(file_id, name)
+    def move_file(self, file_id, folder_id=None, *, project_id=None):
+        if project_id is not None: self._require_project_item("file", file_id, project_id)
+        workspace_storage.move_file(file_id, folder_id)
+    def set_file_lifecycle(self, file_id, lifecycle_status, *, project_id=None):
+        if project_id is not None: self._require_project_item("file", file_id, project_id)
+        workspace_storage.update_file_lifecycle_status(file_id, lifecycle_status)
+    def delete_file(self, file_id, *, project_id=None):
+        if project_id is not None: self._require_project_item("file", file_id, project_id)
+        return workspace_file_service.delete_file(self.storage_root, file_id)
+    def delete_files(self, file_ids, *, project_id=None):
+        if project_id is not None:
+            for file_id in file_ids: self._require_project_item("file", file_id, project_id)
+        return workspace_file_service.delete_files(self.storage_root, file_ids)
 
     # Unified project-browser contract: folders + notes + files.
     def create_note(self, project_id, title, content="", folder_id=None, metadata=None): return workspace_browser.create_note(project_id, title, content, folder_id, metadata=metadata)
     def get_note(self, note_id): return workspace_browser.get_note(note_id)
     def update_note(self, note_id, **changes): return workspace_browser.update_note(note_id, **changes)
-    def move_note(self, note_id, folder_id=None): return workspace_browser.move_note(note_id, folder_id)
-    def delete_note(self, note_id): return workspace_browser.delete_note(note_id)
-    def export_note(self, note_id):
-        note = workspace_browser.get_note(note_id)
-        if note is None: raise ValueError(f"No note found with ID {note_id}.")
+    def move_note(self, note_id, folder_id=None, *, project_id=None):
+        if project_id is not None: self._require_project_item("note", note_id, project_id)
+        return workspace_browser.move_note(note_id, folder_id)
+    def delete_note(self, note_id, *, project_id=None):
+        if project_id is not None: self._require_project_item("note", note_id, project_id)
+        return workspace_browser.delete_note(note_id)
+    def export_note(self, note_id, *, project_id=None):
+        note = self._require_project_item("note", note_id, project_id) if project_id is not None else workspace_browser.get_note(note_id)
         return note.content or ""
-    def pin_note(self, note_id, pinned=True):
-        note = workspace_browser.get_note(note_id)
+    def pin_note(self, note_id, pinned=True, *, project_id=None):
+        note = self._require_project_item("note", note_id, project_id) if project_id is not None else workspace_browser.get_note(note_id)
         if note is None: raise ValueError(f"No note found with ID {note_id}.")
         metadata = dict(note.metadata); metadata["pinned"] = bool(pinned)
         return workspace_browser.update_note(note_id, metadata=metadata)
@@ -80,8 +113,12 @@ class WorkspaceApplication:
     def list_project_items(self, project_id, recursive=True, sort="a_z"): return workspace_browser.list_project_items(project_id, recursive=recursive, sort=sort)
     def search_project(self, project_id, query, recursive=True): return workspace_search.search_project(project_id, query, recursive=recursive)
     def search_project_names(self, project_id, query): return workspace_search.search_project_names(project_id, query)
-    def move_item(self, kind, item_id, target_folder_id=None): return workspace_browser.move_item(kind, item_id, target_folder_id)
-    def rename_item(self, kind, item_id, name): return workspace_browser.rename_item(kind, item_id, name)
+    def move_item(self, kind, item_id, target_folder_id=None, *, project_id=None):
+        if project_id is not None: self._require_project_item(kind, item_id, project_id)
+        return workspace_browser.move_item(kind, item_id, target_folder_id)
+    def rename_item(self, kind, item_id, name, *, project_id=None):
+        if project_id is not None: self._require_project_item(kind, item_id, project_id)
+        return workspace_browser.rename_item(kind, item_id, name)
     def duplicate_item(self, project_id, kind, item_id): return workspace_clipboard.duplicate_item(self.storage_root, project_id, kind, item_id)
     def copy_selection(self, project_id, selection): return workspace_clipboard.copy_selection(self.storage_root, project_id, selection)
     def paste_selection(self, project_id, target_folder_id, clipboard): return workspace_clipboard.paste_selection(self.storage_root, project_id, target_folder_id, clipboard)
@@ -109,11 +146,23 @@ class WorkspaceApplication:
 
     def create_tag(self, project_id, name): return workspace_storage.create_tag(project_id, name)
     def list_tags(self, project_id): return [self._tag(r) for r in workspace_storage.get_tags(project_id)]
-    def assign_tag(self, tag_id, target_type, target_id): return workspace_storage.assign_tag(tag_id, target_type, target_id)
-    def remove_tag(self, tag_id, target_type, target_id): workspace_storage.remove_tag(tag_id, target_type, target_id)
+    def assign_tag(self, tag_id, target_type, target_id, *, project_id=None):
+        if project_id is not None:
+            tag = workspace_storage.get_tag(tag_id)
+            if tag is None or tag[1] != project_id: raise ValueError("Tag belongs to another project.")
+        return workspace_storage.assign_tag(tag_id, target_type, target_id)
+    def remove_tag(self, tag_id, target_type, target_id, *, project_id=None):
+        if project_id is not None:
+            tag = workspace_storage.get_tag(tag_id)
+            if tag is None or tag[1] != project_id: raise ValueError("Tag belongs to another project.")
+        workspace_storage.remove_tag(tag_id, target_type, target_id)
     def get_tags_for_target(self, target_type, target_id): return [self._tag(r) for r in workspace_storage.get_tags_for_target(target_type, target_id)]
-    def attach_file(self, file_id, target_type, target_id): return workspace_storage.attach_file(file_id, target_type, target_id)
-    def detach_file(self, file_id, target_type, target_id): workspace_storage.detach_file(file_id, target_type, target_id)
+    def attach_file(self, file_id, target_type, target_id, *, project_id=None):
+        if project_id is not None: self._require_project_item("file", file_id, project_id)
+        return workspace_storage.attach_file(file_id, target_type, target_id)
+    def detach_file(self, file_id, target_type, target_id, *, project_id=None):
+        if project_id is not None: self._require_project_item("file", file_id, project_id)
+        workspace_storage.detach_file(file_id, target_type, target_id)
     def get_file_attachments(self, file_id): return [self._attachment(r) for r in workspace_storage.get_file_attachments(file_id)]
 
 
