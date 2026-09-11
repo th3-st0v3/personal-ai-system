@@ -1141,23 +1141,54 @@ class TestCalculationsMenu(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-class TestCalculationsMenuEdgeCases(unittest.TestCase):
-
-    def test_calculations_menu_handles_invalid_option(self):
+    def test_ask_ai_handles_missing_model_import(self):
+        import builtins
         import main
 
+        original_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name == "model":
+                raise ImportError("model unavailable")
+            return original_import(name, *args, **kwargs)
+
         with patch(
-            "builtins.input",
-            side_effect=["9", "4"],
+            "builtins.__import__",
+            side_effect=failing_import,
         ), patch(
             "builtins.print"
         ) as mock_print:
-            main.calculations_menu()
+            main.ask_ai()
+
+        mock_print.assert_called_once_with(
+            "\nAI feature unavailable: model unavailable"
+        )
+
+
+    def test_ask_ai_handles_model_request_failure(self):
+        import sys
+        import types
+        import main
+
+        fake_model = types.ModuleType("model")
+
+        def failing_ask_model(prompt):
+            raise RuntimeError("request failed")
+
+        fake_model.ask_model = failing_ask_model
+
+        with patch.dict(sys.modules, {"model": fake_model}), patch(
+            "builtins.input",
+            return_value="test prompt",
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.ask_ai()
 
         mock_print.assert_any_call(
-            "Invalid option. Please choose 1-4."
+            "\nAI request failed: request failed"
         )
+
+
+if __name__ == "__main__":
+    unittest.main()
