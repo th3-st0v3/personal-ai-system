@@ -9,7 +9,7 @@ class TestCalculationDefaults(unittest.TestCase):
 
     def test_default_gravity_is_accepted_when_omitted(self):
         trace = self.app.run_trace("pressure_head", {"pressure": 9810, "density": 1000})
-        self.assertAlmostEqual(trace.result, 1.0, places=8)
+        self.assertAlmostEqual(trace.result, 9810 / (1000 * 9.80665), places=12)
 
     def test_default_gas_constant_is_accepted_when_omitted(self):
         trace = self.app.run_trace("ideal_gas_pressure", {"amount": 1, "temperature": 273.15, "volume": 1})
