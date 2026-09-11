@@ -80,6 +80,17 @@ class TestWorkspaceBrowser(unittest.TestCase):
         self.assertIsNone(workspace_storage.get_folder(parent))
         self.assertIsNone(workspace_storage.get_folder(child))
 
+    def test_selection_delete_rejects_items_from_another_project(self):
+        other_project = db.create_project("Other Project")
+        other_folder = workspace_storage.create_folder(other_project, "Private")
+        other_file = workspace_browser.create_file(self.storage, other_project, "secret.txt", b"secret", "text/plain", other_folder)
+        with self.assertRaises(ValueError):
+            workspace_browser.delete_selection(self.storage, self.project_id, [("folder", other_folder)])
+        with self.assertRaises(ValueError):
+            workspace_browser.delete_selection(self.storage, self.project_id, [("file", other_file)])
+        self.assertIsNotNone(workspace_storage.get_folder(other_folder))
+        self.assertIsNotNone(workspace_storage.get_file(other_file))
+
 
 if __name__ == "__main__":
     unittest.main()
