@@ -3,18 +3,19 @@ import unittest
 from pathlib import Path
 
 import db
-import workspace_search
 from workspace_application import WorkspaceApplication
 
 
 class WorkspaceSearchTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        db.DB_PATH = Path(self.temp_dir.name) / "test.db"
+        self._original_database_path = db.DATABASE_PATH
+        db.DATABASE_PATH = str(Path(self.temp_dir.name) / "test.db")
         self.app = WorkspaceApplication(Path(self.temp_dir.name) / "storage")
         self.project_id = self.app.create_project("Search Project", "workspace search")
 
     def tearDown(self):
+        db.DATABASE_PATH = self._original_database_path
         self.temp_dir.cleanup()
 
     def test_search_finds_nested_names_and_note_content(self):
