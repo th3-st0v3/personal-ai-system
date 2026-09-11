@@ -24,7 +24,8 @@ class TestCalculationFoundationPersistence(unittest.TestCase):
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         self.assertTrue({"calculation_models", "method_versions", "calculation_parameters"}.issubset(tables))
-        self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 5)
+        self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], db.SCHEMA_VERSION)
+        self.assertEqual(db.SCHEMA_VERSION, 6)
         connection.close()
 
     def test_built_in_models_and_parameters_are_seeded(self):
@@ -117,7 +118,8 @@ class TestCalculationFoundationPersistence(unittest.TestCase):
 
         db.DATABASE_PATH = path
         connection = db.get_connection()
-        self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 5)
+        self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], db.SCHEMA_VERSION)
+        self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 6)
         self.assertEqual(connection.execute("SELECT calculation_record_id FROM evidence").fetchone()[0], 1)
         self.assertIsNotNone(connection.execute("SELECT calculation_model_id FROM calculation_records").fetchone()[0])
         connection.close()
