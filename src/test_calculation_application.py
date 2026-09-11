@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from calculation_application import CalculationApplication
 
@@ -45,6 +46,17 @@ class TestCalculationApplication(unittest.TestCase):
         self.assertEqual(record.result, 40000.0)
         self.assertEqual(record.result_unit, "Pa")
 
+    def test_runs_and_saves_through_application_boundary(self):
+        with patch("calculation_application.db.save_calculation_record", return_value=42) as save:
+            calculation_id, record = self.app.run_and_save(
+                "hydrostatic_pressure",
+                {"density": 1000, "gravity": 9.81, "depth": 10},
+            )
+
+        self.assertEqual(calculation_id, 42)
+        self.assertEqual(record.result, 98100.0)
+        save.assert_called_once_with(record)
+
     def test_rejects_unknown_missing_and_non_numeric_inputs(self):
         with self.assertRaises(ValueError):
             self.app.run("unknown_model", {})
@@ -60,6 +72,10 @@ class TestCalculationApplication(unittest.TestCase):
                 "hydrostatic_pressure",
                 {"density": "1000", "gravity": 9.81, "depth": 10},
             )
+
+    def test_rejects_invalid_input_container(self):
+        with self.assertRaises(ValueError):
+            self.app.run("hydrostatic_pressure", None)
 
     def test_rejects_non_finite_and_out_of_range_inputs(self):
         with self.assertRaises(ValueError):
