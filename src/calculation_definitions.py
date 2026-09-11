@@ -1,4 +1,4 @@
-from inspect import signature
+from inspect import Parameter, signature
 
 from calculation_library import SPECS, CALCULATION_REGISTRY
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
@@ -49,7 +49,8 @@ _PARAMETER_DATA = {
 
 
 def _parameters(model_key: str, spec_key: str) -> tuple[CalculationParameter, ...]:
-    return tuple(CalculationParameter(model_key, name, description, "number", True, dimension, minimum, maximum, unit) for name, description, dimension, minimum, maximum, unit in _PARAMETER_DATA[spec_key])
+    calculate_parameters = signature(next(spec.calculate for spec in SPECS if spec.key == spec_key)).parameters
+    return tuple(CalculationParameter(model_key, name, description, "number", calculate_parameters[name].default is Parameter.empty, dimension, minimum, maximum, unit) for name, description, dimension, minimum, maximum, unit in _PARAMETER_DATA[spec_key])
 
 
 CALCULATION_DEFINITIONS = tuple(
