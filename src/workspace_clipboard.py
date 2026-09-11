@@ -38,6 +38,8 @@ def _copy_item(storage_root, project_id: int, kind: workspace_browser.ItemKind, 
         source = workspace_storage.get_folder(item_id)
         if source is None or source[1] != project_id:
             raise ValueError(f"No folder found with ID {item_id} in project {project_id}.")
+        if target_folder_id == item_id or (target_folder_id is not None and workspace_browser._folder_contains(project_id, item_id, target_folder_id)):
+            raise ValueError("Cannot copy a folder into itself or one of its descendants.")
         new_folder = workspace_storage.create_folder(project_id, _unique_name(project_id, target_folder_id, source[3]), target_folder_id)
         for child in workspace_browser.list_children(project_id, item_id, sort="a_z"):
             _copy_item(storage_root, project_id, child.kind, child.id, new_folder)
@@ -91,8 +93,13 @@ def paste_selection(storage_root, project_id: int, target_folder_id: int | None,
             workspace_storage._require_folder_in_project(connection, target_folder_id, project_id)
         finally:
             connection.close()
+    clipboard_items = list(clipboard)
+    for item in clipboard_items:
+        kind, item_id = item.get("kind"), int(item.get("id"))
+        if workspace_browser._item_project(kind, item_id) != project_id:
+            raise ValueError("Clipboard contains an item from another project.")
     created = []
-    for item in clipboard:
+    for item in clipboard_items:
         kind = item["kind"]
         if kind == "folder":
             created.append(_copy_item(storage_root, project_id, kind, int(item["id"]), target_folder_id))
