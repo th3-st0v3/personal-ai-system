@@ -116,6 +116,14 @@ class TestWorkspaceApplication(unittest.TestCase):
         self.assertIsNotNone(self.app.get_folder(other_folder))
         self.assertEqual(self.app.get_note(other_note).content, "secret")
 
+    def test_invalid_browser_kind_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported item kind"):
+            self.app.get_item_properties("unsupported", 1)
+        with self.assertRaisesRegex(ValueError, "Unsupported item kind"):
+            self.app.rename_item("unsupported", 1, "renamed", project_id=self.project_id)
+        with self.assertRaisesRegex(ValueError, "Unsupported item kind"):
+            self.app.move_item("unsupported", 1, project_id=self.project_id)
+
     def test_file_lifecycle_and_delete_are_available_through_boundary(self):
         file_id = self.app.create_file(self.project_id, "remove.txt", b"payload")
         record = self.app.get_file(file_id)
