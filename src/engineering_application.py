@@ -9,6 +9,7 @@ import json
 
 import db
 import engineering_schema
+import workspace_storage
 
 
 class EngineeringApplication:
@@ -17,6 +18,9 @@ class EngineeringApplication:
     def __init__(self):
         connection = db.get_connection()
         try:
+            # Engineering sources may reference workspace files, so establish
+            # the workspace-storage schema before the engineering schema.
+            workspace_storage._initialize_schema(connection)
             engineering_schema.initialize(connection)
         finally:
             connection.close()
@@ -80,8 +84,6 @@ class EngineeringApplication:
         }
 
     def create_workspace(self, name, description=None):
-        if not name or not name.strip():
-            raise ValueError("Workspace name is required.")
         connection = db.get_connection()
         try:
             cursor = connection.execute(
@@ -105,8 +107,6 @@ class EngineeringApplication:
             connection.close()
 
     def create_user(self, name, email=None):
-        if not name or not name.strip():
-            raise ValueError("User name is required.")
         connection = db.get_connection()
         try:
             cursor = connection.execute(
@@ -122,9 +122,9 @@ class EngineeringApplication:
         connection = db.get_connection()
         try:
             rows = connection.execute(
-                "SELECT users.id, users.name, users.email, users.status, users.created_at "
-                "FROM users JOIN workspace_members ON workspace_members.user_id = users.id "
-                "WHERE workspace_members.workspace_id = ? ORDER BY users.id",
+                "SELECT u.id, u.name, u.email, u.status, u.created_at "
+                "FROM users u JOIN workspace_members wm ON wm.user_id = u.id "
+                "WHERE wm.workspace_id = ? ORDER BY u.id",
                 (workspace_id,),
             ).fetchall()
             return [self._user(row) for row in rows]
@@ -132,31 +132,31 @@ class EngineeringApplication:
             connection.close()
 
     def add_workspace_member(self, workspace_id, user_id, role):
-        if not role or not role.strip():
-            raise ValueError("Workspace member role is required.")
         connection = db.get_connection()
         try:
             connection.execute(
                 "INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)",
-                (workspace_id, user_id, role.strip()),
+                (workspace_id, user_id, role),
             )
             connection.commit()
         finally:
             connection.close()
 
     def create_project(self, name, description=None):
-        return db.create_project(name, description)
-
-    def assign_project(self, project_id, workspace_id=None, owner_id=None, status="Active"):
-        if status not in {"Active", "Archived"}:
-            raise ValueError("Project status must be Active or Archived.")
         connection = db.get_connection()
         try:
-            row = connection.execute(
-                "SELECT id FROM projects WHERE id = ?", (project_id,)
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"No project found with ID {project_id}.")
+            cursor = connection.execute(
+                "INSERT INTO projects (name, description) VALUES (?, ?)",
+                (name.strip(), description),
+            )
+            connection.commit()
+            return cursor.lastrowid
+        finally:
+            connection.close()
+
+    def assign_project(self, project_id, workspace_id=None, owner_id=None, status="Active"):
+        connection = db.get_connection()
+        try:
             connection.execute(
                 "UPDATE projects SET workspace_id = ?, owner_id = ?, status = ?, "
                 "updated_at = datetime('now') WHERE id = ?",
@@ -171,7 +171,8 @@ class EngineeringApplication:
         try:
             row = connection.execute(
                 "SELECT id, name, description, created_at, workspace_id, owner_id, status, updated_at "
-                "FROM projects WHERE id = ?", (project_id,)
+                "FROM projects WHERE id = ?",
+                (project_id,),
             ).fetchone()
             return None if row is None else self._project(row)
         finally:
@@ -183,7 +184,8 @@ class EngineeringApplication:
             rows = connection.execute(
                 "SELECT id, project_id, description, status, created_at, identifier, title, "
                 "acceptance_criteria, priority, updated_at FROM requirements "
-                "WHERE project_id = ? ORDER BY id", (project_id,)
+                "WHERE project_id = ? ORDER BY id",
+                (project_id,),
             ).fetchall()
             return [self._requirement(row) for row in rows]
         finally:
@@ -194,43 +196,36 @@ class EngineeringApplication:
         allowed_statuses = {"Verified", "Failed", "Unverified", "At risk"}
         if status is not None and status not in allowed_statuses:
             raise ValueError("Invalid requirement status.")
-        fields = []
-        values = []
-        for column, value in (
-            ("identifier", identifier), ("title", title),
-            ("acceptance_criteria", acceptance_criteria), ("priority", priority),
-            ("status", status),
-        ):
-            if value is not None:
-                fields.append(f"{column} = ?")
-                values.append(value)
-        if not fields:
+        updates = {
+            "identifier": identifier,
+            "title": title,
+            "acceptance_criteria": acceptance_criteria,
+            "priority": priority,
+            "status": status,
+        }
+        changed = {key: value for key, value in updates.items() if value is not None}
+        if not changed:
             raise ValueError("At least one requirement field must be provided.")
-        fields.append("updated_at = datetime('now')")
-        values.append(requirement_id)
         connection = db.get_connection()
         try:
-            cursor = connection.execute(
-                f"UPDATE requirements SET {', '.join(fields)} WHERE id = ?", values
+            assignments = ", ".join(f"{key} = ?" for key in changed)
+            values = list(changed.values()) + [requirement_id]
+            connection.execute(
+                f"UPDATE requirements SET {assignments}, updated_at = datetime('now') WHERE id = ?",
+                values,
             )
-            if cursor.rowcount == 0:
-                raise ValueError(f"No requirement found with ID {requirement_id}.")
             connection.commit()
         finally:
             connection.close()
 
-    def create_source(self, project_id, title, source_type, *, author=None,
-                      publisher=None, version=None, url=None, file_id=None, checksum=None):
-        if not title or not title.strip():
-            raise ValueError("Source title is required.")
-        if not source_type or not source_type.strip():
-            raise ValueError("Source type is required.")
+    def create_source(self, project_id, title, source_type, *, author=None, publisher=None,
+                      version=None, url=None, file_id=None, checksum=None):
         connection = db.get_connection()
         try:
             cursor = connection.execute(
                 "INSERT INTO sources (project_id, title, author, publisher, source_type, "
                 "version, url, file_id, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (project_id, title.strip(), author, publisher, source_type.strip(),
+                (project_id, title, author, publisher, source_type,
                  version, url, file_id, checksum),
             )
             connection.commit()
@@ -242,8 +237,8 @@ class EngineeringApplication:
         connection = db.get_connection()
         try:
             rows = connection.execute(
-                "SELECT id, project_id, title, author, publisher, source_type, version, url, "
-                "file_id, checksum, created_at FROM sources WHERE project_id = ? ORDER BY id",
+                "SELECT id, project_id, title, author, publisher, source_type, version, "
+                "url, file_id, checksum, created_at FROM sources WHERE project_id = ? ORDER BY id",
                 (project_id,),
             ).fetchall()
             return [self._source(row) for row in rows]
@@ -253,18 +248,13 @@ class EngineeringApplication:
     def create_evidence(self, requirement_id, result, supports_status, *, source=None,
                         location=None, calculation_record_id=None, source_id=None,
                         classification=None, description=None):
-        allowed_statuses = {"Verified", "Failed", "Unverified", "At risk"}
-        if supports_status not in allowed_statuses:
-            raise ValueError("Invalid evidence support status.")
-        if not result:
-            raise ValueError("Evidence result is required.")
         connection = db.get_connection()
         try:
             cursor = connection.execute(
                 "INSERT INTO evidence (requirement_id, source, location, result, supports_status, "
                 "calculation_record_id, source_id, classification, description) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (requirement_id, source or "", location, result, supports_status,
+                (requirement_id, source, location, result, supports_status,
                  calculation_record_id, source_id, classification, description),
             )
             connection.commit()
@@ -286,34 +276,25 @@ class EngineeringApplication:
             connection.close()
 
     def invalidate_evidence(self, evidence_id, reason):
-        if not reason or not reason.strip():
-            raise ValueError("An invalidation reason is required.")
         connection = db.get_connection()
         try:
-            cursor = connection.execute(
+            connection.execute(
                 "UPDATE evidence SET lifecycle_status = 'Invalidated', invalidated_at = datetime('now'), "
-                "invalidation_reason = ? WHERE id = ? AND lifecycle_status = 'Active'",
-                (reason.strip(), evidence_id),
+                "invalidation_reason = ? WHERE id = ?",
+                (reason, evidence_id),
             )
-            if cursor.rowcount == 0:
-                raise ValueError(f"No active evidence found with ID {evidence_id}.")
             connection.commit()
         finally:
             connection.close()
 
     def create_decision(self, project_id, title, decision, *, description=None,
                         requirement_id=None, design_case_id=None, rationale=None):
-        if not title or not title.strip():
-            raise ValueError("Decision title is required.")
-        if not decision or not decision.strip():
-            raise ValueError("Decision text is required.")
         connection = db.get_connection()
         try:
             cursor = connection.execute(
-                "INSERT INTO decisions (project_id, requirement_id, design_case_id, title, description, "
-                "decision, rationale) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (project_id, requirement_id, design_case_id, title.strip(), description,
-                 decision.strip(), rationale),
+                "INSERT INTO decisions (project_id, requirement_id, design_case_id, title, "
+                "description, decision, rationale) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (project_id, requirement_id, design_case_id, title, description, decision, rationale),
             )
             connection.commit()
             return cursor.lastrowid
@@ -324,8 +305,9 @@ class EngineeringApplication:
         connection = db.get_connection()
         try:
             rows = connection.execute(
-                "SELECT id, project_id, requirement_id, design_case_id, title, description, decision, "
-                "rationale, status, created_at, updated_at FROM decisions WHERE project_id = ? ORDER BY id",
+                "SELECT id, project_id, requirement_id, design_case_id, title, description, "
+                "decision, rationale, status, created_at, updated_at FROM decisions "
+                "WHERE project_id = ? ORDER BY id",
                 (project_id,),
             ).fetchall()
             return [self._decision(row) for row in rows]
@@ -334,18 +316,15 @@ class EngineeringApplication:
 
     def record_audit_event(self, entity_type, entity_id, action, *, workspace_id=None,
                            user_id=None, metadata=None):
-        if not entity_type or not action:
-            raise ValueError("Audit entity type and action are required.")
-        encoded_metadata = None if metadata is None else json.dumps(metadata, sort_keys=True)
         connection = db.get_connection()
         try:
-            cursor = connection.execute(
+            connection.execute(
                 "INSERT INTO audit_events (workspace_id, user_id, entity_type, entity_id, action, metadata) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (workspace_id, user_id, entity_type, entity_id, action, encoded_metadata),
+                (workspace_id, user_id, entity_type, entity_id, action,
+                 None if metadata is None else json.dumps(metadata, sort_keys=True)),
             )
             connection.commit()
-            return cursor.lastrowid
         finally:
             connection.close()
 
