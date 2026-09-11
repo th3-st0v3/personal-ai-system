@@ -43,8 +43,8 @@ def main() -> None:
             note_id = note["id"]
             status, updated = request(app, "PATCH", f"/api/projects/{project_id}/notes", {"id": note_id, "title": "Edited", "content": "still works"})
             assert status == 200 and updated["name"] == "Edited"
-            status, trace = request(app, "POST", "/api/calculations/run", {"model_key": "hydrostatic_pressure", "inputs": {"density": 1000, "depth": 10}})
-            assert status == 200 and trace["result"] > 98000
+            status, trace = request(app, "POST", "/api/calculations/run", {"model_key": "hydrostatic_pressure", "inputs": {"density": 1000, "gravity": 9.80665, "depth": 10}})
+            assert status == 200 and trace["result"] == 98066.5
             status, items = request(app, "GET", f"/api/projects/{project_id}/items?folder_id={folder_id}&sort=a_z")
             assert status == 200 and {item["name"] for item in items} == {"Edited", "smoke.txt"}
             status, requirement = request(engineering, "POST", f"/api/engineering/projects/{project_id}/requirements", {"description": "Smoke requirement"})
