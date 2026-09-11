@@ -1,5 +1,6 @@
 import hashlib
 import os
+import sqlite3
 import tempfile
 import unittest
 
@@ -40,7 +41,7 @@ class TestWorkspaceStorage(unittest.TestCase):
     def test_prevents_duplicate_folder_names_in_same_parent(self):
         workspace_storage.create_folder(self.project_id, "References")
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(sqlite3.IntegrityError):
             workspace_storage.create_folder(self.project_id, "References")
 
     def test_moves_folder_without_creating_cycle(self):
@@ -132,7 +133,7 @@ class TestWorkspaceStorage(unittest.TestCase):
 
         self.assertEqual(workspace_storage.get_file_attachments(file_id)[0][0], attachment_id)
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(sqlite3.IntegrityError):
             workspace_storage.attach_file(file_id, "well", well_id)
 
     def test_attachment_rejects_cross_project_target(self):
