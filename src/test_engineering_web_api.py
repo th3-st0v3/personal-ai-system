@@ -52,16 +52,17 @@ class TestEngineeringWebApplication(unittest.TestCase):
 
     def test_cross_project_requirement_and_source_access_is_rejected(self):
         other_project = self.workspace.create_project("Other")
-        requirement_id = self.workspace.create_project("Temporary")
-        self.assertEqual(self.request("GET", f"/api/engineering/projects/{other_project}/requirements")[0], 200)
         status, created = self.request("POST", f"/api/engineering/projects/{self.project_id}/requirements", {"description": "Private"})
         self.assertEqual(status, 201)
         private_requirement = created["id"]
         self.assertEqual(self.request("PATCH", f"/api/engineering/projects/{other_project}/requirements/{private_requirement}", {"title": "Leak"})[0], 400)
         status, source = self.request("POST", f"/api/engineering/projects/{self.project_id}/sources", {"title": "Private", "source_type": "document"})
         self.assertEqual(status, 201)
-        self.assertEqual(self.request("POST", f"/api/engineering/projects/{other_project}/requirements", {"description": "Other"})[0], 201)
-        self.assertIsNotNone(requirement_id)
+        source_id = source["id"]
+        status, other_requirement = self.request("POST", f"/api/engineering/projects/{other_project}/requirements", {"description": "Other"})
+        self.assertEqual(status, 201)
+        other_requirement_id = other_requirement["id"]
+        self.assertEqual(self.request("POST", f"/api/engineering/projects/{other_project}/requirements/{other_requirement_id}/evidence", {"result": "leak", "supports_status": "Verified", "source_id": source_id})[0], 400)
 
     def test_invalid_routes_and_bodies_are_client_errors(self):
         self.assertEqual(self.request("GET", "/api/engineering/projects/not-an-id/requirements")[0], 400)
