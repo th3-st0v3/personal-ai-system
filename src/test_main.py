@@ -274,6 +274,97 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_evaluates_conflicting_evidence(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        evaluation = {
+            "recommendation": "review",
+            "signals": ["verified", "failed"],
+            "conflict": True,
+        }
+
+        with patch(
+            "builtins.input",
+            side_effect=["4", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.evaluate_requirement_evidence",
+            return_value=evaluation,
+        ) as mock_evaluate, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_evaluate.assert_called_once_with(42)
+
+        mock_print.assert_any_call(
+            "Evidence assessment: review"
+        )
+        mock_print.assert_any_call(
+            "Evidence signals: verified, failed"
+        )
+        mock_print.assert_any_call(
+            "Conflict: Yes"
+        )
+        mock_print.assert_any_call(
+            "Review conflicting evidence before changing the requirement status."
+        )
+
+
+    def test_requirements_menu_evaluates_without_evidence_signals(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        evaluation = {
+            "recommendation": "unverified",
+            "signals": [],
+            "conflict": False,
+        }
+
+        with patch(
+            "builtins.input",
+            side_effect=["4", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.evaluate_requirement_evidence",
+            return_value=evaluation
+        ) as mock_evaluate, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_evaluate.assert_called_once_with(42)
+
+        mock_print.assert_any_call(
+            "Evidence assessment: unverified"
+        )
+        mock_print.assert_any_call(
+            "Evidence signals: none"
+        )
+        mock_print.assert_any_call(
+            "Conflict: No"
+        )
+
+
     def test_requirements_menu_views_evidence_history(self):
         import main
 
