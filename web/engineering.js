@@ -49,11 +49,4 @@ document.addEventListener("click", event => {
   });
 });
 
-document.addEventListener("DOMContentLoaded", () => {
-  const button = document.createElement("button");
-  button.className = "nav-item";
-  button.type = "button";
-  button.textContent = "Engineering";
-  button.addEventListener("click", showEngineering);
-  document.querySelector(".sidebar .calculations-title")?.insertAdjacentElement("afterend", button);
-});
+document.getElementById("engineering-nav")?.addEventListener("click", showEngineering);
