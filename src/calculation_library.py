@@ -34,188 +34,123 @@ class CalculationSpec:
 
 
 def _finite(name: str, value: float) -> None:
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite")
-
+    if not math.isfinite(value): raise ValueError(f"{name} must be finite")
 
 def _nonnegative(name: str, value: float) -> None:
     _finite(name, value)
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative")
-
+    if value < 0: raise ValueError(f"{name} must be non-negative")
 
 def _positive(name: str, value: float) -> None:
     _nonnegative(name, value)
-    if value == 0:
-        raise ValueError(f"{name} must be greater than zero")
+    if value == 0: raise ValueError(f"{name} must be greater than zero")
 
 
-def hydrostatic_pressure(density: float, gravity: float, depth: float) -> float:
-    for name, value in (("density", density), ("gravity", gravity), ("depth", depth)):
-        _nonnegative(name, value)
+def hydrostatic_pressure(density, gravity, depth):
+    for name, value in (("density", density), ("gravity", gravity), ("depth", depth)): _nonnegative(name, value)
     return density * gravity * depth
 
+def darcy_weisbach_pressure_loss(friction_factor, pipe_length, pipe_diameter, density, velocity):
+    for name, value in (("friction factor", friction_factor), ("pipe length", pipe_length), ("density", density), ("velocity", velocity)): _nonnegative(name, value)
+    _positive("pipe diameter", pipe_diameter); return friction_factor * (pipe_length / pipe_diameter) * (density * velocity**2 / 2)
 
-def darcy_weisbach_pressure_loss(friction_factor: float, pipe_length: float, pipe_diameter: float, density: float, velocity: float) -> float:
-    for name, value in (("friction factor", friction_factor), ("pipe length", pipe_length), ("density", density), ("velocity", velocity)):
-        _nonnegative(name, value)
-    _positive("pipe diameter", pipe_diameter)
-    return friction_factor * (pipe_length / pipe_diameter) * (density * velocity**2 / 2)
+def reynolds_number(density, velocity, diameter, dynamic_viscosity):
+    _nonnegative("density", density); _nonnegative("velocity", velocity); _positive("diameter", diameter); _positive("dynamic_viscosity", dynamic_viscosity); return density * velocity * diameter / dynamic_viscosity
 
+def volumetric_flow(area, velocity):
+    _nonnegative("area", area); _nonnegative("velocity", velocity); return area * velocity
 
-def reynolds_number(density: float, velocity: float, diameter: float, dynamic_viscosity: float) -> float:
-    _nonnegative("density", density); _nonnegative("velocity", velocity)
-    _positive("diameter", diameter); _positive("dynamic_viscosity", dynamic_viscosity)
-    return density * velocity * diameter / dynamic_viscosity
+def circular_pipe_area(diameter):
+    _positive("diameter", diameter); return math.pi * diameter**2 / 4
 
+def pipe_velocity(flow_rate, diameter):
+    _nonnegative("flow_rate", flow_rate); _positive("diameter", diameter); return flow_rate / circular_pipe_area(diameter)
 
-def volumetric_flow(area: float, velocity: float) -> float:
-    _nonnegative("area", area); _nonnegative("velocity", velocity)
-    return area * velocity
+def dynamic_pressure(density, velocity):
+    _nonnegative("density", density); _nonnegative("velocity", velocity); return density * velocity**2 / 2
 
+def pressure_head(pressure, density, gravity=9.80665):
+    _nonnegative("pressure", pressure); _positive("density", density); _positive("gravity", gravity); return pressure / (density * gravity)
 
-def circular_pipe_area(diameter: float) -> float:
-    _positive("diameter", diameter)
-    return math.pi * diameter**2 / 4
+def pressure_from_head(head, density, gravity=9.80665):
+    _nonnegative("head", head); _positive("density", density); _positive("gravity", gravity); return density * gravity * head
 
-
-def pipe_velocity(flow_rate: float, diameter: float) -> float:
-    _nonnegative("flow_rate", flow_rate); _positive("diameter", diameter)
-    return flow_rate / circular_pipe_area(diameter)
-
-
-def dynamic_pressure(density: float, velocity: float) -> float:
-    _nonnegative("density", density); _nonnegative("velocity", velocity)
-    return density * velocity**2 / 2
-
-
-def pressure_head(pressure: float, density: float, gravity: float = 9.80665) -> float:
-    _nonnegative("pressure", pressure); _positive("density", density); _positive("gravity", gravity)
-    return pressure / (density * gravity)
-
-
-def pressure_from_head(head: float, density: float, gravity: float = 9.80665) -> float:
-    _nonnegative("head", head); _positive("density", density); _positive("gravity", gravity)
-    return density * gravity * head
-
-
-def bernoulli_pressure_downstream(pressure_upstream: float, velocity_upstream: float, velocity_downstream: float, elevation_upstream: float, elevation_downstream: float, density: float, gravity: float = 9.80665, head_loss: float = 0.0) -> float:
-    for name, value in (("pressure_upstream", pressure_upstream), ("velocity_upstream", velocity_upstream), ("velocity_downstream", velocity_downstream), ("head_loss", head_loss)):
-        _nonnegative(name, value)
-    _finite("elevation_upstream", elevation_upstream); _finite("elevation_downstream", elevation_downstream)
-    _positive("density", density); _positive("gravity", gravity)
+def bernoulli_pressure_downstream(pressure_upstream, velocity_upstream, velocity_downstream, elevation_upstream, elevation_downstream, density, gravity=9.80665, head_loss=0.0):
+    for name, value in (("pressure_upstream", pressure_upstream), ("velocity_upstream", velocity_upstream), ("velocity_downstream", velocity_downstream), ("head_loss", head_loss)): _nonnegative(name, value)
+    _finite("elevation_upstream", elevation_upstream); _finite("elevation_downstream", elevation_downstream); _positive("density", density); _positive("gravity", gravity)
     return pressure_upstream + density * gravity * (elevation_upstream - elevation_downstream - head_loss) + 0.5 * density * (velocity_upstream**2 - velocity_downstream**2)
 
+def ideal_gas_pressure(amount, temperature, volume, gas_constant=8.314462618):
+    _nonnegative("amount", amount); _positive("temperature", temperature); _positive("volume", volume); _positive("gas_constant", gas_constant); return amount * gas_constant * temperature / volume
 
-def ideal_gas_pressure(amount: float, temperature: float, volume: float, gas_constant: float = 8.314462618) -> float:
-    _nonnegative("amount", amount); _positive("temperature", temperature); _positive("volume", volume); _positive("gas_constant", gas_constant)
-    return amount * gas_constant * temperature / volume
+def ideal_gas_density(molar_mass, pressure, temperature, gas_constant=8.314462618):
+    _positive("molar_mass", molar_mass); _nonnegative("pressure", pressure); _positive("temperature", temperature); _positive("gas_constant", gas_constant); return pressure * molar_mass / (gas_constant * temperature)
 
+def normal_stress(force, area):
+    _nonnegative("force", force); _positive("area", area); return force / area
 
-def ideal_gas_density(molar_mass: float, pressure: float, temperature: float, gas_constant: float = 8.314462618) -> float:
-    _positive("molar_mass", molar_mass); _nonnegative("pressure", pressure); _positive("temperature", temperature); _positive("gas_constant", gas_constant)
-    return pressure * molar_mass / (gas_constant * temperature)
+def normal_strain(delta_length, original_length):
+    _nonnegative("delta_length", delta_length); _positive("original_length", original_length); return delta_length / original_length
 
+def ohms_law_voltage(current, resistance):
+    _nonnegative("current", current); _nonnegative("resistance", resistance); return current * resistance
 
-def normal_stress(force: float, area: float) -> float:
-    _nonnegative("force", force); _positive("area", area)
-    return force / area
+def electrical_power(voltage, current):
+    _nonnegative("voltage", voltage); _nonnegative("current", current); return voltage * current
 
+def mechanical_power(torque, angular_velocity):
+    _nonnegative("torque", torque); _nonnegative("angular_velocity", angular_velocity); return torque * angular_velocity
 
-def normal_strain(delta_length: float, original_length: float) -> float:
-    _nonnegative("delta_length", delta_length); _positive("original_length", original_length)
-    return delta_length / original_length
+def kinetic_energy(mass, velocity):
+    _nonnegative("mass", mass); _nonnegative("velocity", velocity); return 0.5 * mass * velocity**2
 
+def gravitational_potential_energy(mass, gravity, height):
+    _nonnegative("mass", mass); _nonnegative("gravity", gravity); _finite("height", height); return mass * gravity * height
 
-def ohms_law_voltage(current: float, resistance: float) -> float:
-    _nonnegative("current", current); _nonnegative("resistance", resistance)
-    return current * resistance
+def spring_force(stiffness, displacement):
+    _nonnegative("stiffness", stiffness); _finite("displacement", displacement); return stiffness * displacement
 
+def spring_potential_energy(stiffness, displacement):
+    _nonnegative("stiffness", stiffness); _finite("displacement", displacement); return 0.5 * stiffness * displacement**2
 
-def electrical_power(voltage: float, current: float) -> float:
-    _nonnegative("voltage", voltage); _nonnegative("current", current)
-    return voltage * current
+def thermal_expansion(initial_length, coefficient, delta_temperature):
+    _positive("initial_length", initial_length); _nonnegative("coefficient", coefficient); _finite("delta_temperature", delta_temperature); return initial_length * coefficient * delta_temperature
 
+def sensible_heat(mass, specific_heat, delta_temperature):
+    _nonnegative("mass", mass); _nonnegative("specific_heat", specific_heat); _finite("delta_temperature", delta_temperature); return mass * specific_heat * delta_temperature
 
-def mechanical_power(torque: float, angular_velocity: float) -> float:
-    _nonnegative("torque", torque); _nonnegative("angular_velocity", angular_velocity)
-    return torque * angular_velocity
+def conduction_heat_rate(conductivity, area, delta_temperature, thickness):
+    _nonnegative("conductivity", conductivity); _nonnegative("area", area); _finite("delta_temperature", delta_temperature); _positive("thickness", thickness); return conductivity * area * delta_temperature / thickness
 
+def fluid_mass_flow(density, volumetric_flow_rate):
+    _nonnegative("density", density); _nonnegative("volumetric_flow_rate", volumetric_flow_rate); return density * volumetric_flow_rate
 
-def kinetic_energy(mass: float, velocity: float) -> float:
-    _nonnegative("mass", mass); _nonnegative("velocity", velocity)
-    return 0.5 * mass * velocity**2
+def buoyancy_force(fluid_density, gravity, displaced_volume):
+    _nonnegative("fluid_density", fluid_density); _nonnegative("gravity", gravity); _nonnegative("displaced_volume", displaced_volume); return fluid_density * gravity * displaced_volume
 
-
-def gravitational_potential_energy(mass: float, gravity: float, height: float) -> float:
-    _nonnegative("mass", mass); _nonnegative("gravity", gravity); _finite("height", height)
-    return mass * gravity * height
-
-
-def spring_force(stiffness: float, displacement: float) -> float:
-    _nonnegative("stiffness", stiffness); _finite("displacement", displacement)
-    return stiffness * displacement
-
-
-def spring_potential_energy(stiffness: float, displacement: float) -> float:
-    _nonnegative("stiffness", stiffness); _finite("displacement", displacement)
-    return 0.5 * stiffness * displacement**2
-
-
-def thermal_expansion(initial_length: float, coefficient: float, delta_temperature: float) -> float:
-    _positive("initial_length", initial_length); _nonnegative("coefficient", coefficient); _finite("delta_temperature", delta_temperature)
-    return initial_length * coefficient * delta_temperature
-
-
-def sensible_heat(mass: float, specific_heat: float, delta_temperature: float) -> float:
-    _nonnegative("mass", mass); _nonnegative("specific_heat", specific_heat); _finite("delta_temperature", delta_temperature)
-    return mass * specific_heat * delta_temperature
-
-
-def conduction_heat_rate(conductivity: float, area: float, delta_temperature: float, thickness: float) -> float:
-    _nonnegative("conductivity", conductivity); _nonnegative("area", area); _finite("delta_temperature", delta_temperature); _positive("thickness", thickness)
-    return conductivity * area * delta_temperature / thickness
-
-
-def fluid_mass_flow(density: float, volumetric_flow_rate: float) -> float:
-    _nonnegative("density", density); _nonnegative("volumetric_flow_rate", volumetric_flow_rate)
-    return density * volumetric_flow_rate
-
-
-def buoyancy_force(fluid_density: float, gravity: float, displaced_volume: float) -> float:
-    _nonnegative("fluid_density", fluid_density); _nonnegative("gravity", gravity); _nonnegative("displaced_volume", displaced_volume)
-    return fluid_density * gravity * displaced_volume
-
-
-def efficiency(useful_output: float, total_input: float) -> float:
+def efficiency(useful_output, total_input):
     _nonnegative("useful_output", useful_output); _positive("total_input", total_input)
-    if useful_output > total_input:
-        raise ValueError("useful_output cannot exceed total_input")
+    if useful_output > total_input: raise ValueError("useful_output cannot exceed total_input")
     return useful_output / total_input
 
+def electrical_resistance_series(resistance_1, resistance_2):
+    _nonnegative("resistance_1", resistance_1); _nonnegative("resistance_2", resistance_2); return resistance_1 + resistance_2
 
-def electrical_resistance_series(resistance_1: float, resistance_2: float) -> float:
-    _nonnegative("resistance_1", resistance_1); _nonnegative("resistance_2", resistance_2)
-    return resistance_1 + resistance_2
+def electrical_resistance_parallel(resistance_1, resistance_2):
+    _positive("resistance_1", resistance_1); _positive("resistance_2", resistance_2); return 1.0 / (1.0 / resistance_1 + 1.0 / resistance_2)
 
+def capacitor_energy(capacitance, voltage):
+    _nonnegative("capacitance", capacitance); _nonnegative("voltage", voltage); return 0.5 * capacitance * voltage**2
 
-def electrical_resistance_parallel(resistance_1: float, resistance_2: float) -> float:
-    _positive("resistance_1", resistance_1); _positive("resistance_2", resistance_2)
-    return 1.0 / (1.0 / resistance_1 + 1.0 / resistance_2)
-
-
-def capacitor_energy(capacitance: float, voltage: float) -> float:
-    _nonnegative("capacitance", capacitance); _nonnegative("voltage", voltage)
-    return 0.5 * capacitance * voltage**2
+def rc_time_constant(resistance, capacitance):
+    _nonnegative("resistance", resistance); _nonnegative("capacitance", capacitance); return resistance * capacitance
 
 
-def rc_time_constant(resistance: float, capacitance: float) -> float:
-    _nonnegative("resistance", resistance); _nonnegative("capacitance", capacitance)
-    return resistance * capacitance
-
-
-def _fmt(values: dict[str, float], equation: str) -> str:
+def _fmt(values, equation):
     return equation.format(**{key: f"{value:g}" for key, value in values.items()})
+
+
+def _defaulted(values, key, default):
+    return {**values, key: values.get(key, default)}
 
 
 SPECS = (
@@ -226,11 +161,11 @@ SPECS = (
     CalculationSpec("circular_pipe_area", "Circular Pipe Area", "geometry", "A = pi * D^2 / 4", "m^2", circular_pipe_area, lambda v: _fmt(v, "A = pi * ({diameter})^2 / 4"), ("circular cross-section",), ()),
     CalculationSpec("pipe_velocity", "Pipe Mean Velocity", "fluid_flow", "v = Q / A", "m/s", pipe_velocity, lambda v: _fmt(v, "v = {flow_rate} / (pi * {diameter}^2 / 4)"), ("circular pipe", "mean velocity"), ()),
     CalculationSpec("dynamic_pressure", "Dynamic Pressure", "fluid_pressure", "q = rho * v^2 / 2", "Pa", dynamic_pressure, lambda v: _fmt(v, "q = ({density})({velocity}^2)/2"), ("incompressible-flow form",), ("Compressibility may matter at high Mach number.",)),
-    CalculationSpec("pressure_head", "Pressure Head", "fluid_pressure", "h = P / (rho * g)", "m", pressure_head, lambda v: _fmt(v, "h = {pressure} / (({density})({gravity}))"), ("positive pressure and density",), ()),
-    CalculationSpec("pressure_from_head", "Pressure From Head", "fluid_pressure", "P = rho * g * h", "Pa", pressure_from_head, lambda v: _fmt(v, "P = ({density})({gravity})({head})"), ("constant density",), ()),
-    CalculationSpec("bernoulli_pressure_downstream", "Bernoulli Downstream Pressure", "fluid_flow", "P2 = P1 + rho*g(z1-z2-hL) + rho(v1^2-v2^2)/2", "Pa", bernoulli_pressure_downstream, lambda v: _fmt(v, "P2 = {pressure_upstream} + ({density})({gravity})({elevation_upstream}-{elevation_downstream}-{head_loss}) + ({density})({velocity_upstream}^2-{velocity_downstream}^2)/2"), ("steady incompressible flow", "consistent datum for elevations"), ("Does not account for pump/turbine work or compressibility beyond the supplied terms.",)),
-    CalculationSpec("ideal_gas_pressure", "Ideal Gas Pressure", "thermodynamics", "P = nRT / V", "Pa", ideal_gas_pressure, lambda v: _fmt(v, "P = ({amount})({gas_constant})({temperature})/{volume}"), ("ideal-gas behavior", "absolute temperature"), ("Real-gas deviations are not modeled.",)),
-    CalculationSpec("ideal_gas_density", "Ideal Gas Density", "thermodynamics", "rho = P*M / (R*T)", "kg/m^3", ideal_gas_density, lambda v: _fmt(v, "rho = ({pressure})({molar_mass})/(({gas_constant})({temperature}))"), ("ideal-gas behavior", "absolute temperature", "molar mass expressed in kg/mol"), ("Real-gas compressibility is not modeled.",)),
+    CalculationSpec("pressure_head", "Pressure Head", "fluid_pressure", "h = P / (rho * g)", "m", pressure_head, lambda v: _fmt(_defaulted(v, "gravity", 9.80665), "h = {pressure} / (({density})({gravity}))"), ("positive pressure and density",), ()),
+    CalculationSpec("pressure_from_head", "Pressure From Head", "fluid_pressure", "P = rho * g * h", "Pa", pressure_from_head, lambda v: _fmt(_defaulted(v, "gravity", 9.80665), "P = ({density})({gravity})({head})"), ("constant density",), ()),
+    CalculationSpec("bernoulli_pressure_downstream", "Bernoulli Downstream Pressure", "fluid_flow", "P2 = P1 + rho*g(z1-z2-hL) + rho(v1^2-v2^2)/2", "Pa", bernoulli_pressure_downstream, lambda v: _fmt(_defaulted(v, "gravity", 9.80665), "P2 = {pressure_upstream} + ({density})({gravity})({elevation_upstream}-{elevation_downstream}-{head_loss}) + ({density})({velocity_upstream}^2-{velocity_downstream}^2)/2"), ("steady incompressible flow", "consistent datum for elevations"), ("Does not account for pump/turbine work or compressibility beyond the supplied terms.",)),
+    CalculationSpec("ideal_gas_pressure", "Ideal Gas Pressure", "thermodynamics", "P = nRT / V", "Pa", ideal_gas_pressure, lambda v: _fmt(_defaulted(v, "gas_constant", 8.314462618), "P = ({amount})({gas_constant})({temperature})/{volume}"), ("ideal-gas behavior", "absolute temperature"), ("Real-gas deviations are not modeled.",)),
+    CalculationSpec("ideal_gas_density", "Ideal Gas Density", "thermodynamics", "rho = P*M / (R*T)", "kg/m^3", ideal_gas_density, lambda v: _fmt(_defaulted(v, "gas_constant", 8.314462618), "rho = ({pressure})({molar_mass})/(({gas_constant})({temperature}))"), ("ideal-gas behavior", "absolute temperature", "molar mass expressed in kg/mol"), ("Real-gas compressibility is not modeled.",)),
     CalculationSpec("normal_stress", "Normal Stress", "solid_mechanics", "sigma = F / A", "Pa", normal_stress, lambda v: _fmt(v, "sigma = {force} / {area}"), ("uniform load over stated area",), ("Does not resolve local stress concentrations.",)),
     CalculationSpec("normal_strain", "Normal Strain", "solid_mechanics", "epsilon = dL / L0", "dimensionless", normal_strain, lambda v: _fmt(v, "epsilon = {delta_length} / {original_length}"), ("engineering strain representation",), ()),
     CalculationSpec("ohms_law_voltage", "Ohm's Law Voltage", "electrical", "V = I * R", "V", ohms_law_voltage, lambda v: _fmt(v, "V = ({current})({resistance})"), ("linear resistance model",), ("Not valid for nonlinear devices without adjustment.",)),
@@ -256,15 +191,8 @@ CALCULATION_REGISTRY = {spec.key: spec for spec in SPECS}
 
 
 def calculate(key: str, **inputs: float) -> CalculationTrace:
-    try:
-        spec = CALCULATION_REGISTRY[key]
-    except KeyError as exc:
-        raise ValueError(f"Unknown calculation '{key}'.") from exc
-    result = spec.calculate(**inputs)
-    substitution = spec.substitutions(inputs)
-    steps = (
-        f"Equation: {spec.equation}",
-        f"Substitute values: {substitution}",
-        f"Evaluate expression: {result:g} {spec.result_unit}",
-    )
+    try: spec = CALCULATION_REGISTRY[key]
+    except KeyError as exc: raise ValueError(f"Unknown calculation '{key}'.") from exc
+    result = spec.calculate(**inputs); substitution = spec.substitutions(inputs)
+    steps = (f"Equation: {spec.equation}", f"Substitute values: {substitution}", f"Evaluate expression: {result:g} {spec.result_unit}")
     return CalculationTrace(spec.key, spec.name, spec.equation, dict(inputs), substitution, steps, result, spec.result_unit, spec.assumptions, spec.limitations)
