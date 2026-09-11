@@ -319,6 +319,10 @@ def delete_folder(folder_id):
         if child_file is not None:
             raise ValueError(f"Folder {folder_id} is not empty.")
 
+        connection.execute(
+            "DELETE FROM tag_assignments WHERE target_type = ? AND target_id = ?",
+            ("folder", folder_id),
+        )
         connection.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
         connection.commit()
     finally:
