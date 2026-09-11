@@ -58,6 +58,7 @@ logs/
 # Local runtime / temporary files
 data/local/
 runtime/
+.runtime/
 tmp/
 temp/
 
