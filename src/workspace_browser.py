@@ -151,6 +151,8 @@ def _folder_descendants(project_id: int, folder_id: int) -> list[int]:
 
 
 def delete_all_files(storage_root, project_id: int, folder_id: int | None=None) -> int:
+    if folder_id is not None and _item_project("folder", folder_id) != project_id:
+        raise ValueError("Folder belongs to another project.")
     folder_ids=_folder_descendants(project_id,folder_id) if folder_id is not None else []
     file_ids=[item.id for item in list_project_items(project_id) if item.kind=="file"] if folder_id is None else [r[0] for fid in folder_ids for r in workspace_storage.get_files(project_id,fid)]
     return delete_stored_files(storage_root,file_ids) if file_ids else 0
