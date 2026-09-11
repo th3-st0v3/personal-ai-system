@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from urllib.parse import parse_qs, urlsplit
 
+import workspace_browser
 from calculation_application import CalculationApplication
 from workspace_application import WorkspaceApplication
 
@@ -29,9 +30,9 @@ class WebApplication:
             "api_version": 1,
             "workspace": {
                 "kinds": ["folder", "note", "file"],
-                "sort_options": ["a_z", "z_a", "recent_old", "old_recent", "last_modified_new_old", "last_modified_old_new"],
-                "context_actions": {kind: list(__import__("workspace_browser").get_context_actions(kind)) for kind in ("folder", "note", "file")},
-                "multi_selection_actions": list(__import__("workspace_browser").get_context_actions("file", selection_count=2)),
+                "sort_options": list(workspace_browser.SORT_OPTIONS),
+                "context_actions": {kind: list(workspace_browser.get_context_actions(kind)) for kind in ("folder", "note", "file")},
+                "multi_selection_actions": list(workspace_browser.get_context_actions("file", selection_count=2)),
             },
             "calculations": {"categories": list(self.calculations.list_categories()), "count": len(self.calculations.list_models())},
         }
