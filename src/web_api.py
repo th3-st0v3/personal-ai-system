@@ -70,6 +70,13 @@ class WebApplication:
                 if method == "GET" and len(parts) == 5 and parts[4] == "items":
                     folder_id = int(query["folder_id"]) if query.get("folder_id") else None
                     return self._json(200, [self._item(item) for item in self.workspace.list_children(project_id, folder_id, sort=query.get("sort", "a_z"))])
+                if method == "GET" and len(parts) == 5 and parts[4] == "breadcrumbs":
+                    kind = query["kind"]
+                    item_id = int(query["id"])
+                    item = self.workspace._browser_item(kind, item_id)
+                    if item.project_id != project_id:
+                        raise ValueError("Item belongs to another project.")
+                    return self._json(200, [{"kind": kind_name, "id": item_id, "name": name} for kind_name, item_id, name in self.workspace.get_breadcrumbs(kind, item_id)])
                 if method == "GET" and len(parts) == 5 and parts[4] == "search":
                     return self._json(200, [self._item(item) for item in self.workspace.search_project(project_id, query["q"], recursive=query.get("recursive", "true").casefold() != "false")])
                 if method == "POST" and len(parts) == 5 and parts[4] == "folders":
@@ -86,14 +93,12 @@ class WebApplication:
                     item = self.workspace._browser_item(kind, item_id)
                     if item.project_id != project_id:
                         raise ValueError("Item belongs to another project.")
-                    self.workspace.move_item(kind, item_id, data.get("target_folder_id"))
+                    self.workspace.move_item(kind, item_id, data.get("target_folder_id"), project_id=project_id)
                     return self._json(200, {"moved": True})
                 if method == "POST" and len(parts) == 5 and parts[4] == "rename":
                     kind, item_id = data["kind"], int(data["id"])
-                    item = self.workspace._browser_item(kind, item_id)
-                    if item.project_id != project_id:
-                        raise ValueError("Item belongs to another project.")
-                    self.workspace.rename_item(kind, item_id, data["name"])
+                    self.workspace._require_project_item(kind, item_id, project_id)
+                    self.workspace.rename_item(kind, item_id, data["name"], project_id=project_id)
                     return self._json(200, {"renamed": True})
                 if method == "POST" and len(parts) == 5 and parts[4] == "delete":
                     selection = [(item["kind"], int(item["id"])) for item in data.get("selection", [])]
