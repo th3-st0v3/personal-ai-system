@@ -1,7 +1,7 @@
 import unittest
 
 from calculation_application import CalculationApplication
-from calculation_catalog import CATALOG, grouped_categories, list_category, list_categories, search
+from calculation_catalog import CATALOG, grouped_categories, list_category, list_categories, list_items, search
 from calculation_library import CALCULATION_REGISTRY
 
 
@@ -32,12 +32,21 @@ class TestCalculationCatalog(unittest.TestCase):
         self.assertIn("Reservoir Engineering", groups)
         self.assertGreater(len(groups["Drilling Engineering"]), 1)
 
+    def test_resolved_catalog_items_are_one_pass_renderable(self):
+        items = list_items("Reservoir Engineering")
+        hydrostatic = next(item for item in items if item.key == "hydrostatic_pressure")
+        self.assertEqual(hydrostatic.name, "Hydrostatic Pressure")
+        self.assertEqual(hydrostatic.equation, "P = rho * g * h")
+        self.assertEqual(hydrostatic.result_unit, "Pa")
+        self.assertIn("Drilling Engineering", hydrostatic.categories)
+
     def test_application_exposes_catalog_without_duplicate_executors(self):
         app = CalculationApplication()
         self.assertEqual(app.list_categories(), list_categories())
         self.assertIn("darcy_weisbach_pressure_loss", app.list_category("Drilling Engineering"))
         self.assertEqual(app.search("Darcy", category="Drilling Engineering"), ("darcy_weisbach_pressure_loss",))
         self.assertIn("Fluid Mechanics", app.get_catalog_entry("reynolds_number").categories)
+        self.assertEqual(app.list_catalog_items("Reservoir Engineering"), list_items("Reservoir Engineering"))
 
 
 if __name__ == "__main__":
