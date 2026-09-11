@@ -280,9 +280,9 @@ MONITOR
 RE-EVALUATE
 ```
 
-## Beta Web Shell
+## Draft Beta Web Shell
 
-The beta now includes a replaceable WSGI web boundary and a responsive web shell for the project workspace and calculation catalog.
+The draft beta includes a replaceable WSGI web boundary and a responsive web shell for the project workspace and deterministic calculation catalog.
 
 Start it locally with:
 
@@ -290,4 +290,14 @@ Start it locally with:
 PYTHONPATH=src python scripts/serve_web.py
 ```
 
-The web shell provides project selection, nested workspace browsing, search, sorting, contextual actions, drag-to-folder movement, multi-selection, calculation discipline navigation, detailed calculation inputs, auditable solution traces, and a responsive layout. The HTTP layer is deliberately separated from storage and application services so the client or server implementation can evolve without rewriting the core system.
+The shell currently supports project creation/selection, arbitrarily nested folders, notes, file upload/download/replacement, note editing, search, sorting, contextual actions, drag-to-folder movement, multi-selection, copy/paste/duplicate operations, calculation discipline navigation, detailed calculation inputs, and auditable solution traces. The HTTP layer is deliberately separated from storage and application services so the client or server implementation can evolve without rewriting the core system.
+
+Run the deterministic end-to-end beta smoke test with:
+
+```bash
+PYTHONPATH=src python scripts/smoke_test_beta.py
+```
+
+The CI gate runs the smoke test, the complete Python unit suite, and syntax checks for every shipped browser script. The test job has a hard time limit so a future regression cannot silently consume an excessive amount of CI time.
+
+The current web shell is intentionally a foundation rather than a final visual product. The underlying application boundaries are designed to support richer editors, command palettes, tabs, panes, previews, plots, simulation views, and AI assistance without forcing storage or calculation rewrites.
