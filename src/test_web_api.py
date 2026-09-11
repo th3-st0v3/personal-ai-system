@@ -45,6 +45,8 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(manifest["workspace"]["kinds"], ["folder", "note", "file"])
         self.assertIn("last_modified_new_old", manifest["workspace"]["sort_options"])
         self.assertIn("new_note", manifest["workspace"]["context_actions"]["folder"])
+        self.assertIn("copy", manifest["workspace"]["context_actions"]["folder"])
+        self.assertIn("duplicate", manifest["workspace"]["context_actions"]["file"])
         self.assertIn("delete", manifest["workspace"]["multi_selection_actions"])
         self.assertGreaterEqual(manifest["calculations"]["count"], 28)
 
@@ -76,6 +78,28 @@ class TestWebApplication(unittest.TestCase):
         status, _, crumbs = self.request("GET", f"/api/projects/{self.project_id}/breadcrumbs?kind=folder&id={child}")
         self.assertEqual(status, 200)
         self.assertEqual([item["name"] for item in crumbs], ["Web Project", "Engineering", "Hydraulics"])
+
+    def test_copy_paste_and_duplicate_actions(self):
+        source = self.workspace.create_folder(self.project_id, "Source")
+        target = self.workspace.create_folder(self.project_id, "Target")
+        note = self.workspace.create_note(self.project_id, "Read me", "copy me", source)
+        file_id = self.workspace.create_file(self.project_id, "data.txt", b"123", "text/plain", source)
+        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/copy", {"selection": [{"kind": "note", "id": note}, {"kind": "file", "id": file_id}]})
+        self.assertEqual((status, payload), (200, {"copied": [{"kind": "note", "id": note}, {"kind": "file", "id": file_id}]}))
+        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/paste", {"target_folder_id": target, "selection": [{"kind": "note", "id": note}, {"kind": "file", "id": file_id}]})
+        self.assertEqual(status, 201)
+        self.assertEqual(len(payload["created"]), 2)
+        pasted = self.workspace.list_children(self.project_id, target)
+        self.assertEqual({item.name for item in pasted}, {"Read me", "data.txt"})
+        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/duplicate", {"kind": "note", "id": note})
+        self.assertEqual(status, 201)
+        self.assertEqual(self.workspace.get_note(payload["id"]).name, "Read me (copy)")
+        copied_folder = self.workspace.create_folder(self.project_id, "Nested", source)
+        self.workspace.create_note(self.project_id, "Nested note", "nested", copied_folder)
+        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/duplicate", {"kind": "folder", "id": source})
+        self.assertEqual(status, 201)
+        duplicated_children = self.workspace.list_children(self.project_id, payload["id"])
+        self.assertEqual({item.name for item in duplicated_children}, {"Read me (copy 2)", "data.txt (copy)", "Nested"})
 
     def test_workspace_actions_are_exposed(self):
         source = self.workspace.create_folder(self.project_id, "Source")
