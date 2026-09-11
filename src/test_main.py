@@ -291,5 +291,19 @@ class TestCalculationsMenu(unittest.TestCase):
         mock_run.assert_called_once_with()
 
 
+    def test_calculations_menu_handles_invalid_option(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["9", "4"],
+        ), patch("builtins.print") as mock_print:
+            main.calculations_menu()
+
+        mock_print.assert_any_call(
+            "Invalid option. Please choose 1-4."
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
