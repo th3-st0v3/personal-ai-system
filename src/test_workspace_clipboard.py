@@ -50,6 +50,19 @@ class TestWorkspaceClipboard(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.app.copy_selection(self.project_id, [("folder", folder)])
 
+    def test_paste_rejects_other_project_clipboard(self):
+        other = self.app.create_project("Other")
+        folder = self.app.create_folder(other, "Private")
+        with self.assertRaises(ValueError):
+            self.app.paste_selection(self.project_id, None, [{"kind": "folder", "id": folder}])
+
+    def test_copy_folder_into_descendant_is_rejected(self):
+        root = self.app.create_folder(self.project_id, "Root")
+        child = self.app.create_folder(self.project_id, "Child", root)
+        clipboard = self.app.copy_selection(self.project_id, [("folder", root)])
+        with self.assertRaises(ValueError):
+            self.app.paste_selection(self.project_id, child, clipboard)
+
 
 if __name__ == "__main__":
     unittest.main()
