@@ -1,20 +1,24 @@
-"""WSGI composition for the API and static beta web shell."""
+"""WSGI composition for the workspace, engineering API, and static beta web shell."""
 from __future__ import annotations
 
 from pathlib import Path
 
+from engineering_web_api import EngineeringWebApplication, create_engineering_app
 from web_api import WebApplication
 
 
 class SiteApplication:
-    """Serve the web client and delegate API requests to WebApplication."""
+    """Serve the web client and delegate API namespaces to their boundaries."""
 
-    def __init__(self, api: WebApplication, web_root: str | Path | None = None):
+    def __init__(self, api: WebApplication, web_root: str | Path | None = None, engineering_api: EngineeringWebApplication | None = None):
         self.api = api
+        self.engineering_api = engineering_api or create_engineering_app()
         self.web_root = Path(web_root or Path(__file__).resolve().parent.parent / "web")
 
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO", "/")
+        if path.startswith("/api/engineering/"):
+            return self.engineering_api(environ, start_response)
         if path.startswith("/api/"):
             return self.api(environ, start_response)
         relative = "index.html" if path in {"", "/"} else path.lstrip("/")
@@ -31,9 +35,9 @@ class SiteApplication:
         return [payload]
 
 
-def create_site_app(api: WebApplication, web_root: str | Path | None = None) -> SiteApplication:
-    """Compose the API and static client without coupling either layer to a server."""
-    return SiteApplication(api, web_root)
+def create_site_app(api: WebApplication, web_root: str | Path | None = None, engineering_api: EngineeringWebApplication | None = None) -> SiteApplication:
+    """Compose the API boundaries and static client without coupling them to a server."""
+    return SiteApplication(api, web_root, engineering_api)
 
 
 __all__ = ["SiteApplication", "create_site_app"]
