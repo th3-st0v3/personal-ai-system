@@ -50,6 +50,15 @@ CATALOG: tuple[CalculationCatalogEntry, ...] = (
     CalculationCatalogEntry("electrical_resistance_parallel", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Resistance"), ("parallel circuit reduction")),
     CalculationCatalogEntry("capacitor_energy", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Energy Storage"), ("capacitive energy storage")),
     CalculationCatalogEntry("rc_time_constant", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Transient Response"), ("first-order response timing", "sensor and control dynamics")),
+    CalculationCatalogEntry("annular_area", ("Drilling Engineering", "Production Engineering", "Fluid Mechanics"), ("Geometry", "Annular Flow"), ("drilling annulus geometry", "flow-area calculations")),
+    CalculationCatalogEntry("annular_velocity", ("Drilling Engineering", "Production Engineering", "Fluid Mechanics"), ("Velocity", "Annular Flow"), ("annular mean velocity", "circulating-system hydraulics")),
+    CalculationCatalogEntry("hydraulic_power", ("Drilling Engineering", "Production Engineering", "Mechanical Engineering"), ("Power", "Hydraulics"), ("pump hydraulic power", "pressure-flow energy transfer")),
+    CalculationCatalogEntry("equivalent_circulating_density", ("Drilling Engineering", "Well Completion Engineering"), ("Pressure", "Wellbore Hydraulics"), ("ECD estimation", "circulating-density screening")),
+    CalculationCatalogEntry("porosity", ("Reservoir Engineering", "Petrophysics"), ("Rock Properties", "Pore Space"), ("pore-volume characterization", "reservoir quality screening")),
+    CalculationCatalogEntry("water_saturation", ("Reservoir Engineering", "Petrophysics"), ("Rock Properties", "Saturation"), ("fluid saturation characterization", "hydrocarbon pore-volume screening")),
+    CalculationCatalogEntry("formation_volume_factor", ("Reservoir Engineering", "Production Engineering"), ("PVT", "Fluid Properties"), ("reservoir-to-standard volume conversion", "material balance foundations")),
+    CalculationCatalogEntry("productivity_index", ("Reservoir Engineering", "Production Engineering"), ("Well Performance", "Inflow"), ("well productivity", "drawdown-rate relationship")),
+    CalculationCatalogEntry("radial_reservoir_flow_rate", ("Reservoir Engineering", "Production Engineering"), ("Reservoir Flow", "Inflow"), ("steady-state radial flow", "well inflow screening")),
 )
 
 _ENTRY_BY_KEY = {entry.key: entry for entry in CATALOG}
@@ -64,7 +73,7 @@ def _entry(key: str) -> CalculationCatalogEntry:
 
 
 def get_entry(key: str) -> CalculationCatalogEntry:
-    """Return the catalog metadata for one canonical calculation."""
+    """Return catalog metadata for one canonical calculation."""
     entry = _entry(key)
     if key not in CALCULATION_REGISTRY:
         raise RuntimeError(f"Catalog references unregistered calculation: {key}")
@@ -77,7 +86,7 @@ def list_categories() -> tuple[str, ...]:
 
 
 def list_category(category: str) -> tuple[str, ...]:
-    """Return calculation keys belonging to a category, without duplicating implementations."""
+    """Return calculation keys belonging to a category without duplicating implementations."""
     if category not in _CATEGORY_ORDER:
         raise ValueError(f"Unknown calculation category: {category}")
     return tuple(entry.key for entry in CATALOG if category in entry.categories)
