@@ -59,6 +59,25 @@ class WorkspaceApplication:
             "updated_at": record[10],
         }
 
+    @staticmethod
+    def _tag(record):
+        return {
+            "id": record[0],
+            "project_id": record[1],
+            "name": record[2],
+            "created_at": record[3],
+        }
+
+    @staticmethod
+    def _attachment(record):
+        return {
+            "id": record[0],
+            "file_id": record[1],
+            "target_type": record[2],
+            "target_id": record[3],
+            "created_at": record[4],
+        }
+
     def create_project(self, name, description=None):
         return db.create_project(name, description)
 
@@ -137,6 +156,42 @@ class WorkspaceApplication:
 
     def delete_file(self, file_id):
         return workspace_file_service.delete_file(self.storage_root, file_id)
+
+    def delete_files(self, file_ids):
+        return workspace_file_service.delete_files(self.storage_root, file_ids)
+
+    def create_tag(self, project_id, name):
+        return workspace_storage.create_tag(project_id, name)
+
+    def list_tags(self, project_id):
+        return [
+            self._tag(record)
+            for record in workspace_storage.get_tags(project_id)
+        ]
+
+    def assign_tag(self, tag_id, target_type, target_id):
+        return workspace_storage.assign_tag(tag_id, target_type, target_id)
+
+    def remove_tag(self, tag_id, target_type, target_id):
+        workspace_storage.remove_tag(tag_id, target_type, target_id)
+
+    def get_tags_for_target(self, target_type, target_id):
+        return [
+            self._tag(record)
+            for record in workspace_storage.get_tags_for_target(target_type, target_id)
+        ]
+
+    def attach_file(self, file_id, target_type, target_id):
+        return workspace_storage.attach_file(file_id, target_type, target_id)
+
+    def detach_file(self, file_id, target_type, target_id):
+        workspace_storage.detach_file(file_id, target_type, target_id)
+
+    def get_file_attachments(self, file_id):
+        return [
+            self._attachment(record)
+            for record in workspace_storage.get_file_attachments(file_id)
+        ]
 
 
 __all__ = ["WorkspaceApplication"]
