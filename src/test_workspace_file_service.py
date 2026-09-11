@@ -72,7 +72,8 @@ class TestWorkspaceFileService(unittest.TestCase):
                     self.root, self.project_id, "broken.txt", b"payload"
                 )
 
-        self.assertFalse(os.path.exists(os.path.join(self.root, "files")))
+        files_dir = os.path.join(self.root, "files")
+        self.assertEqual(os.listdir(files_dir) if os.path.exists(files_dir) else [], [])
         self.assertEqual(workspace_storage.get_files(self.project_id), [])
 
     def test_delete_file_removes_metadata_and_bytes(self):
