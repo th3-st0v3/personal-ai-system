@@ -50,6 +50,35 @@ class WebApplication:
                     return self._json(200, [self._item(item) for item in self.workspace.list_children(project_id, folder_id, sort=query.get("sort", "a_z"))])
                 if method == "GET" and len(parts) == 5 and parts[4] == "search":
                     return self._json(200, [self._item(item) for item in self.workspace.search_project(project_id, query["q"], recursive=query.get("recursive", "true").casefold() != "false")])
+                if method == "POST" and len(parts) == 5 and parts[4] == "folders":
+                    return self._json(201, {"id": self.workspace.create_folder(project_id, data["name"], data.get("parent_folder_id"))})
+                if method == "POST" and len(parts) == 5 and parts[4] == "notes":
+                    return self._json(201, {"id": self.workspace.create_note(project_id, data["title"], data.get("content", ""), data.get("folder_id"), data.get("metadata"))})
+                if method == "POST" and len(parts) == 5 and parts[4] == "move":
+                    kind, item_id = data["kind"], int(data["id"])
+                    item = self.workspace._browser_item(kind, item_id)
+                    if item.project_id != project_id:
+                        raise ValueError("Item belongs to another project.")
+                    self.workspace.move_item(kind, item_id, data.get("target_folder_id"))
+                    return self._json(200, {"moved": True})
+                if method == "POST" and len(parts) == 5 and parts[4] == "rename":
+                    kind, item_id = data["kind"], int(data["id"])
+                    item = self.workspace._browser_item(kind, item_id)
+                    if item.project_id != project_id:
+                        raise ValueError("Item belongs to another project.")
+                    self.workspace.rename_item(kind, item_id, data["name"])
+                    return self._json(200, {"renamed": True})
+                if method == "POST" and len(parts) == 5 and parts[4] == "delete":
+                    selection = [(item["kind"], int(item["id"])) for item in data.get("selection", [])]
+                    if not selection:
+                        selection = [(data["kind"], int(data["id"]))]
+                    return self._json(200, {"deleted": self.workspace.delete_selection(project_id, selection)})
+                if method == "GET" and len(parts) == 5 and parts[4] == "properties":
+                    kind, item_id = query["kind"], int(query["id"])
+                    properties = self.workspace.get_item_properties(kind, item_id)
+                    if properties["project_id"] != project_id:
+                        raise ValueError("Item belongs to another project.")
+                    return self._json(200, properties)
             return self._json(404, {"error": "Not found"})
         except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
             return self._json(400, {"error": str(exc) or "Invalid request"})
