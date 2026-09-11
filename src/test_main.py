@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 class TestMain(unittest.TestCase):
 
@@ -740,6 +741,51 @@ class TestCalculationCLI(unittest.TestCase):
 
         mock_save.assert_called_once_with(record)
 
+
+    def test_hydrostatic_calculation_workflow_prints_result(self):
+        import main
+        from calculation_records import CalculationRecord
+
+        record = CalculationRecord(
+            calculation_type="hydrostatic_pressure",
+            inputs={
+                "density": 1000,
+                "gravity": 9.81,
+                "depth": 10,
+            },
+            units={
+                "density": "kg/m^3",
+                "gravity": "m/s^2",
+                "depth": "m",
+            },
+            assumptions=(
+                "constant density",
+                "constant gravitational acceleration",
+            ),
+            method="P = rho * g * h",
+            result=98100.0,
+            result_unit="Pa",
+            source="deterministic calculation",
+        )
+
+        with patch(
+            "builtins.input",
+            side_effect=["1000", "9.81", "10"],
+        ), patch(
+            "main.hydrostatic_pressure_record",
+            return_value=record,
+        ), patch(
+            "main.save_calculation_record"
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.run_hydrostatic_calculation()
+
+        mock_print.assert_called_once_with(
+            "Pressure: 98100.0 Pa"
+        )
+
+
     def test_recent_calculations_workflow_displays_saved_records(self):
         import main
         from calculation_records import CalculationRecord
@@ -877,6 +923,97 @@ class TestCalculationCLI(unittest.TestCase):
         )
         self.assertEqual(record.result, 40000.0)
         save_record.assert_called_once_with(record)
+
+
+    def test_darcy_weisbach_calculation_workflow_uses_user_input(self):
+        import main
+
+        record = SimpleNamespace(
+            result=40000.0,
+            result_unit="Pa",
+        )
+
+        with patch(
+            "builtins.input",
+            side_effect=[
+                "0.02",
+                "100",
+                "0.1",
+                "1000",
+                "2",
+            ],
+        ), patch(
+            "main.darcy_weisbach_pressure_loss_record",
+            return_value=record,
+        ) as mock_calculation, patch(
+            "main.save_calculation_record"
+        ), patch(
+            "builtins.print"
+        ):
+            result = main.run_darcy_weisbach_calculation()
+
+        self.assertIs(result, record)
+        mock_calculation.assert_called_once_with(
+            friction_factor=0.02,
+            pipe_length_m=100.0,
+            pipe_diameter_m=0.1,
+            density_kg_m3=1000.0,
+            velocity_m_s=2.0,
+        )
+
+
+    def test_darcy_weisbach_calculation_workflow_prints_result(self):
+        import main
+        from calculation_records import CalculationRecord
+
+        record = CalculationRecord(
+            calculation_type="darcy_weisbach_pressure_loss",
+            inputs={
+                "friction_factor": 0.02,
+                "pipe_length": 100,
+                "pipe_diameter": 0.1,
+                "density": 1000,
+                "velocity": 2,
+            },
+            units={
+                "friction_factor": "dimensionless",
+                "pipe_length": "m",
+                "pipe_diameter": "m",
+                "density": "kg/m^3",
+                "velocity": "m/s",
+            },
+            assumptions=(
+                "constant density",
+                "steady flow",
+            ),
+            method="ΔP = f * (L / D) * (rho * v^2 / 2)",
+            result=40000.0,
+            result_unit="Pa",
+            source="deterministic calculation",
+        )
+
+        with patch(
+            "builtins.input",
+            side_effect=[
+                "0.02",
+                "100",
+                "0.1",
+                "1000",
+                "2",
+            ],
+        ), patch(
+            "main.darcy_weisbach_pressure_loss_record",
+            return_value=record,
+        ), patch(
+            "main.save_calculation_record"
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.run_darcy_weisbach_calculation()
+
+        mock_print.assert_called_once_with(
+            "Pressure loss: 40000.0 Pa"
+        )
 
 
 class TestMainMenu(unittest.TestCase):
