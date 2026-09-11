@@ -276,6 +276,55 @@ def move_folder(folder_id, parent_folder_id):
         connection.close()
 
 
+def rename_folder(folder_id, name):
+    name = _require_name(name)
+    connection = _connection()
+    try:
+        folder = connection.execute(
+            "SELECT 1 FROM folders WHERE id = ?",
+            (folder_id,),
+        ).fetchone()
+        if folder is None:
+            raise ValueError(f"No folder found with ID {folder_id}.")
+        connection.execute(
+            "UPDATE folders SET name = ?, updated_at = datetime('now') WHERE id = ?",
+            (name, folder_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def delete_folder(folder_id):
+    connection = _connection()
+    try:
+        folder = connection.execute(
+            "SELECT 1 FROM folders WHERE id = ?",
+            (folder_id,),
+        ).fetchone()
+        if folder is None:
+            raise ValueError(f"No folder found with ID {folder_id}.")
+
+        child_folder = connection.execute(
+            "SELECT 1 FROM folders WHERE parent_folder_id = ? LIMIT 1",
+            (folder_id,),
+        ).fetchone()
+        if child_folder is not None:
+            raise ValueError(f"Folder {folder_id} is not empty.")
+
+        child_file = connection.execute(
+            "SELECT 1 FROM files WHERE folder_id = ? LIMIT 1",
+            (folder_id,),
+        ).fetchone()
+        if child_file is not None:
+            raise ValueError(f"Folder {folder_id} is not empty.")
+
+        connection.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def update_folder_lifecycle_status(folder_id, lifecycle_status):
     _require_lifecycle(lifecycle_status)
     connection = _connection()
@@ -381,6 +430,25 @@ def move_file(file_id, folder_id):
         connection.close()
 
 
+def rename_file(file_id, name):
+    name = _require_name(name)
+    connection = _connection()
+    try:
+        file_record = connection.execute(
+            "SELECT 1 FROM files WHERE id = ?",
+            (file_id,),
+        ).fetchone()
+        if file_record is None:
+            raise ValueError(f"No file found with ID {file_id}.")
+        connection.execute(
+            "UPDATE files SET name = ?, updated_at = datetime('now') WHERE id = ?",
+            (name, file_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def update_file_lifecycle_status(file_id, lifecycle_status):
     _require_lifecycle(lifecycle_status)
     connection = _connection()
@@ -399,9 +467,14 @@ def update_file_lifecycle_status(file_id, lifecycle_status):
 def delete_file(file_id):
     connection = _connection()
     try:
-        cursor = connection.execute("DELETE FROM files WHERE id = ?", (file_id,))
-        if cursor.rowcount == 0:
+        cursor = connection.execute("SELECT 1 FROM files WHERE id = ?", (file_id,)).fetchone()
+        if cursor is None:
             raise ValueError(f"No file found with ID {file_id}.")
+        connection.execute(
+            "DELETE FROM tag_assignments WHERE target_type = ? AND target_id = ?",
+            ('file', file_id),
+        )
+        connection.execute("DELETE FROM files WHERE id = ?", (file_id,))
         connection.commit()
     finally:
         connection.close()
@@ -416,6 +489,11 @@ def delete_files(file_ids):
     connection = _connection()
     try:
         placeholders = ",".join("?" for _ in file_ids)
+        connection.execute(
+            "DELETE FROM tag_assignments "
+            f"WHERE target_type = ? AND target_id IN ({placeholders})",
+            ['file', *file_ids],
+        )
         connection.execute(
             f"DELETE FROM files WHERE id IN ({placeholders})", file_ids
         )
