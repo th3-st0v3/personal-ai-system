@@ -18,7 +18,8 @@ def _require_storage_key(storage_key):
         raise ValueError("storage_key must be a non-empty string.")
     key = storage_key.strip().replace("\\", "/")
     path = Path(key)
-    if path.is_absolute() or ".." in path.parts or any(part == "" for part in path.parts):
+    has_windows_drive = len(key) >= 2 and key[0].isalpha() and key[1] == ":"
+    if path.is_absolute() or has_windows_drive or ".." in path.parts or any(part == "" for part in path.parts):
         raise ValueError("storage_key must be a relative path without empty or parent components.")
     return key
 
