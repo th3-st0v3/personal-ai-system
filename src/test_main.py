@@ -57,6 +57,29 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_creates_requirement(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["1", "42", "System must calculate pressure", "6"],
+        ), patch(
+            "main.create_requirement",
+            return_value=7,
+        ) as mock_create, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_create.assert_called_once_with(
+            42,
+            "System must calculate pressure",
+        )
+        mock_print.assert_any_call(
+            "Requirement created with id 7."
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
