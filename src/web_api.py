@@ -12,6 +12,9 @@ from workspace_application import WorkspaceApplication
 class WebApplication:
     """Serve JSON API resources without coupling HTTP handlers to storage."""
 
+    MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
+    _ITEM_KINDS = frozenset(("folder", "note", "file"))
+
     def __init__(self, workspace: WorkspaceApplication, calculations: CalculationApplication | None = None):
         self.workspace = workspace
         self.calculations = calculations or CalculationApplication()
@@ -29,7 +32,7 @@ class WebApplication:
         return {
             "api_version": 1,
             "workspace": {
-                "kinds": ["folder", "note", "file"],
+                "kinds": sorted(self._ITEM_KINDS),
                 "sort_options": list(workspace_browser.SORT_OPTIONS),
                 "context_actions": {kind: list(workspace_browser.get_context_actions(kind)) for kind in ("folder", "note", "file")},
                 "multi_selection_actions": list(workspace_browser.get_context_actions("file", selection_count=2)),
@@ -39,10 +42,14 @@ class WebApplication:
 
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
+            if len(body) > self.MAX_REQUEST_BODY_BYTES:
+                raise ValueError(f"Request body exceeds {self.MAX_REQUEST_BODY_BYTES} bytes.")
             parsed = urlsplit(target)
             path = parsed.path.rstrip("/") or "/"
             query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
             data = json.loads(body or b"{}")
+            if not isinstance(data, dict):
+                raise ValueError("JSON request body must be an object.")
             if method == "GET" and path == "/api/health":
                 return self._json(200, {"status": "ok"})
             if method == "GET" and path == "/api/manifest":
@@ -71,7 +78,7 @@ class WebApplication:
                     folder_id = int(query["folder_id"]) if query.get("folder_id") else None
                     return self._json(200, [self._item(item) for item in self.workspace.list_children(project_id, folder_id, sort=query.get("sort", "a_z"))])
                 if method == "GET" and len(parts) == 5 and parts[4] == "breadcrumbs":
-                    kind = query["kind"]
+                    kind = self._kind(query["kind"])
                     item_id = int(query["id"])
                     item = self.workspace._browser_item(kind, item_id)
                     if item.project_id != project_id:
@@ -89,40 +96,40 @@ class WebApplication:
                         raise ValueError("Note not found in project.")
                     return self._json(200, self._item(note))
                 if method == "POST" and len(parts) == 5 and parts[4] == "copy":
-                    selection = [(item["kind"], int(item["id"])) for item in data.get("selection", [])]
+                    selection = [(self._kind(item["kind"]), int(item["id"])) for item in data.get("selection", [])]
                     if not selection:
                         raise ValueError("Selection is required.")
                     self.workspace.copy_selection(project_id, selection)
                     return self._json(200, {"copied": [{"kind": kind, "id": item_id} for kind, item_id in selection]})
                 if method == "POST" and len(parts) == 5 and parts[4] == "paste":
-                    selection = [(item["kind"], int(item["id"])) for item in data.get("selection", [])]
+                    selection = [(self._kind(item["kind"]), int(item["id"])) for item in data.get("selection", [])]
                     if not selection:
                         raise ValueError("Clipboard selection is required.")
                     created = self.workspace.paste_selection(project_id, data.get("target_folder_id"), self.workspace.copy_selection(project_id, selection))
                     return self._json(201, {"created": created})
                 if method == "POST" and len(parts) == 5 and parts[4] == "duplicate":
-                    kind, item_id = data["kind"], int(data["id"])
+                    kind, item_id = self._kind(data["kind"]), int(data["id"])
                     self.workspace._require_project_item(kind, item_id, project_id)
                     return self._json(201, {"id": self.workspace.duplicate_item(project_id, kind, item_id)})
                 if method == "POST" and len(parts) == 5 and parts[4] == "move":
-                    kind, item_id = data["kind"], int(data["id"])
+                    kind, item_id = self._kind(data["kind"]), int(data["id"])
                     item = self.workspace._browser_item(kind, item_id)
                     if item.project_id != project_id:
                         raise ValueError("Item belongs to another project.")
                     self.workspace.move_item(kind, item_id, data.get("target_folder_id"), project_id=project_id)
                     return self._json(200, {"moved": True})
                 if method == "POST" and len(parts) == 5 and parts[4] == "rename":
-                    kind, item_id = data["kind"], int(data["id"])
+                    kind, item_id = self._kind(data["kind"]), int(data["id"])
                     self.workspace._require_project_item(kind, item_id, project_id)
                     self.workspace.rename_item(kind, item_id, data["name"], project_id=project_id)
                     return self._json(200, {"renamed": True})
                 if method == "POST" and len(parts) == 5 and parts[4] == "delete":
-                    selection = [(item["kind"], int(item["id"])) for item in data.get("selection", [])]
+                    selection = [(self._kind(item["kind"]), int(item["id"])) for item in data.get("selection", [])]
                     if not selection:
-                        selection = [(data["kind"], int(data["id"]))]
+                        selection = [(self._kind(data["kind"]), int(data["id"]))]
                     return self._json(200, {"deleted": self.workspace.delete_selection(project_id, selection)})
                 if method == "GET" and len(parts) == 5 and parts[4] == "properties":
-                    kind, item_id = query["kind"], int(query["id"])
+                    kind, item_id = self._kind(query["kind"]), int(query["id"])
                     properties = self.workspace.get_item_properties(kind, item_id)
                     if properties["project_id"] != project_id:
                         raise ValueError("Item belongs to another project.")
@@ -133,13 +140,27 @@ class WebApplication:
         except Exception as exc:
             return self._json(500, {"error": str(exc) or "Internal server error"})
 
+    @classmethod
+    def _kind(cls, value: str) -> str:
+        if value not in cls._ITEM_KINDS:
+            raise ValueError(f"Unsupported item kind '{value}'.")
+        return value
+
     def __call__(self, environ, start_response):
-        length = int(environ.get("CONTENT_LENGTH") or 0)
-        body = environ["wsgi.input"].read(length) if length else b""
-        target = environ.get("PATH_INFO", "/")
-        if environ.get("QUERY_STRING"):
-            target += "?" + environ["QUERY_STRING"]
-        status, headers, payload = self.request(environ.get("REQUEST_METHOD", "GET"), target, body)
+        try:
+            length = int(environ.get("CONTENT_LENGTH") or 0)
+            if length < 0:
+                raise ValueError("Content length cannot be negative.")
+            if length > self.MAX_REQUEST_BODY_BYTES:
+                status, headers, payload = self._json(413, {"error": "Request body too large."})
+            else:
+                body = environ["wsgi.input"].read(length) if length else b""
+                target = environ.get("PATH_INFO", "/")
+                if environ.get("QUERY_STRING"):
+                    target += "?" + environ["QUERY_STRING"]
+                status, headers, payload = self.request(environ.get("REQUEST_METHOD", "GET"), target, body)
+        except (TypeError, ValueError) as exc:
+            status, headers, payload = self._json(400, {"error": str(exc) or "Invalid request"})
         reason = "OK" if status < 300 else "Error"
         start_response(f"{status} {reason}", headers)
         return [payload]
