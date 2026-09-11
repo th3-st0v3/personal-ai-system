@@ -42,6 +42,18 @@ class WebApplication:
                 return self._json(200, [item.__dict__ for item in self.calculations.list_catalog_items(query.get("category"))])
             if method == "POST" and path == "/api/calculations/run":
                 return self._json(200, self.calculations.run_trace(data["model_key"], data.get("inputs", {})).to_dict())
+            if method == "GET" and path.startswith("/api/calculations/"):
+                key = path.rsplit("/", 1)[-1]
+                model = self.calculations.get_model(key)
+                method_version = self.calculations.get_method(key)
+                parameters = self.calculations.get_parameters(key)
+                catalog = self.calculations.get_catalog_entry(key)
+                return self._json(200, {
+                    "model": model.__dict__,
+                    "method": method_version.__dict__,
+                    "parameters": [parameter.__dict__ for parameter in parameters],
+                    "catalog": catalog.__dict__,
+                })
             parts = path.split("/")
             if len(parts) >= 4 and parts[1:3] == ["api", "projects"]:
                 project_id = int(parts[3])
