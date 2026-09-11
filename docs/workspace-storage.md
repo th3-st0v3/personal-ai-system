@@ -27,7 +27,7 @@ The application boundary:
 - Converts database tuples into named dictionaries suitable for API responses.
 - Keeps physical byte access behind the file-storage service.
 - Preserves stable file identity and storage keys across Rename and Move.
-- Exposes lifecycle and safe deletion operations without exposing database implementation details to the frontend.
+- Exposes lifecycle, tag, attachment, and safe deletion operations without exposing database implementation details to the frontend.
 
 This creates the intended dependency direction:
 
@@ -78,6 +78,8 @@ The user-facing name can change without requiring the underlying stored object t
 
 Metadata deletion and byte deletion remain separate operations. Deleting a database file record removes its database-owned tag assignments and cascades its attachment records, but it does not implicitly delete physical bytes. The higher-level file service coordinates metadata and byte cleanup with explicit recovery/error handling rather than hiding filesystem side effects inside database operations.
 
+Bulk deletion validates every requested file before removing metadata, deduplicates repeated IDs, and then cleans the corresponding byte objects. If physical cleanup fails, the metadata is already removed and `FileServiceError` identifies that storage cleanup is required; this failure is intentionally explicit rather than silently hiding an orphaned object.
+
 Empty folders can be deleted; non-empty folders are rejected. Folder tag assignments are removed when an empty folder is deleted. Lifecycle transitions are idempotent and do not recursively mutate children.
 
 ## Future frontend mapping
@@ -94,7 +96,7 @@ The backend primitives are intended to support the eventual file-explorer UX:
 | Archive | lifecycle update |
 | Invalidate | lifecycle update |
 | Restore | lifecycle update back to `Active` |
-| Delete | `delete_file` / `delete_folder` |
+| Delete | `delete_file` / `delete_files` / `delete_folder` |
 | Attach to engineering object | workspace attachment operations exposed by the application layer |
 
 Upload/download streaming, previews, permissions, audit events, and soft-delete recovery remain separate concerns. They should be added behind stable interfaces without changing the core file identity model.
