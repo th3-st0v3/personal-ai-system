@@ -196,6 +196,57 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_views_evidence_history(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        history = [
+            (
+                7,
+                42,
+                "Pressure test",
+                "test_report.pdf",
+                "Pressure held at 100 psi",
+                "Verified",
+                0,
+                "2026-09-10T12:00:00",
+            )
+        ]
+
+        with patch(
+            "builtins.input",
+            side_effect=["5", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.get_evidence_history_for_requirement",
+            return_value=history,
+        ) as mock_history, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_history.assert_called_once_with(42)
+
+        mock_print.assert_any_call(
+            "\nEvidence history for requirement 42: "
+            "Verify pressure system"
+        )
+        mock_print.assert_any_call(
+            "  - [Verified] Pressure test "
+            "(test_report.pdf): Pressure held at 100 psi "
+            "[0] at 2026-09-10T12:00:00"
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
