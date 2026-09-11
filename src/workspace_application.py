@@ -39,6 +39,13 @@ class WorkspaceApplication:
             raise ValueError(f"{kind.capitalize()} belongs to another project.")
         return item
 
+    @staticmethod
+    def _require_project_tag(tag_id, project_id):
+        tag = next((row for row in workspace_storage.get_tags(project_id) if row[0] == tag_id), None)
+        if tag is None:
+            raise ValueError("Tag belongs to another project.")
+        return tag
+
     def create_project(self, name, description=None): return db.create_project(name, description)
     def list_projects(self): return [self._project(r) for r in db.get_projects()]
     def create_folder(self, project_id, name, parent_folder_id=None): return workspace_storage.create_folder(project_id, name, parent_folder_id)
@@ -103,6 +110,7 @@ class WorkspaceApplication:
         return workspace_browser.delete_note(note_id)
     def export_note(self, note_id, *, project_id=None):
         note = self._require_project_item("note", note_id, project_id) if project_id is not None else workspace_browser.get_note(note_id)
+        if note is None: raise ValueError(f"No note found with ID {note_id}.")
         return note.content or ""
     def pin_note(self, note_id, pinned=True, *, project_id=None):
         note = self._require_project_item("note", note_id, project_id) if project_id is not None else workspace_browser.get_note(note_id)
@@ -147,14 +155,10 @@ class WorkspaceApplication:
     def create_tag(self, project_id, name): return workspace_storage.create_tag(project_id, name)
     def list_tags(self, project_id): return [self._tag(r) for r in workspace_storage.get_tags(project_id)]
     def assign_tag(self, tag_id, target_type, target_id, *, project_id=None):
-        if project_id is not None:
-            tag = workspace_storage.get_tag(tag_id)
-            if tag is None or tag[1] != project_id: raise ValueError("Tag belongs to another project.")
+        if project_id is not None: self._require_project_tag(tag_id, project_id)
         return workspace_storage.assign_tag(tag_id, target_type, target_id)
     def remove_tag(self, tag_id, target_type, target_id, *, project_id=None):
-        if project_id is not None:
-            tag = workspace_storage.get_tag(tag_id)
-            if tag is None or tag[1] != project_id: raise ValueError("Tag belongs to another project.")
+        if project_id is not None: self._require_project_tag(tag_id, project_id)
         workspace_storage.remove_tag(tag_id, target_type, target_id)
     def get_tags_for_target(self, target_type, target_id): return [self._tag(r) for r in workspace_storage.get_tags_for_target(target_type, target_id)]
     def attach_file(self, file_id, target_type, target_id, *, project_id=None):
