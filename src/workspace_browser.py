@@ -232,10 +232,16 @@ def project_context_actions() -> tuple[str,...]:
 
 def get_breadcrumbs(kind: ItemKind,item_id: int) -> list[tuple[str,int,str]]:
     project_id=_item_project(kind,item_id)
+    c=_connection()
+    try:
+        project=c.execute("SELECT name FROM projects WHERE id=?",(project_id,)).fetchone()
+        result=[("project",project_id,project[0] if project else "Project")]
+    finally:
+        c.close()
     folder_id=item_id if kind=="folder" else workspace_storage.get_file(item_id)[2] if kind=="file" else get_note(item_id).parent_id
-    result=[]
+    result_folders=[]
     while folder_id is not None:
         folder=workspace_storage.get_folder(folder_id)
-        if folder is None: break
-        result.append(("folder",folder[0],folder[3])); folder_id=folder[2]
-    result.reverse(); return [("project",project_id,"Project")]+result
+        if folder is None or folder[1] != project_id: break
+        result_folders.append(("folder",folder[0],folder[3])); folder_id=folder[2]
+    result.extend(reversed(result_folders)); return result
