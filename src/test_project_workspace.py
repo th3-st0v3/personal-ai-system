@@ -48,16 +48,12 @@ class TestProjectWorkspace(unittest.TestCase):
         workspace_notes.create_note(self.project_id, "Zeta", "z", folder_id=folder)
         workspace_notes.create_note(self.project_id, "Alpha", "a", folder_id=folder)
 
-        notes = workspace_notes.list_notes(
-            self.project_id, folder_id=folder, sort="name_asc"
-        )
+        notes = workspace_notes.list_notes(self.project_id, folder_id=folder, sort="name_asc")
         self.assertEqual([note["title"] for note in notes], ["Alpha", "Zeta"])
 
     def test_note_delete_requires_leaf_notes(self):
         parent = workspace_notes.create_note(self.project_id, "Parent", "parent")
-        workspace_notes.create_note(
-            self.project_id, "Child", "child", parent_note_id=parent
-        )
+        workspace_notes.create_note(self.project_id, "Child", "child", parent_note_id=parent)
 
         with self.assertRaises(ValueError):
             workspace_notes.delete_note(parent)
@@ -65,12 +61,7 @@ class TestProjectWorkspace(unittest.TestCase):
     def test_project_root_lists_folders_files_and_notes_with_context_actions(self):
         folder = workspace_storage.create_folder(self.project_id, "Folder")
         workspace_storage.create_file(
-            self.project_id,
-            "report.pdf",
-            "files/test-report",
-            4,
-            "0" * 64,
-            "application/pdf",
+            self.project_id, "report.pdf", "files/test-report", 4, "0" * 64, "application/pdf"
         )
         workspace_notes.create_note(self.project_id, "Design Notes", "content")
 
@@ -78,9 +69,12 @@ class TestProjectWorkspace(unittest.TestCase):
 
         self.assertEqual([item["type"] for item in items], ["note", "file", "folder"])
         self.assertEqual(items[0]["name"], "Design Notes")
+        self.assertEqual(items[0]["location_type"], "project")
         self.assertIn("open", items[0]["actions"])
+        self.assertNotIn("tag", items[0]["actions"])
         self.assertIn("delete", items[1]["actions"])
         self.assertEqual(items[2]["id"], folder)
+        self.assertEqual(items[2]["location_type"], "project")
 
     def test_context_actions_change_for_selection_and_lifecycle(self):
         single = project_workspace.context_actions("file", "Active")
