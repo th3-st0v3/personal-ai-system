@@ -19,6 +19,21 @@ class CalculationTrace:
     assumptions: tuple[str, ...]
     limitations: tuple[str, ...]
 
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-ready detailed trace for UI/API rendering."""
+        return {
+            "key": self.key,
+            "name": self.name,
+            "equation": self.equation,
+            "inputs": dict(self.inputs),
+            "substitutions": self.substitutions,
+            "steps": list(self.steps),
+            "result": self.result,
+            "result_unit": self.result_unit,
+            "assumptions": list(self.assumptions),
+            "limitations": list(self.limitations),
+        }
+
 
 @dataclass(frozen=True)
 class CalculationSpec:
@@ -194,5 +209,12 @@ def calculate(key: str, **inputs: float) -> CalculationTrace:
     try: spec = CALCULATION_REGISTRY[key]
     except KeyError as exc: raise ValueError(f"Unknown calculation '{key}'.") from exc
     result = spec.calculate(**inputs); substitution = spec.substitutions(inputs)
-    steps = (f"Equation: {spec.equation}", f"Substitute values: {substitution}", f"Evaluate expression: {result:g} {spec.result_unit}")
+    steps = (
+        f"Equation: {spec.equation}",
+        "Validate supplied inputs as finite numeric values within the model's defined bounds.",
+        f"Substitute values: {substitution}",
+        f"Evaluate expression: {result:g} {spec.result_unit}",
+        f"Report result: {spec.name} = {result:g} {spec.result_unit}",
+        "Review the stated assumptions before using the result for an engineering decision.",
+    )
     return CalculationTrace(spec.key, spec.name, spec.equation, dict(inputs), substitution, steps, result, spec.result_unit, spec.assumptions, spec.limitations)
