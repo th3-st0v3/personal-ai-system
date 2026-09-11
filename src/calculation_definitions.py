@@ -34,6 +34,15 @@ _PARAMETER_DATA = {
     "electrical_resistance_parallel": (("resistance_1", "First parallel resistance.", "resistance", 0.0, None, "ohm"), ("resistance_2", "Second parallel resistance.", "resistance", 0.0, None, "ohm")),
     "capacitor_energy": (("capacitance", "Capacitance.", "capacitance", 0.0, None, "F"), ("voltage", "Capacitor voltage.", "voltage", 0.0, None, "V")),
     "rc_time_constant": (("resistance", "Resistance.", "resistance", 0.0, None, "ohm"), ("capacitance", "Capacitance.", "capacitance", 0.0, None, "F")),
+    "annular_area": (("outer_diameter", "Outer annulus diameter.", "length", 0.0, None, "m"), ("inner_diameter", "Inner annulus diameter.", "length", 0.0, None, "m")),
+    "annular_velocity": (("flow_rate", "Volumetric flow rate through annulus.", "volume_per_time", 0.0, None, "m^3/s"), ("outer_diameter", "Outer annulus diameter.", "length", 0.0, None, "m"), ("inner_diameter", "Inner annulus diameter.", "length", 0.0, None, "m")),
+    "hydraulic_power": (("pressure_drop", "Pressure drop.", "pressure", 0.0, None, "Pa"), ("volumetric_flow_rate", "Volumetric flow rate.", "volume_per_time", 0.0, None, "m^3/s")),
+    "equivalent_circulating_density": (("density", "Base drilling-fluid density.", "mass_per_volume", 0.0, None, "kg/m^3"), ("annular_pressure_loss", "Annular circulating pressure loss.", "pressure", 0.0, None, "Pa"), ("true_vertical_depth", "True vertical depth.", "length", 0.0, None, "m"), ("gravity", "Gravitational acceleration.", "length_per_time_squared", 0.0, None, "m/s^2")),
+    "porosity": (("pore_volume", "Pore volume.", "volume", 0.0, None, "m^3"), ("bulk_volume", "Bulk rock volume.", "volume", 0.0, None, "m^3")),
+    "water_saturation": (("water_volume", "Water-filled pore volume.", "volume", 0.0, None, "m^3"), ("pore_volume", "Total pore volume.", "volume", 0.0, None, "m^3")),
+    "formation_volume_factor": (("reservoir_volume", "Fluid volume at reservoir conditions.", "volume", 0.0, None, "m^3"), ("standard_volume", "Equivalent fluid volume at standard conditions.", "volume", 0.0, None, "m^3")),
+    "productivity_index": (("flow_rate", "Production flow rate.", "volume_per_time", 0.0, None, "m^3/s"), ("average_reservoir_pressure", "Average reservoir pressure.", "pressure", None, None, "Pa"), ("flowing_bottomhole_pressure", "Flowing bottomhole pressure.", "pressure", None, None, "Pa")),
+    "radial_reservoir_flow_rate": (("permeability", "Reservoir permeability.", "area", 0.0, None, "m^2"), ("thickness", "Net reservoir thickness.", "length", 0.0, None, "m"), ("pressure_outer", "Pressure at outer radial boundary.", "pressure", None, None, "Pa"), ("pressure_well", "Pressure at wellbore.", "pressure", None, None, "Pa"), ("viscosity", "Fluid viscosity.", "dynamic_viscosity", 0.0, None, "Pa*s"), ("formation_volume_factor", "Formation volume factor.", "dimensionless", 0.0, None, "dimensionless"), ("outer_radius", "Outer radial boundary radius.", "length", 0.0, None, "m"), ("wellbore_radius", "Wellbore radius.", "length", 0.0, None, "m"), ("skin", "Dimensionless skin factor.", "dimensionless", None, None, "dimensionless")),
 }
 
 
