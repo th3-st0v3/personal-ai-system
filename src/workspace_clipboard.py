@@ -38,7 +38,7 @@ def _copy_item(storage_root, project_id: int, kind: workspace_browser.ItemKind, 
         source = workspace_storage.get_folder(item_id)
         if source is None or source[1] != project_id:
             raise ValueError(f"No folder found with ID {item_id} in project {project_id}.")
-        if target_folder_id == item_id or (target_folder_id is not None and workspace_browser._folder_contains(project_id, item_id, target_folder_id)):
+        if target_folder_id == item_id or (target_folder_id is not None and workspace_browser._folder_contains(project_id, target_folder_id, item_id)):
             raise ValueError("Cannot copy a folder into itself or one of its descendants.")
         new_folder = workspace_storage.create_folder(project_id, _unique_name(project_id, target_folder_id, source[3]), target_folder_id)
         for child in workspace_browser.list_children(project_id, item_id, sort="a_z"):
@@ -98,6 +98,10 @@ def paste_selection(storage_root, project_id: int, target_folder_id: int | None,
         kind, item_id = item.get("kind"), int(item.get("id"))
         if workspace_browser._item_project(kind, item_id) != project_id:
             raise ValueError("Clipboard contains an item from another project.")
+        if kind not in {"folder", "note", "file"}:
+            raise ValueError(f"Unsupported clipboard item kind '{kind}'.")
+        if kind == "folder" and (target_folder_id == item_id or (target_folder_id is not None and workspace_browser._folder_contains(project_id, target_folder_id, item_id))):
+            raise ValueError("Cannot paste a folder into itself or one of its descendants.")
     created = []
     for item in clipboard_items:
         kind = item["kind"]
@@ -105,8 +109,6 @@ def paste_selection(storage_root, project_id: int, target_folder_id: int | None,
             created.append(_copy_item(storage_root, project_id, kind, int(item["id"]), target_folder_id))
         elif kind == "note":
             created.append(workspace_browser.create_note(project_id, _unique_name(project_id, target_folder_id, item["name"]), item.get("content", ""), target_folder_id, metadata=item.get("metadata") or {}))
-        elif kind == "file":
-            created.append(workspace_browser.create_file(storage_root, project_id, _unique_name(project_id, target_folder_id, item["name"]), item["data"], item.get("mime_type"), target_folder_id))
         else:
-            raise ValueError(f"Unsupported clipboard item kind '{kind}'.")
+            created.append(workspace_browser.create_file(storage_root, project_id, _unique_name(project_id, target_folder_id, item["name"]), item["data"], item.get("mime_type"), target_folder_id))
     return created
