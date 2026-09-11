@@ -47,7 +47,7 @@ class WebApplication:
                 project_id = int(parts[3])
                 if method == "GET" and len(parts) == 5 and parts[4] == "items":
                     folder_id = int(query["folder_id"]) if query.get("folder_id") else None
-                    return self._json(200, [self._item(item) for item in self.workspace.list_children(project_id, folder_id, query.get("sort", "a_z"))])
+                    return self._json(200, [self._item(item) for item in self.workspace.list_children(project_id, folder_id, sort=query.get("sort", "a_z"))])
                 if method == "GET" and len(parts) == 5 and parts[4] == "search":
                     return self._json(200, [self._item(item) for item in self.workspace.search_project(project_id, query["q"], recursive=query.get("recursive", "true").casefold() != "false")])
             return self._json(404, {"error": "Not found"})
@@ -59,8 +59,12 @@ class WebApplication:
     def __call__(self, environ, start_response):
         length = int(environ.get("CONTENT_LENGTH") or 0)
         body = environ["wsgi.input"].read(length) if length else b""
-        status, headers, payload = self.request(environ.get("REQUEST_METHOD", "GET"), environ.get("PATH_INFO", "/") + ("?" + environ.get("QUERY_STRING", "") if environ.get("QUERY_STRING") else ""), body)
-        start_response(f"{status} {'OK' if status < 400 else 'Error'}", headers)
+        target = environ.get("PATH_INFO", "/")
+        if environ.get("QUERY_STRING"):
+            target += "?" + environ["QUERY_STRING"]
+        status, headers, payload = self.request(environ.get("REQUEST_METHOD", "GET"), target, body)
+        reason = "OK" if status < 300 else "Error"
+        start_response(f"{status} {reason}", headers)
         return [payload]
 
 
