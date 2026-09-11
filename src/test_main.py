@@ -1274,7 +1274,7 @@ class TestCalculationsMenu(unittest.TestCase):
         def failing_ask_model(prompt):
             raise RuntimeError("request failed")
 
-        fake_model.ask_model = failing_ask_model
+        setattr(fake_model, "ask_model", failing_ask_model)
 
         with patch.dict(sys.modules, {"model": fake_model}), patch(
             "builtins.input",
