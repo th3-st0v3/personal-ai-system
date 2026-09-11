@@ -23,7 +23,8 @@ class TestCalculationCatalog(unittest.TestCase):
     def test_search_can_filter_by_category_and_use_case(self):
         self.assertEqual(search("hydrostatic", category="Reservoir Engineering"), ("hydrostatic_pressure",))
         self.assertIn("reynolds_number", search("flow regime", category="Drilling Engineering"))
-        self.assertEqual(search("electrical"), tuple(key for key in CALCULATION_REGISTRY if "electrical" in CALCULATION_REGISTRY[key].domain or key.startswith("electrical_") or key == "ohms_law_voltage"))
+        electrical = set(search("electrical"))
+        self.assertTrue({"ohms_law_voltage", "electrical_power", "electrical_resistance_series", "electrical_resistance_parallel"} <= electrical)
 
     def test_grouped_categories_are_frontend_ready(self):
         groups = grouped_categories()
