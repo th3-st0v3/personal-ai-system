@@ -1,11 +1,4 @@
-"""Application boundary for deterministic engineering calculations.
-
-This module provides one stable entry point for selecting a registered
-calculation model, validating its inputs, executing the existing specialized
-deterministic implementation, and optionally persisting the resulting record.
-It keeps future UI/API/AI callers from depending on individual calculation
-functions or database details.
-"""
+"""Application boundary for deterministic engineering calculations."""
 
 import math
 
@@ -22,6 +15,13 @@ class CalculationApplication:
     _EXECUTORS = {
         "hydrostatic_pressure": calculations.hydrostatic_pressure_record,
         "darcy_weisbach_pressure_loss": calculations.darcy_weisbach_pressure_loss_record,
+        "pipe_cross_sectional_area": calculations.pipe_cross_sectional_area_record,
+        "volumetric_flow_rate": calculations.volumetric_flow_rate_record,
+        "fluid_velocity": calculations.fluid_velocity_record,
+        "reynolds_number": calculations.reynolds_number_record,
+        "hydrostatic_pressure_gradient": calculations.hydrostatic_pressure_gradient_record,
+        "hydraulic_power": calculations.hydraulic_power_record,
+        "api_gravity_to_specific_gravity": calculations.api_gravity_to_specific_gravity_record,
     }
 
     def __init__(self):
@@ -37,46 +37,37 @@ class CalculationApplication:
             )
 
     def list_models(self) -> list[CalculationModel]:
-        """Return registered calculation models in definition order."""
         return [definition[0] for definition in self._definitions.values()]
 
     def get_model(self, model_key: str) -> CalculationModel:
-        """Return a model definition or raise for an unknown model key."""
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[0]
 
     def get_method(self, model_key: str) -> MethodVersion:
-        """Return the current registered method version for a model."""
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[1]
 
     def get_parameters(self, model_key: str) -> tuple[CalculationParameter, ...]:
-        """Return the registered input definitions for a model."""
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[2]
 
     def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
-        """Validate inputs and execute one deterministic calculation model."""
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
-
         if not isinstance(inputs, dict):
             raise ValueError("inputs must be a dictionary.")
 
         _, _, parameters = definition
         expected = {parameter.name: parameter for parameter in parameters}
         supplied = set(inputs)
-        missing = [
-            name for name, parameter in expected.items()
-            if parameter.required and name not in supplied
-        ]
+        missing = [name for name, parameter in expected.items() if parameter.required and name not in supplied]
         unknown = supplied - set(expected)
         if missing:
             raise ValueError("Missing required inputs: " + ", ".join(missing))
@@ -100,28 +91,35 @@ class CalculationApplication:
         return self._EXECUTORS[model_key](**self._executor_arguments(model_key, validated))
 
     def run_and_save(self, model_key: str, inputs: dict[str, float]) -> tuple[int, CalculationRecord]:
-        """Execute a deterministic calculation and persist its reproducible record."""
         record = self.run(model_key, inputs)
         calculation_id = db.save_calculation_record(record)
         return calculation_id, record
 
     @staticmethod
     def _executor_arguments(model_key: str, inputs: dict[str, float]) -> dict[str, float]:
-        if model_key == "hydrostatic_pressure":
-            return {
-                "density_kg_m3": inputs["density"],
-                "gravity_m_s2": inputs["gravity"],
-                "depth_m": inputs["depth"],
-            }
-        if model_key == "darcy_weisbach_pressure_loss":
-            return {
-                "friction_factor": inputs["friction_factor"],
-                "pipe_length_m": inputs["pipe_length"],
-                "pipe_diameter_m": inputs["pipe_diameter"],
-                "density_kg_m3": inputs["density"],
-                "velocity_m_s": inputs["velocity"],
-            }
-        raise ValueError(f"Unknown calculation model: {model_key}")
+        mappings = {
+            "hydrostatic_pressure": {
+                "density_kg_m3": "density", "gravity_m_s2": "gravity", "depth_m": "depth"
+            },
+            "darcy_weisbach_pressure_loss": {
+                "friction_factor": "friction_factor", "pipe_length_m": "pipe_length",
+                "pipe_diameter_m": "pipe_diameter", "density_kg_m3": "density", "velocity_m_s": "velocity"
+            },
+            "pipe_cross_sectional_area": {"pipe_diameter_m": "pipe_diameter"},
+            "volumetric_flow_rate": {"velocity_m_s": "velocity", "pipe_diameter_m": "pipe_diameter"},
+            "fluid_velocity": {"flow_rate_m3_s": "flow_rate", "pipe_diameter_m": "pipe_diameter"},
+            "reynolds_number": {
+                "density_kg_m3": "density", "velocity_m_s": "velocity",
+                "pipe_diameter_m": "pipe_diameter", "dynamic_viscosity_pa_s": "dynamic_viscosity"
+            },
+            "hydrostatic_pressure_gradient": {"density_kg_m3": "density", "gravity_m_s2": "gravity"},
+            "hydraulic_power": {"pressure_drop_pa": "pressure_drop", "flow_rate_m3_s": "flow_rate"},
+            "api_gravity_to_specific_gravity": {"api_gravity": "api_gravity"},
+        }
+        mapping = mappings.get(model_key)
+        if mapping is None:
+            raise ValueError(f"Unknown calculation model: {model_key}")
+        return {executor_name: inputs[input_name] for executor_name, input_name in mapping.items()}
 
 
 __all__ = ["CalculationApplication"]
