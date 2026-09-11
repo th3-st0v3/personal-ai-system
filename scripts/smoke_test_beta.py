@@ -7,6 +7,7 @@ import os
 import tempfile
 
 import db
+from engineering_web_api import create_engineering_app
 from web_api import create_app
 from workspace_application import WorkspaceApplication
 
@@ -24,6 +25,7 @@ def main() -> None:
         try:
             workspace = WorkspaceApplication(os.path.join(temp, "storage"))
             app = create_app(workspace)
+            engineering = create_engineering_app()
             status, project = request(app, "POST", "/api/projects", {"name": "Smoke Project"})
             assert status == 201 and project["id"] == 1
             project_id = project["id"]
@@ -45,6 +47,13 @@ def main() -> None:
             assert status == 200 and trace["result"] > 98000
             status, items = request(app, "GET", f"/api/projects/{project_id}/items?folder_id={folder_id}&sort=a_z")
             assert status == 200 and {item["name"] for item in items} == {"Edited", "smoke.txt"}
+            status, requirement = request(engineering, "POST", f"/api/engineering/projects/{project_id}/requirements", {"description": "Smoke requirement"})
+            assert status == 201
+            requirement_id = requirement["id"]
+            status, source = request(engineering, "POST", f"/api/engineering/projects/{project_id}/sources", {"title": "Smoke source", "source_type": "test"})
+            assert status == 201
+            status, evidence = request(engineering, "POST", f"/api/engineering/projects/{project_id}/requirements/{requirement_id}/evidence", {"result": "Confirmed", "supports_status": "Verified", "source_id": source["id"]})
+            assert status == 201 and evidence["id"] > 0
         finally:
             db.DATABASE_PATH = original
     print("draft beta smoke test: PASS")
