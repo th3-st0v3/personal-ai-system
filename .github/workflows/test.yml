@@ -18,3 +18,8 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s src -p 'test_*.py' -v
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Validate web client syntax
+        run: node --check web/app.js
