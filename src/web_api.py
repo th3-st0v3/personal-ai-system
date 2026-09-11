@@ -24,6 +24,18 @@ class WebApplication:
     def _item(item) -> dict[str, object]:
         return {"kind": item.kind, "id": item.id, "project_id": item.project_id, "parent_id": item.parent_id, "name": item.name, "mime_type": item.mime_type, "content": item.content, "size_bytes": item.size_bytes, "created_at": item.created_at, "updated_at": item.updated_at, "metadata": item.metadata}
 
+    def _manifest(self) -> dict[str, object]:
+        return {
+            "api_version": 1,
+            "workspace": {
+                "kinds": ["folder", "note", "file"],
+                "sort_options": ["a_z", "z_a", "recent_old", "old_recent", "last_modified_new_old", "last_modified_old_new"],
+                "context_actions": {kind: list(__import__("workspace_browser").get_context_actions(kind)) for kind in ("folder", "note", "file")},
+                "multi_selection_actions": list(__import__("workspace_browser").get_context_actions("file", selection_count=2)),
+            },
+            "calculations": {"categories": list(self.calculations.list_categories()), "count": len(self.calculations.list_models())},
+        }
+
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
             parsed = urlsplit(target)
@@ -32,6 +44,8 @@ class WebApplication:
             data = json.loads(body or b"{}")
             if method == "GET" and path == "/api/health":
                 return self._json(200, {"status": "ok"})
+            if method == "GET" and path == "/api/manifest":
+                return self._json(200, self._manifest())
             if method == "GET" and path == "/api/projects":
                 return self._json(200, self.workspace.list_projects())
             if method == "POST" and path == "/api/projects":
