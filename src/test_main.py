@@ -247,6 +247,22 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_handles_non_numeric_requirement_id(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["2", "not-a-number", "6"],
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_print.assert_any_call(
+            "Requirement id must be a number."
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
