@@ -49,7 +49,7 @@ def get_project_workspace(project_id):
         connection.close()
 
 
-def _item(item_type, item_id, name, lifecycle_status, created_at, updated_at, parent_id):
+def _item(item_type, item_id, name, lifecycle_status, created_at, updated_at, location_type, location_id):
     return {
         "type": item_type,
         "id": item_id,
@@ -57,21 +57,22 @@ def _item(item_type, item_id, name, lifecycle_status, created_at, updated_at, pa
         "lifecycle_status": lifecycle_status,
         "created_at": created_at,
         "updated_at": updated_at,
-        "parent_id": parent_id,
+        "location_type": location_type,
+        "location_id": location_id,
         "actions": context_actions(item_type, lifecycle_status),
     }
 
 
 def _folder_items(project_id, folder_id):
     return [
-        _item("folder", row[0], row[3], row[4], row[5], row[6], folder_id)
+        _item("folder", row[0], row[3], row[4], row[5], row[6], "folder", row[2])
         for row in workspace_storage.get_folders(project_id, folder_id)
     ]
 
 
 def _file_items(project_id, folder_id):
     return [
-        _item("file", row[0], row[3], row[8], row[9], row[10], folder_id)
+        _item("file", row[0], row[3], row[8], row[9], row[10], "folder", row[2])
         for row in workspace_storage.get_files(project_id, folder_id)
     ]
 
@@ -84,7 +85,8 @@ def _note_items(project_id, folder_id, note_id, sort):
         _item(
             "note", row["id"], row["title"], row["lifecycle_status"],
             row["created_at"], row["updated_at"],
-            row["parent_note_id"] if row["parent_note_id"] is not None else row["folder_id"],
+            "note" if row["parent_note_id"] is not None else "folder" if row["folder_id"] is not None else "project",
+            row["parent_note_id"] if row["parent_note_id"] is not None else row["folder_id"] if row["folder_id"] is not None else project_id,
         )
         for row in rows
     ]
@@ -131,7 +133,7 @@ def context_actions(item_type, lifecycle_status="Active", selected_count=1):
     actions_by_type = {
         "project": ["open", "rename", "archive", "restore", "delete", "new_folder", "new_note", "add_file"],
         "folder": ["open", "rename", "move", "tag", "archive", "restore", "invalidate", "delete", "new_folder", "new_note", "add_file"],
-        "note": ["open", "rename", "move", "tag", "archive", "restore", "invalidate", "delete", "new_child_note"],
+        "note": ["open", "rename", "move", "archive", "restore", "invalidate", "delete", "new_child_note"],
         "file": ["open", "rename", "move", "tag", "archive", "restore", "invalidate", "delete"],
         "calculation": ["open", "rerun", "duplicate", "link_evidence", "archive"],
         "requirement": ["open", "edit", "evaluate_evidence", "add_evidence", "archive"],
