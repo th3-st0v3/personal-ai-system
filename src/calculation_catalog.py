@@ -18,6 +18,19 @@ class CalculationCatalogEntry:
     use_cases: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class CalculationCatalogItem:
+    """Resolved catalog data ready for a UI list, tree, or search result."""
+    key: str
+    name: str
+    domain: str
+    equation: str
+    result_unit: str
+    categories: tuple[str, ...]
+    subcategories: tuple[str, ...]
+    use_cases: tuple[str, ...]
+
+
 CATALOG: tuple[CalculationCatalogEntry, ...] = (
     CalculationCatalogEntry("hydrostatic_pressure", ("Reservoir Engineering", "Drilling Engineering", "Production Engineering", "Fluid Mechanics"), ("Pressure", "Fluid Statics"), ("formation and wellbore pressure estimates", "hydrostatic column pressure", "pressure-depth relationships")),
     CalculationCatalogEntry("darcy_weisbach_pressure_loss", ("Drilling Engineering", "Production Engineering", "Fluid Mechanics"), ("Pressure Loss", "Pipe Flow"), ("circulating-system pressure loss", "pipe and tubular hydraulics", "flow-system sizing")),
@@ -40,15 +53,15 @@ CATALOG: tuple[CalculationCatalogEntry, ...] = (
     CalculationCatalogEntry("kinetic_energy", ("Drilling Engineering", "Production Engineering", "Mechanical Engineering"), ("Energy", "Mechanics"), ("moving-equipment energy estimates", "transient energy screening")),
     CalculationCatalogEntry("gravitational_potential_energy", ("Reservoir Engineering", "Drilling Engineering", "Production Engineering", "Mechanical Engineering"), ("Energy", "Mechanics"), ("elevation energy", "well and equipment energy balances")),
     CalculationCatalogEntry("spring_force", ("Well Completion Engineering", "Mechanical Engineering"), ("Forces", "Mechanics"), ("spring-loaded equipment", "mechanical force estimates")),
-    CalculationCatalogEntry("spring_potential_energy", ("Well Completion Engineering", "Mechanical Engineering"), ("Energy", "Mechanics"), ("spring energy storage")),
+    CalculationCatalogEntry("spring_potential_energy", ("Well Completion Engineering", "Mechanical Engineering"), ("Energy", "Mechanics"), ("spring energy storage",)),
     CalculationCatalogEntry("thermal_expansion", ("Drilling Engineering", "Well Completion Engineering", "Mechanical Engineering", "Thermodynamics"), ("Thermal Effects", "Material Response"), ("thermal tubular movement", "temperature-induced dimensional change")),
     CalculationCatalogEntry("sensible_heat", ("Reservoir Engineering", "Drilling Engineering", "Production Engineering", "Thermodynamics"), ("Heat", "Thermal Analysis"), ("fluid heating/cooling", "thermal energy accounting")),
     CalculationCatalogEntry("conduction_heat_rate", ("Drilling Engineering", "Well Completion Engineering", "Thermodynamics"), ("Heat Transfer", "Conduction"), ("thermal barriers", "heat-leak screening")),
-    CalculationCatalogEntry("ohms_law_voltage", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "DC Electrical"), ("voltage/current/resistance relationships")),
+    CalculationCatalogEntry("ohms_law_voltage", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "DC Electrical"), ("voltage/current/resistance relationships",)),
     CalculationCatalogEntry("electrical_power", ("Electrical Engineering", "Instrumentation & Control", "Production Engineering"), ("Power", "Circuits"), ("electrical load estimation", "instrument and equipment power")),
-    CalculationCatalogEntry("electrical_resistance_series", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Resistance"), ("series circuit reduction")),
-    CalculationCatalogEntry("electrical_resistance_parallel", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Resistance"), ("parallel circuit reduction")),
-    CalculationCatalogEntry("capacitor_energy", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Energy Storage"), ("capacitive energy storage")),
+    CalculationCatalogEntry("electrical_resistance_series", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Resistance"), ("series circuit reduction",)),
+    CalculationCatalogEntry("electrical_resistance_parallel", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Resistance"), ("parallel circuit reduction",)),
+    CalculationCatalogEntry("capacitor_energy", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Energy Storage"), ("capacitive energy storage",)),
     CalculationCatalogEntry("rc_time_constant", ("Electrical Engineering", "Instrumentation & Control"), ("Circuits", "Transient Response"), ("first-order response timing", "sensor and control dynamics")),
     CalculationCatalogEntry("annular_area", ("Drilling Engineering", "Production Engineering", "Fluid Mechanics"), ("Geometry", "Annular Flow"), ("drilling annulus geometry", "flow-area calculations")),
     CalculationCatalogEntry("annular_velocity", ("Drilling Engineering", "Production Engineering", "Fluid Mechanics"), ("Velocity", "Annular Flow"), ("annular mean velocity", "circulating-system hydraulics")),
@@ -97,6 +110,26 @@ def grouped_categories() -> dict[str, tuple[str, ...]]:
     return {category: list_category(category) for category in _CATEGORY_ORDER}
 
 
+def list_items(category: str | None = None) -> tuple[CalculationCatalogItem, ...]:
+    """Resolve catalog entries to one-pass UI objects without copying registry metadata."""
+    if category is not None and category not in _CATEGORY_ORDER:
+        raise ValueError(f"Unknown calculation category: {category}")
+    return tuple(
+        CalculationCatalogItem(
+            key=entry.key,
+            name=CALCULATION_REGISTRY[entry.key].name,
+            domain=CALCULATION_REGISTRY[entry.key].domain,
+            equation=CALCULATION_REGISTRY[entry.key].equation,
+            result_unit=CALCULATION_REGISTRY[entry.key].result_unit,
+            categories=entry.categories,
+            subcategories=entry.subcategories,
+            use_cases=entry.use_cases,
+        )
+        for entry in CATALOG
+        if category is None or category in entry.categories
+    )
+
+
 def search(query: str, category: str | None = None) -> tuple[str, ...]:
     """Search names, keys, domains, equations, categories, and use cases."""
     normalized = " ".join(query.split()).casefold()
@@ -116,4 +149,4 @@ def search(query: str, category: str | None = None) -> tuple[str, ...]:
     return tuple(matches)
 
 
-__all__ = ["CATALOG", "CalculationCatalogEntry", "get_entry", "list_categories", "list_category", "grouped_categories", "search"]
+__all__ = ["CATALOG", "CalculationCatalogEntry", "CalculationCatalogItem", "get_entry", "list_categories", "list_category", "grouped_categories", "list_items", "search"]
