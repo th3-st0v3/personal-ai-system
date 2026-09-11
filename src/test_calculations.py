@@ -69,6 +69,7 @@ class TestCalculationPersistence(unittest.TestCase):
         record = hydrostatic_pressure_record(1000.0, 9.81, 10.0)
         calculation_id = db.save_calculation_record(record)
         retrieved = db.get_calculation_record(calculation_id)
+        self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved.method_version, "1.0")
 
         connection = db.get_connection()
