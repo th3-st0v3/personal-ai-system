@@ -1,6 +1,7 @@
 """Small, replaceable HTTP boundary over the stable application services."""
 from __future__ import annotations
 
+import base64
 import json
 from urllib.parse import parse_qs, urlsplit
 
@@ -90,11 +91,40 @@ class WebApplication:
                     return self._json(201, {"id": self.workspace.create_folder(project_id, data["name"], data.get("parent_folder_id"))})
                 if method == "POST" and len(parts) == 5 and parts[4] == "notes":
                     return self._json(201, {"id": self.workspace.create_note(project_id, data["title"], data.get("content", ""), data.get("folder_id"), data.get("metadata"))})
+                if method == "PATCH" and len(parts) == 5 and parts[4] == "notes":
+                    note_id = int(data["id"])
+                    self.workspace._require_project_item("note", note_id, project_id)
+                    note = self.workspace.update_note(note_id, title=data.get("title"), content=data.get("content"), metadata=data.get("metadata"))
+                    return self._json(200, self._item(note))
                 if method == "GET" and len(parts) == 5 and parts[4] == "notes":
                     note = self.workspace.get_note(int(query["id"]))
                     if note is None or note.project_id != project_id:
                         raise ValueError("Note not found in project.")
                     return self._json(200, self._item(note))
+                if method == "POST" and len(parts) == 5 and parts[4] == "files":
+                    if "name" not in data or "data_base64" not in data:
+                        raise ValueError("File name and data_base64 are required.")
+                    try:
+                        payload = base64.b64decode(data["data_base64"], validate=True)
+                    except (ValueError, TypeError):
+                        raise ValueError("data_base64 must be valid base64.")
+                    file_id = self.workspace.create_file(project_id, data["name"], payload, data.get("mime_type"), data.get("folder_id"))
+                    return self._json(201, {"id": file_id})
+                if method == "GET" and len(parts) == 5 and parts[4] == "files":
+                    file_id = int(query["id"])
+                    record = self.workspace.get_file(file_id)
+                    if record is None or record["project_id"] != project_id:
+                        raise ValueError("File not found in project.")
+                    return self._json(200, {"id": file_id, "name": record["name"], "mime_type": record["mime_type"], "data_base64": base64.b64encode(self.workspace.read_file(file_id, project_id=project_id)).decode("ascii")})
+                if method == "PUT" and len(parts) == 5 and parts[4] == "files":
+                    file_id = int(data["id"])
+                    self.workspace._require_project_item("file", file_id, project_id)
+                    try:
+                        payload = base64.b64decode(data["data_base64"], validate=True)
+                    except (ValueError, TypeError):
+                        raise ValueError("data_base64 must be valid base64.")
+                    file = self.workspace.replace_file(file_id, payload, data.get("mime_type"), project_id=project_id)
+                    return self._json(200, {"id": file["id"], "name": file["name"], "size_bytes": file["size_bytes"], "sha256": file["sha256"], "mime_type": file["mime_type"]})
                 if method == "POST" and len(parts) == 5 and parts[4] == "copy":
                     selection = [(self._kind(item["kind"]), int(item["id"])) for item in data.get("selection", [])]
                     if not selection:
