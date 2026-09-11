@@ -17,6 +17,32 @@ The current subsystem models:
 
 The database stores **file metadata**, while `src/file_storage.py` owns physical bytes. `storage_key` is the stable boundary between the two. This keeps database identity independent from the local filesystem and preserves a future path to an object store or remote storage implementation.
 
+## Application boundary
+
+`src/workspace_application.py` is the application-facing boundary for workspace use cases. A future web API should depend on this layer rather than importing SQLite-oriented storage functions directly.
+
+The application boundary:
+
+- Coordinates projects, folders, and files.
+- Converts database tuples into named dictionaries suitable for API responses.
+- Keeps physical byte access behind the file-storage service.
+- Preserves stable file identity and storage keys across Rename and Move.
+- Exposes lifecycle and safe deletion operations without exposing database implementation details to the frontend.
+
+This creates the intended dependency direction:
+
+```text
+Web UI / HTTP API
+       ↓
+workspace_application
+       ↓
+workspace_file_service + workspace_storage
+       ↓
+SQLite metadata + file_storage bytes
+```
+
+The current CLI remains separate and can continue using the lower-level modules while the web interface is developed against the application boundary.
+
 ## Integrity rules
 
 - A folder belongs to exactly one project.
@@ -50,7 +76,7 @@ The user-facing name can change without requiring the underlying stored object t
 
 ## Lifecycle and cleanup
 
-Metadata deletion and byte deletion remain separate operations. Deleting a database file record removes its database-owned tag assignments and cascades its attachment records, but it does not implicitly delete physical bytes. A future higher-level file service can coordinate metadata and byte cleanup with explicit recovery/error handling rather than hiding filesystem side effects inside database operations.
+Metadata deletion and byte deletion remain separate operations. Deleting a database file record removes its database-owned tag assignments and cascades its attachment records, but it does not implicitly delete physical bytes. The higher-level file service coordinates metadata and byte cleanup with explicit recovery/error handling rather than hiding filesystem side effects inside database operations.
 
 Empty folders can be deleted; non-empty folders are rejected. Folder tag assignments are removed when an empty folder is deleted. Lifecycle transitions are idempotent and do not recursively mutate children.
 
@@ -58,17 +84,17 @@ Empty folders can be deleted; non-empty folders are rejected. Folder tag assignm
 
 The backend primitives are intended to support the eventual file-explorer UX:
 
-| UI action | Backend primitive |
+| UI action | Application boundary |
 | --- | --- |
-| Open | `get_file` + storage-key retrieval layer |
-| Upload | `file_storage.save_bytes` + file metadata creation |
+| Open | `WorkspaceApplication.get_file` + `read_file` |
+| Upload | `WorkspaceApplication.create_file` |
 | Rename | `rename_file` / `rename_folder` |
 | Move | `move_file` / `move_folder` |
-| Tag | `create_tag` / `assign_tag` / `remove_tag` |
+| Tag | workspace tag operations exposed by the application layer |
 | Archive | lifecycle update |
 | Invalidate | lifecycle update |
 | Restore | lifecycle update back to `Active` |
-| Delete | `delete_file` / `delete_files` / `delete_folder` |
-| Attach to engineering object | `attach_file` / `detach_file` |
+| Delete | `delete_file` / `delete_folder` |
+| Attach to engineering object | workspace attachment operations exposed by the application layer |
 
 Upload/download streaming, previews, permissions, audit events, and soft-delete recovery remain separate concerns. They should be added behind stable interfaces without changing the core file identity model.
