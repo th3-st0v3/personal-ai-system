@@ -11,7 +11,9 @@
   <header class="topbar">
     <div class="brand">Personal AI System</div>
     <label class="search"><span aria-hidden="true">⌕</span><input id="global-search" type="search" placeholder="Search this project…" autocomplete="off"></label>
-    <button id="new-project" class="button">New project</button>
+    <button id="new-root-folder" class="button" type="button">New folder</button>
+    <button id="new-root-note" class="button" type="button">New note</button>
+    <button id="new-project" class="button" type="button">New project</button>
   </header>
   <main class="shell">
     <aside class="sidebar panel">
@@ -39,5 +41,6 @@
   <div id="menu" class="context-menu" hidden></div>
   <script src="/app.js" defer></script>
   <script src="/keyboard.js" defer></script>
+  <script src="/workspace-root.js" defer></script>
 </body>
 </html>
