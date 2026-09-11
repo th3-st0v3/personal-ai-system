@@ -52,7 +52,7 @@ def main() -> None:
             requirement_id = requirement["id"]
             status, source = request(engineering, "POST", f"/api/engineering/projects/{project_id}/sources", {"title": "Smoke source", "source_type": "datasheet"})
             assert status == 201, source
-            status, evidence = request(engineering, "POST", f"/api/engineering/projects/{project_id}/requirements/{requirement_id}/evidence", {"result": "Confirmed", "supports_status": "Verified", "source_id": source["id"]})
+            status, evidence = request(engineering, "POST", f"/api/engineering/projects/{project_id}/requirements/{requirement_id}/evidence", {"result": "Confirmed", "supports_status": "Verified", "source_id": source["id"], "description": "Smoke evidence"})
             assert status == 201 and evidence["id"] > 0, evidence
         finally:
             db.DATABASE_PATH = original
