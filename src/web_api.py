@@ -48,12 +48,7 @@ class WebApplication:
                 method_version = self.calculations.get_method(key)
                 parameters = self.calculations.get_parameters(key)
                 catalog = self.calculations.get_catalog_entry(key)
-                return self._json(200, {
-                    "model": model.__dict__,
-                    "method": method_version.__dict__,
-                    "parameters": [parameter.__dict__ for parameter in parameters],
-                    "catalog": catalog.__dict__,
-                })
+                return self._json(200, {"model": model.__dict__, "method": method_version.__dict__, "parameters": [parameter.__dict__ for parameter in parameters], "catalog": catalog.__dict__})
             parts = path.split("/")
             if len(parts) >= 4 and parts[1:3] == ["api", "projects"]:
                 project_id = int(parts[3])
@@ -66,6 +61,11 @@ class WebApplication:
                     return self._json(201, {"id": self.workspace.create_folder(project_id, data["name"], data.get("parent_folder_id"))})
                 if method == "POST" and len(parts) == 5 and parts[4] == "notes":
                     return self._json(201, {"id": self.workspace.create_note(project_id, data["title"], data.get("content", ""), data.get("folder_id"), data.get("metadata"))})
+                if method == "GET" and len(parts) == 5 and parts[4] == "notes":
+                    note = self.workspace.get_note(int(query["id"]))
+                    if note is None or note.project_id != project_id:
+                        raise ValueError("Note not found in project.")
+                    return self._json(200, self._item(note))
                 if method == "POST" and len(parts) == 5 and parts[4] == "move":
                     kind, item_id = data["kind"], int(data["id"])
                     item = self.workspace._browser_item(kind, item_id)
