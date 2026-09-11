@@ -9,6 +9,54 @@ class TestMain(unittest.TestCase):
         self.assertTrue(callable(main.main))
 
 
+    def test_projects_menu_creates_project(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["1", "Test Project", "Test description", "3"],
+        ), patch(
+            "main.create_project",
+            return_value=42,
+        ) as mock_create, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.projects_menu()
+
+        mock_create.assert_called_once_with(
+            "Test Project",
+            "Test description",
+        )
+        mock_print.assert_any_call(
+            "Project created with id 42."
+        )
+
+
+    def test_projects_menu_lists_projects(self):
+        import main
+
+        projects = [
+            (1, "Project Alpha", "First project"),
+            (2, "Project Beta", None),
+        ]
+
+        with patch(
+            "builtins.input",
+            side_effect=["2", "3"],
+        ), patch(
+            "main.get_projects",
+            return_value=projects,
+        ), patch("builtins.print") as mock_print:
+            main.projects_menu()
+
+        mock_print.assert_any_call(
+            "1. Project Alpha - First project"
+        )
+        mock_print.assert_any_call(
+            "2. Project Beta - "
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
