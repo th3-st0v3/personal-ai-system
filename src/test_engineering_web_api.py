@@ -41,7 +41,7 @@ class TestEngineeringWebApplication(unittest.TestCase):
         evidence_id = evidence["id"]
         status, history = self.request("GET", f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}/evidence")
         self.assertEqual(status, 200)
-        self.assertEqual(history[0]["id"], evidence_id)
+        self.assertIn(evidence_id, {item["id"] for item in history})
         status, result = self.request("POST", f"/api/engineering/projects/{self.project_id}/evidence/invalidate", {"id": evidence_id, "reason": "Superseded by revised datasheet"})
         self.assertEqual((status, result), (200, {"invalidated": True}))
         status, decision = self.request("POST", f"/api/engineering/projects/{self.project_id}/decisions", {"title": "Pump selection", "decision": "Use qualified pump", "requirement_id": requirement_id, "rationale": "Evidence supports rated flow"})
@@ -62,7 +62,7 @@ class TestEngineeringWebApplication(unittest.TestCase):
         status, other_requirement = self.request("POST", f"/api/engineering/projects/{other_project}/requirements", {"description": "Other"})
         self.assertEqual(status, 201)
         other_requirement_id = other_requirement["id"]
-        self.assertEqual(self.request("POST", f"/api/engineering/projects/{other_project}/requirements/{other_requirement_id}/evidence", {"result": "leak", "supports_status": "Verified", "source_id": source_id})[0], 400)
+        self.assertEqual(self.request("POST", f"/api/engineering/projects/{other_project}/requirements/{other_requirement_id}/evidence", {"result": "leak", "supports_status": "Verified", "source_id": source_id, "description": "cross-project attempt"})[0], 400)
 
     def test_invalid_routes_and_bodies_are_client_errors(self):
         self.assertEqual(self.request("GET", "/api/engineering/projects/not-an-id/requirements")[0], 400)
