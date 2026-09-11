@@ -11,6 +11,8 @@ from engineering_application import EngineeringApplication
 class EngineeringWebApplication:
     """Expose engineering evidence workflows without coupling them to the core workspace API."""
 
+    MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
+
     def __init__(self, engineering: EngineeringApplication | None = None):
         self.engineering = engineering or EngineeringApplication()
 
@@ -21,7 +23,12 @@ class EngineeringWebApplication:
 
     @staticmethod
     def _require_project(project_id: int) -> None:
-        if db.get_project(project_id) is None:
+        connection = db.get_connection()
+        try:
+            row = connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        finally:
+            connection.close()
+        if row is None:
             raise ValueError(f"No project found with ID {project_id}.")
 
     @staticmethod
@@ -52,6 +59,8 @@ class EngineeringWebApplication:
 
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
+            if len(body) > self.MAX_REQUEST_BODY_BYTES:
+                return self._json(413, {"error": "Request body too large."})
             parsed = urlsplit(target)
             path = parsed.path.rstrip("/") or "/"
             query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
@@ -123,12 +132,20 @@ class EngineeringWebApplication:
         return row if row is not None and row[1] == project_id else None
 
     def __call__(self, environ, start_response):
-        target = environ.get("PATH_INFO", "/")
-        if environ.get("QUERY_STRING"):
-            target += "?" + environ["QUERY_STRING"]
-        length = int(environ.get("CONTENT_LENGTH") or 0)
-        body = environ["wsgi.input"].read(length) if length else b""
-        status, headers, payload = self.request(environ.get("REQUEST_METHOD", "GET"), target, body)
+        try:
+            length = int(environ.get("CONTENT_LENGTH") or 0)
+            if length < 0:
+                raise ValueError("Content length cannot be negative.")
+            if length > self.MAX_REQUEST_BODY_BYTES:
+                status, headers, payload = self._json(413, {"error": "Request body too large."})
+            else:
+                target = environ.get("PATH_INFO", "/")
+                if environ.get("QUERY_STRING"):
+                    target += "?" + environ["QUERY_STRING"]
+                body = environ["wsgi.input"].read(length) if length else b""
+                status, headers, payload = self.request(environ.get("REQUEST_METHOD", "GET"), target, body)
+        except (TypeError, ValueError) as exc:
+            status, headers, payload = self._json(400, {"error": str(exc) or "Invalid request"})
         start_response(f"{status} {'OK' if status < 300 else 'Error'}", headers)
         return [payload]
 
