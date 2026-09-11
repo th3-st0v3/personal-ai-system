@@ -52,6 +52,9 @@ class TestWorkspaceStorage(unittest.TestCase):
         workspace_storage.move_folder(child_id, destination_id)
         self.assertEqual(workspace_storage.get_folder(child_id)[2], destination_id)
 
+        workspace_storage.move_folder(child_id, root_id)
+        self.assertEqual(workspace_storage.get_folder(child_id)[2], root_id)
+
         with self.assertRaises(ValueError):
             workspace_storage.move_folder(root_id, child_id)
 
