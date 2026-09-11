@@ -1,41 +1,44 @@
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Any
 
 
 @dataclass(frozen=True)
 class CalculationModel:
-    """Stable definition of an engineering calculation model."""
+    """Stable identity and metadata for an engineering calculation model."""
 
+    key: str
     name: str
     domain: str
     description: str
     model_type: str
 
+    def __post_init__(self) -> None:
+        for field_name in ("key", "name", "domain", "description", "model_type"):
+            if not getattr(self, field_name).strip():
+                raise ValueError(f"{field_name} must not be empty")
+
 
 @dataclass(frozen=True)
 class MethodVersion:
-    """Versioned engineering method used by a calculation model."""
+    """Exact versioned method definition used by a calculation model."""
 
-    calculation_model_id: int
+    calculation_model_key: str
     version: str
     equation: str
     description: str
     applicability: str
     assumptions: tuple[str, ...]
     limitations: tuple[str, ...]
-    source_id: int | None = None
 
     def __post_init__(self) -> None:
-        if self.calculation_model_id <= 0:
-            raise ValueError("calculation_model_id must be positive")
-        if not self.version.strip():
-            raise ValueError("version must not be empty")
-        if not self.equation.strip():
-            raise ValueError("equation must not be empty")
-        if self.source_id is not None and self.source_id <= 0:
-            raise ValueError("source_id must be positive when provided")
-
+        for field_name in (
+            "calculation_model_key",
+            "version",
+            "equation",
+            "description",
+            "applicability",
+        ):
+            if not getattr(self, field_name).strip():
+                raise ValueError(f"{field_name} must not be empty")
         object.__setattr__(self, "assumptions", tuple(self.assumptions))
         object.__setattr__(self, "limitations", tuple(self.limitations))
 
@@ -44,7 +47,7 @@ class MethodVersion:
 class CalculationParameter:
     """Definition of an input accepted by a calculation model."""
 
-    calculation_model_id: int
+    calculation_model_key: str
     name: str
     description: str
     data_type: str
@@ -55,44 +58,11 @@ class CalculationParameter:
     default_unit: str | None = None
 
     def __post_init__(self) -> None:
-        if self.calculation_model_id <= 0:
-            raise ValueError("calculation_model_id must be positive")
-        if not self.name.strip():
-            raise ValueError("name must not be empty")
-        if not self.data_type.strip():
-            raise ValueError("data_type must not be empty")
-        if not self.dimension.strip():
-            raise ValueError("dimension must not be empty")
+        if not self.calculation_model_key.strip():
+            raise ValueError("calculation_model_key must not be empty")
+        for field_name in ("name", "description", "data_type", "dimension"):
+            if not getattr(self, field_name).strip():
+                raise ValueError(f"{field_name} must not be empty")
         if self.minimum is not None and self.maximum is not None:
             if self.minimum > self.maximum:
                 raise ValueError("minimum must not exceed maximum")
-
-
-@dataclass(frozen=True)
-class FluidModel:
-    """Named and versioned fluid-property model used by engineering methods."""
-
-    name: str
-    fluid_type: str
-    model_type: str
-    parameters: dict[str, Any]
-    version: str
-    source_id: int | None = None
-
-    def __post_init__(self) -> None:
-        if not self.name.strip():
-            raise ValueError("name must not be empty")
-        if not self.fluid_type.strip():
-            raise ValueError("fluid_type must not be empty")
-        if not self.model_type.strip():
-            raise ValueError("model_type must not be empty")
-        if not self.version.strip():
-            raise ValueError("version must not be empty")
-        if self.source_id is not None and self.source_id <= 0:
-            raise ValueError("source_id must be positive when provided")
-
-        object.__setattr__(
-            self,
-            "parameters",
-            MappingProxyType(dict(self.parameters)),
-        )
