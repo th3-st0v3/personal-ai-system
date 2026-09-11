@@ -1041,6 +1041,79 @@ class TestMainMenu(unittest.TestCase):
         self.assertIn("6. Ask AI", printed)
         self.assertIn("7. Quit", printed)
 
+
+    def test_main_routes_to_notes_menu(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["1", "7"],
+        ), patch("main.notes_menu") as mock_notes:
+            main.main()
+
+        mock_notes.assert_called_once_with()
+
+
+    def test_main_routes_to_projects_menu(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["2", "7"],
+        ), patch("main.projects_menu") as mock_projects:
+            main.main()
+
+        mock_projects.assert_called_once_with()
+
+
+    def test_main_routes_to_requirements_menu(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["3", "7"],
+        ), patch("main.requirements_menu") as mock_requirements:
+            main.main()
+
+        mock_requirements.assert_called_once_with()
+
+
+    def test_main_routes_to_evidence_menu(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["4", "7"],
+        ), patch("main.evidence_menu") as mock_evidence:
+            main.main()
+
+        mock_evidence.assert_called_once_with()
+
+
+    def test_main_routes_to_calculations_menu(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["5", "7"],
+        ), patch("main.calculations_menu") as mock_calculations:
+            main.main()
+
+        mock_calculations.assert_called_once_with()
+
+
+    def test_main_routes_to_ask_ai(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["6", "7"],
+        ), patch("main.ask_ai") as mock_ask_ai:
+            main.main()
+
+        mock_ask_ai.assert_called_once_with()
+
+
     def test_notes_menu_has_back_option(self):
         import main
 
