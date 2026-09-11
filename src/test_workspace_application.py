@@ -114,7 +114,11 @@ class TestWorkspaceApplication(unittest.TestCase):
         storage_key = record["storage_key"]
 
         self.app.set_file_lifecycle(file_id, "Archived")
-        self.assertEqual(self.app.get_file(file_id)["lifecycle_status"], "Archived")
+        archived = self.app.get_file(file_id)
+        self.assertIsNotNone(archived)
+        if archived is None:
+            self.fail("archived file could not be retrieved")
+        self.assertEqual(archived["lifecycle_status"], "Archived")
         self.assertTrue(file_storage.exists(self.temp_dir.name, storage_key))
 
         self.assertTrue(self.app.delete_file(file_id))
@@ -147,6 +151,50 @@ class TestWorkspaceApplication(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.app.delete_folder(folder_id)
         self.assertIsNotNone(self.app.get_folder(folder_id))
+
+    def test_tags_use_named_application_records_and_assignments(self):
+        folder_id = self.app.create_folder(self.project_id, "Evidence")
+        tag_id = self.app.create_tag(self.project_id, "verified")
+        self.app.assign_tag(tag_id, "folder", folder_id)
+
+        tags = self.app.list_tags(self.project_id)
+        folder_tags = self.app.get_tags_for_target("folder", folder_id)
+
+        self.assertEqual(tags[0]["id"], tag_id)
+        self.assertEqual(tags[0]["name"], "verified")
+        self.assertEqual(folder_tags[0]["id"], tag_id)
+        self.assertEqual(folder_tags[0]["project_id"], self.project_id)
+
+        self.app.remove_tag(tag_id, "folder", folder_id)
+        self.assertEqual(self.app.get_tags_for_target("folder", folder_id), [])
+
+    def test_attachments_use_named_application_records(self):
+        file_id = self.app.create_file(self.project_id, "source.pdf", b"source")
+        folder_id = self.app.create_folder(self.project_id, "Sources")
+
+        attachment_id = self.app.attach_file(file_id, "folder", folder_id)
+        attachments = self.app.get_file_attachments(file_id)
+
+        self.assertEqual(attachments[0]["id"], attachment_id)
+        self.assertEqual(attachments[0]["file_id"], file_id)
+        self.assertEqual(attachments[0]["target_type"], "folder")
+        self.assertEqual(attachments[0]["target_id"], folder_id)
+
+        self.app.detach_file(file_id, "folder", folder_id)
+        self.assertEqual(self.app.get_file_attachments(file_id), [])
+
+    def test_bulk_file_delete_is_exposed_through_application_boundary(self):
+        file_ids = [
+            self.app.create_file(
+                self.project_id,
+                f"file-{index}.txt",
+                f"payload-{index}".encode(),
+            )
+            for index in range(3)
+        ]
+
+        self.assertEqual(self.app.delete_files([file_ids[0], file_ids[1], file_ids[1], file_ids[2]]), 3)
+        self.assertEqual(self.app.list_files(self.project_id), [])
 
 
 if __name__ == "__main__":
