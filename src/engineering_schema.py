@@ -6,7 +6,7 @@ additive: existing projects, requirements, evidence, and calculation records
 remain valid while new relationships can be populated incrementally.
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def initialize(connection):
@@ -92,6 +92,7 @@ def initialize(connection):
 
     # Notes are the user's free-form project content. These fields make notes
     # first-class project resources without replacing the existing notes table.
+    _add_column_if_missing(connection, "notes", "title", "TEXT")
     _add_column_if_missing(connection, "notes", "parent_note_id", "INTEGER")
     _add_column_if_missing(connection, "notes", "folder_id", "INTEGER")
     _add_column_if_missing(
