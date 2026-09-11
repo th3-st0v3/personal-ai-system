@@ -123,6 +123,54 @@ class TestWorkspaceFileService(unittest.TestCase):
         self.assertIsNone(workspace_storage.get_file(file_id))
         self.assertTrue(file_storage.exists(self.root, record[4]))
 
+    def test_delete_files_removes_all_metadata_and_bytes(self):
+        file_ids = [
+            workspace_file_service.create_file(
+                self.root, self.project_id, f"file-{index}.txt", f"data-{index}".encode()
+            )
+            for index in range(3)
+        ]
+        records = [workspace_storage.get_file(file_id) for file_id in file_ids]
+        self.assertTrue(all(record is not None for record in records))
+        storage_keys = [record[4] for record in records if record is not None]
+
+        self.assertEqual(
+            workspace_file_service.delete_files(self.root, [file_ids[0], file_ids[1], file_ids[1], file_ids[2]]),
+            3,
+        )
+        self.assertEqual(workspace_storage.get_files(self.project_id), [])
+        self.assertTrue(all(not file_storage.exists(self.root, key) for key in storage_keys))
+
+    def test_delete_files_rejects_missing_file_without_deleting_existing_files(self):
+        existing_id = workspace_file_service.create_file(
+            self.root, self.project_id, "existing.txt", b"payload"
+        )
+
+        with self.assertRaises(ValueError):
+            workspace_file_service.delete_files(self.root, [existing_id, 9999])
+
+        self.assertIsNotNone(workspace_storage.get_file(existing_id))
+
+    def test_delete_files_reports_physical_cleanup_failure(self):
+        file_id = workspace_file_service.create_file(
+            self.root, self.project_id, "cleanup-fails-bulk.txt", b"payload"
+        )
+        record = workspace_storage.get_file(file_id)
+        self.assertIsNotNone(record)
+        if record is None:
+            self.fail("created file metadata could not be retrieved")
+
+        with mock.patch.object(
+            file_storage,
+            "delete_bytes",
+            side_effect=OSError("storage unavailable"),
+        ):
+            with self.assertRaises(workspace_file_service.FileServiceError):
+                workspace_file_service.delete_files(self.root, [file_id])
+
+        self.assertIsNone(workspace_storage.get_file(file_id))
+        self.assertTrue(file_storage.exists(self.root, record[4]))
+
 
 if __name__ == "__main__":
     unittest.main()
