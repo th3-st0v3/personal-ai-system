@@ -6,6 +6,7 @@ import calculations
 import db
 from calculation_catalog import get_entry, grouped_categories, list_category, list_categories, search
 from calculation_definitions import CALCULATION_DEFINITIONS
+from calculation_library import CalculationTrace
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 from calculation_records import CalculationRecord
 
@@ -62,8 +63,7 @@ class CalculationApplication:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[2]
 
-    def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
-        """Validate inputs and execute any registered deterministic model."""
+    def _validated_inputs(self, model_key: str, inputs: dict[str, float]) -> tuple[MethodVersion, tuple[CalculationParameter, ...], dict[str, float]]:
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
@@ -93,8 +93,17 @@ class CalculationApplication:
             if parameter.maximum is not None and numeric_value > parameter.maximum:
                 raise ValueError(f"{name} must be at most {parameter.maximum}.")
             validated[name] = numeric_value
+        return method, parameters, validated
 
-        trace = calculations.calculate_detailed(model_key, **validated)
+    def run_trace(self, model_key: str, inputs: dict[str, float]) -> CalculationTrace:
+        """Validate and execute a model, retaining the full auditable solution trace."""
+        _, _, validated = self._validated_inputs(model_key, inputs)
+        return calculations.calculate_detailed(model_key, **validated)
+
+    def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
+        """Validate inputs and execute any registered deterministic model."""
+        method, parameters, _ = self._validated_inputs(model_key, inputs)
+        trace = self.run_trace(model_key, inputs)
         return CalculationRecord(
             calculation_type=trace.key,
             inputs=trace.inputs,
