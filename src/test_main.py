@@ -80,6 +80,55 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_views_requirement(self):
+        import main
+
+        requirement = (
+            1,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        evidence = [
+            (
+                1,
+                1,
+                "pressure test report",
+                "report.pdf",
+                "Pressure test passed",
+                "verified",
+            )
+        ]
+
+        with patch(
+            "builtins.input",
+            side_effect=["2", "1", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.get_evidence_for_requirement",
+            return_value=evidence,
+        ), patch("builtins.print") as mock_print:
+            main.requirements_menu()
+
+        mock_print.assert_any_call(
+            "\nRequirement 1: Verify pressure system"
+        )
+        mock_print.assert_any_call(
+            "Project: Project Alpha"
+        )
+        mock_print.assert_any_call(
+            "Status: unverified"
+        )
+        mock_print.assert_any_call(
+            "  - [verified] pressure test report "
+            "(report.pdf): Pressure test passed"
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
