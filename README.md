@@ -279,3 +279,15 @@ MONITOR
    ↓
 RE-EVALUATE
 ```
+
+## Beta Web Shell
+
+The beta now includes a replaceable WSGI web boundary and a responsive web shell for the project workspace and calculation catalog.
+
+Start it locally with:
+
+```bash
+PYTHONPATH=src python scripts/serve_web.py
+```
+
+The web shell provides project selection, nested workspace browsing, search, sorting, contextual actions, drag-to-folder movement, multi-selection, calculation discipline navigation, detailed calculation inputs, auditable solution traces, and a responsive layout. The HTTP layer is deliberately separated from storage and application services so the client or server implementation can evolve without rewriting the core system.
