@@ -182,6 +182,8 @@ def _delete_folder_tree(storage_root, project_id: int, folder_id: int) -> None:
 def delete_selection(storage_root, project_id: int, selection: Iterable[tuple[ItemKind,int]]) -> int:
     selected={(kind,int(item_id)) for kind,item_id in selection}
     if any(not _exists(kind,item_id) for kind,item_id in selected): raise ValueError("Selection contains a missing workspace item.")
+    if any(_item_project(kind,item_id) != project_id for kind,item_id in selected):
+        raise ValueError("Selection contains an item from another project.")
     folders=[item_id for kind,item_id in selected if kind=="folder"]
     roots=[fid for fid in folders if not any(fid!=other and _folder_contains(project_id,fid,other) for other in folders)]
     deleted=0
