@@ -5,6 +5,7 @@ import math
 import calculations
 import db
 from calculation_definitions import CALCULATION_DEFINITIONS
+from calculation_explanations import explain
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 from calculation_records import CalculationRecord
 
@@ -58,6 +59,29 @@ class CalculationApplication:
         return definition[2]
 
     def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
+        validated = self._validate_inputs(model_key, inputs)
+        return self._EXECUTORS[model_key](**self._executor_arguments(model_key, validated))
+
+    def explain(self, model_key: str, inputs: dict[str, float]) -> dict:
+        """Return the deterministic calculation plus its engineering explanation."""
+        validated = self._validate_inputs(model_key, inputs)
+        record = self._EXECUTORS[model_key](**self._executor_arguments(model_key, validated))
+        method = self.get_method(model_key)
+        details = explain(model_key, validated, record.result)
+        return {
+            "model": self.get_model(model_key),
+            "method": method,
+            "record": record,
+            "steps": details["steps"],
+            "interpretation": details["interpretation"],
+        }
+
+    def run_and_save(self, model_key: str, inputs: dict[str, float]) -> tuple[int, CalculationRecord]:
+        record = self.run(model_key, inputs)
+        calculation_id = db.save_calculation_record(record)
+        return calculation_id, record
+
+    def _validate_inputs(self, model_key: str, inputs: dict[str, float]) -> dict[str, float]:
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
@@ -87,31 +111,17 @@ class CalculationApplication:
             if parameter.maximum is not None and numeric_value > parameter.maximum:
                 raise ValueError(f"{name} must be at most {parameter.maximum}.")
             validated[name] = numeric_value
-
-        return self._EXECUTORS[model_key](**self._executor_arguments(model_key, validated))
-
-    def run_and_save(self, model_key: str, inputs: dict[str, float]) -> tuple[int, CalculationRecord]:
-        record = self.run(model_key, inputs)
-        calculation_id = db.save_calculation_record(record)
-        return calculation_id, record
+        return validated
 
     @staticmethod
     def _executor_arguments(model_key: str, inputs: dict[str, float]) -> dict[str, float]:
         mappings = {
-            "hydrostatic_pressure": {
-                "density_kg_m3": "density", "gravity_m_s2": "gravity", "depth_m": "depth"
-            },
-            "darcy_weisbach_pressure_loss": {
-                "friction_factor": "friction_factor", "pipe_length_m": "pipe_length",
-                "pipe_diameter_m": "pipe_diameter", "density_kg_m3": "density", "velocity_m_s": "velocity"
-            },
+            "hydrostatic_pressure": {"density_kg_m3": "density", "gravity_m_s2": "gravity", "depth_m": "depth"},
+            "darcy_weisbach_pressure_loss": {"friction_factor": "friction_factor", "pipe_length_m": "pipe_length", "pipe_diameter_m": "pipe_diameter", "density_kg_m3": "density", "velocity_m_s": "velocity"},
             "pipe_cross_sectional_area": {"pipe_diameter_m": "pipe_diameter"},
             "volumetric_flow_rate": {"velocity_m_s": "velocity", "pipe_diameter_m": "pipe_diameter"},
             "fluid_velocity": {"flow_rate_m3_s": "flow_rate", "pipe_diameter_m": "pipe_diameter"},
-            "reynolds_number": {
-                "density_kg_m3": "density", "velocity_m_s": "velocity",
-                "pipe_diameter_m": "pipe_diameter", "dynamic_viscosity_pa_s": "dynamic_viscosity"
-            },
+            "reynolds_number": {"density_kg_m3": "density", "velocity_m_s": "velocity", "pipe_diameter_m": "pipe_diameter", "dynamic_viscosity_pa_s": "dynamic_viscosity"},
             "hydrostatic_pressure_gradient": {"density_kg_m3": "density", "gravity_m_s2": "gravity"},
             "hydraulic_power": {"pressure_drop_pa": "pressure_drop", "flow_rate_m3_s": "flow_rate"},
             "api_gravity_to_specific_gravity": {"api_gravity": "api_gravity"},
