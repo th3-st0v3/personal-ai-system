@@ -12,6 +12,8 @@ import workspace_storage
 class WorkspaceApplication:
     """Coordinate workspace use cases without binding the UI to storage details."""
 
+    ITEM_KINDS = frozenset(("folder", "note", "file"))
+
     def __init__(self, storage_root):
         self.storage_root = storage_root
         connection = db.get_connection()
@@ -139,6 +141,8 @@ class WorkspaceApplication:
         return properties
     @staticmethod
     def _browser_item(kind, item_id):
+        if kind not in WorkspaceApplication.ITEM_KINDS:
+            raise ValueError(f"Unsupported item kind '{kind}'.")
         if kind == "folder":
             row = workspace_storage.get_folder(item_id)
             if row is None: raise ValueError(f"No folder found with ID {item_id}.")
