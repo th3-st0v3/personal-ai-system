@@ -1,8 +1,6 @@
 """Search across the unified project workspace browser."""
 from __future__ import annotations
 
-from dataclasses import replace
-
 import workspace_browser
 
 
