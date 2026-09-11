@@ -15,6 +15,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+      - name: Run beta smoke test
+        env:
+          PYTHONPATH: src
+        run: python scripts/smoke_test_beta.py
       - name: Run unit tests
         env:
           PYTHONPATH: src
@@ -23,4 +27,4 @@ jobs:
         with:
           node-version: '24'
       - name: Validate web client syntax
-        run: node --check web/app.js && node --check web/keyboard.js && node --check web/workspace-root.js
+        run: node --check web/app.js && node --check web/keyboard.js && node --check web/workspace-root.js && node --check web/workspace-interactions.js
