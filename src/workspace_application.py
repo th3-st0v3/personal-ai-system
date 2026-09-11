@@ -4,6 +4,7 @@ import engineering_schema
 import file_storage
 import workspace_browser
 import workspace_file_service
+import workspace_search
 import workspace_storage
 
 
@@ -75,6 +76,8 @@ class WorkspaceApplication:
     def delete_note(self, note_id): return workspace_browser.delete_note(note_id)
     def list_children(self, project_id, folder_id=None, sort="a_z"): return workspace_browser.list_children(project_id, folder_id, sort=sort)
     def list_project_items(self, project_id, recursive=True, sort="a_z"): return workspace_browser.list_project_items(project_id, recursive=recursive, sort=sort)
+    def search_project(self, project_id, query, recursive=True): return workspace_search.search_project(project_id, query, recursive=recursive)
+    def search_project_names(self, project_id, query): return workspace_search.search_project_names(project_id, query)
     def move_item(self, kind, item_id, target_folder_id=None): return workspace_browser.move_item(kind, item_id, target_folder_id)
     def rename_item(self, kind, item_id, name): return workspace_browser.rename_item(kind, item_id, name)
     def delete_selection(self, project_id, selection): return workspace_browser.delete_selection(self.storage_root, project_id, selection)
