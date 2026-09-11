@@ -129,6 +129,73 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_views_requirement_with_no_evidence(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        with patch(
+            "builtins.input",
+            side_effect=["2", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.get_evidence_for_requirement",
+            return_value=[],
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_print.assert_any_call(
+            "Evidence:"
+        )
+        mock_print.assert_any_call(
+            "  (no evidence recorded yet)"
+        )
+
+
+    def test_requirements_menu_views_empty_evidence_history(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        with patch(
+            "builtins.input",
+            side_effect=["5", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.get_evidence_history_for_requirement",
+            return_value=[],
+        ), patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_print.assert_any_call(
+            "\nEvidence history for requirement 42: "
+            "Verify pressure system"
+        )
+        mock_print.assert_any_call(
+            "  (no evidence history recorded yet)"
+        )
+
+
     def test_requirements_menu_updates_requirement_status(self):
         import main
 
