@@ -75,15 +75,9 @@ def _would_create_cycle(connection, note_id, parent_note_id):
 
 def _row(row):
     return {
-        "id": row[0],
-        "project_id": row[1],
-        "folder_id": row[2],
-        "parent_note_id": row[3],
-        "title": row[4],
-        "content": row[5],
-        "source": row[6],
-        "lifecycle_status": row[7],
-        "created_at": row[8],
+        "id": row[0], "project_id": row[1], "folder_id": row[2],
+        "parent_note_id": row[3], "title": row[4], "content": row[5],
+        "source": row[6], "lifecycle_status": row[7], "created_at": row[8],
         "updated_at": row[9],
     }
 
@@ -94,7 +88,6 @@ def create_note(project_id, title, content, *, folder_id=None, parent_note_id=No
     source = _require_text(source, "source")
     if folder_id is not None and parent_note_id is not None:
         raise ValueError("A note may be placed in a folder or inside another note, not both.")
-
     connection = _connection()
     try:
         _require_project(connection, project_id)
@@ -129,7 +122,6 @@ def list_notes(project_id, *, folder_id=None, parent_note_id=None, sort="modifie
         raise ValueError(f"Unsupported sort: {sort}")
     if folder_id is not None and parent_note_id is not None:
         raise ValueError("A note listing cannot target both a folder and a parent note.")
-
     connection = _connection()
     try:
         _require_project(connection, project_id)
@@ -150,7 +142,6 @@ def list_notes(project_id, *, folder_id=None, parent_note_id=None, sort="modifie
 def move_note(note_id, *, folder_id=None, parent_note_id=None):
     if folder_id is not None and parent_note_id is not None:
         raise ValueError("A note may be moved to a folder or another note, not both.")
-
     connection = _connection()
     try:
         row = connection.execute("SELECT project_id FROM notes WHERE id = ?", (note_id,)).fetchone()
@@ -175,17 +166,13 @@ def update_note(note_id, *, title=None, content=None, source=None):
     try:
         if connection.execute("SELECT id FROM notes WHERE id = ?", (note_id,)).fetchone() is None:
             raise ValueError(f"No note found with ID {note_id}.")
-        updates = []
-        values = []
+        updates, values = [], []
         if title is not None:
-            updates.append("title = ?")
-            values.append(_require_text(title, "title"))
+            updates.append("title = ?"); values.append(_require_text(title, "title"))
         if content is not None:
-            updates.append("content = ?")
-            values.append(_require_text(content, "content"))
+            updates.append("content = ?"); values.append(_require_text(content, "content"))
         if source is not None:
-            updates.append("source = ?")
-            values.append(_require_text(source, "source"))
+            updates.append("source = ?"); values.append(_require_text(source, "source"))
         if not updates:
             raise ValueError("At least one note field must be provided.")
         values.append(note_id)
@@ -218,9 +205,12 @@ def delete_note(note_id):
     try:
         if connection.execute("SELECT id FROM notes WHERE id = ?", (note_id,)).fetchone() is None:
             raise ValueError(f"No note found with ID {note_id}.")
-        child = connection.execute("SELECT 1 FROM notes WHERE parent_note_id = ? LIMIT 1", (note_id,)).fetchone()
-        if child is not None:
+        if connection.execute("SELECT 1 FROM notes WHERE parent_note_id = ? LIMIT 1", (note_id,)).fetchone() is not None:
             raise ValueError(f"Note {note_id} has child notes; move or delete them first.")
+        connection.execute(
+            "DELETE FROM tag_assignments WHERE target_type = ? AND target_id = ?",
+            ("note", note_id),
+        )
         connection.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         connection.commit()
     finally:
@@ -233,16 +223,17 @@ def delete_notes(note_ids):
         return
     if any(not isinstance(note_id, int) for note_id in note_ids):
         raise ValueError("note_ids must contain only integers.")
-
     connection = _connection()
     try:
         placeholders = ",".join("?" for _ in note_ids)
-        child = connection.execute(
-            "SELECT id FROM notes WHERE parent_note_id IN (" + placeholders + ") LIMIT 1",
-            note_ids,
-        ).fetchone()
-        if child is not None:
+        if connection.execute(
+            "SELECT id FROM notes WHERE parent_note_id IN (" + placeholders + ") LIMIT 1", note_ids
+        ).fetchone() is not None:
             raise ValueError("Bulk note deletion cannot remove notes that still have child notes.")
+        connection.execute(
+            "DELETE FROM tag_assignments WHERE target_type = ? AND target_id IN (" + placeholders + ")",
+            ["note", *note_ids],
+        )
         connection.execute("DELETE FROM notes WHERE id IN (" + placeholders + ")", note_ids)
         connection.commit()
     finally:
