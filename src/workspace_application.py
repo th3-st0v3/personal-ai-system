@@ -22,24 +22,15 @@ class WorkspaceApplication:
             connection.close()
 
     @staticmethod
-    def _project(record):
-        return {"id": record[0], "name": record[1], "description": record[2], "created_at": record[3]}
-
+    def _project(record): return {"id": record[0], "name": record[1], "description": record[2], "created_at": record[3]}
     @staticmethod
-    def _folder(record):
-        return {"id": record[0], "project_id": record[1], "parent_folder_id": record[2], "name": record[3], "lifecycle_status": record[4], "created_at": record[5], "updated_at": record[6]}
-
+    def _folder(record): return {"id": record[0], "project_id": record[1], "parent_folder_id": record[2], "name": record[3], "lifecycle_status": record[4], "created_at": record[5], "updated_at": record[6]}
     @staticmethod
-    def _file(record):
-        return {"id": record[0], "project_id": record[1], "folder_id": record[2], "name": record[3], "storage_key": record[4], "mime_type": record[5], "size_bytes": record[6], "sha256": record[7], "lifecycle_status": record[8], "created_at": record[9], "updated_at": record[10]}
-
+    def _file(record): return {"id": record[0], "project_id": record[1], "folder_id": record[2], "name": record[3], "storage_key": record[4], "mime_type": record[5], "size_bytes": record[6], "sha256": record[7], "lifecycle_status": record[8], "created_at": record[9], "updated_at": record[10]}
     @staticmethod
-    def _tag(record):
-        return {"id": record[0], "project_id": record[1], "name": record[2], "created_at": record[3]}
-
+    def _tag(record): return {"id": record[0], "project_id": record[1], "name": record[2], "created_at": record[3]}
     @staticmethod
-    def _attachment(record):
-        return {"id": record[0], "file_id": record[1], "target_type": record[2], "target_id": record[3], "created_at": record[4]}
+    def _attachment(record): return {"id": record[0], "file_id": record[1], "target_type": record[2], "target_id": record[3], "created_at": record[4]}
 
     def create_project(self, name, description=None): return db.create_project(name, description)
     def list_projects(self): return [self._project(r) for r in db.get_projects()]
@@ -63,6 +54,7 @@ class WorkspaceApplication:
         r = workspace_storage.get_file(file_id)
         if r is None: raise ValueError(f"No file found with ID {file_id}.")
         return file_storage.verify_sha256(self.storage_root, r[4], r[7])
+    def replace_file(self, file_id, data, mime_type=None): return self._file(workspace_file_service.replace_file(self.storage_root, file_id, data, mime_type))
     def rename_file(self, file_id, name): workspace_storage.rename_file(file_id, name)
     def move_file(self, file_id, folder_id=None): workspace_storage.move_file(file_id, folder_id)
     def set_file_lifecycle(self, file_id, lifecycle_status): workspace_storage.update_file_lifecycle_status(file_id, lifecycle_status)
@@ -75,6 +67,15 @@ class WorkspaceApplication:
     def update_note(self, note_id, **changes): return workspace_browser.update_note(note_id, **changes)
     def move_note(self, note_id, folder_id=None): return workspace_browser.move_note(note_id, folder_id)
     def delete_note(self, note_id): return workspace_browser.delete_note(note_id)
+    def export_note(self, note_id):
+        note = workspace_browser.get_note(note_id)
+        if note is None: raise ValueError(f"No note found with ID {note_id}.")
+        return note.content or ""
+    def pin_note(self, note_id, pinned=True):
+        note = workspace_browser.get_note(note_id)
+        if note is None: raise ValueError(f"No note found with ID {note_id}.")
+        metadata = dict(note.metadata); metadata["pinned"] = bool(pinned)
+        return workspace_browser.update_note(note_id, metadata=metadata)
     def list_children(self, project_id, folder_id=None, sort="a_z"): return workspace_browser.list_children(project_id, folder_id, sort=sort)
     def list_project_items(self, project_id, recursive=True, sort="a_z"): return workspace_browser.list_project_items(project_id, recursive=recursive, sort=sort)
     def search_project(self, project_id, query, recursive=True): return workspace_search.search_project(project_id, query, recursive=recursive)
@@ -84,6 +85,22 @@ class WorkspaceApplication:
     def duplicate_item(self, project_id, kind, item_id): return workspace_clipboard.duplicate_item(self.storage_root, project_id, kind, item_id)
     def copy_selection(self, project_id, selection): return workspace_clipboard.copy_selection(self.storage_root, project_id, selection)
     def paste_selection(self, project_id, target_folder_id, clipboard): return workspace_clipboard.paste_selection(self.storage_root, project_id, target_folder_id, clipboard)
+    def get_item_properties(self, kind, item_id):
+        item = self._browser_item(kind, item_id)
+        properties = {"kind": item.kind, "id": item.id, "project_id": item.project_id, "parent_id": item.parent_id, "name": item.name, "created_at": item.created_at, "updated_at": item.updated_at}
+        if kind == "file": properties.update({"mime_type": item.mime_type, "size_bytes": item.size_bytes, "sha256": item.metadata.get("sha256"), "lifecycle_status": item.metadata.get("lifecycle_status")})
+        elif kind == "note": properties.update({"content_length": len(item.content or ""), "metadata": dict(item.metadata)})
+        else: properties["child_count"] = len(workspace_browser.list_children(item.project_id, item.id))
+        return properties
+    @staticmethod
+    def _browser_item(kind, item_id):
+        if kind == "folder":
+            row = workspace_storage.get_folder(item_id)
+            if row is None: raise ValueError(f"No folder found with ID {item_id}.")
+            return workspace_browser.BrowserItem("folder", row[0], row[1], row[2], row[3], None, None, None, row[5], row[6], {"lifecycle_status": row[4]})
+        item = workspace_browser.get_note(item_id) if kind == "note" else (lambda r: None if r is None else workspace_browser.BrowserItem("file", r[0], r[1], r[2], r[3], r[5], None, r[6], r[9], r[10], {"sha256": r[7], "lifecycle_status": r[8]}))(workspace_storage.get_file(item_id))
+        if item is None: raise ValueError(f"No {kind} found with ID {item_id}.")
+        return item
     def delete_selection(self, project_id, selection): return workspace_browser.delete_selection(self.storage_root, project_id, selection)
     def delete_all_files(self, project_id, folder_id=None): return workspace_browser.delete_all_files(self.storage_root, project_id, folder_id)
     def get_context_actions(self, kind, selection_count=1): return workspace_browser.get_context_actions(kind, selection_count=selection_count)
