@@ -44,6 +44,10 @@ class TestWebApplication(unittest.TestCase):
         hydrostatic = next(item for item in catalog if item["key"] == "hydrostatic_pressure")
         self.assertIn("Drilling Engineering", hydrostatic["categories"])
 
+        status, _, detail = self.request("GET", "/api/calculations/hydrostatic_pressure")
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["parameters"][0]["name"], "density")
+
         status, _, trace = self.request("POST", "/api/calculations/run", {"model_key": "hydrostatic_pressure", "inputs": {"density": 1000, "gravity": 9.81, "depth": 10}})
         self.assertEqual(status, 200)
         self.assertEqual(trace["result"], 98100.0)
@@ -61,6 +65,26 @@ class TestWebApplication(unittest.TestCase):
         status, _, matches = self.request("GET", f"/api/projects/{self.project_id}/search?q=hydrostatic")
         self.assertEqual(status, 200)
         self.assertEqual([item["name"] for item in matches], ["Pressure Note"])
+
+    def test_workspace_actions_are_exposed(self):
+        source = self.workspace.create_folder(self.project_id, "Source")
+        target = self.workspace.create_folder(self.project_id, "Target")
+        note = self.workspace.create_note(self.project_id, "Move me", "content", source)
+        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/move", {"kind": "note", "id": note, "target_folder_id": target})
+        self.assertEqual((status, payload), (200, {"moved": True}))
+        self.assertEqual(self.workspace.get_note(note).parent_id, target)
+
+        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/rename", {"kind": "note", "id": note, "name": "Renamed"})
+        self.assertEqual((status, payload), (200, {"renamed": True}))
+        self.assertEqual(self.workspace.get_note(note).name, "Renamed")
+
+        status, _, props = self.request("GET", f"/api/projects/{self.project_id}/properties?kind=note&id={note}")
+        self.assertEqual(status, 200)
+        self.assertEqual(props["name"], "Renamed")
+
+        status, _, payload = self.request("POST", f"/api/projects/{self.project_id}/delete", {"selection": [{"kind": "note", "id": note}]})
+        self.assertEqual((status, payload), (200, {"deleted": 1}))
+        self.assertIsNone(self.workspace.get_note(note))
 
     def test_bad_requests_are_client_errors(self):
         self.assertEqual(self.request("GET", "/api/projects/not-an-id")[0], 400)
