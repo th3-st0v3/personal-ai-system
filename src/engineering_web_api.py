@@ -30,6 +30,26 @@ class EngineeringWebApplication:
         if row is None or row[1] != project_id:
             raise ValueError("Requirement not found in project.")
 
+    @staticmethod
+    def _require_source(project_id: int, source_id: int) -> None:
+        connection = db.get_connection()
+        try:
+            row = connection.execute("SELECT id, project_id FROM sources WHERE id = ?", (source_id,)).fetchone()
+        finally:
+            connection.close()
+        if row is None or row[1] != project_id:
+            raise ValueError("Source not found in project.")
+
+    @staticmethod
+    def _require_design_case(project_id: int, design_case_id: int) -> None:
+        connection = db.get_connection()
+        try:
+            row = connection.execute("SELECT id, project_id FROM design_cases WHERE id = ?", (design_case_id,)).fetchone()
+        finally:
+            connection.close()
+        if row is None or row[1] != project_id:
+            raise ValueError("Design case not found in project.")
+
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
             parsed = urlsplit(target)
@@ -39,18 +59,15 @@ class EngineeringWebApplication:
             if not isinstance(data, dict):
                 raise ValueError("JSON request body must be an object.")
             parts = path.strip("/").split("/")
-            if len(parts) < 3 or parts[:3] != ["api", "engineering", "projects"]:
+            if len(parts) < 4 or parts[:3] != ["api", "engineering", "projects"]:
                 return self._json(404, {"error": "Not found"})
-            project_id = int(parts[3]) if len(parts) > 3 else None
-            if project_id is None:
-                return self._json(404, {"error": "Not found"})
+            project_id = int(parts[3])
             self._require_project(project_id)
             resource = parts[4] if len(parts) > 4 else ""
             if method == "GET" and resource == "requirements":
                 return self._json(200, self.engineering.list_requirements(project_id))
             if method == "POST" and resource == "requirements":
-                description = data["description"]
-                return self._json(201, {"id": db.create_requirement(project_id, description)})
+                return self._json(201, {"id": db.create_requirement(project_id, data["description"])})
             if resource == "requirements" and len(parts) == 6 and method == "PATCH":
                 requirement_id = int(parts[5])
                 self._require_requirement(project_id, requirement_id)
@@ -70,7 +87,10 @@ class EngineeringWebApplication:
                 if method == "GET":
                     return self._json(200, [self.engineering.get_evidence(e[0]) for e in db.get_evidence_history_for_requirement(requirement_id)])
                 if method == "POST":
-                    evidence_id = self.engineering.create_evidence(requirement_id, data["result"], data["supports_status"], source=data.get("source"), location=data.get("location"), calculation_record_id=data.get("calculation_record_id"), source_id=data.get("source_id"), classification=data.get("classification"), description=data.get("description"))
+                    source_id = data.get("source_id")
+                    if source_id is not None:
+                        self._require_source(project_id, int(source_id))
+                    evidence_id = self.engineering.create_evidence(requirement_id, data["result"], data["supports_status"], source=data.get("source"), location=data.get("location"), calculation_record_id=data.get("calculation_record_id"), source_id=source_id, classification=data.get("classification"), description=data.get("description"))
                     return self._json(201, {"id": evidence_id})
             if resource == "evidence" and len(parts) == 6 and method == "POST" and parts[5] == "invalidate":
                 evidence_id = int(data["id"])
@@ -83,9 +103,13 @@ class EngineeringWebApplication:
             if method == "GET" and resource == "decisions":
                 return self._json(200, self.engineering.list_decisions(project_id))
             if method == "POST" and resource == "decisions":
-                if data.get("requirement_id") is not None:
-                    self._require_requirement(project_id, int(data["requirement_id"]))
-                return self._json(201, {"id": self.engineering.create_decision(project_id, data["title"], data["decision"], description=data.get("description"), requirement_id=data.get("requirement_id"), design_case_id=data.get("design_case_id"), rationale=data.get("rationale"))})
+                requirement_id = data.get("requirement_id")
+                design_case_id = data.get("design_case_id")
+                if requirement_id is not None:
+                    self._require_requirement(project_id, int(requirement_id))
+                if design_case_id is not None:
+                    self._require_design_case(project_id, int(design_case_id))
+                return self._json(201, {"id": self.engineering.create_decision(project_id, data["title"], data["decision"], description=data.get("description"), requirement_id=requirement_id, design_case_id=design_case_id, rationale=data.get("rationale"))})
             return self._json(404, {"error": "Not found"})
         except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
             return self._json(400, {"error": str(exc) or "Invalid request"})
