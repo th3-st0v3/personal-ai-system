@@ -6,7 +6,7 @@ additive: existing projects, requirements, evidence, and calculation records
 remain valid while new relationships can be populated incrementally.
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def initialize(connection):
@@ -69,12 +69,7 @@ def initialize(connection):
     _add_column_if_missing(
         connection, "projects", "status", "TEXT NOT NULL DEFAULT 'Active'"
     )
-    # SQLite does not allow a non-constant expression as the default of an
-    # ALTER TABLE ... ADD COLUMN migration, so this remains nullable until
-    # project writes are migrated to populate it explicitly.
-    _add_column_if_missing(
-        connection, "projects", "updated_at", "TEXT"
-    )
+    _add_column_if_missing(connection, "projects", "updated_at", "TEXT")
 
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspace_id)"
@@ -93,6 +88,26 @@ def initialize(connection):
     connection.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_requirements_project_identifier "
         "ON requirements(project_id, identifier) WHERE identifier IS NOT NULL"
+    )
+
+    # Notes are the user's free-form project content. These fields make notes
+    # first-class project resources without replacing the existing notes table.
+    _add_column_if_missing(connection, "notes", "parent_note_id", "INTEGER")
+    _add_column_if_missing(connection, "notes", "folder_id", "INTEGER")
+    _add_column_if_missing(
+        connection, "notes", "lifecycle_status",
+        "TEXT NOT NULL DEFAULT 'Active' CHECK (lifecycle_status IN ('Active', 'Archived', 'Invalidated', 'Superseded'))",
+    )
+    _add_column_if_missing(connection, "notes", "updated_at", "TEXT")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notes_project_parent "
+        "ON notes(project_id, parent_note_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_notes_project_updated ON notes(project_id, updated_at)"
     )
 
     connection.execute(
