@@ -129,6 +129,73 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_updates_requirement_status(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["3", "42", "1", "6"],
+        ), patch(
+            "main.update_requirement_status"
+        ) as mock_update, patch("builtins.print"):
+            main.requirements_menu()
+
+        mock_update.assert_called_once_with(
+            42,
+            "Verified",
+        )
+
+
+    def test_requirements_menu_evaluates_requirement_evidence(self):
+        import main
+
+        requirement = (
+            42,
+            1,
+            "Project Alpha",
+            "Verify pressure system",
+            "unverified",
+        )
+
+        evaluation = {
+            "recommendation": "verified",
+            "signals": ["verified"],
+            "conflict": False,
+        }
+
+        with patch(
+            "builtins.input",
+            side_effect=["4", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=requirement,
+        ), patch(
+            "main.evaluate_requirement_evidence",
+            return_value=evaluation,
+        ) as mock_evaluate, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_evaluate.assert_called_once_with(42)
+
+        mock_print.assert_any_call(
+            "\nRequirement 42: Verify pressure system"
+        )
+        mock_print.assert_any_call(
+            "Current status: unverified"
+        )
+        mock_print.assert_any_call(
+            "Evidence assessment: verified"
+        )
+        mock_print.assert_any_call(
+            "Evidence signals: verified"
+        )
+        mock_print.assert_any_call(
+            "Conflict: No"
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
