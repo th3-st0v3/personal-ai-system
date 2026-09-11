@@ -76,7 +76,7 @@ class WebApplication:
                     item = self.workspace._browser_item(kind, item_id)
                     if item.project_id != project_id:
                         raise ValueError("Item belongs to another project.")
-                    return self._json(200, [{"kind": kind_name, "id": item_id, "name": name} for kind_name, item_id, name in self.workspace.get_breadcrumbs(kind, item_id)])
+                    return self._json(200, [{"kind": kind_name, "id": crumb_id, "name": name} for kind_name, crumb_id, name in self.workspace.get_breadcrumbs(kind, item_id)])
                 if method == "GET" and len(parts) == 5 and parts[4] == "search":
                     return self._json(200, [self._item(item) for item in self.workspace.search_project(project_id, query["q"], recursive=query.get("recursive", "true").casefold() != "false")])
                 if method == "POST" and len(parts) == 5 and parts[4] == "folders":
@@ -88,6 +88,22 @@ class WebApplication:
                     if note is None or note.project_id != project_id:
                         raise ValueError("Note not found in project.")
                     return self._json(200, self._item(note))
+                if method == "POST" and len(parts) == 5 and parts[4] == "copy":
+                    selection = [(item["kind"], int(item["id"])) for item in data.get("selection", [])]
+                    if not selection:
+                        raise ValueError("Selection is required.")
+                    self.workspace.copy_selection(project_id, selection)
+                    return self._json(200, {"copied": [{"kind": kind, "id": item_id} for kind, item_id in selection]})
+                if method == "POST" and len(parts) == 5 and parts[4] == "paste":
+                    selection = [(item["kind"], int(item["id"])) for item in data.get("selection", [])]
+                    if not selection:
+                        raise ValueError("Clipboard selection is required.")
+                    created = self.workspace.paste_selection(project_id, data.get("target_folder_id"), self.workspace.copy_selection(project_id, selection))
+                    return self._json(201, {"created": created})
+                if method == "POST" and len(parts) == 5 and parts[4] == "duplicate":
+                    kind, item_id = data["kind"], int(data["id"])
+                    self.workspace._require_project_item(kind, item_id, project_id)
+                    return self._json(201, {"id": self.workspace.duplicate_item(project_id, kind, item_id)})
                 if method == "POST" and len(parts) == 5 and parts[4] == "move":
                     kind, item_id = data["kind"], int(data["id"])
                     item = self.workspace._browser_item(kind, item_id)
