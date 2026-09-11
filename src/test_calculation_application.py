@@ -57,6 +57,15 @@ class TestCalculationApplication(unittest.TestCase):
         self.assertEqual(record.result_unit, "W")
         self.assertEqual(record.units["voltage"], "V")
 
+    def test_run_trace_preserves_detailed_solution_for_ui(self):
+        trace = self.app.run_trace(
+            "hydrostatic_pressure",
+            {"density": 1000, "gravity": 9.81, "depth": 10},
+        )
+        self.assertEqual(trace.result, 98100.0)
+        self.assertGreaterEqual(len(trace.steps), 5)
+        self.assertEqual(trace.to_dict()["result_unit"], "Pa")
+
     def test_runs_and_saves_through_application_boundary(self):
         with patch("calculation_application.db.save_calculation_record", return_value=42) as save:
             calculation_id, record = self.app.run_and_save(
