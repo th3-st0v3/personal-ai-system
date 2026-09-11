@@ -5,6 +5,7 @@ coupling themselves to SQLite rows or physical storage details.
 """
 
 import db
+import engineering_schema
 import file_storage
 import workspace_file_service
 import workspace_storage
@@ -15,6 +16,11 @@ class WorkspaceApplication:
 
     def __init__(self, storage_root):
         self.storage_root = storage_root
+        connection = db.get_connection()
+        try:
+            engineering_schema.initialize(connection)
+        finally:
+            connection.close()
 
     @staticmethod
     def _project(record):
