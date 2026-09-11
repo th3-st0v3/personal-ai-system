@@ -1,14 +1,16 @@
 """Application boundary for deterministic engineering calculations.
 
 This module provides one stable entry point for selecting a registered
-calculation model, validating its inputs, and executing the existing
-specialized deterministic implementation. It keeps future UI/API/AI callers
-from depending on individual calculation functions.
+calculation model, validating its inputs, executing the existing specialized
+deterministic implementation, and optionally persisting the resulting record.
+It keeps future UI/API/AI callers from depending on individual calculation
+functions or database details.
 """
 
 import math
 
 import calculations
+import db
 from calculation_definitions import CALCULATION_DEFINITIONS
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 from calculation_records import CalculationRecord
@@ -65,10 +67,16 @@ class CalculationApplication:
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
 
+        if not isinstance(inputs, dict):
+            raise ValueError("inputs must be a dictionary.")
+
         _, _, parameters = definition
         expected = {parameter.name: parameter for parameter in parameters}
         supplied = set(inputs)
-        missing = [name for name, parameter in expected.items() if parameter.required and name not in supplied]
+        missing = [
+            name for name, parameter in expected.items()
+            if parameter.required and name not in supplied
+        ]
         unknown = supplied - set(expected)
         if missing:
             raise ValueError("Missing required inputs: " + ", ".join(missing))
@@ -90,6 +98,12 @@ class CalculationApplication:
             validated[name] = numeric_value
 
         return self._EXECUTORS[model_key](**self._executor_arguments(model_key, validated))
+
+    def run_and_save(self, model_key: str, inputs: dict[str, float]) -> tuple[int, CalculationRecord]:
+        """Execute a deterministic calculation and persist its reproducible record."""
+        record = self.run(model_key, inputs)
+        calculation_id = db.save_calculation_record(record)
+        return calculation_id, record
 
     @staticmethod
     def _executor_arguments(model_key: str, inputs: dict[str, float]) -> dict[str, float]:
