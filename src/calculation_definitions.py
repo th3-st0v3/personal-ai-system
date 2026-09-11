@@ -1,4 +1,6 @@
-from calculation_library import SPECS
+from inspect import signature
+
+from calculation_library import SPECS, CALCULATION_REGISTRY
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 
 
@@ -59,7 +61,25 @@ CALCULATION_DEFINITIONS = tuple(
     for spec in SPECS
 )
 
+
+def validate_definitions() -> None:
+    """Raise if executable specs and UI/application metadata drift apart."""
+    spec_keys = set(CALCULATION_REGISTRY)
+    definition_keys = {model.key for model, _, _ in CALCULATION_DEFINITIONS}
+    if spec_keys != definition_keys or definition_keys != set(_PARAMETER_DATA):
+        raise RuntimeError("Calculation registry and definitions are out of sync.")
+    for spec, (model, method, parameters) in zip(SPECS, CALCULATION_DEFINITIONS):
+        if (model.key, method.calculation_model_key) != (spec.key, spec.key) or method.equation != spec.equation:
+            raise RuntimeError(f"Calculation metadata drift for '{spec.key}'.")
+        expected = tuple(signature(spec.calculate).parameters)
+        actual = tuple(parameter.name for parameter in parameters)
+        if expected != actual:
+            raise RuntimeError(f"Calculation parameters drift for '{spec.key}': expected {expected}, got {actual}.")
+
+
 _H = next(item for item in CALCULATION_DEFINITIONS if item[0].key == "hydrostatic_pressure")
 _D = next(item for item in CALCULATION_DEFINITIONS if item[0].key == "darcy_weisbach_pressure_loss")
 HYDROSTATIC_MODEL, HYDROSTATIC_METHOD, HYDROSTATIC_PARAMETERS = _H
 DARCY_MODEL, DARCY_METHOD, DARCY_PARAMETERS = _D
+
+validate_definitions()
