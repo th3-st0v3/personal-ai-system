@@ -93,6 +93,7 @@ class TestWorkspaceApplication(unittest.TestCase):
         other_file = self.app.create_file(other_project, "other.txt", b"other")
         other_note = self.app.create_note(other_project, "Other Note", "secret", other_folder)
         other_tag = self.app.create_tag(other_project, "private")
+        target_folder = self.app.create_folder(self.project_id, "Target")
         with self.assertRaises(ValueError):
             self.app.read_file(other_file, project_id=self.project_id)
         with self.assertRaises(ValueError):
@@ -100,7 +101,7 @@ class TestWorkspaceApplication(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.app.rename_file(other_file, "changed.txt", project_id=self.project_id)
         with self.assertRaises(ValueError):
-            self.app.move_file(other_file, self.create_folder(self.project_id, "Target"), project_id=self.project_id)
+            self.app.move_file(other_file, target_folder, project_id=self.project_id)
         with self.assertRaises(ValueError):
             self.app.delete_file(other_file, project_id=self.project_id)
         with self.assertRaises(ValueError):
