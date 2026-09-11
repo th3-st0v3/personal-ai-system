@@ -37,7 +37,6 @@ class TestEngineeringApplication(unittest.TestCase):
         user_id = self.app.create_user("Test Engineer")
         self.app.assign_project(self.project_id, workspace_id, user_id)
 
-        self.app.update_requirement = getattr(self.app, "update_requirement")
         requirement_id = db.create_requirement(self.project_id, "Maintain pressure")
         self.app.update_requirement(
             requirement_id,
@@ -111,6 +110,7 @@ class TestEngineeringApplication(unittest.TestCase):
             ).fetchone()
         finally:
             connection.close()
+        self.assertIsNotNone(row)
         self.assertEqual(row[0:3], ("decision", decision_id, "created"))
         self.assertEqual(row[3], '{"reason": "initial design selection"}')
 
