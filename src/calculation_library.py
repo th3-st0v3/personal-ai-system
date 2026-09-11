@@ -112,6 +112,11 @@ def ideal_gas_pressure(amount: float, temperature: float, volume: float, gas_con
     return amount * gas_constant * temperature / volume
 
 
+def ideal_gas_density(molar_mass: float, pressure: float, temperature: float, gas_constant: float = 8.314462618) -> float:
+    _positive("molar_mass", molar_mass); _nonnegative("pressure", pressure); _positive("temperature", temperature); _positive("gas_constant", gas_constant)
+    return pressure * molar_mass / (gas_constant * temperature)
+
+
 def normal_stress(force: float, area: float) -> float:
     _nonnegative("force", force); _positive("area", area)
     return force / area
@@ -137,23 +142,119 @@ def mechanical_power(torque: float, angular_velocity: float) -> float:
     return torque * angular_velocity
 
 
+def kinetic_energy(mass: float, velocity: float) -> float:
+    _nonnegative("mass", mass); _nonnegative("velocity", velocity)
+    return 0.5 * mass * velocity**2
+
+
+def gravitational_potential_energy(mass: float, gravity: float, height: float) -> float:
+    _nonnegative("mass", mass); _nonnegative("gravity", gravity); _finite("height", height)
+    return mass * gravity * height
+
+
+def spring_force(stiffness: float, displacement: float) -> float:
+    _nonnegative("stiffness", stiffness); _finite("displacement", displacement)
+    return stiffness * displacement
+
+
+def spring_potential_energy(stiffness: float, displacement: float) -> float:
+    _nonnegative("stiffness", stiffness); _finite("displacement", displacement)
+    return 0.5 * stiffness * displacement**2
+
+
+def thermal_expansion(initial_length: float, coefficient: float, delta_temperature: float) -> float:
+    _positive("initial_length", initial_length); _nonnegative("coefficient", coefficient); _finite("delta_temperature", delta_temperature)
+    return initial_length * coefficient * delta_temperature
+
+
+def sensible_heat(mass: float, specific_heat: float, delta_temperature: float) -> float:
+    _nonnegative("mass", mass); _nonnegative("specific_heat", specific_heat); _finite("delta_temperature", delta_temperature)
+    return mass * specific_heat * delta_temperature
+
+
+def conduction_heat_rate(conductivity: float, area: float, delta_temperature: float, thickness: float) -> float:
+    _nonnegative("conductivity", conductivity); _nonnegative("area", area); _finite("delta_temperature", delta_temperature); _positive("thickness", thickness)
+    return conductivity * area * delta_temperature / thickness
+
+
+def fluid_mass_flow(density: float, volumetric_flow_rate: float) -> float:
+    _nonnegative("density", density); _nonnegative("volumetric_flow_rate", volumetric_flow_rate)
+    return density * volumetric_flow_rate
+
+
+def buoyancy_force(fluid_density: float, gravity: float, displaced_volume: float) -> float:
+    _nonnegative("fluid_density", fluid_density); _nonnegative("gravity", gravity); _nonnegative("displaced_volume", displaced_volume)
+    return fluid_density * gravity * displaced_volume
+
+
+def efficiency(useful_output: float, total_input: float) -> float:
+    _nonnegative("useful_output", useful_output); _positive("total_input", total_input)
+    if useful_output > total_input:
+        raise ValueError("useful_output cannot exceed total_input")
+    return useful_output / total_input
+
+
+def electrical_resistance_series(*resistances: float) -> float:
+    if not resistances:
+        raise ValueError("At least one resistance is required")
+    for value in resistances: _nonnegative("resistance", value)
+    return sum(resistances)
+
+
+def electrical_resistance_parallel(*resistances: float) -> float:
+    if not resistances:
+        raise ValueError("At least one resistance is required")
+    for value in resistances: _positive("resistance", value)
+    return 1.0 / sum(1.0 / value for value in resistances)
+
+
+def capacitor_energy(capacitance: float, voltage: float) -> float:
+    _nonnegative("capacitance", capacitance); _nonnegative("voltage", voltage)
+    return 0.5 * capacitance * voltage**2
+
+
+def rc_time_constant(resistance: float, capacitance: float) -> float:
+    _nonnegative("resistance", resistance); _nonnegative("capacitance", capacitance)
+    return resistance * capacitance
+
+
+
+def _fmt(values: dict[str, float], equation: str) -> str:
+    return equation.format(**{key: f"{value:g}" for key, value in values.items()})
+
+
 SPECS = (
-    CalculationSpec("hydrostatic_pressure", "Hydrostatic Pressure", "fluid_pressure", "P = rho * g * h", "Pa", hydrostatic_pressure, lambda v: f"P = ({v['density']:g})({v['gravity']:g})({v['depth']:g})", ("constant density", "constant gravitational acceleration"), ("Does not model pressure-dependent density.",)),
-    CalculationSpec("darcy_weisbach_pressure_loss", "Darcy-Weisbach Pressure Loss", "fluid_flow", "ΔP = f * (L / D) * (rho * v^2 / 2)", "Pa", darcy_weisbach_pressure_loss, lambda v: f"ΔP = ({v['friction_factor']:g})({v['pipe_length']:g}/{v['pipe_diameter']:g})(({v['density']:g})({v['velocity']:g}^2)/2)", ("steady internal flow", "constant density", "supplied Darcy friction factor"), ("Requires a valid supplied friction factor; does not calculate it.",)),
-    CalculationSpec("reynolds_number", "Reynolds Number", "fluid_flow", "Re = rho * v * D / mu", "dimensionless", reynolds_number, lambda v: f"Re = ({v['density']:g})({v['velocity']:g})({v['diameter']:g})/{v['dynamic_viscosity']:g}", ("Newtonian-fluid viscosity represented by supplied dynamic viscosity",), ("Flow-regime interpretation depends on geometry and assumptions.",)),
-    CalculationSpec("volumetric_flow", "Volumetric Flow Rate", "fluid_flow", "Q = A * v", "m^3/s", volumetric_flow, lambda v: f"Q = ({v['area']:g})({v['velocity']:g})", ("one-dimensional mean velocity through the stated area",), ("Does not model velocity-profile effects.",)),
-    CalculationSpec("circular_pipe_area", "Circular Pipe Area", "geometry", "A = pi * D^2 / 4", "m^2", circular_pipe_area, lambda v: f"A = pi * ({v['diameter']:g})^2 / 4", ("circular cross-section",), ()),
-    CalculationSpec("pipe_velocity", "Pipe Mean Velocity", "fluid_flow", "v = Q / A", "m/s", pipe_velocity, lambda v: f"v = {v['flow_rate']:g} / (pi * {v['diameter']:g}^2 / 4)", ("circular pipe", "mean velocity"), ()),
-    CalculationSpec("dynamic_pressure", "Dynamic Pressure", "fluid_pressure", "q = rho * v^2 / 2", "Pa", dynamic_pressure, lambda v: f"q = ({v['density']:g})({v['velocity']:g}^2)/2", ("incompressible-flow form",), ("Compressibility may matter at high Mach number.",)),
-    CalculationSpec("pressure_head", "Pressure Head", "fluid_pressure", "h = P / (rho * g)", "m", pressure_head, lambda v: f"h = {v['pressure']:g} / (({v['density']:g})({v['gravity']:g}))", ("positive pressure and density",), ()),
-    CalculationSpec("pressure_from_head", "Pressure From Head", "fluid_pressure", "P = rho * g * h", "Pa", pressure_from_head, lambda v: f"P = ({v['density']:g})({v['gravity']:g})({v['head']:g})", ("constant density",), ()),
-    CalculationSpec("bernoulli_pressure_downstream", "Bernoulli Downstream Pressure", "fluid_flow", "P2 = P1 + rho*g(z1-z2-hL) + rho(v1^2-v2^2)/2", "Pa", bernoulli_pressure_downstream, lambda v: f"P2 = {v['pressure_upstream']:g} + ({v['density']:g})({v['gravity']:g})({v['elevation_upstream']:g}-{v['elevation_downstream']:g}-{v['head_loss']:g}) + ({v['density']:g})({v['velocity_upstream']:g}^2-{v['velocity_downstream']:g}^2)/2", ("steady incompressible flow", "consistent datum for elevations",), ("Does not account for pump/turbine work or compressibility beyond the supplied terms.",)),
-    CalculationSpec("ideal_gas_pressure", "Ideal Gas Pressure", "thermodynamics", "P = nRT / V", "Pa", ideal_gas_pressure, lambda v: f"P = ({v['amount']:g})({v['gas_constant']:g})({v['temperature']:g})/{v['volume']:g}", ("ideal-gas behavior", "absolute temperature"), ("Real-gas deviations are not modeled.",)),
-    CalculationSpec("normal_stress", "Normal Stress", "solid_mechanics", "sigma = F / A", "Pa", normal_stress, lambda v: f"sigma = {v['force']:g} / {v['area']:g}", ("uniform load over stated area",), ("Does not resolve local stress concentrations.",)),
-    CalculationSpec("normal_strain", "Normal Strain", "solid_mechanics", "epsilon = dL / L0", "dimensionless", normal_strain, lambda v: f"epsilon = {v['delta_length']:g} / {v['original_length']:g}", ("engineering strain representation",), ()),
-    CalculationSpec("ohms_law_voltage", "Ohm's Law Voltage", "electrical", "V = I * R", "V", ohms_law_voltage, lambda v: f"V = ({v['current']:g})({v['resistance']:g})", ("linear resistance model",), ("Not valid for nonlinear devices without adjustment.",)),
-    CalculationSpec("electrical_power", "Electrical Power", "electrical", "P = V * I", "W", electrical_power, lambda v: f"P = ({v['voltage']:g})({v['current']:g})", ("DC or instantaneous real-power form",), ()),
-    CalculationSpec("mechanical_power", "Mechanical Power", "mechanical", "P = tau * omega", "W", mechanical_power, lambda v: f"P = ({v['torque']:g})({v['angular_velocity']:g})", ("rotational mechanical power",), ()),
+    CalculationSpec("hydrostatic_pressure", "Hydrostatic Pressure", "fluid_pressure", "P = rho * g * h", "Pa", hydrostatic_pressure, lambda v: _fmt(v, "P = ({density})({gravity})({depth})"), ("constant density", "constant gravitational acceleration"), ("Does not model pressure-dependent density.",)),
+    CalculationSpec("darcy_weisbach_pressure_loss", "Darcy-Weisbach Pressure Loss", "fluid_flow", "ΔP = f * (L / D) * (rho * v^2 / 2)", "Pa", darcy_weisbach_pressure_loss, lambda v: _fmt(v, "ΔP = ({friction_factor})({pipe_length}/{pipe_diameter})(({density})({velocity}^2)/2)"), ("steady internal flow", "constant density", "supplied Darcy friction factor"), ("Requires a valid supplied friction factor; does not calculate it.",)),
+    CalculationSpec("reynolds_number", "Reynolds Number", "fluid_flow", "Re = rho * v * D / mu", "dimensionless", reynolds_number, lambda v: _fmt(v, "Re = ({density})({velocity})({diameter})/{dynamic_viscosity}"), ("Newtonian-fluid viscosity represented by supplied dynamic viscosity",), ("Flow-regime interpretation depends on geometry and assumptions.",)),
+    CalculationSpec("volumetric_flow", "Volumetric Flow Rate", "fluid_flow", "Q = A * v", "m^3/s", volumetric_flow, lambda v: _fmt(v, "Q = ({area})({velocity})"), ("one-dimensional mean velocity through the stated area",), ("Does not model velocity-profile effects.",)),
+    CalculationSpec("circular_pipe_area", "Circular Pipe Area", "geometry", "A = pi * D^2 / 4", "m^2", circular_pipe_area, lambda v: _fmt(v, "A = pi * ({diameter})^2 / 4"), ("circular cross-section",), ()),
+    CalculationSpec("pipe_velocity", "Pipe Mean Velocity", "fluid_flow", "v = Q / A", "m/s", pipe_velocity, lambda v: _fmt(v, "v = {flow_rate} / (pi * {diameter}^2 / 4)"), ("circular pipe", "mean velocity"), ()),
+    CalculationSpec("dynamic_pressure", "Dynamic Pressure", "fluid_pressure", "q = rho * v^2 / 2", "Pa", dynamic_pressure, lambda v: _fmt(v, "q = ({density})({velocity}^2)/2"), ("incompressible-flow form",), ("Compressibility may matter at high Mach number.",)),
+    CalculationSpec("pressure_head", "Pressure Head", "fluid_pressure", "h = P / (rho * g)", "m", pressure_head, lambda v: _fmt(v, "h = {pressure} / (({density})({gravity}))"), ("positive pressure and density",), ()),
+    CalculationSpec("pressure_from_head", "Pressure From Head", "fluid_pressure", "P = rho * g * h", "Pa", pressure_from_head, lambda v: _fmt(v, "P = ({density})({gravity})({head})"), ("constant density",), ()),
+    CalculationSpec("bernoulli_pressure_downstream", "Bernoulli Downstream Pressure", "fluid_flow", "P2 = P1 + rho*g(z1-z2-hL) + rho(v1^2-v2^2)/2", "Pa", bernoulli_pressure_downstream, lambda v: _fmt(v, "P2 = {pressure_upstream} + ({density})({gravity})({elevation_upstream}-{elevation_downstream}-{head_loss}) + ({density})({velocity_upstream}^2-{velocity_downstream}^2)/2"), ("steady incompressible flow", "consistent datum for elevations"), ("Does not account for pump/turbine work or compressibility beyond the supplied terms.",)),
+    CalculationSpec("ideal_gas_pressure", "Ideal Gas Pressure", "thermodynamics", "P = nRT / V", "Pa", ideal_gas_pressure, lambda v: _fmt(v, "P = ({amount})({gas_constant})({temperature})/{volume}"), ("ideal-gas behavior", "absolute temperature"), ("Real-gas deviations are not modeled.",)),
+    CalculationSpec("ideal_gas_density", "Ideal Gas Density", "thermodynamics", "rho = P*M / (R*T)", "kg/m^3", ideal_gas_density, lambda v: _fmt(v, "rho = ({pressure})({molar_mass})/(({gas_constant})({temperature}))"), ("ideal-gas behavior", "absolute temperature", "molar mass expressed in kg/mol"), ("Real-gas compressibility is not modeled.",)),
+    CalculationSpec("normal_stress", "Normal Stress", "solid_mechanics", "sigma = F / A", "Pa", normal_stress, lambda v: _fmt(v, "sigma = {force} / {area}"), ("uniform load over stated area",), ("Does not resolve local stress concentrations.",)),
+    CalculationSpec("normal_strain", "Normal Strain", "solid_mechanics", "epsilon = dL / L0", "dimensionless", normal_strain, lambda v: _fmt(v, "epsilon = {delta_length} / {original_length}"), ("engineering strain representation",), ()),
+    CalculationSpec("ohms_law_voltage", "Ohm's Law Voltage", "electrical", "V = I * R", "V", ohms_law_voltage, lambda v: _fmt(v, "V = ({current})({resistance})"), ("linear resistance model",), ("Not valid for nonlinear devices without adjustment.",)),
+    CalculationSpec("electrical_power", "Electrical Power", "electrical", "P = V * I", "W", electrical_power, lambda v: _fmt(v, "P = ({voltage})({current})"), ("DC or instantaneous real-power form",), ()),
+    CalculationSpec("mechanical_power", "Mechanical Power", "mechanical", "P = tau * omega", "W", mechanical_power, lambda v: _fmt(v, "P = ({torque})({angular_velocity})"), ("rotational mechanical power",), ()),
+    CalculationSpec("kinetic_energy", "Kinetic Energy", "mechanics", "E = m*v^2/2", "J", kinetic_energy, lambda v: _fmt(v, "E = ({mass})({velocity}^2)/2"), ("classical mechanics", "translational kinetic energy"), ("Relativistic effects are not modeled.",)),
+    CalculationSpec("gravitational_potential_energy", "Gravitational Potential Energy", "mechanics", "E = m*g*h", "J", gravitational_potential_energy, lambda v: _fmt(v, "E = ({mass})({gravity})({height})"), ("uniform gravitational acceleration", "height measured from the chosen datum"), ("Does not model variation of gravity with altitude.",)),
+    CalculationSpec("spring_force", "Linear Spring Force", "mechanics", "F = k*x", "N", spring_force, lambda v: _fmt(v, "F = ({stiffness})({displacement})"), ("linear elastic spring",), ("Nonlinear and hysteretic spring behavior is not modeled.",)),
+    CalculationSpec("spring_potential_energy", "Spring Potential Energy", "mechanics", "E = k*x^2/2", "J", spring_potential_energy, lambda v: _fmt(v, "E = ({stiffness})({displacement}^2)/2"), ("linear elastic spring",), ("Energy losses are not modeled.",)),
+    CalculationSpec("thermal_expansion", "Linear Thermal Expansion", "thermal", "ΔL = alpha*L0*ΔT", "m", thermal_expansion, lambda v: _fmt(v, "ΔL = ({coefficient})({initial_length})({delta_temperature})"), ("uniform isotropic linear expansion", "constant expansion coefficient"), ("Temperature-dependent material properties are not modeled.",)),
+    CalculationSpec("sensible_heat", "Sensible Heat", "thermal", "Q = m*c*ΔT", "J", sensible_heat, lambda v: _fmt(v, "Q = ({mass})({specific_heat})({delta_temperature})"), ("constant specific heat",), ("Phase changes and temperature-dependent specific heat are not modeled.",)),
+    CalculationSpec("conduction_heat_rate", "One-Dimensional Conduction Heat Rate", "heat_transfer", "Qdot = k*A*ΔT/L", "W", conduction_heat_rate, lambda v: _fmt(v, "Qdot = ({conductivity})({area})({delta_temperature})/{thickness}"), ("steady one-dimensional conduction", "constant thermal conductivity", "negligible contact resistance"), ("Multidimensional effects and convection/radiation are not included.",)),
+    CalculationSpec("fluid_mass_flow", "Fluid Mass Flow Rate", "fluid_flow", "mdot = rho*Q", "kg/s", fluid_mass_flow, lambda v: _fmt(v, "mdot = ({density})({volumetric_flow_rate})"), ("density represented by supplied value",), ("Compressibility and transient density changes are not modeled.",)),
+    CalculationSpec("buoyancy_force", "Buoyant Force", "fluid_statics", "Fb = rho*g*V", "N", buoyancy_force, lambda v: _fmt(v, "Fb = ({fluid_density})({gravity})({displaced_volume})"), ("uniform fluid density", "fully specified displaced volume"), ("Fluid free-surface and dynamic effects are not modeled.",)),
+    CalculationSpec("efficiency", "Efficiency", "energy", "eta = useful_output / total_input", "dimensionless", efficiency, lambda v: _fmt(v, "eta = {useful_output} / {total_input}"), ("non-negative input and output quantities", "useful output cannot exceed total input"), ("Loss mechanisms are not resolved individually.",)),
+    CalculationSpec("electrical_resistance_series", "Series Resistance", "electrical", "R = sum(R_i)", "ohm", electrical_resistance_series, lambda v: "R = " + " + ".join(f"{value:g}" for value in v["resistances"]), ("ideal series connection",), ("Parasitic effects are not modeled.",)),
+    CalculationSpec("electrical_resistance_parallel", "Parallel Resistance", "electrical", "1/R = sum(1/R_i)", "ohm", electrical_resistance_parallel, lambda v: "1/R = " + " + ".join(f"1/{value:g}" for value in v["resistances"]), ("ideal parallel connection",), ("Parasitic effects are not modeled.",)),
+    CalculationSpec("capacitor_energy", "Capacitor Stored Energy", "electrical", "E = C*V^2/2", "J", capacitor_energy, lambda v: _fmt(v, "E = ({capacitance})({voltage}^2)/2"), ("ideal capacitor",), ("Leakage and dielectric losses are not modeled.",)),
+    CalculationSpec("rc_time_constant", "RC Time Constant", "electrical", "tau = R*C", "s", rc_time_constant, lambda v: _fmt(v, "tau = ({resistance})({capacitance})"), ("first-order ideal RC model",), ("Parasitic inductance and non-ideal component behavior are not modeled.",)),
 )
 
 CALCULATION_REGISTRY = {spec.key: spec for spec in SPECS}
