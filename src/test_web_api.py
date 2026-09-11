@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 import db
-from web_api import create_app
+from web_api import WebApplication, create_app
 from workspace_application import WorkspaceApplication
 
 
@@ -22,8 +22,8 @@ class TestWebApplication(unittest.TestCase):
         db.DATABASE_PATH = self.original_db
         self.temp.cleanup()
 
-    def request(self, method, path, payload=None):
-        body = json.dumps(payload).encode() if payload is not None else b""
+    def request(self, method, path, payload=None, raw_body=None):
+        body = raw_body if raw_body is not None else json.dumps(payload).encode() if payload is not None else b""
         status, headers, raw = self.app.request(method, path, body)
         return status, dict(headers), json.loads(raw)
 
@@ -42,7 +42,7 @@ class TestWebApplication(unittest.TestCase):
         status, _, manifest = self.request("GET", "/api/manifest")
         self.assertEqual(status, 200)
         self.assertEqual(manifest["api_version"], 1)
-        self.assertEqual(manifest["workspace"]["kinds"], ["folder", "note", "file"])
+        self.assertEqual(manifest["workspace"]["kinds"], ["file", "folder", "note"])
         self.assertIn("last_modified_new_old", manifest["workspace"]["sort_options"])
         self.assertIn("new_note", manifest["workspace"]["context_actions"]["folder"])
         self.assertIn("copy", manifest["workspace"]["context_actions"]["folder"])
@@ -124,9 +124,13 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/projects/not-an-id")[0], 400)
         self.assertEqual(self.request("GET", "/api/calculations/catalog?category=missing")[0], 400)
         self.assertEqual(self.request("POST", "/api/calculations/run", {"model_key": "missing", "inputs": {}})[0], 400)
+        self.assertEqual(self.request("POST", "/api/projects/1/duplicate", {"kind": "unsupported", "id": 1})[0], 400)
+        self.assertEqual(self.request("POST", "/api/projects/1/delete", {"selection": [{"kind": "unsupported", "id": 1}]})[0], 400)
+        self.assertEqual(self.request("POST", "/api/calculations/run", raw_body=b"[]")[0], 400)
+        self.assertEqual(self.request("POST", "/api/calculations/run", raw_body=b"x" * (WebApplication.MAX_REQUEST_BODY_BYTES + 1))[0], 400)
         self.assertEqual(self.request("GET", "/not-found")[0], 404)
 
-    def test_wsgi_adapter_returns_json(self):
+    def test_wsgi_adapter_returns_json_and_rejects_oversized_content_length(self):
         captured = {}
         def start_response(status, headers): captured["status"], captured["headers"] = status, dict(headers)
         environ = {"REQUEST_METHOD": "GET", "PATH_INFO": "/api/health", "QUERY_STRING": "", "CONTENT_LENGTH": "0", "wsgi.input": io.BytesIO(b"")}
@@ -134,6 +138,10 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(captured["status"], "200 OK")
         self.assertEqual(json.loads(body), {"status": "ok"})
         self.assertIn("application/json", captured["headers"]["Content-Type"])
+        environ["CONTENT_LENGTH"] = str(WebApplication.MAX_REQUEST_BODY_BYTES + 1)
+        body = b"".join(self.app(environ, start_response))
+        self.assertEqual(captured["status"], "413 Error")
+        self.assertEqual(json.loads(body), {"error": "Request body too large."})
 
 
 if __name__ == "__main__":
