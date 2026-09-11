@@ -385,6 +385,50 @@ class TestMain(unittest.TestCase):
         )
 
 
+    def test_requirements_menu_evaluation_handles_missing_requirement(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["4", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=None,
+        ), patch(
+            "main.evaluate_requirement_evidence"
+        ) as mock_evaluate, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_evaluate.assert_not_called()
+        mock_print.assert_any_call(
+            "No requirement with that id."
+        )
+
+
+    def test_requirements_menu_history_handles_missing_requirement(self):
+        import main
+
+        with patch(
+            "builtins.input",
+            side_effect=["5", "42", "6"],
+        ), patch(
+            "main.get_requirement",
+            return_value=None,
+        ), patch(
+            "main.get_evidence_history_for_requirement"
+        ) as mock_history, patch(
+            "builtins.print"
+        ) as mock_print:
+            main.requirements_menu()
+
+        mock_history.assert_not_called()
+        mock_print.assert_any_call(
+            "No requirement with that id."
+        )
+
+
 class TestCalculationCLI(unittest.TestCase):
 
     def test_main_module_has_calculation_workflow(self):
