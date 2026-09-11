@@ -18,24 +18,25 @@ class TestEngineeringOrganizationPersistence(unittest.TestCase):
 
     def test_schema_creates_wells_and_design_cases(self):
         connection = db.get_connection()
-        tables = {
-            row[0]
-            for row in connection.execute(
-                """
-                SELECT name FROM sqlite_master
-                WHERE type = 'table'
-                  AND name IN ('wells', 'design_cases')
-                """
-            ).fetchall()
-        }
-        version = connection.execute(
-            "SELECT version FROM schema_version"
-        ).fetchone()[0]
-        connection.close()
+        try:
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    """
+                    SELECT name FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name IN ('wells', 'design_cases')
+                    """
+                ).fetchall()
+            }
+            version = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()[0]
+        finally:
+            connection.close()
 
         self.assertEqual(tables, {"wells", "design_cases"})
         self.assertEqual(version, db.SCHEMA_VERSION)
-        self.assertEqual(version, 6)
 
     def test_create_and_get_well(self):
         project_id = db.create_project("Well Study")
@@ -172,49 +173,48 @@ class TestEngineeringOrganizationPersistence(unittest.TestCase):
     def test_v5_database_migrates_without_losing_project_data(self):
         legacy_path = os.path.join(self.temp_dir.name, "legacy_v5.db")
         connection = sqlite3.connect(legacy_path)
-        connection.execute("PRAGMA foreign_keys = ON")
-
-        connection.execute("""
-            CREATE TABLE schema_version (version INTEGER NOT NULL)
-        """)
-        connection.execute(
-            "INSERT INTO schema_version (version) VALUES (5)"
-        )
-        connection.execute("""
-            CREATE TABLE projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+            connection.execute("INSERT INTO schema_version (version) VALUES (5)")
+            connection.execute("""
+                CREATE TABLE projects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            connection.execute(
+                "INSERT INTO projects (name, description) VALUES (?, ?)",
+                ("Legacy Project", "Preserve this project"),
             )
-        """)
-        connection.execute(
-            "INSERT INTO projects (name, description) VALUES (?, ?)",
-            ("Legacy Project", "Preserve this project"),
-        )
-        connection.commit()
-        connection.close()
+            connection.commit()
+        finally:
+            connection.close()
 
         db.DATABASE_PATH = legacy_path
         connection = db.get_connection()
-        version = connection.execute(
-            "SELECT version FROM schema_version"
-        ).fetchone()[0]
-        project = connection.execute(
-            "SELECT name, description FROM projects"
-        ).fetchone()
-        tables = {
-            row[0]
-            for row in connection.execute(
-                """
-                SELECT name FROM sqlite_master
-                WHERE type = 'table'
-                  AND name IN ('wells', 'design_cases')
-                """
-            ).fetchall()
-        }
-        connection.close()
+        try:
+            version = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()[0]
+            project = connection.execute(
+                "SELECT name, description FROM projects"
+            ).fetchone()
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    """
+                    SELECT name FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name IN ('wells', 'design_cases')
+                    """
+                ).fetchall()
+            }
+        finally:
+            connection.close()
 
-        self.assertEqual(version, 6)
+        self.assertEqual(version, db.SCHEMA_VERSION)
         self.assertEqual(project, ("Legacy Project", "Preserve this project"))
         self.assertEqual(tables, {"wells", "design_cases"})
