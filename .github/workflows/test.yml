@@ -22,4 +22,4 @@ jobs:
         with:
           node-version: '24'
       - name: Validate web client syntax
-        run: node --check web/app.js
+        run: node --check web/app.js && node --check web/keyboard.js
