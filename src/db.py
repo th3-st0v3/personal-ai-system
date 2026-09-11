@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 DATABASE_PATH = str(Path(__file__).resolve().parent.parent / "notes.db")
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def get_connection():
@@ -88,22 +88,12 @@ def initialize_database(connection):
                 CHECK (supports_status IN ('Verified', 'Failed', 'Unverified', 'At risk')),
             lifecycle_status TEXT NOT NULL DEFAULT 'Active'
                 CHECK (lifecycle_status IN ('Active', 'Invalidated')),
+            calculation_record_id INTEGER,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (requirement_id) REFERENCES requirements(id)
+            FOREIGN KEY (requirement_id) REFERENCES requirements(id),
+            FOREIGN KEY (calculation_record_id) REFERENCES calculation_records(id)
         )
     """)
-
-    evidence_columns = {
-        row[1]
-        for row in connection.execute("PRAGMA table_info(evidence)")
-    }
-
-    if "lifecycle_status" not in evidence_columns:
-        connection.execute("""
-            ALTER TABLE evidence
-            ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'Active'
-            CHECK (lifecycle_status IN ('Active', 'Invalidated'))
-        """)
 
     connection.execute("""
         CREATE TABLE IF NOT EXISTS calculation_records (
@@ -119,6 +109,25 @@ def initialize_database(connection):
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
+
+    evidence_columns = {
+        row[1]
+        for row in connection.execute("PRAGMA table_info(evidence)")
+    }
+
+    if "lifecycle_status" not in evidence_columns:
+        connection.execute("""
+            ALTER TABLE evidence
+            ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'Active'
+            CHECK (lifecycle_status IN ('Active', 'Invalidated'))
+        """)
+
+    if "calculation_record_id" not in evidence_columns:
+        connection.execute("""
+            ALTER TABLE evidence
+            ADD COLUMN calculation_record_id INTEGER
+            REFERENCES calculation_records(id)
+        """)
 
     if version is None:
         version = SCHEMA_VERSION
@@ -322,6 +331,7 @@ def add_evidence(
     result,
     supports_status,
     location=None,
+    calculation_record_id=None,
 ):
     valid_statuses = {
         "Verified",
@@ -344,9 +354,10 @@ def add_evidence(
             source,
             location,
             result,
-            supports_status
+            supports_status,
+            calculation_record_id
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             requirement_id,
@@ -354,6 +365,7 @@ def add_evidence(
             location,
             result,
             supports_status,
+            calculation_record_id,
         ),
     )
 
@@ -362,6 +374,58 @@ def add_evidence(
     connection.close()
 
     return evidence_id
+
+
+def link_evidence_to_calculation(evidence_id, calculation_id):
+    connection = get_connection()
+
+    calculation = connection.execute(
+        "SELECT id FROM calculation_records WHERE id = ?",
+        (calculation_id,),
+    ).fetchone()
+
+    if calculation is None:
+        connection.close()
+        raise ValueError(
+            f"No calculation record found with ID {calculation_id}."
+        )
+
+    cursor = connection.execute(
+        """
+        UPDATE evidence
+        SET calculation_record_id = ?
+        WHERE id = ?
+        """,
+        (calculation_id, evidence_id),
+    )
+
+    if cursor.rowcount == 0:
+        connection.rollback()
+        connection.close()
+        raise ValueError(f"No evidence found with ID {evidence_id}.")
+
+    connection.commit()
+    connection.close()
+
+
+def get_calculation_record_id_for_evidence(evidence_id):
+    connection = get_connection()
+
+    row = connection.execute(
+        """
+        SELECT calculation_record_id
+        FROM evidence
+        WHERE id = ?
+        """,
+        (evidence_id,),
+    ).fetchone()
+
+    connection.close()
+
+    if row is None:
+        raise ValueError(f"No evidence found with ID {evidence_id}.")
+
+    return row[0]
 
 
 def invalidate_evidence(evidence_id):
@@ -404,7 +468,8 @@ def find_matching_evidence(
             location,
             result,
             supports_status,
-            created_at
+            created_at,
+            calculation_record_id
         FROM evidence
         WHERE requirement_id = ?
           AND source = ?
@@ -439,7 +504,8 @@ def get_evidence_for_requirement(requirement_id):
             location,
             result,
             supports_status,
-            created_at
+            created_at,
+            calculation_record_id
         FROM evidence
         WHERE requirement_id = ?
           AND lifecycle_status = 'Active'
@@ -465,7 +531,8 @@ def get_evidence_history_for_requirement(requirement_id):
             result,
             supports_status,
             lifecycle_status,
-            created_at
+            created_at,
+            calculation_record_id
         FROM evidence
         WHERE requirement_id = ?
         ORDER BY id
