@@ -31,15 +31,16 @@ class TestSiteApplication(unittest.TestCase):
         return captured, body
 
     def test_serves_interactive_client_assets(self):
-        for path, content_type in (("/", "text/html"), ("/app.js", "text/javascript"), ("/keyboard.js", "text/javascript"), ("/workspace-root.js", "text/javascript"), ("/workspace-interactions.js", "text/javascript"), ("/engineering.js", "text/javascript"), ("/styles.css", "text/css")):
+        for path, content_type in (("/", "text/html"), ("/app.js", "text/javascript"), ("/interaction-fixes.js", "text/javascript"), ("/styles.css", "text/css")):
             response, body = self.call(path)
             self.assertEqual(response["status"], "200 OK")
             self.assertIn(content_type, response["headers"]["Content-Type"])
             self.assertGreater(len(body), 100)
         _, index = self.call("/")
         text = index.decode()
-        for asset in ("/keyboard.js", "/workspace-root.js", "/workspace-interactions.js", "/engineering.js"):
-            self.assertIn(asset, text)
+        self.assertIn("/app.js", text)
+        self.assertIn("/interaction-fixes.js", text)
+        self.assertNotIn("/new-root-note", text)
 
     def test_delegates_api_routes(self):
         response, body = self.call("/api/health")
