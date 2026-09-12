@@ -27,4 +27,4 @@ jobs:
         with:
           node-version: '24'
       - name: Validate web client syntax
-        run: node --check web/app.js && node --check web/keyboard.js && node --check web/workspace-root.js && node --check web/workspace-interactions.js && node --check web/engineering.js
+        run: node --check web/app.js && node --check web/interaction-fixes.js
