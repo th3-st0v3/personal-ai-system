@@ -32,7 +32,7 @@ class TestEngineeringWebApplication(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Source not found"):
             self.app._require_source(other_project, source_id)
         requirement_id = db.create_requirement(self.project_id, "Requirement")
-        evidence_id = self.app.engineering.create_evidence(requirement_id, "Confirmed", "Verified", description="Evidence")
+        evidence_id = self.app.engineering.create_evidence(requirement_id, "Confirmed", "Verified", source="Private", description="Evidence")
         with self.assertRaisesRegex(ValueError, "Evidence not found"):
             self.app._require_evidence(other_project, evidence_id)
         self.app._require_evidence(self.project_id, evidence_id)
@@ -47,7 +47,7 @@ class TestEngineeringWebApplication(unittest.TestCase):
         status, source = self.request("POST", f"/api/engineering/projects/{self.project_id}/sources", {"title": "Pump Datasheet", "source_type": "datasheet"})
         self.assertEqual(status, 201)
         source_id = source["id"]
-        status, evidence = self.request("POST", f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}/evidence", {"result": "Rated flow confirmed", "supports_status": "Verified", "source_id": source_id, "classification": "direct", "description": "Manufacturer specification"})
+        status, evidence = self.request("POST", f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}/evidence", {"result": "Rated flow confirmed", "supports_status": "Verified", "source": "Pump Datasheet", "source_id": source_id, "classification": "direct", "description": "Manufacturer specification"})
         self.assertEqual(status, 201)
         evidence_id = evidence["id"]
         status, history = self.request("GET", f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}/evidence")
@@ -73,7 +73,7 @@ class TestEngineeringWebApplication(unittest.TestCase):
         status, other_requirement = self.request("POST", f"/api/engineering/projects/{other_project}/requirements", {"description": "Other"})
         self.assertEqual(status, 201)
         other_requirement_id = other_requirement["id"]
-        self.assertEqual(self.request("POST", f"/api/engineering/projects/{other_project}/requirements/{other_requirement_id}/evidence", {"result": "leak", "supports_status": "Verified", "source_id": source_id, "description": "cross-project attempt"})[0], 400)
+        self.assertEqual(self.request("POST", f"/api/engineering/projects/{other_project}/requirements/{other_requirement_id}/evidence", {"result": "leak", "supports_status": "Verified", "source": "Private", "source_id": source_id, "description": "cross-project attempt"})[0], 400)
 
     def test_invalid_routes_and_bodies_are_client_errors(self):
         self.assertEqual(self.request("GET", "/api/engineering/projects/not-an-id/requirements")[0], 400)
