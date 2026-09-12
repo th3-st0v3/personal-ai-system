@@ -20,31 +20,28 @@
 
   const originalShowProjectFiles = window.showProjectFiles;
   window.showProjectFiles = async function showProjectFilesFixed() {
-    await originalShowProjectFiles();
-    if (state.sort === "none" && state.items.length) {
-      const ordered = applyLocalOrder(state.items);
-      state.items = ordered;
+    const desiredSort = state.sort;
+    if (desiredSort === "none") state.sort = "a_z";
+    try { await originalShowProjectFiles(); } finally { state.sort = desiredSort; }
+    if (desiredSort === "none" && state.items.length) {
+      state.items = applyLocalOrder(state.items);
       const list = $("file-list");
-      if (list) ordered.forEach(item => {
-        const row = list.querySelector(`.file-row[data-kind="${CSS.escape(item.kind)}"][data-id="${item.id}"]`);
-        if (row) list.appendChild(row);
-      });
+      if (list) state.items.forEach(item => list.querySelector(`.file-row[data-kind="${CSS.escape(item.kind)}"][data-id="${item.id}"]`) && list.appendChild(list.querySelector(`.file-row[data-kind="${CSS.escape(item.kind)}"][data-id="${item.id}"]`)));
     }
     const count = $("selection-count");
-    if (count && state.selected.size) {
-      const actions = document.createElement("div");
-      actions.className = "bulk-actions";
-      actions.innerHTML = `<button class="quiet-button" data-bulk="archive">Archive</button><button class="quiet-button" data-bulk="invalidate">Invalidate</button><button class="quiet-button" data-bulk="copy">Copy</button><button class="quiet-button" data-bulk="delete">Delete</button>`;
+    if (count && state.selected.size && !count.parentElement.querySelector(".bulk-actions")) {
+      const actions = document.createElement("div"); actions.className = "bulk-actions";
+      actions.innerHTML = `<button class="quiet-button" data-bulk="archive">Archive</button><button class="quiet-button" data-bulk="invalidate">Invalidate</button><button class="quiet-button" data-bulk="copy">Copy</button><button class="quiet-button" data-bulk="paste">Paste</button><button class="quiet-button" data-bulk="delete">Delete</button>`;
       count.insertAdjacentElement("afterend", actions);
       actions.querySelectorAll("[data-bulk]").forEach(button => button.addEventListener("click", async () => {
         const action = button.dataset.bulk;
         const selection = [...state.selected].map(value => { const [kind, id] = value.split(":"); return { kind, id: Number(id) }; });
         try {
           if (action === "copy") { state.clipboard = selection; return; }
-          if (action === "delete") await send(`/api/projects/${state.projectId}/delete`, { selection });
+          if (action === "paste") { await send(`/api/projects/${state.projectId}/paste`, { selection: state.clipboard, target_folder_id: state.folderId }); }
+          else if (action === "delete") await send(`/api/projects/${state.projectId}/delete`, { selection });
           else await Promise.all(selection.map(item => send(`/api/projects/${state.projectId}/lifecycle`, { ...item, status: action === "archive" ? "Archived" : "Invalidated" })));
-          state.selected.clear();
-          await showProjectFiles();
+          state.selected.clear(); await showProjectFiles();
         } catch (error) { alert(error.message); }
       }));
     }
@@ -54,16 +51,24 @@
   window.editNote = function editNoteFixed(note) {
     const metadata = note.metadata || {};
     modal("Edit note", `<div class="note-editor"><input id="note-title" value="${attr(note.name)}"><textarea id="note-description" placeholder="Description">${esc(metadata.description || "")}</textarea><textarea id="note-content">${esc(note.content || "")}</textarea><div class="form-actions"><button class="outline-button" id="delete-note">Delete</button><button class="primary-button" id="save-note">Save</button></div></div>`);
-    $("save-note").onclick = async () => {
-      await patch(`/api/projects/${state.projectId}/notes`, { id: note.id, title: $("note-title").value, content: $("note-content").value, metadata: { ...metadata, description: $("note-description").value } });
-      closeModal();
-      showProjectFiles();
-    };
-    $("delete-note").onclick = async () => {
-      if (!confirm("Delete this note?")) return;
-      await del(`/api/projects/${state.projectId}/notes`, { id: note.id });
-      closeModal();
-      showProjectFiles();
-    };
+    $("save-note").onclick = async () => { try { await patch(`/api/projects/${state.projectId}/notes`, { id: note.id, title: $("note-title").value, content: $("note-content").value, metadata: { ...metadata, description: $("note-description").value } }); closeModal(); await showProjectFiles(); } catch (error) { alert(error.message); } };
+    $("delete-note").onclick = async () => { if (!confirm("Delete this note?")) return; try { await del(`/api/projects/${state.projectId}/notes`, { id: note.id }); closeModal(); await showProjectFiles(); } catch (error) { alert(error.message); } };
   };
+
+  window.sendChat = async function sendChatFixed() {
+    const input=$("chat-input"),content=input.value.trim(),mode=$("ai-mode").value;if(!content)return;
+    if(!state.chatId){const r=await send("/api/chats",{project_id:state.projectId});state.chatId=r.id;}
+    input.value="";$("send-chat").disabled=true;
+    try { const result=await send(`/api/chats/${state.chatId}/messages`,{content,mode});chatMessages(result.messages);$("chat-title").textContent=result.title;await loadChats(); }
+    catch(e){$("chat-messages").insertAdjacentHTML("beforeend",`<div class="error">${esc(e.message)}</div>`)}
+    finally{$("send-chat").disabled=false}
+  };
+
+  document.addEventListener("keydown", async event => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const active=document.activeElement;
+    if (active?.matches("input,textarea,[contenteditable=true]")) return;
+    if (event.key.toLowerCase()==="c" && state.selected.size) { event.preventDefault(); state.clipboard=[...state.selected].map(value=>{const [kind,id]=value.split(":");return {kind,id:Number(id)}}); }
+    if (event.key.toLowerCase()==="v" && state.projectId && state.clipboard.length) { event.preventDefault(); try { await send(`/api/projects/${state.projectId}/paste`,{selection:state.clipboard,target_folder_id:state.folderId}); await showProjectFiles(); } catch(error){ alert(error.message); } }
+  });
 })();
