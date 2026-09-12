@@ -26,7 +26,10 @@
     if (desiredSort === "none" && state.items.length) {
       state.items = applyLocalOrder(state.items);
       const list = $("file-list");
-      if (list) state.items.forEach(item => list.querySelector(`.file-row[data-kind="${CSS.escape(item.kind)}"][data-id="${item.id}"]`) && list.appendChild(list.querySelector(`.file-row[data-kind="${CSS.escape(item.kind)}"][data-id="${item.id}"]`)));
+      if (list) state.items.forEach(item => {
+        const row = [...list.children].find(child => child.dataset?.kind === item.kind && Number(child.dataset.id) === Number(item.id));
+        if (row) list.appendChild(row);
+      });
     }
     const count = $("selection-count");
     if (count && state.selected.size && !count.parentElement.querySelector(".bulk-actions")) {
@@ -38,7 +41,7 @@
         const selection = [...state.selected].map(value => { const [kind, id] = value.split(":"); return { kind, id: Number(id) }; });
         try {
           if (action === "copy") { state.clipboard = selection; return; }
-          if (action === "paste") { await send(`/api/projects/${state.projectId}/paste`, { selection: state.clipboard, target_folder_id: state.folderId }); }
+          if (action === "paste") { if (!state.clipboard.length) return alert("Nothing is copied."); await send(`/api/projects/${state.projectId}/paste`, { selection: state.clipboard, target_folder_id: state.folderId }); }
           else if (action === "delete") await send(`/api/projects/${state.projectId}/delete`, { selection });
           else await Promise.all(selection.map(item => send(`/api/projects/${state.projectId}/lifecycle`, { ...item, status: action === "archive" ? "Archived" : "Invalidated" })));
           state.selected.clear(); await showProjectFiles();
@@ -50,9 +53,17 @@
   const originalEditNote = window.editNote;
   window.editNote = function editNoteFixed(note) {
     const metadata = note.metadata || {};
-    modal("Edit note", `<div class="note-editor"><input id="note-title" value="${attr(note.name)}"><textarea id="note-description" placeholder="Description">${esc(metadata.description || "")}</textarea><textarea id="note-content">${esc(note.content || "")}</textarea><div class="form-actions"><button class="outline-button" id="delete-note">Delete</button><button class="primary-button" id="save-note">Save</button></div></div>`);
+    modal("Edit note", `<div class="note-editor"><input id="note-title" value="${attr(note.name)}"><textarea id="note-description" placeholder="Description">${esc(metadata.description || "")}</textarea><textarea id="note-content" placeholder="Content">${esc(note.content || "")}</textarea><div class="form-actions"><button class="outline-button" id="delete-note">Delete</button><button class="primary-button" id="save-note">Save</button></div></div>`);
     $("save-note").onclick = async () => { try { await patch(`/api/projects/${state.projectId}/notes`, { id: note.id, title: $("note-title").value, content: $("note-content").value, metadata: { ...metadata, description: $("note-description").value } }); closeModal(); await showProjectFiles(); } catch (error) { alert(error.message); } };
     $("delete-note").onclick = async () => { if (!confirm("Delete this note?")) return; try { await del(`/api/projects/${state.projectId}/notes`, { id: note.id }); closeModal(); await showProjectFiles(); } catch (error) { alert(error.message); } };
+  };
+
+  window.renderProjectTools = function renderProjectToolsFixed() {
+    if (!state.project) return;
+    $("project-files-panel").hidden = true;
+    $("project-files-panel").innerHTML = `<div class="properties"><div class="property"><span>Project</span><strong>${esc(state.project.name)}</strong></div><div class="property"><span>Description</span><strong>${esc(state.project.description || "") || "No description"}</strong></div><div class="form-actions"><button id="edit-project" class="outline-button">Edit project</button><button id="delete-project" class="outline-button">Delete project</button></div></div>`;
+    $("edit-project").onclick = editProject;
+    $("delete-project").onclick = async () => { if (!confirm("Delete this project and its project data?")) return; try { await del(`/api/projects/${state.projectId}`); state.projectId=null; state.project=null; state.chatId=null; state.folderId=null; $("project-tools").hidden=true; setView("chat"); await loadProjects(); await loadChats(); await loadChat(); } catch(error) { alert(error.message); } };
   };
 
   window.sendChat = async function sendChatFixed() {
@@ -63,6 +74,17 @@
     catch(e){$("chat-messages").insertAdjacentHTML("beforeend",`<div class="error">${esc(e.message)}</div>`)}
     finally{$("send-chat").disabled=false}
   };
+
+  document.addEventListener("click", event => {
+    const button=event.target.closest(".file-open");
+    if(!button) return;
+    event.stopImmediatePropagation();
+    const row=button.closest(".file-row");
+    if(!row) return;
+    const itemToken=token(row.dataset.kind,row.dataset.id);
+    if(event.ctrlKey||event.metaKey){state.selected.has(itemToken)?state.selected.delete(itemToken):state.selected.add(itemToken)}else{state.selected.clear();state.selected.add(itemToken)}
+    updateSelectionCount();
+  }, true);
 
   document.addEventListener("keydown", async event => {
     if (!(event.ctrlKey || event.metaKey)) return;
