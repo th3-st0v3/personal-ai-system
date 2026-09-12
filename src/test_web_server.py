@@ -24,36 +24,45 @@ class TestSiteApplication(unittest.TestCase):
         db.DATABASE_PATH = self.original_db
         self.temp.cleanup()
 
-    def call(self, path):
+    def call(self, path, method="GET", payload=None):
         captured = {}
+        body = json.dumps(payload).encode() if payload is not None else b""
         def start_response(status, headers): captured["status"], captured["headers"] = status, dict(headers)
-        body = b"".join(self.site({"REQUEST_METHOD": "GET", "PATH_INFO": path, "QUERY_STRING": "", "CONTENT_LENGTH": "0", "wsgi.input": io.BytesIO(b"")}, start_response))
-        return captured, body
+        environ={"REQUEST_METHOD":method,"PATH_INFO":path,"QUERY_STRING":"","CONTENT_LENGTH":str(len(body)),"wsgi.input":io.BytesIO(body)}
+        raw=b"".join(self.site(environ,start_response))
+        return captured, raw, json.loads(raw) if raw else None
 
     def test_serves_interactive_client_assets(self):
         for path, content_type in (("/", "text/html"), ("/app.js", "text/javascript"), ("/interaction-fixes.js", "text/javascript"), ("/styles.css", "text/css")):
-            response, body = self.call(path)
+            response, body, _ = self.call(path)
             self.assertEqual(response["status"], "200 OK")
             self.assertIn(content_type, response["headers"]["Content-Type"])
             self.assertGreater(len(body), 100)
-        _, index = self.call("/")
+        _, index, _ = self.call("/")
         text = index.decode()
         self.assertIn("/app.js", text)
         self.assertIn("/interaction-fixes.js", text)
         self.assertNotIn("/new-root-note", text)
 
     def test_delegates_api_routes(self):
-        response, body = self.call("/api/health")
+        response, _, payload = self.call("/api/health")
         self.assertEqual(response["status"], "200 OK")
-        self.assertEqual(json.loads(body), {"status": "ok"})
+        self.assertEqual(payload, {"status": "ok"})
 
     def test_delegates_engineering_routes(self):
-        response, body = self.call(f"/api/engineering/projects/{self.project_id}/requirements")
+        response, _, payload = self.call(f"/api/engineering/projects/{self.project_id}/requirements")
         self.assertEqual(response["status"], "200 OK")
-        self.assertEqual(json.loads(body), [])
+        self.assertEqual(payload, [])
+
+    def test_delegates_integration_routes(self):
+        response, _, payload = self.call("/api/digest", "POST", {"text": "Pressure is 10 MPa. The value may vary."})
+        self.assertEqual(response["status"], "200 OK")
+        self.assertEqual(payload["statistics"]["sentences"], 2)
+        response, _, payload = self.call("/api/connections")
+        self.assertEqual((response["status"], payload), ("200 OK", []))
 
     def test_rejects_path_traversal(self):
-        response, _ = self.call("/../README.md")
+        response, _, _ = self.call("/../README.md")
         self.assertEqual(response["status"], "404 Error")
 
 
