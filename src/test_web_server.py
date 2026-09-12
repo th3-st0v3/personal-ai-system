@@ -21,8 +21,7 @@ class TestSiteApplication(unittest.TestCase):
         def start_response(status,headers): captured["status"],captured["headers"]=status,dict(headers)
         environ={"REQUEST_METHOD":method,"PATH_INFO":path,"QUERY_STRING":"","CONTENT_LENGTH":str(len(body)),"wsgi.input":io.BytesIO(body)}
         raw=b"".join(self.site(environ,start_response)); parsed=None
-        if raw and "application/json" in captured.get("headers",{}).get("Content-Type",""):
-            parsed=json.loads(raw)
+        if raw and "application/json" in captured.get("headers",{}).get("Content-Type",""): parsed=json.loads(raw)
         return captured,raw,parsed
     def test_serves_interactive_client_assets(self):
         for path,content_type in (("/","text/html"),("/app.js","text/javascript"),("/interaction-fixes.js","text/javascript"),("/beta-features.js","text/javascript"),("/styles.css","text/css")):
@@ -35,6 +34,14 @@ class TestSiteApplication(unittest.TestCase):
     def test_delegates_integration_routes(self):
         response,_,payload=self.call("/api/digest","POST",{"text":"Pressure is 10 MPa. The value may vary."}); self.assertEqual(response["status"],"200 OK"); self.assertEqual(payload["statistics"]["sentences"],2)
         response,_,payload=self.call("/api/connections"); self.assertEqual((response["status"],payload),("200 OK",[]))
+    def test_delegates_major_calculation_navigation(self):
+        response,_,payload=self.call("/api/calculations/majors")
+        self.assertEqual(response["status"],"200 OK")
+        petroleum=next(item for item in payload if item["name"]=="Petroleum Engineering")
+        self.assertTrue(petroleum["calculations"])
+        response,_,detail=self.call("/api/calculations/majors/Petroleum%20Engineering")
+        self.assertEqual(response["status"],"200 OK")
+        self.assertEqual(detail["name"],"Petroleum Engineering")
     def test_rejects_path_traversal(self):
         response,_,_=self.call("/../README.md"); self.assertEqual(response["status"],"404 Error")
 
