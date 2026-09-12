@@ -7,6 +7,7 @@ import sqlite3
 import urllib.request
 
 import db
+import engineering_modeler
 import simulation_library
 from calculation_application import CalculationApplication
 
@@ -98,36 +99,43 @@ def _openrouter(messages: list[dict[str, object]], project_id: int | None, model
     for _ in range(_MAX_TOOL_ROUNDS):
         payload = json.dumps({"model": model or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"),"messages":request_messages,"tools":_tools(),"tool_choice":"auto"}).encode("utf-8")
         request = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions",data=payload,headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json","HTTP-Referer":"http://localhost"},method="POST")
-        with urllib.request.urlopen(request, timeout=45) as response:
-            data=json.loads(response.read().decode("utf-8"))
-        message=data["choices"][0]["message"]
-        tool_calls=message.get("tool_calls") or []
-        if not tool_calls:
-            return message.get("content") or ""
+        with urllib.request.urlopen(request, timeout=45) as response: data=json.loads(response.read().decode("utf-8"))
+        message=data["choices"][0]["message"]; tool_calls=message.get("tool_calls") or []
+        if not tool_calls: return message.get("content") or ""
         request_messages.append(message)
         for call in tool_calls:
-            function=call["function"]
-            arguments=json.loads(function.get("arguments") or "{}")
-            try:
-                result=_tool_result(db.get_connection(),function["name"],arguments,project_id)
-            except Exception as exc:
-                result={"error":str(exc)}
+            function=call["function"]; arguments=json.loads(function.get("arguments") or "{}")
+            tool_connection=db.get_connection()
+            try: result=_tool_result(tool_connection,function["name"],arguments,project_id)
+            except Exception as exc: result={"error":str(exc)}
+            finally: tool_connection.close()
             request_messages.append({"role":"tool","tool_call_id":call["id"],"content":json.dumps(result,ensure_ascii=False)})
     return "The model reached the tool-call limit before producing a final answer."
 
 
+def _local_answer(content: str) -> str:
+    tokens = content.casefold().split()
+    if any(word in tokens for word in ("model", "simulate", "simulation", "calculate", "calculator")):
+        plan=engineering_modeler.build_model_plan(content)
+        lines=[f"Discipline: {plan['discipline']}",f"Objective: {plan['objective']}","Suggested calculations:"]
+        lines += [f"- {item['name']} ({item['key']}): {item['equation']}" for item in plan["calculations"]] or ["- None matched yet."]
+        if plan["simulations"]: lines += ["Suggested simulations:"]+[f"- {item['name']} ({item['key']})" for item in plan["simulations"]]
+        lines += ["Assumptions:"]+[f"- {item}" for item in plan["assumptions"]]
+        if plan["open_questions"]: lines += ["Open questions:"]+[f"- {item}" for item in plan["open_questions"]]
+        lines.append(plan["next_step"])
+        return "\n".join(lines)
+    return "I’m in local mode. Connect an OpenRouter API key to enable a frontier-model response with calculation and simulation tools; deterministic engineering planning, calculations, simulations, and project data remain available without it."
+
+
 def respond(connection: sqlite3.Connection, chat_id: int, content: str, *, model: str | None = None, mode: str = "auto") -> dict[str, object]:
-    chat = get_chat(connection, chat_id)
-    add_message(connection, chat_id, "user", content)
-    messages = [{"role": message["role"], "content": message["content"]} for message in get_chat(connection, chat_id)["messages"]]
-    answer = None if mode == "local" else _openrouter(messages, chat["project_id"], model=model)
-    if answer is None:
-        answer = "I’m in local mode. Connect an OpenRouter API key to enable a frontier-model response with calculation and simulation tools; project data and deterministic engineering tools remain available without it."
-    add_message(connection, chat_id, "assistant", answer)
-    if chat["title"] == "New chat":
-        title = " ".join(content.strip().split())[:64] or "New chat"
-        connection.execute("UPDATE chats SET title=?, updated_at=datetime('now') WHERE id=?", (title, chat_id)); connection.commit()
-    return get_chat(connection, chat_id)
+    chat=get_chat(connection,chat_id); add_message(connection,chat_id,"user",content)
+    messages=[{"role":message["role"],"content":message["content"]} for message in get_chat(connection,chat_id)["messages"]]
+    answer=None if mode=="local" else _openrouter(messages,chat["project_id"],model=model)
+    if answer is None: answer=_local_answer(content)
+    add_message(connection,chat_id,"assistant",answer)
+    if chat["title"]=="New chat":
+        title=" ".join(content.strip().split())[:64] or "New chat"; connection.execute("UPDATE chats SET title=?, updated_at=datetime('now') WHERE id=?",(title,chat_id)); connection.commit()
+    return get_chat(connection,chat_id)
 
 
 __all__=["initialize","create_chat","list_chats","get_chat","add_message","respond"]
