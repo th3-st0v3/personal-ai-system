@@ -1,4 +1,4 @@
-"""Persistent project-aware chat storage with an optional OpenRouter bridge."""
+"""Persistent project-aware chat storage with optional tool-aware OpenRouter responses."""
 from __future__ import annotations
 
 import json
@@ -6,6 +6,11 @@ import os
 import sqlite3
 import urllib.request
 
+import db
+import simulation_library
+from calculation_application import CalculationApplication
+
+_MAX_TOOL_ROUNDS = 4
 
 
 def initialize(connection: sqlite3.Connection) -> None:
@@ -41,10 +46,7 @@ def create_chat(connection: sqlite3.Connection, project_id: int | None = None, t
 
 
 def list_chats(connection: sqlite3.Connection, project_id: int | None = None) -> list[dict[str, object]]:
-    rows = connection.execute(
-        "SELECT id, project_id, title, created_at, updated_at FROM chats WHERE project_id IS ? ORDER BY updated_at DESC, id DESC",
-        (project_id,),
-    ).fetchall()
+    rows = connection.execute("SELECT id, project_id, title, created_at, updated_at FROM chats WHERE project_id IS ? ORDER BY updated_at DESC, id DESC", (project_id,)).fetchall()
     return [{"id": r[0], "project_id": r[1], "title": r[2], "created_at": r[3], "updated_at": r[4]} for r in rows]
 
 
@@ -67,38 +69,65 @@ def add_message(connection: sqlite3.Connection, chat_id: int, role: str, content
     return int(cursor.lastrowid)
 
 
-def _openrouter(messages: list[dict[str, str]], model: str | None = None) -> str | None:
+def _tools() -> list[dict[str, object]]:
+    return [
+        {"type":"function","function":{"name":"run_calculation","description":"Run one deterministic engineering calculator and return its transparent trace.","parameters":{"type":"object","properties":{"model_key":{"type":"string"},"inputs":{"type":"object","additionalProperties":{"type":"number"}}},"required":["model_key","inputs"]}}},
+        {"type":"function","function":{"name":"run_simulation","description":"Run one deterministic engineering simulation and return outputs, steps, assumptions, and limitations.","parameters":{"type":"object","properties":{"simulation_key":{"type":"string"},"inputs":{"type":"object","additionalProperties":{"type":"number"}}},"required":["simulation_key","inputs"]}}},
+        {"type":"function","function":{"name":"get_project_items","description":"List the active project workspace items so you can reason over project material.","parameters":{"type":"object","properties":{}}}},
+    ]
+
+
+def _tool_result(connection: sqlite3.Connection, name: str, arguments: dict[str, object], project_id: int | None) -> dict[str, object]:
+    if name == "run_calculation":
+        return CalculationApplication().run_trace(str(arguments["model_key"]), arguments.get("inputs", {})).to_dict()
+    if name == "run_simulation":
+        return simulation_library.run_simulation(str(arguments["simulation_key"]), arguments.get("inputs", {}))
+    if name == "get_project_items":
+        if project_id is None:
+            return {"items": [], "note": "This chat is outside a project."}
+        rows = connection.execute("SELECT id, folder_id, title, content FROM workspace_notes WHERE project_id=? ORDER BY updated_at DESC", (project_id,)).fetchall()
+        return {"items": [{"kind":"note","id":r[0],"folder_id":r[1],"name":r[2],"content":r[3]} for r in rows]}
+    raise ValueError(f"Unsupported tool '{name}'.")
+
+
+def _openrouter(messages: list[dict[str, object]], project_id: int | None, model: str | None = None) -> str | None:
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         return None
-    payload = json.dumps({"model": model or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"), "messages": messages}).encode("utf-8")
-    request = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
-        data=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "HTTP-Referer": "http://localhost"},
-        method="POST",
-    )
-    try:
+    request_messages = [{"role":"system","content":"You are Personal AI System, an engineering-focused assistant. Prefer deterministic tools for calculations and simulations. Show assumptions and limitations. Do not claim a tool result that was not run."}] + messages
+    for _ in range(_MAX_TOOL_ROUNDS):
+        payload = json.dumps({"model": model or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"),"messages":request_messages,"tools":_tools(),"tool_choice":"auto"}).encode("utf-8")
+        request = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions",data=payload,headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json","HTTP-Referer":"http://localhost"},method="POST")
         with urllib.request.urlopen(request, timeout=45) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        return data["choices"][0]["message"]["content"]
-    except Exception:
-        return None
+            data=json.loads(response.read().decode("utf-8"))
+        message=data["choices"][0]["message"]
+        tool_calls=message.get("tool_calls") or []
+        if not tool_calls:
+            return message.get("content") or ""
+        request_messages.append(message)
+        for call in tool_calls:
+            function=call["function"]
+            arguments=json.loads(function.get("arguments") or "{}")
+            try:
+                result=_tool_result(db.get_connection(),function["name"],arguments,project_id)
+            except Exception as exc:
+                result={"error":str(exc)}
+            request_messages.append({"role":"tool","tool_call_id":call["id"],"content":json.dumps(result,ensure_ascii=False)})
+    return "The model reached the tool-call limit before producing a final answer."
 
 
-def respond(connection: sqlite3.Connection, chat_id: int, content: str, *, model: str | None = None) -> dict[str, object]:
+def respond(connection: sqlite3.Connection, chat_id: int, content: str, *, model: str | None = None, mode: str = "auto") -> dict[str, object]:
     chat = get_chat(connection, chat_id)
     add_message(connection, chat_id, "user", content)
-    history = [{"role": message["role"], "content": message["content"]} for message in get_chat(connection, chat_id)["messages"]]
-    answer = _openrouter(history, model=model)
+    messages = [{"role": message["role"], "content": message["content"]} for message in get_chat(connection, chat_id)["messages"]]
+    answer = None if mode == "local" else _openrouter(messages, chat["project_id"], model=model)
     if answer is None:
-        answer = "I’m in local mode. Connect an OpenRouter API key to enable a frontier-model response; project tools and deterministic engineering calculations remain available without it."
+        answer = "I’m in local mode. Connect an OpenRouter API key to enable a frontier-model response with calculation and simulation tools; project data and deterministic engineering tools remain available without it."
     add_message(connection, chat_id, "assistant", answer)
     if chat["title"] == "New chat":
         title = " ".join(content.strip().split())[:64] or "New chat"
-        connection.execute("UPDATE chats SET title=?, updated_at=datetime('now') WHERE id=?", (title, chat_id))
-        connection.commit()
+        connection.execute("UPDATE chats SET title=?, updated_at=datetime('now') WHERE id=?", (title, chat_id)); connection.commit()
     return get_chat(connection, chat_id)
 
 
-__all__ = ["initialize", "create_chat", "list_chats", "get_chat", "add_message", "respond"]
+__all__=["initialize","create_chat","list_chats","get_chat","add_message","respond"]
