@@ -83,9 +83,9 @@ class EngineeringWebApplication:
             project_id = int(parts[3])
             self._require_project(project_id)
             resource = parts[4] if len(parts) > 4 else ""
-            if method == "GET" and resource == "requirements":
+            if method == "GET" and len(parts) == 5 and resource == "requirements":
                 return self._json(200, self.engineering.list_requirements(project_id))
-            if method == "POST" and resource == "requirements":
+            if method == "POST" and len(parts) == 5 and resource == "requirements":
                 return self._json(201, {"id": db.create_requirement(project_id, data["description"])})
             if resource == "requirements" and len(parts) == 6 and method == "PATCH":
                 requirement_id = int(parts[5])
@@ -93,9 +93,9 @@ class EngineeringWebApplication:
                 self.engineering.update_requirement(requirement_id, identifier=data.get("identifier"), title=data.get("title"), acceptance_criteria=data.get("acceptance_criteria"), priority=data.get("priority"), status=data.get("status"))
                 current = next(item for item in self.engineering.list_requirements(project_id) if item["id"] == requirement_id)
                 return self._json(200, current)
-            if method == "GET" and resource == "sources":
+            if method == "GET" and len(parts) == 5 and resource == "sources":
                 return self._json(200, self.engineering.list_sources(project_id))
-            if method == "POST" and resource == "sources":
+            if method == "POST" and len(parts) == 5 and resource == "sources":
                 file_id = data.get("file_id")
                 if file_id is not None and self._workspace_file(project_id, int(file_id)) is None:
                     raise ValueError("File not found in project.")
@@ -121,9 +121,9 @@ class EngineeringWebApplication:
                 self._require_evidence(project_id, evidence_id)
                 self.engineering.invalidate_evidence(evidence_id, data["reason"])
                 return self._json(200, {"invalidated": True})
-            if method == "GET" and resource == "decisions":
+            if method == "GET" and len(parts) == 5 and resource == "decisions":
                 return self._json(200, self.engineering.list_decisions(project_id))
-            if method == "POST" and resource == "decisions":
+            if method == "POST" and len(parts) == 5 and resource == "decisions":
                 requirement_id = data.get("requirement_id")
                 design_case_id = data.get("design_case_id")
                 if requirement_id is not None:
