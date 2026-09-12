@@ -27,4 +27,4 @@ jobs:
         with:
           node-version: '24'
       - name: Validate web client syntax
-        run: node --check web/app.js && node --check web/interaction-fixes.js
+        run: node --check web/app.js && node --check web/interaction-fixes.js && node --check web/beta-features.js
