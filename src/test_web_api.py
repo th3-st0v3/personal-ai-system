@@ -42,7 +42,7 @@ class TestWebApplication(unittest.TestCase):
         status, _, manifest = self.request("GET", "/api/manifest")
         self.assertEqual(status, 200)
         self.assertEqual(manifest["api_version"], 1)
-        self.assertEqual(manifest["workspace"]["kinds"], ["folder", "file", "note"])
+        self.assertEqual(manifest["workspace"]["kinds"], ["folder", "note", "file"])
         self.assertIn("last_modified_new_old", manifest["workspace"]["sort_options"])
         self.assertIn("new_note", manifest["workspace"]["context_actions"]["folder"])
         self.assertIn("copy", manifest["workspace"]["context_actions"]["folder"])
