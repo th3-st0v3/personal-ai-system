@@ -1,5 +1,6 @@
 "use strict";
 
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const rootProjectId = () => document.querySelector("#projects .nav-item.active")?.dataset.project;
 const currentFolderId = () => { const crumb = document.querySelector("#breadcrumbs .crumb.current[data-breadcrumb-kind='folder']"); return crumb ? Number(crumb.dataset.breadcrumbId) : null; };
 const showWorkspaceError = (error) => { const target = document.getElementById("items"); if (target) target.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`; };
@@ -29,6 +30,7 @@ document.getElementById("file-upload-input")?.addEventListener("change", async e
   try {
     const projectId = rootProjectId();
     if (!projectId) throw new Error("Select a project first.");
+    if (file.size > MAX_UPLOAD_BYTES) throw new Error("Files must be 4 MB or smaller in the draft beta.");
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
     let binary = "";
