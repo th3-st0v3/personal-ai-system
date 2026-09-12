@@ -22,9 +22,9 @@ class TestWebApplication(unittest.TestCase):
         db.DATABASE_PATH = self.original_db
         self.temp.cleanup()
 
-    def request(self, method, path, payload=None, raw_body=None):
+    def request(self, method, path, payload=None, raw_body=None, environ=None):
         body = raw_body if raw_body is not None else json.dumps(payload).encode() if payload is not None else b""
-        status, headers, raw = self.app.request(method, path, body)
+        status, headers, raw = self.app.request(method, path, body, environ=environ)
         return status, dict(headers), json.loads(raw)
 
     def test_health_and_projects(self):
@@ -41,14 +41,55 @@ class TestWebApplication(unittest.TestCase):
     def test_manifest_matches_backend_capabilities(self):
         status, _, manifest = self.request("GET", "/api/manifest")
         self.assertEqual(status, 200)
-        self.assertEqual(manifest["api_version"], 1)
+        self.assertEqual(manifest["api_version"], 2)
         self.assertEqual(manifest["workspace"]["kinds"], ["folder", "note", "file"])
+        self.assertIn("none", manifest["workspace"]["sort_options"])
         self.assertIn("last_modified_new_old", manifest["workspace"]["sort_options"])
         self.assertIn("new_note", manifest["workspace"]["context_actions"]["folder"])
         self.assertIn("copy", manifest["workspace"]["context_actions"]["folder"])
         self.assertIn("duplicate", manifest["workspace"]["context_actions"]["file"])
+        self.assertIn("archive", manifest["workspace"]["multi_selection_actions"])
+        self.assertIn("invalidate", manifest["workspace"]["multi_selection_actions"])
         self.assertIn("delete", manifest["workspace"]["multi_selection_actions"])
         self.assertGreaterEqual(manifest["calculations"]["count"], 28)
+        self.assertGreaterEqual(len(manifest["simulations"]), 2)
+        self.assertIn("Education", manifest["navigation"])
+
+    def test_auth_signup_login_and_me_are_optional(self):
+        status, headers, payload = self.request("POST", "/api/auth/signup", {"email": "riley@example.com", "password": "safe-pass-123", "display_name": "Riley"})
+        self.assertEqual(status, 201)
+        self.assertEqual(payload["user"]["display_name"], "Riley")
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        status, _, me = self.request("GET", "/api/auth/me", environ={"HTTP_COOKIE": cookie})
+        self.assertEqual(status, 200)
+        self.assertEqual(me["user"]["email"], "riley@example.com")
+        status, _, payload = self.request("POST", "/api/auth/logout", environ={"HTTP_COOKIE": cookie})
+        self.assertEqual((status, payload), (200, {"logged_out": True}))
+        status, _, me = self.request("GET", "/api/auth/me", environ={"HTTP_COOKIE": cookie})
+        self.assertIsNone(me["user"])
+        status, _, _ = self.request("POST", "/api/auth/login", {"email": "riley@example.com", "password": "safe-pass-123"})
+        self.assertEqual(status, 200)
+
+    def test_project_metadata_and_chat_are_persistent(self):
+        status, _, project = self.request("PATCH", f"/api/projects/{self.project_id}", {"name": "Updated Project", "description": "Project description"})
+        self.assertEqual(status, 200)
+        self.assertEqual((project["name"], project["description"]), ("Updated Project", "Project description"))
+        status, _, created = self.request("POST", "/api/chats", {"project_id": self.project_id})
+        self.assertEqual(status, 201)
+        chat_id = created["id"]
+        status, _, chat = self.request("POST", f"/api/chats/{chat_id}/messages", {"content": "Explain a simple pressure model.", "mode": "local"})
+        self.assertEqual(status, 200)
+        self.assertEqual(chat["messages"][0]["role"], "user")
+        self.assertEqual(chat["messages"][-1]["role"], "assistant")
+        self.assertIn("local mode", chat["messages"][-1]["content"])
+
+    def test_simulation_endpoint_returns_traceable_result(self):
+        status, _, result = self.request("POST", "/api/simulations/run", {"simulation_key": "heat_conduction", "inputs": {"conductivity": 10, "area": 2, "hot_temperature": 400, "cold_temperature": 300, "thickness": 0.5}})
+        self.assertEqual(status, 200)
+        self.assertEqual(result["outputs"]["heat_rate"], 4000.0)
+        self.assertTrue(result["steps"])
+        self.assertTrue(result["assumptions"])
+        self.assertTrue(result["limitations"])
 
     def test_calculation_catalog_and_trace(self):
         status, _, catalog = self.request("GET", "/api/calculations/catalog?category=Reservoir%20Engineering")
@@ -129,13 +170,15 @@ class TestWebApplication(unittest.TestCase):
         status, _, props = self.request("GET", f"/api/projects/{self.project_id}/files?id={file_id}")
         self.assertEqual(status, 200)
         self.assertEqual(props["size_bytes"], 2)
+        self.assertNotIn("sha256", props)
         status, _, payload = self.request("PUT", f"/api/projects/{self.project_id}/files", {"id": file_id, "data_base64": "djI=", "mime_type": "text/plain"})
         self.assertEqual(status, 200)
         self.assertEqual(payload["size_bytes"], 2)
-        note_id = self.workspace.create_note(self.project_id, "Editable", "before")
-        status, _, note = self.request("PATCH", f"/api/projects/{self.project_id}/notes", {"id": note_id, "content": "after"})
+        note_id = self.workspace.create_note(self.project_id, "Editable", "before", metadata={"description": "before description"})
+        status, _, note = self.request("PATCH", f"/api/projects/{self.project_id}/notes", {"id": note_id, "content": "after", "metadata": {"description": "after description"}})
         self.assertEqual(status, 200)
         self.assertEqual(note["content"], "after")
+        self.assertEqual(note["metadata"]["description"], "after description")
         other = self.workspace.create_project("Other")
         self.assertEqual(self.request("GET", f"/api/projects/{other}/files?id={file_id}")[0], 400)
         self.assertEqual(self.request("GET", f"/api/projects/{other}/notes?id={note_id}")[0], 400)
