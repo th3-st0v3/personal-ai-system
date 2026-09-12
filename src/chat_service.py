@@ -53,21 +53,15 @@ def list_chats(connection: sqlite3.Connection, project_id: int | None = None) ->
 
 def get_chat(connection: sqlite3.Connection, chat_id: int) -> dict[str, object]:
     row = connection.execute("SELECT id, project_id, title, created_at, updated_at FROM chats WHERE id=?", (chat_id,)).fetchone()
-    if row is None:
-        raise ValueError("Chat not found.")
+    if row is None: raise ValueError("Chat not found.")
     messages = connection.execute("SELECT id, role, content, created_at FROM chat_messages WHERE chat_id=? ORDER BY id", (chat_id,)).fetchall()
-    return {"id": row[0], "project_id": row[1], "title": row[2], "created_at": row[3], "updated_at": row[4], "messages": [{"id": m[0], "role": m[1], "content": m[2], "created_at": m[3]} for m in messages]}
+    return {"id":row[0],"project_id":row[1],"title":row[2],"created_at":row[3],"updated_at":row[4],"messages":[{"id":m[0],"role":m[1],"content":m[2],"created_at":m[3]} for m in messages]}
 
 
 def add_message(connection: sqlite3.Connection, chat_id: int, role: str, content: str) -> int:
-    if role not in {"system", "user", "assistant", "tool"}:
-        raise ValueError("Unsupported message role.")
-    if connection.execute("SELECT 1 FROM chats WHERE id=?", (chat_id,)).fetchone() is None:
-        raise ValueError("Chat not found.")
-    cursor = connection.execute("INSERT INTO chat_messages(chat_id,role,content) VALUES(?,?,?)", (chat_id, role, content))
-    connection.execute("UPDATE chats SET updated_at=datetime('now') WHERE id=?", (chat_id,))
-    connection.commit()
-    return int(cursor.lastrowid)
+    if role not in {"system","user","assistant","tool"}: raise ValueError("Unsupported message role.")
+    if connection.execute("SELECT 1 FROM chats WHERE id=?", (chat_id,)).fetchone() is None: raise ValueError("Chat not found.")
+    cursor=connection.execute("INSERT INTO chat_messages(chat_id,role,content) VALUES(?,?,?)",(chat_id,role,content)); connection.execute("UPDATE chats SET updated_at=datetime('now') WHERE id=?",(chat_id,)); connection.commit(); return int(cursor.lastrowid)
 
 
 def _tools() -> list[dict[str, object]]:
@@ -79,33 +73,27 @@ def _tools() -> list[dict[str, object]]:
 
 
 def _tool_result(connection: sqlite3.Connection, name: str, arguments: dict[str, object], project_id: int | None) -> dict[str, object]:
-    if name == "run_calculation":
-        return CalculationApplication().run_trace(str(arguments["model_key"]), arguments.get("inputs", {})).to_dict()
-    if name == "run_simulation":
-        return simulation_library.run_simulation(str(arguments["simulation_key"]), arguments.get("inputs", {}))
+    if name == "run_calculation": return CalculationApplication().run_trace(str(arguments["model_key"]), arguments.get("inputs", {})).to_dict()
+    if name == "run_simulation": return simulation_library.run_simulation(str(arguments["simulation_key"]), arguments.get("inputs", {}))
     if name == "get_project_items":
-        if project_id is None:
-            return {"items": [], "note": "This chat is outside a project."}
-        rows = connection.execute("SELECT id, folder_id, title, content FROM workspace_notes WHERE project_id=? ORDER BY updated_at DESC", (project_id,)).fetchall()
-        return {"items": [{"kind":"note","id":r[0],"folder_id":r[1],"name":r[2],"content":r[3]} for r in rows]}
+        if project_id is None: return {"items":[],"note":"This chat is outside a project."}
+        rows=connection.execute("SELECT id,folder_id,title,content FROM workspace_notes WHERE project_id=? ORDER BY updated_at DESC",(project_id,)).fetchall(); return {"items":[{"kind":"note","id":r[0],"folder_id":r[1],"name":r[2],"content":r[3]} for r in rows]}
     raise ValueError(f"Unsupported tool '{name}'.")
 
 
-def _openrouter(messages: list[dict[str, object]], project_id: int | None, model: str | None = None) -> str | None:
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        return None
-    request_messages = [{"role":"system","content":"You are Personal AI System, an engineering-focused assistant. Prefer deterministic tools for calculations and simulations. Show assumptions and limitations. Do not claim a tool result that was not run."}] + messages
+def _openrouter(messages:list[dict[str,object]],project_id:int|None,model:str|None=None)->str|None:
+    api_key=os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:return None
+    request_messages=[{"role":"system","content":"You are Personal AI System, an engineering-focused assistant. Prefer deterministic tools for calculations and simulations. Show assumptions and limitations. Do not claim a tool result that was not run."}]+messages
     for _ in range(_MAX_TOOL_ROUNDS):
-        payload = json.dumps({"model": model or os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini"),"messages":request_messages,"tools":_tools(),"tool_choice":"auto"}).encode("utf-8")
-        request = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions",data=payload,headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json","HTTP-Referer":"http://localhost"},method="POST")
-        with urllib.request.urlopen(request, timeout=45) as response: data=json.loads(response.read().decode("utf-8"))
-        message=data["choices"][0]["message"]; tool_calls=message.get("tool_calls") or []
-        if not tool_calls: return message.get("content") or ""
+        payload=json.dumps({"model":model or os.environ.get("OPENROUTER_MODEL","openai/gpt-4o-mini"),"messages":request_messages,"tools":_tools(),"tool_choice":"auto"}).encode()
+        request=urllib.request.Request("https://openrouter.ai/api/v1/chat/completions",data=payload,headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json","HTTP-Referer":"http://localhost"},method="POST")
+        with urllib.request.urlopen(request,timeout=45) as response:data=json.loads(response.read().decode("utf-8"))
+        message=data["choices"][0]["message"]; calls=message.get("tool_calls") or []
+        if not calls:return message.get("content") or ""
         request_messages.append(message)
-        for call in tool_calls:
-            function=call["function"]; arguments=json.loads(function.get("arguments") or "{}")
-            tool_connection=db.get_connection()
+        for call in calls:
+            function=call["function"]; arguments=json.loads(function.get("arguments") or "{}"); tool_connection=db.get_connection()
             try: result=_tool_result(tool_connection,function["name"],arguments,project_id)
             except Exception as exc: result={"error":str(exc)}
             finally: tool_connection.close()
@@ -113,28 +101,26 @@ def _openrouter(messages: list[dict[str, object]], project_id: int | None, model
     return "The model reached the tool-call limit before producing a final answer."
 
 
-def _local_answer(content: str) -> str:
-    tokens = content.casefold().split()
-    if any(word in tokens for word in ("model", "simulate", "simulation", "calculate", "calculator")):
-        plan=engineering_modeler.build_model_plan(content)
-        lines=[f"Discipline: {plan['discipline']}",f"Objective: {plan['objective']}","Suggested calculations:"]
+def _local_answer(content:str)->str:
+    tokens=content.casefold().split()
+    if any(word in tokens for word in ("model","simulate","simulation","calculate","calculator")):
+        plan=engineering_modeler.build_model_plan(content); lines=[f"Discipline: {plan['discipline']}",f"Objective: {plan['objective']}","Suggested calculations:"]
         lines += [f"- {item['name']} ({item['key']}): {item['equation']}" for item in plan["calculations"]] or ["- None matched yet."]
         if plan["simulations"]: lines += ["Suggested simulations:"]+[f"- {item['name']} ({item['key']})" for item in plan["simulations"]]
         lines += ["Assumptions:"]+[f"- {item}" for item in plan["assumptions"]]
         if plan["open_questions"]: lines += ["Open questions:"]+[f"- {item}" for item in plan["open_questions"]]
-        lines.append(plan["next_step"])
-        return "\n".join(lines)
+        lines.append(plan["next_step"]); return "\n".join(lines)
     return "I’m in local mode. Connect an OpenRouter API key to enable a frontier-model response with calculation and simulation tools; deterministic engineering planning, calculations, simulations, and project data remain available without it."
 
 
-def respond(connection: sqlite3.Connection, chat_id: int, content: str, *, model: str | None = None, mode: str = "auto") -> dict[str, object]:
-    chat=get_chat(connection,chat_id); add_message(connection,chat_id,"user",content)
-    messages=[{"role":message["role"],"content":message["content"]} for message in get_chat(connection,chat_id)["messages"]]
-    answer=None if mode=="local" else _openrouter(messages,chat["project_id"],model=model)
+def respond(connection:sqlite3.Connection,chat_id:int,content:str,*,model:str|None=None,mode:str="auto")->dict[str,object]:
+    chat=get_chat(connection,chat_id); add_message(connection,chat_id,"user",content); messages=[{"role":m["role"],"content":m["content"]} for m in get_chat(connection,chat_id)["messages"]]
+    try: answer=None if mode=="local" else _openrouter(messages,chat["project_id"],model=model)
+    except Exception: answer=None
     if answer is None: answer=_local_answer(content)
     add_message(connection,chat_id,"assistant",answer)
     if chat["title"]=="New chat":
-        title=" ".join(content.strip().split())[:64] or "New chat"; connection.execute("UPDATE chats SET title=?, updated_at=datetime('now') WHERE id=?",(title,chat_id)); connection.commit()
+        title=" ".join(content.strip().split())[:64] or "New chat"; connection.execute("UPDATE chats SET title=?,updated_at=datetime('now') WHERE id=?",(title,chat_id)); connection.commit()
     return get_chat(connection,chat_id)
 
 
