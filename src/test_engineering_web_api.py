@@ -26,6 +26,17 @@ class TestEngineeringWebApplication(unittest.TestCase):
         status, _, raw = self.app.request(method, path, body)
         return status, json.loads(raw)
 
+    def test_project_scoped_source_and_evidence_guards(self):
+        other_project = self.workspace.create_project("Other")
+        source_id = self.app.engineering.create_source(self.project_id, "Private", "document")
+        with self.assertRaisesRegex(ValueError, "Source not found"):
+            self.app._require_source(other_project, source_id)
+        requirement_id = db.create_requirement(self.project_id, "Requirement")
+        evidence_id = self.app.engineering.create_evidence(requirement_id, "Confirmed", "Verified", description="Evidence")
+        with self.assertRaisesRegex(ValueError, "Evidence not found"):
+            self.app._require_evidence(other_project, evidence_id)
+        self.app._require_evidence(self.project_id, evidence_id)
+
     def test_requirement_source_evidence_and_decision_workflow(self):
         status, requirement = self.request("POST", f"/api/engineering/projects/{self.project_id}/requirements", {"description": "Pump must meet rated flow"})
         self.assertEqual(status, 201)
