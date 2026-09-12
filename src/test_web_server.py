@@ -20,7 +20,10 @@ class TestSiteApplication(unittest.TestCase):
         captured={}; body=json.dumps(payload).encode() if payload is not None else b""
         def start_response(status,headers): captured["status"],captured["headers"]=status,dict(headers)
         environ={"REQUEST_METHOD":method,"PATH_INFO":path,"QUERY_STRING":"","CONTENT_LENGTH":str(len(body)),"wsgi.input":io.BytesIO(body)}
-        raw=b"".join(self.site(environ,start_response)); return captured,raw,json.loads(raw) if raw else None
+        raw=b"".join(self.site(environ,start_response)); parsed=None
+        if raw and "application/json" in captured.get("headers",{}).get("Content-Type",""):
+            parsed=json.loads(raw)
+        return captured,raw,parsed
     def test_serves_interactive_client_assets(self):
         for path,content_type in (("/","text/html"),("/app.js","text/javascript"),("/interaction-fixes.js","text/javascript"),("/beta-features.js","text/javascript"),("/styles.css","text/css")):
             response,body,_=self.call(path); self.assertEqual(response["status"],"200 OK"); self.assertIn(content_type,response["headers"]["Content-Type"]); self.assertGreater(len(body),100)
