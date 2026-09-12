@@ -41,28 +41,31 @@ class EngineeringWebApplication:
     def _require_source(project_id: int, source_id: int) -> None:
         connection = db.get_connection()
         try:
-            row = connection.execute("SELECT id, project_id FROM sources WHERE id = ?", (source_id,)).fetchone()
+            row = connection.execute("SELECT id FROM sources WHERE id = ? AND project_id = ?", (source_id, project_id)).fetchone()
         finally:
             connection.close()
-        if row is None or row[1] != project_id:
+        if row is None:
             raise ValueError("Source not found in project.")
 
     @staticmethod
     def _require_design_case(project_id: int, design_case_id: int) -> None:
         connection = db.get_connection()
         try:
-            row = connection.execute("SELECT id, project_id FROM design_cases WHERE id = ?", (design_case_id,)).fetchone()
+            row = connection.execute("SELECT id FROM design_cases WHERE id = ? AND project_id = ?", (design_case_id, project_id)).fetchone()
         finally:
             connection.close()
-        if row is None or row[1] != project_id:
+        if row is None:
             raise ValueError("Design case not found in project.")
 
-    def _require_evidence(self, project_id: int, evidence_id: int) -> dict:
-        evidence = self.engineering.get_evidence(evidence_id)
-        if evidence is None:
-            raise ValueError("Evidence not found.")
-        self._require_requirement(project_id, evidence["requirement_id"])
-        return evidence
+    @staticmethod
+    def _require_evidence(project_id: int, evidence_id: int) -> None:
+        connection = db.get_connection()
+        try:
+            row = connection.execute("SELECT e.id FROM evidence e JOIN requirements r ON r.id = e.requirement_id WHERE e.id = ? AND r.project_id = ?", (evidence_id, project_id)).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            raise ValueError("Evidence not found in project.")
 
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
