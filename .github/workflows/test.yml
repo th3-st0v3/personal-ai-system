@@ -27,16 +27,10 @@ jobs:
           PYTHONPATH: src
         run: python -m unittest discover -s src -p 'test_*.py' -v
       - name: Static type check
-        id: pyright
-        continue-on-error: true
         run: npx --yes pyright@latest src scripts
       - name: Markdown lint
-        id: markdown
-        continue-on-error: true
         run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules"
       - name: Validate web client syntax
-        id: web
-        continue-on-error: true
         run: |
           set -e
           node --check web/app.js
@@ -57,21 +51,15 @@ jobs:
           python scripts/serve_web.py > .runtime/ci/server.log 2>&1 &
           server_pid=$!
           trap 'kill $server_pid 2>/dev/null || true' EXIT
+          ready=0
           for attempt in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null; then break; fi
+            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null; then ready=1; break; fi
             sleep 0.25
           done
+          test "$ready" -eq 1
           curl -fsS http://127.0.0.1:8000/ | grep -q 'chat-form'
           curl -fsS http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
           curl -fsS http://127.0.0.1:8000/api/manifest | grep -q 'Engineering'
-      - name: Enforce quality gates
-        if: always()
-        run: |
-          failed=0
-          if [ "${{ steps.pyright.outcome }}" != "success" ]; then echo "Pyright failed"; failed=1; fi
-          if [ "${{ steps.markdown.outcome }}" != "success" ]; then echo "Markdownlint failed"; failed=1; fi
-          if [ "${{ steps.web.outcome }}" != "success" ]; then echo "Web syntax validation failed"; failed=1; fi
-          if [ "$failed" -ne 0 ]; then exit 1; fi
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
