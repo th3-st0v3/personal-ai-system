@@ -27,8 +27,62 @@ jobs:
           PYTHONPATH: src
         run: python -m unittest discover -s src -p 'test_*.py' -v
       - name: Static type check
-        run: npx --yes pyright@latest src scripts
+        id: pyright
+        continue-on-error: true
+        run: |
+          mkdir -p .runtime/ci
+          npx --yes pyright@latest src scripts > .runtime/ci/pyright.txt 2>&1
+          echo $? > .runtime/ci/pyright.exit
+          cat .runtime/ci/pyright.txt
       - name: Markdown lint
-        run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules"
+        id: markdown
+        continue-on-error: true
+        run: |
+          mkdir -p .runtime/ci
+          npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules" > .runtime/ci/markdown.txt 2>&1
+          echo $? > .runtime/ci/markdown.exit
+          cat .runtime/ci/markdown.txt
       - name: Validate web client syntax
-        run: node --check web/app.js && node --check web/interaction-fixes.js && node --check web/beta-features.js && node --check web/ui-stability.js && node --check web/product-polish.js && node --check web/ux-hardening.js && node --check web/ux-final.js && node --check web/ux-shortcuts.js && node --check web/engineering-final.js
+        id: web
+        continue-on-error: true
+        run: |
+          mkdir -p .runtime/ci
+          set +e
+          node --check web/app.js
+          a=$?
+          node --check web/interaction-fixes.js
+          b=$?
+          node --check web/beta-features.js
+          c=$?
+          node --check web/ui-stability.js
+          d=$?
+          node --check web/product-polish.js
+          e=$?
+          node --check web/ux-hardening.js
+          f=$?
+          node --check web/ux-final.js
+          g=$?
+          node --check web/ux-shortcuts.js
+          h=$?
+          node --check web/engineering-final.js
+          i=$?
+          code=$((a|b|c|d|e|f|g|h|i))
+          echo "$code" > .runtime/ci/web.exit
+          exit 0
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-diagnostics
+          path: .runtime/ci
+          if-no-files-found: ignore
+      - name: Enforce quality gates
+        if: always()
+        run: |
+          pyright_code=$(cat .runtime/ci/pyright.exit 2>/dev/null || echo 1)
+          markdown_code=$(cat .runtime/ci/markdown.exit 2>/dev/null || echo 1)
+          web_code=$(cat .runtime/ci/web.exit 2>/dev/null || echo 1)
+          if [ "$pyright_code" -ne 0 ] || [ "$markdown_code" -ne 0 ] || [ "$web_code" -ne 0 ]; then
+            echo "Quality gates failed: pyright=$pyright_code markdown=$markdown_code web=$web_code"
+            exit 1
+          fi
