@@ -78,6 +78,38 @@ def get_source(connection: sqlite3.Connection, source_id: int) -> dict[str, obje
     return {"id": row[0], "project_id": row[1], "title": row[2], "source_type": row[3], "version": row[4], "url": row[5], "checksum": row[6], "created_at": row[7], "chunks": [{"id": r[0], "index": r[1], "location": r[2], "checksum": r[3], "chars": r[4]} for r in chunks]}
 
 
+def get_chunk(connection: sqlite3.Connection, project_id: int, chunk_id: int) -> dict[str, object]:
+    """Return one source chunk only when it belongs to the requested project."""
+    workspace_storage._initialize_schema(connection)
+    engineering_schema.initialize(connection)
+    _require_project(connection, project_id)
+    row = connection.execute(
+        """
+        SELECT sc.id, sc.source_id, s.title, s.source_type, s.version, s.url,
+               sc.chunk_index, sc.content, sc.location_text, sc.checksum, s.checksum
+        FROM source_chunks sc
+        JOIN sources s ON s.id = sc.source_id
+        WHERE sc.id = ? AND s.project_id = ?
+        """,
+        (chunk_id, project_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Source chunk not found in project.")
+    return {
+        "chunk_id": int(row[0]),
+        "source_id": int(row[1]),
+        "source": str(row[2]),
+        "source_type": str(row[3]),
+        "version": None if row[4] is None else str(row[4]),
+        "url": None if row[5] is None else str(row[5]),
+        "chunk_index": int(row[6]),
+        "content": str(row[7]),
+        "location": str(row[8]),
+        "checksum": str(row[9]),
+        "source_checksum": str(row[10]),
+    }
+
+
 def search_chunks(connection: sqlite3.Connection, project_id: int, query: str, limit: int = 10) -> list[dict[str, object]]:
     workspace_storage._initialize_schema(connection)
     engineering_schema.initialize(connection)
