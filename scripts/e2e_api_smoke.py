@@ -56,6 +56,10 @@ assert isinstance(catalog, list) and catalog
 model_key = catalog[0]["key"]
 model_detail = request("GET", f"/api/calculations/{model_key}")
 assert isinstance(model_detail, dict) and "model" in model_detail
+calculation_inputs = {str(parameter["name"]): parameter.get("minimum") or 1.0 for parameter in model_detail.get("parameters", []) if isinstance(parameter, dict) and parameter.get("required")}
+saved_calculation = request("POST", "/api/calculations/run/save", {"model_key": model_key, "inputs": calculation_inputs})
+assert isinstance(saved_calculation, dict) and isinstance(saved_calculation.get("record_id"), int)
+
 simulations = request("GET", "/api/simulations")
 assert isinstance(simulations, list) and simulations
 sim_key = simulations[0]["key"]
