@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from typing import cast
 
 import db
 import engineering_modeler
@@ -35,18 +36,23 @@ class TestBetaServices(unittest.TestCase):
 
     def test_simulation_returns_trace_sections(self):
         result=run_simulation("wellbore_hydraulics",{"depth":1000,"density":1000,"diameter":0.1,"velocity":1,"viscosity":0.001})
-        self.assertGreater(result["outputs"]["bottom_pressure"],0)
+        outputs=cast(dict[str, object], result["outputs"])
+        self.assertGreater(cast(float, outputs["bottom_pressure"]),0)
         self.assertTrue(result["steps"] and result["assumptions"] and result["limitations"])
 
     def test_auto_modeler_finds_petroleum_tools(self):
         plan=engineering_modeler.build_model_plan("Model wellbore pressure and velocity for a drilling problem")
         self.assertEqual(plan["discipline"],"petroleum engineering")
-        self.assertTrue(plan["calculations"] or plan["simulations"])
+        calculations=cast(list[object], plan["calculations"])
+        simulations=cast(list[object], plan["simulations"])
+        self.assertTrue(calculations or simulations)
 
     def test_digest_separates_qualified_statements(self):
         result=information_digest.digest("Pressure is 10 MPa. The value may vary with temperature. Verify the source.")
-        self.assertEqual(result["statistics"]["sentences"],3)
-        self.assertEqual(len(result["uncertain_or_qualified"]),1)
+        statistics=cast(dict[str, object], result["statistics"])
+        uncertain=cast(list[object], result["uncertain_or_qualified"])
+        self.assertEqual(statistics["sentences"],3)
+        self.assertEqual(len(uncertain),1)
         self.assertTrue(result["open_questions"])
 
     def test_connection_and_plugin_registry(self):
@@ -56,7 +62,8 @@ class TestBetaServices(unittest.TestCase):
         self.assertEqual(list_connections(c)[0]["id"],connection_id)
         enabled=set_plugin_enabled(c,plugin_id,True)
         self.assertTrue(enabled["enabled"])
-        self.assertEqual(list_plugins(c)[0]["capabilities"],["calculations","simulations"])
+        capabilities=cast(list[object], list_plugins(c)[0]["capabilities"])
+        self.assertEqual(capabilities,["calculations","simulations"])
         c.close()
 
 
