@@ -127,13 +127,6 @@ def login(connection: sqlite3.Connection, email: str, password: str) -> tuple[st
         valid = False
     if not valid:
         raise ValueError("Email or password is incorrect.")
-
-    # One successful login invalidates older active sessions for the same user.
-    now = _now()
-    connection.execute(
-        "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL AND expires_at>?",
-        (now, int(row[0]), now),
-    )
     token = _issue_session(connection, int(row[0]))
     return token, {"id": row[0], "email": row[1], "display_name": row[3] or row[2] or "User"}
 
@@ -185,30 +178,13 @@ def current_user(connection: sqlite3.Connection, token: str | None) -> dict[str,
         return None
     connection.execute("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", (now, token_hash))
     connection.commit()
-    return {
-        "id": row[2],
-        "email": row[3],
-        "display_name": row[5] or row[4] or "User",
-        "created_at": row[6],
-    }
+    return {"id": row[2], "email": row[3], "display_name": row[5] or row[4] or "User", "created_at": row[6]}
 
 
 def purge_expired_sessions(connection: sqlite3.Connection) -> int:
-    cursor = connection.execute(
-        "DELETE FROM sessions WHERE expires_at<=? OR revoked_at IS NOT NULL",
-        (_now(),),
-    )
+    cursor = connection.execute("DELETE FROM sessions WHERE expires_at<=? OR revoked_at IS NOT NULL", (_now(),))
     connection.commit()
     return cursor.rowcount
 
 
-__all__ = [
-    "SESSION_TTL_SECONDS",
-    "initialize",
-    "signup",
-    "login",
-    "rotate_session",
-    "logout",
-    "current_user",
-    "purge_expired_sessions",
-]
+__all__ = ["SESSION_TTL_SECONDS", "initialize", "signup", "login", "rotate_session", "logout", "current_user", "purge_expired_sessions"]
