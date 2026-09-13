@@ -1,11 +1,11 @@
 """Deterministic engineering test-plan and status-report helpers."""
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Required, TypedDict
 
 
-class RequirementRecord(TypedDict):
-    id: int
+class RequirementRecord(TypedDict, total=False):
+    id: Required[int]
     project_id: int
     identifier: str | None
     title: str | None
