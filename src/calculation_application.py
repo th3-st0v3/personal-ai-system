@@ -78,7 +78,7 @@ class CalculationApplication:
         ]
         if missing:
             raise ValueError("Missing required inputs: " + ", ".join(missing))
-        validated = {}
+        validated: dict[str, float] = {}
         for name, value in inputs.items():
             parameter = expected[name]
             if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -107,7 +107,9 @@ class CalculationApplication:
     def run_and_save(self, model_key: str, inputs: dict[str, float]) -> tuple[int, CalculationRecord]:
         record = self.run(model_key, inputs)
         calculation_id = db.save_calculation_record(record)
-        return calculation_id, record
+        if calculation_id is None:
+            raise RuntimeError("Database did not return a calculation record ID.")
+        return int(calculation_id), record
 
 
 __all__ = ["CalculationApplication"]
