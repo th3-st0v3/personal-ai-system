@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from typing import cast
 
 import db
 from workspace_application import WorkspaceApplication
@@ -20,10 +21,11 @@ class TestWorkspaceApplicationFeatures(unittest.TestCase):
 
     def test_replace_file_updates_bytes_metadata_and_hash(self):
         file_id = self.app.create_file(self.project_id, "model.bin", b"old", "application/octet-stream")
-        before = self.app.get_file(file_id)
+        before = self.app.get_file(file_id); self.assertIsNotNone(before)
+        if before is None: self.fail("file could not be retrieved")
         after = self.app.replace_file(file_id, b"new model", "application/octet-stream")
         self.assertEqual(self.app.read_file(file_id), b"new model")
-        self.assertNotEqual(before["sha256"], after["sha256"])
+        self.assertNotEqual(cast(dict[str, object], before)["sha256"], after["sha256"])
         self.assertEqual(after["size_bytes"], len(b"new model"))
         self.assertTrue(self.app.verify_file(file_id))
 
@@ -33,8 +35,9 @@ class TestWorkspaceApplicationFeatures(unittest.TestCase):
         self.assertTrue(pinned.metadata["pinned"])
         self.assertEqual(self.app.export_note(note_id), "Q = A*v")
         properties = self.app.get_item_properties("note", note_id)
+        metadata = cast(dict[str, object], properties["metadata"])
         self.assertEqual(properties["content_length"], len("Q = A*v"))
-        self.assertTrue(properties["metadata"]["pinned"])
+        self.assertTrue(metadata["pinned"])
 
     def test_folder_properties_report_direct_children(self):
         folder = self.app.create_folder(self.project_id, "Calculations")
@@ -44,5 +47,4 @@ class TestWorkspaceApplicationFeatures(unittest.TestCase):
         self.assertEqual(properties["child_count"], 2)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
