@@ -60,48 +60,48 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
 
     def test_users_are_isolated_from_projects_chats_and_engineering_routes(self):
         alice_cookie, alice = self.signup("alice@example.com")
-        status, _, me = self.request("GET", "/api/auth/me", alice_cookie)
+        status, _, me = self.request("GET", "/api/auth/me", cookie=alice_cookie)
         self.assertEqual(status, 200)
         self.assertEqual(me["user"]["id"], alice["id"])
         status, _, created = self.request("POST", "/api/projects", {"name": "Alice project"}, alice_cookie)
         self.assertEqual(status, 201)
         alice_project_id = created["id"]
-        status, _, created = self.request("POST", "/api/chats", {"project_id": alice_project_id}, alice_cookie)
+        status, _, created = self.request("POST", "/api/chats", {"project_id": alice_project_id}, cookie=alice_cookie)
         self.assertEqual(status, 201)
         alice_chat_id = created["id"]
 
         bob_cookie, bob = self.signup("bob@example.com")
         self.assertNotEqual(alice["id"], bob["id"])
-        status, _, me = self.request("GET", "/api/auth/me", bob_cookie)
+        status, _, me = self.request("GET", "/api/auth/me", cookie=bob_cookie)
         self.assertEqual(status, 200)
         self.assertEqual(me["user"]["id"], bob["id"])
 
-        status, _, projects = self.request("GET", "/api/projects", bob_cookie)
+        status, _, projects = self.request("GET", "/api/projects", cookie=bob_cookie)
         self.assertEqual(status, 200)
         self.assertEqual(projects, [])
 
-        status, _, projects = self.request("GET", "/api/projects", alice_cookie)
+        status, _, projects = self.request("GET", "/api/projects", cookie=alice_cookie)
         self.assertEqual(status, 200)
         self.assertEqual({item["id"] for item in projects}, {self.legacy_project_id, alice_project_id})
 
-        status, _, _ = self.request("GET", f"/api/projects/{alice_project_id}", bob_cookie)
+        status, _, _ = self.request("GET", f"/api/projects/{alice_project_id}", cookie=bob_cookie)
         self.assertEqual(status, 403)
         status, _, _ = self.request("PATCH", f"/api/projects/{alice_project_id}", {"description": "attacked"}, bob_cookie)
         self.assertEqual(status, 403)
 
-        status, _, chats = self.request("GET", "/api/chats", bob_cookie)
+        status, _, chats = self.request("GET", "/api/chats", cookie=bob_cookie)
         self.assertEqual(status, 200)
         self.assertEqual(chats, [])
-        status, _, _ = self.request("GET", f"/api/chats/{alice_chat_id}", bob_cookie)
+        status, _, _ = self.request("GET", f"/api/chats/{alice_chat_id}", cookie=bob_cookie)
         self.assertEqual(status, 403)
         status, _, _ = self.request(
             "POST", f"/api/chats/{alice_chat_id}/messages", {"content": "unauthorized", "mode": "local"}, bob_cookie
         )
         self.assertEqual(status, 403)
 
-        status, _, _ = self.request("GET", f"/api/engineering/projects/{alice_project_id}/requirements", bob_cookie)
+        status, _, _ = self.request("GET", f"/api/engineering/projects/{alice_project_id}/requirements", cookie=bob_cookie)
         self.assertEqual(status, 403)
-        status, _, requirements = self.request("GET", f"/api/engineering/projects/{alice_project_id}/requirements", alice_cookie)
+        status, _, requirements = self.request("GET", f"/api/engineering/projects/{alice_project_id}/requirements", cookie=alice_cookie)
         self.assertEqual(status, 200)
         self.assertEqual(requirements, [])
 
@@ -109,4 +109,5 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         self.assertEqual(status, 401)
 
 
-if __name__ == "__main__": unittest.main()
+if __name__ == "__main__":
+    unittest.main()
