@@ -1,0 +1,116 @@
+name: One-time type repair
+
+on:
+  push:
+    branches:
+      - codex/complete-hardening-and-architecture
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ !startsWith(github.event.head_commit.message, 'typefix:') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply targeted type repairs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected text not found in {path}: {old!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Pyright: preserve explicit source coverage while restoring default hidden-dir exclusion.
+          replace_once(
+              "pyrightconfig.json",
+              '    "**/site-packages/**"\n',
+              '    "**/site-packages/**",\n    "**/.*"\n',
+          )
+
+          # JSON request payloads are dynamically typed at the HTTP boundary. Runtime validation remains
+          # enforced by the handlers/services; Any here reflects the JSON boundary rather than suppressing errors.
+          replace_once("src/web_api.py", "import base64\nimport json\n", "import base64\nimport binascii\nimport json\n")
+          replace_once("src/web_api.py", "from urllib.parse import parse_qs, urlsplit\n", "from typing import Any\nfrom urllib.parse import parse_qs, urlsplit\n")
+          Path("src/web_api.py").write_text(
+              Path("src/web_api.py").read_text().replace("data: dict[str, object]", "data: dict[str, Any]")
+          )
+          replace_once("src/web_api.py", "base64.binascii.Error", "binascii.Error")
+
+          # Narrow chat record fields before iteration/use.
+          replace_once(
+              "src/chat_service.py",
+              '    messages = [{"role": message["role"], "content": message["content"]} for message in chat_with_messages["messages"] if isinstance(message, Mapping) and isinstance(message.get("role"), str) and isinstance(message.get("content"), str)]\n    project_id = chat["project_id"] if isinstance(chat.get("project_id"), int) else None\n',
+              '    messages_raw = chat_with_messages.get("messages")\n    if not isinstance(messages_raw, list):\n        raise RuntimeError("Chat record is missing its messages collection.")\n    messages = [{"role": message["role"], "content": message["content"]} for message in messages_raw if isinstance(message, Mapping) and isinstance(message.get("role"), str) and isinstance(message.get("content"), str)]\n    project_id_raw = chat.get("project_id")\n    project_id = project_id_raw if isinstance(project_id_raw, int) else None\n',
+          )
+
+          # Requirement records returned from the engineering persistence layer contain a complete shape.
+          replace_once("src/engineering_plans.py", "class RequirementRecord(TypedDict, total=False):", "class RequirementRecord(TypedDict):")
+
+          # Tests: make existing Optional/dynamic results explicit rather than relying on assertions to narrow them.
+          replace_once(
+              "src/test_ai_security.py",
+              '        self.assertGreaterEqual(int(inspection["instruction_markers"]), 2)\n',
+              '        self.assertGreaterEqual(cast(int, inspection["instruction_markers"]), 2)\n',
+          )
+
+          replace_once(
+              "src/test_auth_migration.py",
+              '            self.assertIsNotNone(user)\n            self.assertEqual(user["email"], "file@example.com")\n',
+              '            if user is None:\n                self.fail("session should survive process restart")\n            self.assertEqual(user["email"], "file@example.com")\n',
+          )
+          replace_once(
+              "src/test_auth_migration.py",
+              '        self.assertIsNotNone(rotated)\n        self.assertIsNone(auth_service.current_user(self.connection, token))\n        self.assertEqual(auth_service.current_user(self.connection, rotated)["email"], "rotate2@example.com")\n',
+              '        if rotated is None:\n            self.fail("rotation should return a new token")\n        self.assertIsNone(auth_service.current_user(self.connection, token))\n        rotated_user = auth_service.current_user(self.connection, rotated)\n        if rotated_user is None:\n            self.fail("rotated token should remain valid")\n        self.assertEqual(rotated_user["email"], "rotate2@example.com")\n',
+          )
+
+          replace_once(
+              "src/test_engineering_application.py",
+              '        self.app = EngineeringApplication()\n        self.project_id = self.app.create_project("Reservoir Study", "Test project")\n',
+              '        self.app = EngineeringApplication()\n        project_id = self.app.create_project("Reservoir Study", "Test project")\n        if project_id is None:\n            self.fail("project creation should return an ID")\n        self.project_id = project_id\n',
+          )
+          replace_once(
+              "src/test_engineering_application.py",
+              '        evidence = self.app.get_evidence(evidence_id)\n        self.assertIsNotNone(evidence)\n        evidence_record = cast(dict[str, object], evidence)\n',
+              '        evidence = self.app.get_evidence(evidence_id)\n        if evidence is None:\n            self.fail("evidence should exist after creation")\n        evidence_record = cast(dict[str, object], evidence)\n',
+          )
+          replace_once(
+              "src/test_engineering_application.py",
+              '        evidence = self.app.get_evidence(evidence_id)\n        self.assertIsNotNone(evidence)\n        evidence_record = cast(dict[str, object], evidence)\n        self.assertEqual(evidence_record["lifecycle_status"], "Invalidated")\n',
+              '        evidence = self.app.get_evidence(evidence_id)\n        if evidence is None:\n            self.fail("invalidated evidence should remain retrievable")\n        evidence_record = cast(dict[str, object], evidence)\n        self.assertEqual(evidence_record["lifecycle_status"], "Invalidated")\n',
+          )
+
+          replace_once(
+              "src/test_engineering_web_api.py",
+              '        self.app = create_engineering_app()\n        self.project_id = self.workspace.create_project("Engineering Project")\n',
+              '        self.app = create_engineering_app()\n        project_id = self.workspace.create_project("Engineering Project")\n        if project_id is None:\n            self.fail("project creation should return an ID")\n        self.project_id = project_id\n',
+          )
+          replace_once(
+              "src/test_ingestion_policy.py",
+              '        self.project_id = db.create_project("Evidence Test")\n',
+              '        project_id = db.create_project("Evidence Test")\n        if project_id is None:\n            self.fail("project creation should return an ID")\n        self.project_id = project_id\n',
+          )
+
+          print("targeted type repairs applied")
+          PY
+
+      - name: Remove one-time workflow and commit
+        shell: bash
+        run: |
+          rm -f .github/workflows/one-time-type-repair.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyrightconfig.json src/web_api.py src/chat_service.py src/engineering_plans.py src/test_ai_security.py src/test_auth_migration.py src/test_engineering_application.py src/test_engineering_web_api.py src/test_ingestion_policy.py .github/workflows/one-time-type-repair.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo "no changes"; exit 1; }
+          git commit -m "typefix: resolve static type boundary errors"
+          git push
