@@ -54,6 +54,23 @@
       row.innerHTML = `<span>⌁</span><span><span class="file-name">Requirement #${requirement.id}: ${esc(requirement.title || requirement.description)}</span><span class="file-meta">${evidence.length} evidence records · ${esc(requirement.status)}</span><span class="evidence-list">${evidence.map((item) => `<span class="evidence-chip">${esc(item.supports_status || 'Unverified')} · ${esc(item.description || item.result || '')}</span>`).join('')}</span></span><button class="quiet-button" data-add-evidence-final="${requirement.id}">Add evidence</button></div>`;
       workspace.appendChild(row);
       row.querySelector('[data-add-evidence-final]')?.addEventListener('click', () => engineeringForm('evidence', requirement.id));
+      evidence.forEach((item) => {
+        const chip = [...row.querySelectorAll('.evidence-chip')][evidence.indexOf(item)];
+        if (!chip) return;
+        const invalidate = document.createElement('button');
+        invalidate.type = 'button';
+        invalidate.className = 'quiet-button evidence-invalidate';
+        invalidate.textContent = 'Invalidate';
+        invalidate.onclick = async () => {
+          const reason = prompt('Why is this evidence being invalidated?');
+          if (!reason?.trim()) return;
+          try {
+            await send(`/api/engineering/projects/${state.projectId}/evidence/invalidate`, { id: item.id, reason: reason.trim() });
+            await openProjectEngineering();
+          } catch (error) { window.showError?.(error); }
+        };
+        chip.appendChild(invalidate);
+      });
     }
   };
 
