@@ -45,13 +45,13 @@ Do not put the key into Python source code, Git, screenshots, or committed confi
 
 ```bash
 cd ~/workspace/personal-ai-system
-PYTHONPATH=src python scripts/openrouter_build_loop.py --once
+PYTHONPATH=src python3 scripts/openrouter_build_loop.py --once
 ```
 
 4. View the saved proposal:
 
 ```bash
-python -m json.tool .runtime/ai_os_project_state.json
+python3 -m json.tool .runtime/ai_os_project_state.json
 ```
 
 Look under `approval_queue`. Nothing is applied automatically.
@@ -59,20 +59,22 @@ Look under `approval_queue`. Nothing is applied automatically.
 ## Continuous mode
 
 ```bash
-PYTHONPATH=src python scripts/openrouter_build_loop.py
+PYTHONPATH=src python3 scripts/openrouter_build_loop.py
 ```
 
 The worker uses a conservative daily budget and pacing. When the budget is reached, it exits cleanly and preserves state for the next run.
 
 ## Model selection
 
-The default is:
+The default build-assistant model is:
 
 ```text
 openrouter/free
 ```
 
-This router dynamically selects from the current free-model pool and filters for supported capabilities such as structured output and tool calling. A specific compatible free model can be selected with `--model` when you need reproducible model choice.
+This router dynamically selects from the current free-model pool. For reproducible runs, a specific free model can be supplied with `--model`.
+
+For the chat application's Auto profile, the project restricts OpenRouter Auto Router to an explicit allowlist of verified free models so the router remains task-aware while staying inside the free pool.
 
 ## Do not bypass provider limits
 
