@@ -26,7 +26,8 @@ def initialize(connection: sqlite3.Connection) -> None:
             role TEXT NOT NULL DEFAULT 'owner',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (chat_id, user_id),
-            FOREIGN KEY (chat_id) REFERENCES users(id) ON DELETE CASCADE
+            FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_chat_members_user ON chat_members(user_id, chat_id);
         """
@@ -169,11 +170,13 @@ def filter_rows(rows: Iterable[dict[str, object]], allowed_ids: set[int] | None,
     filtered: list[dict[str, object]] = []
     for row in rows:
         raw_id = row.get(key)
-        try:
-            row_id = int(raw_id)  # type: ignore[arg-type]
-        except (TypeError, ValueError):
+        if isinstance(raw_id, bool):
             continue
-        if row_id in allowed_ids:
+        try:
+            row_id = int(raw_id) if isinstance(raw_id, (int, str, float)) else None
+        except (TypeError, ValueError):
+            row_id = None
+        if row_id is not None and row_id in allowed_ids:
             filtered.append(row)
     return filtered
 
