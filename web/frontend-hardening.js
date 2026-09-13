@@ -3,6 +3,13 @@
 
   const listeners = new Map();
   const state = Object.create(null);
+  const MODEL_VALUE_TO_PROFILE = {
+    auto: 'profile:auto',
+    claude: 'profile:claude-opus',
+    gpt: 'profile:gpt-5.4',
+    gemini: 'profile:gemini-3.1-pro',
+    free: 'profile:free',
+  };
 
   const emit = (event, detail) => {
     const handlers = listeners.get(event) || [];
@@ -14,15 +21,8 @@
 
   window.PASRuntime = Object.freeze({
     get(key) { return state[key]; },
-    set(key, value) {
-      state[key] = value;
-      emit('state', { key, value });
-      return value;
-    },
-    patch(values) {
-      Object.entries(values || {}).forEach(([key, value]) => { state[key] = value; });
-      emit('state', { patch: { ...(values || {}) } });
-    },
+    set(key, value) { state[key] = value; emit('state', { key, value }); return value; },
+    patch(values) { Object.entries(values || {}).forEach(([key, value]) => { state[key] = value; }); emit('state', { patch: { ...(values || {}) } }); },
     on(event, handler) {
       if (typeof handler !== 'function') throw new TypeError('handler must be a function');
       const handlers = listeners.get(event) || [];
@@ -36,6 +36,22 @@
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async (input, init = {}) => {
     const requestInit = { credentials: 'same-origin', ...init };
+    const url = typeof input === 'string' ? input : input?.url || '';
+    if (requestInit.body && String(url).includes('/api/chats/') && String(url).endsWith('/messages')) {
+      try {
+        const payload = JSON.parse(String(requestInit.body));
+        if (typeof payload.model === 'string' && MODEL_VALUE_TO_PROFILE[payload.model]) {
+          payload.model = MODEL_VALUE_TO_PROFILE[payload.model];
+          requestInit.body = JSON.stringify(payload);
+        }
+        // Explicitly surface the chosen mode in the API contract even though
+        // the existing composer did not send one.
+        if (!payload.mode) payload.mode = 'auto';
+        requestInit.body = JSON.stringify(payload);
+      } catch (_) {
+        // Leave non-JSON requests untouched; the API layer will validate them.
+      }
+    }
     const response = await nativeFetch(input, requestInit);
     if (response.ok) return response;
 
@@ -47,15 +63,20 @@
         payload = await response.clone().json();
         if (payload && typeof payload.error === 'string') message = payload.error;
       }
-    } catch (_) {
-      // Preserve the HTTP-status error when the response body is malformed.
-    }
+    } catch (_) {}
     const error = new Error(message);
     error.status = response.status;
     error.payload = payload;
     emit('api-error', error);
     throw error;
   };
+
+  // ``app.js`` currently references the legacy global `event` in one file
+  // click handler. Capture the real event so the legacy handler has a stable
+  // value without altering its surrounding UI behavior.
+  document.addEventListener('click', (event) => {
+    try { window.event = event; } catch (_) {}
+  }, true);
 
   window.addEventListener('error', (event) => {
     emit('runtime-error', { message: event.message, filename: event.filename, lineno: event.lineno });
