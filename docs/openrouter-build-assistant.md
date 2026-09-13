@@ -1,123 +1,91 @@
 # OpenRouter Build Assistant
 
-This stage adds a **supervised** long-running engineering build assistant. It uses OpenRouter's free-model router by default, keeps progress in a local JSON checkpoint, handles rate limits, and places model-generated changes in an approval queue instead of writing them directly into the repository.
+This stage adds a supervised, resumable engineering build assistant. It uses OpenRouter's free-model router by default, keeps progress in a local JSON checkpoint, handles rate limits, and places model-generated changes in an approval queue instead of writing them directly into the repository.
 
-OpenRouter currently lists `openrouter/free` as a zero-price router for available free models. Its current free plan lists a 50-request/day limit, so this worker defaults to 45 requests/day and spaces cycles about 35 minutes apart. Limits can change; check the OpenRouter pricing page before changing these values.
+OpenRouter currently lists `openrouter/free` as a zero-price router for available free models. Its current free plan lists 50 requests/day and 20 requests/minute; limits can change, so check the current pricing page before changing the worker budget.
 
-## What this means in plain English
+## What this does
 
-The worker is a second AI helper for the project. It can look at a small project roadmap, ask a model for the **next single improvement**, and remember the answer.
+Think of it as a second AI helper for the project. It can read a bounded snapshot of the repository, inspect the engineering roadmap, ask the model for the next single improvement, and remember the result.
 
 It does **not** silently edit your code, run arbitrary shell commands, deploy software, trade, move money, or access credentials.
 
-That is intentional. The useful loop is:
+The loop is:
 
 ```text
+read project snapshot
+        ↓
 AI proposes one change
         ↓
-save proposal
+validate proposal
         ↓
-you review it
+save to approval queue
         ↓
-you approve/apply it
+human review / apply
         ↓
-tests run
+run tests
         ↓
-next cycle learns from the result
+record result
+        ↓
+next cycle
 ```
 
-## First-time setup
+## Easiest setup
 
-1. Create an OpenRouter API key in your OpenRouter account.
-2. In the WSL terminal for this project, set it as an environment variable:
+1. Create one OpenRouter API key in your OpenRouter account.
+2. In the WSL terminal for this project, set it temporarily:
 
 ```bash
 export OPENROUTER_API_KEY='paste-your-key-here'
 ```
 
-Do not put the key into Python source code, Git, `.env` files committed to the repository, or screenshots.
+Do not put the key into Python source code, Git, screenshots, or committed configuration.
 
-3. Run one safe test cycle:
+3. Run one safe cycle:
 
 ```bash
 cd ~/workspace/personal-ai-system
 PYTHONPATH=src python scripts/openrouter_build_loop.py --once
 ```
 
-The first run creates:
-
-```text
-.runtime/ai_os_project_state.json
-```
-
-That file is local runtime state and is intentionally not part of the application source tree.
-
-## See what the assistant proposed
-
-After a cycle:
+4. View the saved proposal:
 
 ```bash
 python -m json.tool .runtime/ai_os_project_state.json
 ```
 
-Look for:
+Look under `approval_queue`. Nothing is applied automatically.
 
-```text
-approval_queue
-```
-
-Each entry contains the reason for the proposal, target file, generated code, and `pending_review` status.
-
-Nothing is applied automatically.
-
-## Run continuously
-
-For the free tier, use the default budget and interval:
+## Continuous mode
 
 ```bash
 PYTHONPATH=src python scripts/openrouter_build_loop.py
 ```
 
-The worker automatically stops when its daily request budget is reached and keeps its checkpoint so it can be resumed later.
+The worker uses a conservative daily budget and pacing. When the budget is reached, it exits cleanly and preserves state for the next run.
 
-## Useful controls
+## Model selection
 
-Use a different model:
+The default is:
 
-```bash
-PYTHONPATH=src python scripts/openrouter_build_loop.py --model openrouter/free --once
+```text
+openrouter/free
 ```
 
-Use fewer requests:
+This router dynamically selects from the current free-model pool and filters for supported capabilities such as structured output and tool calling. A specific compatible free model can be selected with `--model` when you need reproducible model choice.
 
-```bash
-PYTHONPATH=src python scripts/openrouter_build_loop.py --max-daily-requests 10
-```
+## Do not bypass provider limits
 
-Test faster locally without trying to consume the whole daily allowance:
+Do **not** create multiple accounts or rotate credentials to defeat provider rate limits. OpenRouter's current terms prohibit creating multiple accounts for the purpose of circumventing use limits.
 
-```bash
-PYTHONPATH=src python scripts/openrouter_build_loop.py --once --min-interval-seconds 30
-```
+A legitimate future multi-provider architecture is different: each provider can be integrated through its own documented API and its own account/quota, with the runtime enforcing each provider's stated limits rather than bypassing them.
 
-The minimum interval is deliberately prevented from becoming zero so an accidental tight loop cannot hammer the API.
+## Privacy
 
-## Current roadmap seeded into the worker
+The repository snapshot is intentionally bounded and excludes common credential/runtime locations. Still, review what the worker sends before using it with private engineering material. Free endpoints may have provider-specific data policies, so sensitive or proprietary material should only be sent when the applicable model/provider policy has been checked.
 
-1. Supervised engineering workload execution path
-2. Safe local sandbox capability boundary
-3. Deterministic calculation workloads and manifests
-4. Simulation study and provenance primitives
-5. Shadow-mode telemetry and verification reporting
+## Long-running use
 
-These are starting points, not permanent commitments. The project should continue to replace assumptions with benchmarks and verified integrations.
+For a free account, the current listed budget is 50 requests/day, so a 10-second loop is not an appropriate strategy. The worker therefore uses a request budget, minimum interval, and exponential backoff for 429/network failures.
 
-## Why the original 10-second loop was changed
-
-A 10-second delay would mean thousands of requests per day, which is incompatible with the currently listed free-plan daily request budget. The implementation therefore uses a request budget plus a long minimum interval and exponential backoff for HTTP 429 responses.
-
-The worker also uses OpenRouter's API endpoint at `/api/v1/chat/completions` and structured JSON output, matching the current OpenRouter API surface.
-
-## Important privacy note
-
-Do not send private repositories, confidential engineering data, passwords, API keys, financial credentials, or other sensitive material to a free model unless the provider/model policy has been checked and the data is appropriate to send. OpenRouter exposes provider/model information and policy controls, but the policy can differ by provider/model.
+The project should optimize **useful engineering progress per request**, not maximize request count.
