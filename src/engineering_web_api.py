@@ -5,6 +5,8 @@ import json
 from urllib.parse import parse_qs, urlsplit
 
 import db
+import ingestion_service
+import policy
 from engineering_application import EngineeringApplication
 
 
@@ -100,6 +102,26 @@ class EngineeringWebApplication:
                 if file_id is not None and self._workspace_file(project_id, int(file_id)) is None:
                     raise ValueError("File not found in project.")
                 return self._json(201, {"id": self.engineering.create_source(project_id, data["title"], data["source_type"], author=data.get("author"), publisher=data.get("publisher"), version=data.get("version"), url=data.get("url"), file_id=file_id, checksum=data.get("checksum"))})
+            if method == "POST" and len(parts) == 6 and resource == "sources" and parts[5] == "ingest":
+                connection = db.get_connection()
+                try:
+                    policy.require(connection, "local", "ingest_source")
+                    result = ingestion_service.ingest_text(
+                        connection, project_id, data["title"], data["content"],
+                        source_type=data.get("source_type", "text"),
+                        version=data.get("version"), url=data.get("url"),
+                        chunk_chars=int(data.get("chunk_chars", ingestion_service.DEFAULT_CHUNK_CHARS)),
+                    )
+                finally:
+                    connection.close()
+                return self._json(201, result)
+            if method == "GET" and len(parts) == 6 and resource == "sources" and parts[5] == "search":
+                connection = db.get_connection()
+                try:
+                    results = ingestion_service.search_chunks(connection, project_id, query["q"], int(query.get("limit", "10")))
+                finally:
+                    connection.close()
+                return self._json(200, results)
             if resource == "requirements" and len(parts) == 7 and parts[6] == "evidence":
                 requirement_id = int(parts[5])
                 self._require_requirement(project_id, requirement_id)
@@ -132,6 +154,8 @@ class EngineeringWebApplication:
                     self._require_design_case(project_id, int(design_case_id))
                 return self._json(201, {"id": self.engineering.create_decision(project_id, data["title"], data["decision"], description=data.get("description"), requirement_id=requirement_id, design_case_id=design_case_id, rationale=data.get("rationale"))})
             return self._json(404, {"error": "Not found"})
+        except PermissionError as exc:
+            return self._json(403, {"error": str(exc) or "Permission denied"})
         except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
             return self._json(400, {"error": str(exc) or "Invalid request"})
         except Exception as exc:
