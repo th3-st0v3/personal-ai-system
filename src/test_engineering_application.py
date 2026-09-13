@@ -18,7 +18,10 @@ class TestEngineeringApplication(unittest.TestCase):
         db.initialize_database(connection)
         connection.close()
         self.app = EngineeringApplication()
-        self.project_id = self.app.create_project("Reservoir Study", "Test project")
+        project_id = self.app.create_project("Reservoir Study", "Test project")
+        if project_id is None:
+            self.fail("project creation should return an ID")
+        self.project_id = project_id
 
     def tearDown(self):
         db.DATABASE_PATH = self.original_path
@@ -51,13 +54,15 @@ class TestEngineeringApplication(unittest.TestCase):
         source_id = self.app.create_source(self.project_id, "Reservoir report", "report", author="Engineer", publisher="Operator", version="1.2")
         evidence_id = self.app.create_evidence(requirement_id, "Pressure supports design", "Verified", source="Reservoir report", source_id=source_id, classification="analysis", description="Pressure data supports the selected design.")
         evidence = self.app.get_evidence(evidence_id)
-        self.assertIsNotNone(evidence)
+        if evidence is None:
+            self.fail("evidence should exist after creation")
         evidence_record = cast(dict[str, object], evidence)
         self.assertEqual(evidence_record["source_id"], source_id)
         self.assertEqual(evidence_record["classification"], "analysis")
         self.app.invalidate_evidence(evidence_id, "Superseded by revised report")
         evidence = self.app.get_evidence(evidence_id)
-        self.assertIsNotNone(evidence)
+        if evidence is None:
+            self.fail("invalidated evidence should remain retrievable")
         evidence_record = cast(dict[str, object], evidence)
         self.assertEqual(evidence_record["lifecycle_status"], "Invalidated")
         self.assertEqual(evidence_record["invalidation_reason"], "Superseded by revised report")

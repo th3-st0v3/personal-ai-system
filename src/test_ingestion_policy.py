@@ -23,7 +23,10 @@ class TestIngestionPolicy(unittest.TestCase):
         connection = sqlite3.connect(db.DATABASE_PATH)
         db.initialize_database(connection)
         connection.close()
-        self.project_id = db.create_project("Evidence Test")
+        project_id = db.create_project("Evidence Test")
+        if project_id is None:
+            self.fail("project creation should return an ID")
+        self.project_id = project_id
 
     def tearDown(self):
         db.DATABASE_PATH = self.original

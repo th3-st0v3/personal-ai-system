@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TypedDict
 
 
-class RequirementRecord(TypedDict, total=False):
+class RequirementRecord(TypedDict):
     id: int
     project_id: int
     identifier: str | None

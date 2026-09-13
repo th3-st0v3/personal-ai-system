@@ -21,7 +21,10 @@ class TestEngineeringWebApplication(unittest.TestCase):
         db.DATABASE_PATH = os.path.join(self.temp.name, "engineering.db")
         self.workspace = WorkspaceApplication(os.path.join(self.temp.name, "storage"))
         self.app = create_engineering_app()
-        self.project_id = self.workspace.create_project("Engineering Project")
+        project_id = self.workspace.create_project("Engineering Project")
+        if project_id is None:
+            self.fail("project creation should return an ID")
+        self.project_id = project_id
 
     def tearDown(self):
         db.DATABASE_PATH = self.original_db

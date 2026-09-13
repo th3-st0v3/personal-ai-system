@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 from http.cookies import SimpleCookie
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import auth_service
@@ -132,7 +134,7 @@ class WebApplication:
         method: str,
         path: str,
         query: dict[str, str],
-        data: dict[str, object],
+        data: dict[str, Any],
         user: dict[str, object] | None,
         token: str | None,
         actor_id: str,
@@ -218,7 +220,7 @@ class WebApplication:
         method: str,
         path: str,
         query: dict[str, str],
-        data: dict[str, object],
+        data: dict[str, Any],
     ) -> tuple[int, object] | None:
         if method == "POST" and path == "/api/chats":
             connection = db.get_connection()
@@ -276,7 +278,7 @@ class WebApplication:
         method: str,
         parts: list[str],
         query: dict[str, str],
-        data: dict[str, object],
+        data: dict[str, Any],
         actor_id: str,
     ) -> tuple[int, object] | None:
         if len(parts) < 4 or parts[1:3] != ["api", "projects"]:
@@ -549,7 +551,7 @@ class WebApplication:
             return self._json(status, response_body, extra_headers)
         except PermissionError as exc:
             return self._json(403, {"error": str(exc) or "Permission denied"})
-        except (KeyError, ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError, base64.binascii.Error) as exc:
+        except (KeyError, ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError, binascii.Error) as exc:
             return self._json(400, {"error": str(exc) or "Invalid request"})
         except Exception as exc:
             return self._json(500, {"error": str(exc) or "Internal server error"})

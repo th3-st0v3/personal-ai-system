@@ -298,8 +298,12 @@ def respond(connection: sqlite3.Connection, chat_id: int, content: str, *, model
     chat = get_chat(connection, chat_id)
     add_message(connection, chat_id, "user", content)
     chat_with_messages = get_chat(connection, chat_id)
-    messages = [{"role": message["role"], "content": message["content"]} for message in chat_with_messages["messages"] if isinstance(message, Mapping) and isinstance(message.get("role"), str) and isinstance(message.get("content"), str)]
-    project_id = chat["project_id"] if isinstance(chat.get("project_id"), int) else None
+    messages_raw = chat_with_messages.get("messages")
+    if not isinstance(messages_raw, list):
+        raise RuntimeError("Chat record is missing its messages collection.")
+    messages = [{"role": message["role"], "content": message["content"]} for message in messages_raw if isinstance(message, Mapping) and isinstance(message.get("role"), str) and isinstance(message.get("content"), str)]
+    project_id_raw = chat.get("project_id")
+    project_id = project_id_raw if isinstance(project_id_raw, int) else None
     events: list[dict[str, object]] = []
     provider_status: dict[str, object] = {"mode": mode, "configured": bool(os.environ.get("OPENROUTER_API_KEY", "").strip())}
     answer: str | None = None
