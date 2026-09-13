@@ -86,6 +86,8 @@ class SiteApplication:
             for name, value in security_headers:
                 if name.casefold() not in existing:
                     transformed.append((name, value))
+            if exc_info is None:
+                return start_response(status, transformed)
             return start_response(status, transformed, exc_info)
         return wrapped
 
