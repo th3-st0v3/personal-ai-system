@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlsplit
 import auth_service
 import chat_service
 import db
+import ingestion_service
+import policy
 import project_service
 import simulation_library
 import workspace_browser
@@ -30,6 +32,7 @@ class WebApplication:
         try:
             auth_service.initialize(connection)
             chat_service.initialize(connection)
+            policy.initialize(connection)
         finally:
             connection.close()
 
@@ -89,6 +92,7 @@ class WebApplication:
                 raise ValueError("JSON request body must be an object.")
             token = self._session_token(environ or {})
             user = self._current_user(token)
+            actor_id = str(user["id"]) if user else "local"
 
             if method == "GET" and path == "/api/health": return self._json(200, {"status": "ok"})
             if method == "GET" and path == "/api/manifest": return self._json(200, self._manifest(user))
@@ -118,7 +122,11 @@ class WebApplication:
                 key=path.rsplit("/",1)[-1]; model=self.calculations.get_model(key); method_version=self.calculations.get_method(key); parameters=self.calculations.get_parameters(key); catalog=self.calculations.get_catalog_entry(key)
                 return self._json(200,{"model":model.__dict__,"method":method_version.__dict__,"parameters":[parameter.__dict__ for parameter in parameters],"catalog":catalog.__dict__})
             if method == "GET" and path == "/api/simulations": return self._json(200,[{"key":s.key,"name":s.name,"discipline":s.discipline,"description":s.description,"parameters":list(s.parameters)} for s in simulation_library.list_simulations()])
-            if method == "POST" and path == "/api/simulations/run": return self._json(200,simulation_library.run_simulation(data["simulation_key"],data.get("inputs",{})))
+            if method == "POST" and path == "/api/simulations/run":
+                connection = db.get_connection()
+                try: policy.require(connection, actor_id, "run_simulation")
+                finally: connection.close()
+                return self._json(200,simulation_library.run_simulation(data["simulation_key"],data.get("inputs",{})))
 
             if method == "POST" and path == "/api/chats":
                 connection=db.get_connection()
@@ -172,6 +180,18 @@ class WebApplication:
                     note=self.workspace.get_note(int(query["id"]));
                     if note is None or note.project_id!=project_id: raise ValueError("Note not found in project.")
                     return self._json(200,self._item(note))
+                if method=="POST" and len(parts)==5 and parts[4]=="sources":
+                    connection=db.get_connection()
+                    try:
+                        policy.require(connection, actor_id, "ingest_source")
+                        result=ingestion_service.ingest_text(connection, project_id, data["title"], data["content"], source_type=data.get("source_type","text"), version=data.get("version"), url=data.get("url"), chunk_chars=int(data.get("chunk_chars", ingestion_service.DEFAULT_CHUNK_CHARS)))
+                    finally: connection.close()
+                    return self._json(201,result)
+                if method=="GET" and len(parts)==5 and parts[4]=="sources":
+                    connection=db.get_connection()
+                    try:
+                        return self._json(200, ingestion_service.search_chunks(connection, project_id, query["q"], int(query.get("limit","10"))))
+                    finally: connection.close()
                 if method=="POST" and len(parts)==5 and parts[4]=="files":
                     if "name" not in data or "data_base64" not in data: raise ValueError("File name and data_base64 are required.")
                     payload=base64.b64decode(data["data_base64"],validate=True); return self._json(201,{"id":self.workspace.create_file(project_id,data["name"],payload,data.get("mime_type"),data.get("folder_id"))})
@@ -211,6 +231,8 @@ class WebApplication:
                     if properties["project_id"]!=project_id: raise ValueError("Item belongs to another project.")
                     properties.pop("sha256",None); return self._json(200,properties)
             return self._json(404,{"error":"Not found"})
+        except PermissionError as exc:
+            return self._json(403,{"error":str(exc) or "Permission denied"})
         except (KeyError,ValueError,TypeError,json.JSONDecodeError,UnicodeDecodeError,base64.binascii.Error) as exc:
             return self._json(400,{"error":str(exc) or "Invalid request"})
         except Exception as exc: return self._json(500,{"error":str(exc) or "Internal server error"})
