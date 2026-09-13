@@ -41,7 +41,7 @@ class TestWebApplication(unittest.TestCase):
     def test_manifest_matches_backend_capabilities(self):
         status, _, manifest = self.request("GET", "/api/manifest")
         self.assertEqual(status, 200)
-        self.assertEqual(manifest["api_version"], 2)
+        self.assertEqual(manifest["api_version"], 3)
         self.assertEqual(manifest["workspace"]["kinds"], ["folder", "note", "file"])
         self.assertIn("none", manifest["workspace"]["sort_options"])
         self.assertIn("last_modified_new_old", manifest["workspace"]["sort_options"])
@@ -207,5 +207,4 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(json.loads(body), {"error": "Request body too large."})
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
