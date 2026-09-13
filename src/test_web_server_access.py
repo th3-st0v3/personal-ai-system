@@ -99,10 +99,10 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         self.assertEqual(status, 403)
 
         status, _, search = self.request("GET", "/api/search?q=private-alice", cookie=bob_cookie)
-        self.assertEqual(status, 200)
+        self.assertEqual(status, 200, search)
         self.assertEqual(search["projects"], [])
         status, _, search = self.request("GET", "/api/search?q=private-alice", cookie=alice_cookie)
-        self.assertEqual(status, 200)
+        self.assertEqual(status, 200, search)
         self.assertEqual({item["id"] for item in search["projects"]}, {alice_project_id})
 
         status, _, _ = self.request("GET", f"/api/engineering/projects/{alice_project_id}/requirements", cookie=bob_cookie)
