@@ -159,7 +159,7 @@ class SiteApplication:
                 access_control.require_authenticated(connection, actor_id)
                 project_id = body.get("project_id") if method == "POST" else query.get("project_id")
                 if project_id is not None:
-                    access_control.require_project(connection, actor_id, int(project_id))
+                    access_control.require_project(connection, actor_id, int(str(project_id)))
                 return actor_id
             parts = [part for part in path.split("/") if part]
             if len(parts) >= 3 and parts[1] == "projects":
@@ -175,7 +175,7 @@ class SiteApplication:
                 access_control.require_chat(connection, actor_id, chat_id)
                 target_project = body.get("project_id") if method == "PATCH" else None
                 if target_project is not None:
-                    access_control.require_project(connection, actor_id, int(target_project))
+                    access_control.require_project(connection, actor_id, int(str(target_project)))
                 return actor_id
         finally:
             connection.close()
@@ -281,7 +281,7 @@ class SiteApplication:
                 if normalized_path == "/api/auth/signup" and status.startswith("201"):
                     try:
                         payload = json.loads(body)
-                        user_id = int(payload["user"]["id"])
+                        user_id = int(str(payload["user"]["id"]))
                     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                         user_id = None
                     if user_id is not None:
@@ -294,14 +294,14 @@ class SiteApplication:
                     payload = json.loads(body)
                     connection = db.get_connection()
                     try:
-                        access_control.claim_project(connection, int(payload["id"]), int(actor_id))
+                        access_control.claim_project(connection, int(str(payload["id"])), int(actor_id))
                     finally:
                         connection.close()
                 elif normalized_path == "/api/chats" and method == "POST" and status.startswith("201") and actor_id is not None:
                     payload = json.loads(body)
                     connection = db.get_connection()
                     try:
-                        access_control.claim_chat(connection, int(payload["id"]), int(actor_id))
+                        access_control.claim_chat(connection, int(str(payload["id"])), int(actor_id))
                     finally:
                         connection.close()
                 if method == "GET" and normalized_path in {"/api/projects", "/api/chats"} and status.startswith("200"):
