@@ -31,7 +31,7 @@ jobs:
       - name: Static type check
         run: npx --yes pyright@latest src scripts
       - name: Markdown lint
-        run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules"
+        run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules" "#**/.venv/**" "#**/venv/**" "#**/env/**"
       - name: Validate web client syntax
         run: |
           set -e
