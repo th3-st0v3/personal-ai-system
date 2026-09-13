@@ -24,6 +24,7 @@ class EngineeringBackend(Protocol):
 
     def supports(self, spec: WorkloadSpec) -> bool:
         """Return whether this backend can execute the workload."""
+        ...
 
     def execute(self, spec: WorkloadSpec) -> tuple[RunManifest, BackendResult]:
         """Execute an authorized workload and return its manifest and result."""
