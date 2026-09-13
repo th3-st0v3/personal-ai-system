@@ -437,4 +437,25 @@ class EngineeringApplication:
         finally:
             connection.close()
 
+    def record_audit_event(self, entity_type, entity_id, action, *, workspace_id=None,
+                           user_id=None, metadata=None):
+        entity_type = self._require_text(entity_type, "entity_type")
+        action = self._require_text(action, "action")
+        connection = db.get_connection()
+        try:
+            if workspace_id is not None and connection.execute("SELECT id FROM workspaces WHERE id = ?", (workspace_id,)).fetchone() is None:
+                raise ValueError(f"No workspace found with ID {workspace_id}.")
+            if user_id is not None and connection.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone() is None:
+                raise ValueError(f"No user found with ID {user_id}.")
+            cursor = connection.execute(
+                "INSERT INTO audit_events (workspace_id, user_id, entity_type, entity_id, action, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (workspace_id, user_id, entity_type, entity_id, action,
+                 None if metadata is None else json.dumps(metadata, sort_keys=True)),
+            )
+            connection.commit()
+            return cursor.lastrowid
+        finally:
+            connection.close()
+
 __all__ = ["EngineeringApplication"]
