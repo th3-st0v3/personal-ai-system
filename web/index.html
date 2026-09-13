@@ -3,21 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Personal AI System — engineering-focused AI, calculations, simulations, education, and projects">
-  <title>Personal AI System</title>
+  <meta name="description" content="Engineering-focused AI workspace, calculations, simulations, projects, and evidence">
+  <title>Engineering AI Workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Lora:ital,wght@0,400..700;1,400..700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/ux-hardening.css">
+  <link rel="stylesheet" href="/product-polish.css">
 </head>
 <body>
   <header class="topbar">
-    <button id="menu-toggle" class="icon-button" type="button" aria-label="Open navigation">☰</button>
-    <button id="brand-home" class="brand" type="button">Personal AI System</button>
+    <button id="menu-toggle" class="icon-button" type="button" aria-label="Toggle sidebar">☰</button>
     <label class="global-search" aria-label="Search">
       <span aria-hidden="true">⌕</span>
       <input id="global-search" type="search" placeholder="Search chats, projects, notes, calculations…" autocomplete="off">
     </label>
     <div class="top-actions">
-      <button id="share-current" class="icon-button" type="button" title="Share current view" aria-label="Share current view">↗</button>
+      <button id="share-current" class="icon-button" type="button" hidden></button>
       <button id="login-button" class="text-button" type="button">Log in</button>
       <button id="signup-button" class="primary-button" type="button">Sign up</button>
       <button id="account-button" class="account-button" type="button" hidden></button>
@@ -25,25 +28,23 @@
   </header>
   <div id="layout" class="layout">
     <aside id="sidebar" class="sidebar" aria-label="Main navigation">
-      <button id="new-chat" class="primary-button sidebar-new" type="button"><span>＋</span> New chat</button>
+      <button id="new-chat" class="primary-button sidebar-new" type="button">＋ New chat <span class="shortcut-hint">Ctrl+O</span></button>
       <nav class="nav-stack">
         <button class="nav-item active" data-view="chat" type="button"><span>◉</span> Chat</button>
         <button class="nav-item" data-view="projects" type="button"><span>▣</span> Projects</button>
         <button class="nav-item" data-view="education" type="button"><span>▤</span> Education</button>
         <button class="nav-item" data-view="simulations" type="button"><span>◒</span> Simulations</button>
-        <button id="calculations-toggle" class="nav-item" type="button"><span>Σ</span> Calculations <span class="chevron">›</span></button>
+        <button id="calculations-toggle" class="nav-item" type="button"><span>Σ</span> Calculations <span class="chevron">⌄</span></button>
         <div id="calculation-categories" class="subnav" hidden></div>
         <button class="nav-item" data-view="connections" type="button"><span>⌘</span> Connections</button>
-        <button class="nav-item" data-view="settings" type="button"><span>⚙</span> Settings</button>
       </nav>
-      <div class="sidebar-section"><div class="sidebar-heading"><span>Recent chats</span><button id="clear-chat-list" class="quiet-icon" type="button" title="Refresh chats">↻</button></div><div id="chat-list" class="chat-list"></div></div>
-      <div class="sidebar-section projects-mini-section"><div class="sidebar-heading">Recent projects</div><div id="recent-projects-mini" class="chat-list"></div></div>
+      <div class="sidebar-section"><div class="sidebar-heading"><span>Chats</span><button id="clear-chat-list" class="quiet-icon" type="button" title="Refresh chats">↻</button></div><div id="chat-list" class="chat-list"></div></div>
     </aside>
     <main id="main" class="main">
       <section id="home-view" class="view chat-view">
-        <div id="chat-header" class="chat-header"><div><div id="chat-context" class="eyebrow">Personal AI</div><h1 id="chat-title">New chat</h1></div><div class="header-actions"><button id="new-chat-header" class="outline-button" type="button">New chat</button><button id="project-chat-button" class="outline-button" type="button" hidden>Project</button></div></div>
-        <div id="chat-messages" class="chat-messages" aria-live="polite"><div class="welcome-card"><div class="welcome-mark">✦</div><h2>What are you working on?</h2><p>Ask about engineering, study a concept, inspect project material, run a calculation, or build a simulation.</p><div class="prompt-grid"><button type="button" data-prompt="Build a transparent engineering model for this problem and identify the assumptions.">Model an engineering problem</button><button type="button" data-prompt="Explain this like a tutor, then give me a few progressively harder practice problems.">Study something</button><button type="button" data-prompt="Digest the information I provide into claims, evidence, assumptions, and open questions.">Digest information</button><button type="button" data-prompt="Help me choose the right engineering calculator or simulation for this problem.">Choose a tool</button></div></div></div>
-        <form id="chat-form" class="composer"><div id="format-toolbar" class="format-toolbar" hidden><button type="button" data-format="bold"><strong>B</strong></button><button type="button" data-format="italic"><em>I</em></button><button type="button" data-format="code">&lt;/&gt;</button><button type="button" data-format="list">•</button></div><textarea id="chat-input" rows="1" placeholder="Message Personal AI System…"></textarea><div class="composer-row"><div class="composer-left"><button id="attach-button" class="icon-button" type="button" title="Attach a file" aria-label="Attach a file">＋</button><input id="chat-file-input" type="file" hidden><button id="format-toggle" class="quiet-button" type="button">Format</button><select id="ai-mode" class="mode-select" aria-label="AI mode"><option value="auto">Auto</option><option value="local">Local</option><option value="frontier">Frontier via OpenRouter</option></select></div><button id="send-chat" class="primary-button send-button" type="submit">Send</button></div></form>
+        <div id="chat-header" class="chat-header"><div><div id="chat-context" class="eyebrow"></div><h1 id="chat-title">New chat</h1></div><div class="header-actions"><button id="new-chat-header" class="outline-button" type="button">New chat</button><button id="project-chat-button" class="outline-button" type="button" hidden>Project</button></div></div>
+        <div id="chat-messages" class="chat-messages" aria-live="polite"><div class="welcome-card"><h2>What are you working on?</h2><p>Ask an engineering question, inspect project material, run a deterministic calculation, or start a simulation.</p></div></div>
+        <form id="chat-form" class="composer"><textarea id="chat-input" rows="1" placeholder="Message…"></textarea><div class="composer-row"><div class="composer-left"><button id="attach-button" class="icon-button" type="button" title="Attach a file" aria-label="Attach a file">＋</button><input id="chat-file-input" type="file" hidden><select id="ai-mode" class="mode-select" aria-label="AI model"><option value="auto">Auto</option><option value="claude">Claude Opus 5</option><option value="gpt">GPT-5.4</option><option value="gemini">Gemini 3.1 Pro</option><option value="free">Free</option></select></div><button id="send-chat" class="primary-button send-button" type="submit">Send</button></div></form>
       </section>
       <section id="page-view" class="view page-view" hidden></section>
     </main>
@@ -53,6 +54,7 @@
   <script src="/app.js" defer></script>
   <script src="/interaction-fixes.js" defer></script>
   <script src="/beta-features.js" defer></script>
+  <script src="/product-polish.js" defer></script>
   <script src="/ux-hardening.js" defer></script>
 </body>
 </html>
