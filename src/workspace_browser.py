@@ -137,7 +137,9 @@ def list_project_items(project_id: int, *, recursive: bool=True, sort: str="a_z"
 
 
 def create_file(storage_root, project_id: int, name: str, data: bytes, mime_type: str | None=None, folder_id: int | None=None) -> int:
-    return create_stored_file(storage_root,project_id,name,data,mime_type,folder_id)
+    created_id = create_stored_file(storage_root,project_id,name,data,mime_type,folder_id)
+    if created_id is None: raise RuntimeError("Database did not return a new file ID.")
+    return int(created_id)
 
 
 def move_item(kind: ItemKind, item_id: int, target_folder_id: int | None) -> None:
