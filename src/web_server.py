@@ -1,16 +1,20 @@
 """WSGI composition for the full Personal AI System web shell.
 
 The network endpoint remains owned by ``scripts/serve_web.py``. This module
-only composes API adapters and serves static assets, while adding response
-security headers and a lightweight same-origin check for cookie-authenticated
-state-changing requests.
+composes the API adapters, serves static assets, applies response security
+headers, and enforces account-to-project/chat authorization at the HTTP edge.
 """
 from __future__ import annotations
 
+import io
+import json
 from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
+import access_control
+import auth_service
+import db
 from calculation_execution_web_api import create_calculation_execution_app
 from calculation_navigation_api import create_calculation_navigation_app
 from chat_actions_web_api import create_chat_actions_app
@@ -32,6 +36,14 @@ class SiteApplication:
         self.chat_actions = chat_actions or create_chat_actions_app()
         self.search_api = search_api or SearchWebApplication()
         self.web_root = Path(web_root or Path(__file__).resolve().parent.parent / "web")
+        connection = db.get_connection()
+        try:
+            auth_service.initialize(connection)
+            from chat_service import initialize as initialize_chat
+            initialize_chat(connection)
+            access_control.initialize(connection)
+        finally:
+            connection.close()
 
     @staticmethod
     def _origin_allowed(environ: dict[str, object]) -> bool:
@@ -91,16 +103,82 @@ class SiteApplication:
             return start_response(status, transformed, exc_info)
         return wrapped
 
-    def __call__(self, environ, start_response):
-        path = environ.get("PATH_INFO", "/")
-        method = str(environ.get("REQUEST_METHOD", "GET")).upper()
-        if method in {"POST", "PUT", "PATCH", "DELETE"} and str(path).startswith("/api/") and not self._origin_allowed(environ):
-            payload = b'{"error":"Request origin is not allowed for this session."}'
-            start = self._start_response(environ, start_response)
-            start("403 Forbidden", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
-            return [payload]
+    @staticmethod
+    def _session_user(environ: dict[str, object]) -> dict[str, object] | None:
+        token = WebApplication._session_token(environ)
+        connection = db.get_connection()
+        try:
+            return auth_service.current_user(connection, token)
+        finally:
+            connection.close()
 
-        start = self._start_response(environ, start_response)
+    @staticmethod
+    def _read_json_body(environ: dict[str, object]) -> dict[str, object]:
+        length_raw = environ.get("CONTENT_LENGTH") or "0"
+        try:
+            length = int(str(length_raw))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Invalid content length.") from exc
+        if length < 0 or length > WebApplication.MAX_REQUEST_BODY_BYTES:
+            raise PermissionError("Request body too large.")
+        if length == 0:
+            environ["wsgi.input"] = io.BytesIO(b"")
+            return {}
+        stream = environ.get("wsgi.input")
+        if not hasattr(stream, "read"):
+            raise ValueError("Request body stream is unavailable.")
+        body = stream.read(length)
+        if not isinstance(body, bytes):
+            body = bytes(body)
+        environ["wsgi.input"] = io.BytesIO(body)
+        environ["CONTENT_LENGTH"] = str(len(body))
+        try:
+            parsed = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON request body.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON request body must be an object.")
+        return {str(key): value for key, value in parsed.items()}
+
+    def _authorize(self, environ: dict[str, object], method: str, path: str, query: dict[str, str]) -> str | None:
+        protected = path == "/api/projects" or path.startswith("/api/projects/") or path == "/api/chats" or path.startswith("/api/chats/") or path.startswith("/api/engineering/projects/")
+        if not protected:
+            return None
+        user = self._session_user(environ)
+        actor_id = None if user is None else str(user["id"])
+        body: dict[str, object] = {}
+        if method in {"POST", "PUT", "PATCH"}:
+            body = self._read_json_body(environ)
+        connection = db.get_connection()
+        try:
+            if path == "/api/projects":
+                access_control.require_authenticated(connection, actor_id)
+                return actor_id
+            if path == "/api/chats":
+                access_control.require_authenticated(connection, actor_id)
+                project_id = body.get("project_id") if method == "POST" else query.get("project_id")
+                if project_id is not None:
+                    project_id_int = int(project_id)
+                    access_control.require_project(connection, actor_id, project_id_int)
+                return actor_id
+            parts = [part for part in path.split("/") if part]
+            if len(parts) >= 3 and parts[1] == "projects":
+                project_id = int(parts[2]) if parts[0] == "api" else int(parts[3])
+                access_control.require_project(connection, actor_id, project_id)
+                return actor_id
+            if len(parts) >= 3 and parts[1] == "chats":
+                chat_id = int(parts[2])
+                access_control.require_chat(connection, actor_id, chat_id)
+                target_project = body.get("project_id") if method == "PATCH" else None
+                if target_project is not None:
+                    access_control.require_project(connection, actor_id, int(target_project))
+                return actor_id
+        finally:
+            connection.close()
+        return actor_id
+
+    def _dispatch(self, environ, start):
+        path = environ.get("PATH_INFO", "/")
         if path.startswith("/api/engineering/"):
             return self.engineering_api(environ, start)
         if path.startswith("/api/digest") or path.startswith("/api/connections") or path.startswith("/api/plugins"):
@@ -115,7 +193,6 @@ class SiteApplication:
             return self.chat_actions(environ, start)
         if path.startswith("/api/"):
             return self.api(environ, start)
-
         relative = "index.html" if path in {"", "/"} else path.lstrip("/")
         root = self.web_root.resolve()
         candidate = (self.web_root / relative).resolve()
@@ -129,6 +206,109 @@ class SiteApplication:
         payload = candidate.read_bytes()
         start("200 OK", [("Content-Type", content_types.get(candidate.suffix, "application/octet-stream")), ("Content-Length", str(len(payload)))])
         return [payload]
+
+    def _capture_dispatch(self, environ) -> tuple[str, list[tuple[str, str]], bytes]:
+        captured: dict[str, object] = {}
+
+        def capture_start(status, headers, exc_info=None):
+            captured["status"] = status
+            captured["headers"] = list(headers)
+            if exc_info is not None:
+                captured["exc_info"] = exc_info
+
+        iterable = self._dispatch(environ, capture_start)
+        try:
+            body = b"".join(iterable)
+        finally:
+            close = getattr(iterable, "close", None)
+            if callable(close):
+                close()
+        status = str(captured.get("status", "500 Error"))
+        headers = [(str(name), str(value)) for name, value in captured.get("headers", [])]
+        return status, headers, body
+
+    def _filter_list_response(self, path: str, body: bytes, actor_id: str | None) -> bytes:
+        if path not in {"/api/projects", "/api/chats"}:
+            return body
+        try:
+            payload = json.loads(body)
+        except (TypeError, json.JSONDecodeError):
+            return body
+        if not isinstance(payload, list):
+            return body
+        connection = db.get_connection()
+        try:
+            allowed = access_control.owned_project_ids(connection, actor_id) if path == "/api/projects" else access_control.owned_chat_ids(connection, actor_id)
+        finally:
+            connection.close()
+        if allowed is None:
+            return body
+        filtered = [row for row in payload if isinstance(row, dict) and int(row.get("id", -1)) in allowed]
+        return json.dumps(filtered, ensure_ascii=False, separators=(",", ":")).encode()
+
+    def __call__(self, environ, start_response):
+        path = str(environ.get("PATH_INFO", "/"))
+        method = str(environ.get("REQUEST_METHOD", "GET")).upper()
+        if method in {"POST", "PUT", "PATCH", "DELETE"} and path.startswith("/api/") and not self._origin_allowed(environ):
+            payload = b'{"error":"Request origin is not allowed for this session."}'
+            start = self._start_response(environ, start_response)
+            start("403 Forbidden", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
+            return [payload]
+
+        try:
+            query = {key: values[-1] for key, values in parse_qs(str(environ.get("QUERY_STRING", ""))).items()}
+            actor_id = self._authorize(environ, method, path.rstrip("/") or "/", query)
+            captured_paths = {"/api/projects", "/api/chats", "/api/auth/signup"}
+            normalized_path = path.rstrip("/") or "/"
+            if normalized_path in captured_paths:
+                status, headers, body = self._capture_dispatch(environ)
+                if normalized_path == "/api/auth/signup" and status.startswith("201"):
+                    try:
+                        payload = json.loads(body)
+                        user_id = int(payload["user"]["id"])
+                    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                        user_id = None
+                    if user_id is not None:
+                        connection = db.get_connection()
+                        try:
+                            access_control.claim_legacy_data(connection, user_id)
+                        finally:
+                            connection.close()
+                elif normalized_path == "/api/projects" and method == "POST" and status.startswith("201") and actor_id is not None:
+                    payload = json.loads(body)
+                    project_id = int(payload["id"])
+                    connection = db.get_connection()
+                    try:
+                        access_control.claim_project(connection, project_id, int(actor_id))
+                    finally:
+                        connection.close()
+                elif normalized_path == "/api/chats" and method == "POST" and status.startswith("201") and actor_id is not None:
+                    payload = json.loads(body)
+                    chat_id = int(payload["id"])
+                    connection = db.get_connection()
+                    try:
+                        access_control.claim_chat(connection, chat_id, int(actor_id))
+                    finally:
+                        connection.close()
+                if method == "GET" and normalized_path in {"/api/projects", "/api/chats"} and status.startswith("200"):
+                    body = self._filter_list_response(normalized_path, body, actor_id)
+                    headers = [(name, value) for name, value in headers if name.casefold() != "content-length"]
+                    headers.append(("Content-Length", str(len(body))))
+                start = self._start_response(environ, start_response)
+                start(status, headers)
+                return [body]
+            start = self._start_response(environ, start_response)
+            return self._dispatch(environ, start)
+        except PermissionError as exc:
+            payload = json.dumps({"error": str(exc) or "Permission denied"}, separators=(",", ":")).encode()
+            start = self._start_response(environ, start_response)
+            start("403 Forbidden" if str(exc) != "Authentication required." else "401 Unauthorized", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
+            return [payload]
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            payload = json.dumps({"error": str(exc) or "Invalid request"}, separators=(",", ":")).encode()
+            start = self._start_response(environ, start_response)
+            start("400 Bad Request", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
+            return [payload]
 
 
 def create_site_app(api: WebApplication, web_root: str | Path | None = None, engineering_api: EngineeringWebApplication | None = None, integration_api: IntegrationWebApplication | None = None, calculation_navigation_api=None, calculation_execution_api=None, chat_actions=None, search_api=None) -> SiteApplication:
