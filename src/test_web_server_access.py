@@ -112,7 +112,7 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         self.assertEqual(requirements, [])
 
         status, _, _ = self.request("GET", f"/api/projects/{alice_project_id}")
-        self.assertEqual(status, 401)
+        self.assertEqual(status, 403)
 
 
 if __name__ == "__main__": unittest.main()
