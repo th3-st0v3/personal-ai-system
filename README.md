@@ -280,24 +280,135 @@ MONITOR
 RE-EVALUATE
 ```
 
-## Draft Beta Web Shell
+## Current Draft Beta Web Shell
 
-The draft beta includes a replaceable WSGI web boundary and a responsive web shell for the project workspace and deterministic calculation catalog.
+The current draft beta is a real, browser-accessible technical workspace rather than a static mockup. It uses a replaceable WSGI web boundary over the application services and keeps deterministic engineering calculations separate from UI logic.
 
-Start it locally with:
+### Local startup
 
-```bash
-PYTHONPATH=src python scripts/serve_web.py
+The supported local server defaults to:
+
+```text
+http://127.0.0.1:8000
 ```
 
-The shell currently supports project creation/selection, arbitrarily nested folders, notes, file upload/download/replacement, note editing, search, sorting, contextual actions, drag-to-folder movement, multi-selection, copy/paste/duplicate operations, calculation discipline navigation, detailed calculation inputs, and auditable solution traces. The HTTP layer is deliberately separated from storage and application services so the client or server implementation can evolve without rewriting the core system.
-
-Run the deterministic end-to-end beta smoke test with:
+Start it directly from the repository with:
 
 ```bash
-PYTHONPATH=src python scripts/smoke_test_beta.py
+python3 scripts/serve_web.py
 ```
 
-The CI gate runs the smoke test, the complete Python unit suite, and syntax checks for every shipped browser script. The test job has a hard time limit so a future regression cannot silently consume an excessive amount of CI time.
+`scripts/serve_web.py` adds `src` to the module path itself, so an externally configured `PYTHONPATH` is no longer required. The older form remains valid:
 
-The current web shell is intentionally a foundation rather than a final visual product. The underlying application boundaries are designed to support richer editors, command palettes, tabs, panes, previews, plots, simulation views, and AI assistance without forcing storage or calculation rewrites.
+```bash
+PYTHONPATH=src python3 scripts/serve_web.py
+```
+
+The port is intentionally still `8000`; pass `--port <number>` only when a different local port is actually needed.
+
+### Python environment
+
+The repository requires the dependencies declared in `requirements.txt`, including `pypdf` for PDF ingestion. Install them in the active environment before running the complete test suite:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+A project-local virtual environment is recommended:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+On Ubuntu/WSL, `python3` is the distribution-provided command. To make the `python` command consistently resolve to the same interpreter across new terminals, install the standard compatibility package once:
+
+```bash
+sudo apt update
+sudo apt install -y python-is-python3
+```
+
+Then verify both entry points:
+
+```bash
+python --version
+python3 --version
+```
+
+They should report the same Python installation family.
+
+### Workspace capabilities
+
+The browser workspace supports:
+
+- Project creation and selection
+- Arbitrarily nested folders
+- Notes and note editing
+- File upload, download, replacement, and deletion
+- Rename, copy/paste, duplicate, move, and drag/drop-style movement
+- Multi-selection and contextual actions
+- Breadcrumbs and recursive search
+- Sorting
+- Archive/invalidate/delete lifecycle controls
+- Properties and export-oriented actions
+- Project-scoped clipboard validation
+
+### Engineering capabilities
+
+Engineering projects expose requirements, sources, evidence, design cases, and decisions through a project-scoped API. The beta supports:
+
+- Source search
+- Public GitHub file import
+- PDF import and text extraction
+- Source/chunk search and retrieval
+- Add-evidence and evidence invalidation workflows
+- Requirement-to-evidence test plans and reports
+- Calculation-linked evidence
+- Project isolation checks at the API boundary
+
+### Calculations and simulations
+
+Deterministic calculations are registered by stable keys and expose parameter metadata, equations, assumptions, limitations, units, and auditable solution traces. Saved calculation records preserve model/method identity for reproducibility.
+
+The beta also exposes a deterministic simulation catalog and controlled simulation-run boundary with traceable steps, assumptions, limitations, and policy checks.
+
+### Chat and integrations
+
+Persisted project chat supports rename, pin/unpin, move, share-oriented UI actions, delete, retry, branching, and feedback. The integration bridge provides controlled connections/plugins and source retrieval without turning external content into trusted instructions.
+
+### Testing
+
+Run the complete Python suite:
+
+```bash
+python3 -m unittest discover -s src -p 'test_*.py' -v
+```
+
+Run the type checker used by CI:
+
+```bash
+npx --yes pyright@latest src scripts
+```
+
+Run the frontend/backend contract check:
+
+```bash
+python3 scripts/frontend_contract_test.py
+```
+
+Run the deterministic beta smoke test:
+
+```bash
+python3 scripts/smoke_test_beta.py
+```
+
+Validate browser JavaScript syntax:
+
+```bash
+for file in web/*.js; do node --check "$file"; done
+```
+
+CI also starts the local server on port 8000 and performs Browser/API smoke checks, so the documented runtime boundary and the browser contract are continuously exercised.
+
+The shell is still intentionally a foundation rather than a final visual product. Its storage, application, engineering, calculation, simulation, and policy boundaries are designed to support richer editors, command palettes, tabs, panes, previews, plots, simulation views, AI assistance, and future engineering canvas features without forcing core rewrites.
