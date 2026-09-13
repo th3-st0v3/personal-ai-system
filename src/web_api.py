@@ -67,7 +67,7 @@ class WebApplication:
     def _manifest(self, user: dict[str, object] | None = None) -> dict[str, object]:
         categories = self.calculations.grouped_categories()
         return {
-            "api_version": 2,
+            "api_version": 3,
             "user": user,
             "workspace": {
                 "kinds": list(self.ITEM_KINDS),
@@ -77,7 +77,9 @@ class WebApplication:
             },
             "calculations": {"categories": list(categories), "count": len(self.calculations.list_models())},
             "simulations": [{"key": s.key, "name": s.name, "discipline": s.discipline, "description": s.description, "parameters": list(s.parameters)} for s in simulation_library.list_simulations()],
-            "navigation": ["Chat", "Projects", "Education", "Simulations", "Calculations", "Connections", "Settings"],
+            "navigation": ["Chat", "Projects", "Education", "Simulations", "Calculations", "Connections"],
+            "models": [{"key": key, "model": model} for key, model in chat_service.MODEL_PROFILES.items()],
+            "settings": {"themes": ["system", "light", "dark"], "memory": True, "connectors": True, "tool_activity": True},
         }
 
     def request(self, method: str, target: str, body: bytes = b"", environ: dict[str, object] | None = None) -> tuple[int, list[tuple[str, str]], bytes]:
@@ -137,9 +139,16 @@ class WebApplication:
                 project_id=int(query["project_id"]) if query.get("project_id") else None; connection=db.get_connection()
                 try: return self._json(200,chat_service.list_chats(connection,project_id))
                 finally: connection.close()
-            if method == "GET" and path.startswith("/api/chats/") and path.count("/")==3:
-                connection=db.get_connection()
-                try: return self._json(200,chat_service.get_chat(connection,int(path.rsplit("/",1)[-1])))
+            if path.startswith("/api/chats/") and path.count("/")==3:
+                chat_id=int(path.rsplit("/",1)[-1]); connection=db.get_connection()
+                try:
+                    if method=="GET": return self._json(200,chat_service.get_chat(connection,chat_id))
+                    if method=="PATCH":
+                        if "title" in data: chat_service.rename_chat(connection,chat_id,data["title"])
+                        if "pinned" in data: chat_service.set_pinned(connection,chat_id,bool(data["pinned"]))
+                        if "project_id" in data: chat_service.move_chat(connection,chat_id,data.get("project_id"))
+                        return self._json(200,chat_service.get_chat(connection,chat_id))
+                    if method=="DELETE": chat_service.delete_chat(connection,chat_id); return self._json(200,{"deleted":True})
                 finally: connection.close()
             if method == "POST" and path.startswith("/api/chats/") and path.endswith("/messages"):
                 chat_id=int(path.split("/")[3]); connection=db.get_connection()
