@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from scripts import openrouter_build_loop as loop
@@ -23,33 +24,16 @@ class TestOpenRouterBuildLoop(unittest.TestCase):
             self.assertFalse(path.with_suffix(".json.tmp").exists())
 
     def test_unsafe_paths_are_rejected(self):
-        proposal = {
-            "action_justification": "test",
-            "file_path": "../outside.py",
-            "code_to_execute": "pass",
-            "new_state": {},
-        }
-        with self.assertRaises(ValueError):
-            loop.validate_proposal(proposal)
+        proposal = {"action_justification":"test","file_path":"../outside.py","code_to_execute":"pass","new_state":{}}
+        with self.assertRaises(ValueError): loop.validate_proposal(proposal)
 
     def test_absolute_paths_are_rejected(self):
-        proposal = {
-            "action_justification": "test",
-            "file_path": "/tmp/outside.py",
-            "code_to_execute": "pass",
-            "new_state": {},
-        }
-        with self.assertRaises(ValueError):
-            loop.validate_proposal(proposal)
+        proposal = {"action_justification":"test","file_path":"/tmp/outside.py","code_to_execute":"pass","new_state":{}}
+        with self.assertRaises(ValueError): loop.validate_proposal(proposal)
 
     def test_proposal_is_queued_without_writing_target_file(self):
         state = loop.default_state()
-        proposal = {
-            "action_justification": "Add a harmless test",
-            "file_path": "src/example.py",
-            "code_to_execute": "pass\n",
-            "new_state": {"backlog": ["next"], "completed_tasks": ["done"]},
-        }
+        proposal = cast(loop.Proposal,{"action_justification":"Add a harmless test","file_path":"src/example.py","code_to_execute":"pass\n","new_state":{"backlog":["next"],"completed_tasks":["done"]}})
         loop.enqueue_proposal(state, proposal)
         item = state["approval_queue"][-1]
         self.assertEqual(item["status"], "pending_review")
@@ -70,5 +54,4 @@ class TestOpenRouterBuildLoop(unittest.TestCase):
         self.assertIsInstance(json.dumps(state), str)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
