@@ -25,61 +25,32 @@ class TestEngineeringSchema(unittest.TestCase):
     def test_core_entities_and_relationship_tables_exist(self):
         connection = db.get_connection()
         try:
-            tables = {
-                row[0]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                )
-            }
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         finally:
             connection.close()
-
-        self.assertTrue(
-            {
-                "workspaces",
-                "users",
-                "workspace_members",
-                "sources",
-                "evidence_locations",
-                "decisions",
-                "reviews",
-                "audit_events",
-            }.issubset(tables)
-        )
+        self.assertTrue({"workspaces", "users", "workspace_members", "sources", "evidence_locations", "source_chunks", "decisions", "reviews", "audit_events"}.issubset(tables))
 
     def test_project_and_requirement_extensions_are_additive(self):
         connection = db.get_connection()
         try:
-            project_columns = {
-                row[1]
-                for row in connection.execute("PRAGMA table_info(projects)")
-            }
-            requirement_columns = {
-                row[1]
-                for row in connection.execute("PRAGMA table_info(requirements)")
-            }
+            project_columns = {row[1] for row in connection.execute("PRAGMA table_info(projects)")}
+            requirement_columns = {row[1] for row in connection.execute("PRAGMA table_info(requirements)")}
+            evidence_columns = {row[1] for row in connection.execute("PRAGMA table_info(evidence)")}
         finally:
             connection.close()
-
         self.assertTrue({"workspace_id", "owner_id", "status", "updated_at"}.issubset(project_columns))
-        self.assertTrue(
-            {"identifier", "title", "acceptance_criteria", "priority", "updated_at"}.issubset(
-                requirement_columns
-            )
-        )
+        self.assertTrue({"identifier", "title", "acceptance_criteria", "priority", "updated_at"}.issubset(requirement_columns))
+        self.assertIn("evidence_type", evidence_columns)
 
     def test_schema_can_be_initialized_repeatedly(self):
         connection = db.get_connection()
         try:
             initialize(connection)
             initialize(connection)
-            version = connection.execute(
-                "SELECT version FROM engineering_schema_version"
-            ).fetchone()[0]
+            version = connection.execute("SELECT version FROM engineering_schema_version").fetchone()[0]
         finally:
             connection.close()
-
-        self.assertEqual(version, 1)
+        self.assertEqual(version, 2)
 
 
 if __name__ == "__main__":

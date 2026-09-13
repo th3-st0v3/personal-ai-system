@@ -72,6 +72,7 @@ class EngineeringApplication:
             "lifecycle_status": row[6], "calculation_record_id": row[7],
             "source_id": row[8], "classification": row[9], "description": row[10],
             "invalidated_at": row[11], "invalidation_reason": row[12], "created_at": row[13],
+            "evidence_type": row[14],
         }
 
     @staticmethod
@@ -254,8 +255,8 @@ class EngineeringApplication:
         try:
             if connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
                 raise ValueError(f"No project found with ID {project_id}.")
-            if file_id is not None and connection.execute("SELECT id FROM files WHERE id = ?", (file_id,)).fetchone() is None:
-                raise ValueError(f"No file found with ID {file_id}.")
+            if file_id is not None and connection.execute("SELECT id FROM files WHERE id = ? AND project_id = ?", (file_id, project_id)).fetchone() is None:
+                raise ValueError("File not found in project.")
             cursor = connection.execute(
                 "INSERT INTO sources (project_id, title, author, publisher, source_type, "
                 "version, url, file_id, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -281,22 +282,29 @@ class EngineeringApplication:
 
     def create_evidence(self, requirement_id, result, supports_status, *, source=None,
                         location=None, calculation_record_id=None, source_id=None,
-                        classification=None, description=None):
+                        classification=None, description=None, evidence_type=None):
         self._require_status(supports_status)
+        evidence_type = evidence_type or ("calculation" if calculation_record_id is not None else "manual_entry")
+        if evidence_type not in engineering_schema.EVIDENCE_TYPES:
+            raise ValueError("Invalid evidence type.")
         connection = db.get_connection()
         try:
-            if connection.execute("SELECT id FROM requirements WHERE id = ?", (requirement_id,)).fetchone() is None:
+            requirement = connection.execute("SELECT id, project_id FROM requirements WHERE id = ?", (requirement_id,)).fetchone()
+            if requirement is None:
                 raise ValueError(f"No requirement found with ID {requirement_id}.")
-            if source_id is not None and connection.execute("SELECT id FROM sources WHERE id = ?", (source_id,)).fetchone() is None:
-                raise ValueError(f"No source found with ID {source_id}.")
+            project_id = requirement[1]
+            if source_id is not None and connection.execute("SELECT id FROM sources WHERE id = ? AND project_id = ?", (source_id, project_id)).fetchone() is None:
+                raise ValueError("Source not found in project.")
             if calculation_record_id is not None and connection.execute("SELECT id FROM calculation_records WHERE id = ?", (calculation_record_id,)).fetchone() is None:
                 raise ValueError(f"No calculation record found with ID {calculation_record_id}.")
+            if evidence_type == "calculation" and calculation_record_id is None:
+                raise ValueError("Calculation evidence requires calculation_record_id.")
             cursor = connection.execute(
                 "INSERT INTO evidence (requirement_id, source, location, result, supports_status, "
-                "calculation_record_id, source_id, classification, description) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "calculation_record_id, source_id, classification, description, evidence_type) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (requirement_id, source, location, result, supports_status,
-                 calculation_record_id, source_id, classification, description),
+                 calculation_record_id, source_id, classification, description, evidence_type),
             )
             connection.commit()
             return cursor.lastrowid
@@ -309,7 +317,7 @@ class EngineeringApplication:
             row = connection.execute(
                 "SELECT id, requirement_id, source, location, result, supports_status, "
                 "lifecycle_status, calculation_record_id, source_id, classification, description, "
-                "invalidated_at, invalidation_reason, created_at FROM evidence WHERE id = ?",
+                "invalidated_at, invalidation_reason, created_at, evidence_type FROM evidence WHERE id = ?",
                 (evidence_id,),
             ).fetchone()
             return None if row is None else self._evidence(row)
@@ -339,10 +347,10 @@ class EngineeringApplication:
         try:
             if connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
                 raise ValueError(f"No project found with ID {project_id}.")
-            if requirement_id is not None and connection.execute("SELECT id FROM requirements WHERE id = ?", (requirement_id,)).fetchone() is None:
-                raise ValueError(f"No requirement found with ID {requirement_id}.")
-            if design_case_id is not None and connection.execute("SELECT id FROM design_cases WHERE id = ?", (design_case_id,)).fetchone() is None:
-                raise ValueError(f"No design case found with ID {design_case_id}.")
+            if requirement_id is not None and connection.execute("SELECT id FROM requirements WHERE id = ? AND project_id = ?", (requirement_id, project_id)).fetchone() is None:
+                raise ValueError("Requirement not found in project.")
+            if design_case_id is not None and connection.execute("SELECT id FROM design_cases WHERE id = ? AND project_id = ?", (design_case_id, project_id)).fetchone() is None:
+                raise ValueError("Design case not found in project.")
             cursor = connection.execute(
                 "INSERT INTO decisions (project_id, requirement_id, design_case_id, title, "
                 "description, decision, rationale) VALUES (?, ?, ?, ?, ?, ?, ?)",

@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+    branches: [main, beta-foundation]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Run beta smoke test
+        env:
+          PYTHONPATH: src
+        run: python scripts/smoke_test_beta.py
+      - name: Run unit tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s src -p 'test_*.py' -v
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Validate web client syntax
+        run: node --check web/app.js && node --check web/interaction-fixes.js && node --check web/beta-features.js

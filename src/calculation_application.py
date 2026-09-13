@@ -1,88 +1,83 @@
-"""Application boundary for deterministic engineering calculations.
+"""Application boundary for deterministic engineering calculations."""
 
-This module provides one stable entry point for selecting a registered
-calculation model, validating its inputs, executing the existing specialized
-deterministic implementation, and optionally persisting the resulting record.
-It keeps future UI/API/AI callers from depending on individual calculation
-functions or database details.
-"""
-
+import inspect
 import math
 
 import calculations
 import db
+from calculation_catalog import get_entry, grouped_categories, list_category, list_categories, list_items, search
 from calculation_definitions import CALCULATION_DEFINITIONS
+from calculation_library import CALCULATION_REGISTRY, CalculationTrace
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 from calculation_records import CalculationRecord
+from calculation_trace_detail import expand_trace
 
 
 class CalculationApplication:
     """Run registered deterministic calculation models through one interface."""
 
-    _EXECUTORS = {
-        "hydrostatic_pressure": calculations.hydrostatic_pressure_record,
-        "darcy_weisbach_pressure_loss": calculations.darcy_weisbach_pressure_loss_record,
-    }
-
     def __init__(self):
-        self._definitions = {
-            model.key: (model, method, parameters)
-            for model, method, parameters in CALCULATION_DEFINITIONS
-        }
-        unknown_executors = set(self._definitions) - set(self._EXECUTORS)
-        if unknown_executors:
-            raise RuntimeError(
-                "No deterministic executor is registered for: "
-                + ", ".join(sorted(unknown_executors))
-            )
+        self._definitions = {model.key: (model, method, parameters) for model, method, parameters in CALCULATION_DEFINITIONS}
 
     def list_models(self) -> list[CalculationModel]:
-        """Return registered calculation models in definition order."""
         return [definition[0] for definition in self._definitions.values()]
 
+    def list_categories(self) -> tuple[str, ...]:
+        return list_categories()
+
+    def list_category(self, category: str) -> tuple[str, ...]:
+        return list_category(category)
+
+    def list_catalog_items(self, category: str | None = None):
+        return list_items(category)
+
+    def grouped_categories(self) -> dict[str, tuple[str, ...]]:
+        return grouped_categories()
+
+    def search(self, query: str, category: str | None = None) -> tuple[str, ...]:
+        return search(query, category=category)
+
+    def get_catalog_entry(self, model_key: str):
+        self.get_model(model_key)
+        return get_entry(model_key)
+
     def get_model(self, model_key: str) -> CalculationModel:
-        """Return a model definition or raise for an unknown model key."""
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[0]
 
     def get_method(self, model_key: str) -> MethodVersion:
-        """Return the current registered method version for a model."""
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[1]
 
     def get_parameters(self, model_key: str) -> tuple[CalculationParameter, ...]:
-        """Return the registered input definitions for a model."""
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[2]
 
-    def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
-        """Validate inputs and execute one deterministic calculation model."""
+    def _validated_inputs(self, model_key: str, inputs: dict[str, float]) -> tuple[MethodVersion, tuple[CalculationParameter, ...], dict[str, float]]:
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
-
         if not isinstance(inputs, dict):
             raise ValueError("inputs must be a dictionary.")
-
-        _, _, parameters = definition
+        _, method, parameters = definition
         expected = {parameter.name: parameter for parameter in parameters}
         supplied = set(inputs)
-        missing = [
-            name for name, parameter in expected.items()
-            if parameter.required and name not in supplied
-        ]
         unknown = supplied - set(expected)
-        if missing:
-            raise ValueError("Missing required inputs: " + ", ".join(missing))
         if unknown:
             raise ValueError("Unknown inputs: " + ", ".join(sorted(unknown)))
-
+        callable_parameters = inspect.signature(CALCULATION_REGISTRY[model_key].calculate).parameters
+        missing = [
+            name for name, parameter in expected.items()
+            if parameter.required and name not in supplied and callable_parameters[name].default is inspect.Parameter.empty
+        ]
+        if missing:
+            raise ValueError("Missing required inputs: " + ", ".join(missing))
         validated = {}
         for name, value in inputs.items():
             parameter = expected[name]
@@ -96,32 +91,23 @@ class CalculationApplication:
             if parameter.maximum is not None and numeric_value > parameter.maximum:
                 raise ValueError(f"{name} must be at most {parameter.maximum}.")
             validated[name] = numeric_value
+        return method, parameters, validated
 
-        return self._EXECUTORS[model_key](**self._executor_arguments(model_key, validated))
+    def run_trace(self, model_key: str, inputs: dict[str, float]) -> CalculationTrace:
+        """Validate and execute a model with an expanded, auditable solution trace."""
+        _, _, validated = self._validated_inputs(model_key, inputs)
+        return expand_trace(calculations.calculate_detailed(model_key, **validated))
+
+    def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
+        trace = self.run_trace(model_key, inputs)
+        method = self.get_method(model_key)
+        parameters = self.get_parameters(model_key)
+        return CalculationRecord(calculation_type=trace.key, inputs=trace.inputs, units={parameter.name: parameter.default_unit or "" for parameter in parameters}, assumptions=trace.assumptions, method=trace.equation, result=trace.result, result_unit=trace.result_unit, source="deterministic calculation library", method_version=method.version)
 
     def run_and_save(self, model_key: str, inputs: dict[str, float]) -> tuple[int, CalculationRecord]:
-        """Execute a deterministic calculation and persist its reproducible record."""
         record = self.run(model_key, inputs)
         calculation_id = db.save_calculation_record(record)
         return calculation_id, record
-
-    @staticmethod
-    def _executor_arguments(model_key: str, inputs: dict[str, float]) -> dict[str, float]:
-        if model_key == "hydrostatic_pressure":
-            return {
-                "density_kg_m3": inputs["density"],
-                "gravity_m_s2": inputs["gravity"],
-                "depth_m": inputs["depth"],
-            }
-        if model_key == "darcy_weisbach_pressure_loss":
-            return {
-                "friction_factor": inputs["friction_factor"],
-                "pipe_length_m": inputs["pipe_length"],
-                "pipe_diameter_m": inputs["pipe_diameter"],
-                "density_kg_m3": inputs["density"],
-                "velocity_m_s": inputs["velocity"],
-            }
-        raise ValueError(f"Unknown calculation model: {model_key}")
 
 
 __all__ = ["CalculationApplication"]
