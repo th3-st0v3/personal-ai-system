@@ -6,11 +6,15 @@ from typing import TypedDict
 
 class RequirementRecord(TypedDict, total=False):
     id: int
+    project_id: int
     identifier: str | None
     title: str | None
     description: str
     acceptance_criteria: str | None
+    priority: str | None
     status: str
+    created_at: str
+    updated_at: str
 
 
 class TestPlanItem(TypedDict):
