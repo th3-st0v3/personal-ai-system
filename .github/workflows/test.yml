@@ -27,46 +27,33 @@ jobs:
           PYTHONPATH: src
         run: python -m unittest discover -s src -p 'test_*.py' -v
       - name: Static type check
+        id: pyright
         continue-on-error: true
-        run: |
-          set +e
-          mkdir -p .runtime/ci
-          npx --yes pyright@latest src scripts > .runtime/ci/pyright.txt 2>&1
-          code=$?
-          echo "$code" > .runtime/ci/pyright.exit
-          cat .runtime/ci/pyright.txt
-          exit 0
+        run: npx --yes pyright@latest src scripts
       - name: Markdown lint
+        id: markdown
         continue-on-error: true
-        run: |
-          set +e
-          mkdir -p .runtime/ci
-          npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules" > .runtime/ci/markdown.txt 2>&1
-          code=$?
-          echo "$code" > .runtime/ci/markdown.exit
-          cat .runtime/ci/markdown.txt
-          exit 0
+        run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules"
       - name: Validate web client syntax
+        id: web
         continue-on-error: true
         run: |
-          set +e
-          mkdir -p .runtime/ci
-          node --check web/app.js; a=$?
-          node --check web/interaction-fixes.js; b=$?
-          node --check web/beta-features.js; c=$?
-          node --check web/ui-stability.js; d=$?
-          node --check web/product-polish.js; e=$?
-          node --check web/ux-hardening.js; f=$?
-          node --check web/ux-final.js; g=$?
-          node --check web/ux-shortcuts.js; h=$?
-          node --check web/engineering-final.js; i=$?
-          echo "$((a|b|c|d|e|f|g|h|i))" > .runtime/ci/web.exit
-          exit 0
+          set -e
+          node --check web/app.js
+          node --check web/interaction-fixes.js
+          node --check web/beta-features.js
+          node --check web/ui-stability.js
+          node --check web/product-polish.js
+          node --check web/ux-hardening.js
+          node --check web/ux-final.js
+          node --check web/ux-shortcuts.js
+          node --check web/engineering-final.js
       - name: Browser/API smoke test
         env:
           PYTHONPATH: src
         run: |
           set -e
+          mkdir -p .runtime/ci
           python scripts/serve_web.py > .runtime/ci/server.log 2>&1 &
           server_pid=$!
           trap 'kill $server_pid 2>/dev/null || true' EXIT
@@ -77,6 +64,14 @@ jobs:
           curl -fsS http://127.0.0.1:8000/ | grep -q 'chat-form'
           curl -fsS http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
           curl -fsS http://127.0.0.1:8000/api/manifest | grep -q 'Engineering'
+      - name: Enforce quality gates
+        if: always()
+        run: |
+          failed=0
+          if [ "${{ steps.pyright.outcome }}" != "success" ]; then echo "Pyright failed"; failed=1; fi
+          if [ "${{ steps.markdown.outcome }}" != "success" ]; then echo "Markdownlint failed"; failed=1; fi
+          if [ "${{ steps.web.outcome }}" != "success" ]; then echo "Web syntax validation failed"; failed=1; fi
+          if [ "$failed" -ne 0 ]; then exit 1; fi
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -84,13 +79,3 @@ jobs:
           name: ci-diagnostics
           path: .runtime/ci
           if-no-files-found: ignore
-      - name: Enforce quality gates
-        if: always()
-        run: |
-          pyright_code=$(cat .runtime/ci/pyright.exit 2>/dev/null || echo 1)
-          markdown_code=$(cat .runtime/ci/markdown.exit 2>/dev/null || echo 1)
-          web_code=$(cat .runtime/ci/web.exit 2>/dev/null || echo 1)
-          if [ "$pyright_code" -ne 0 ] || [ "$markdown_code" -ne 0 ] || [ "$web_code" -ne 0 ]; then
-            echo "Quality gates failed: pyright=$pyright_code markdown=$markdown_code web=$web_code"
-            exit 1
-          fi
