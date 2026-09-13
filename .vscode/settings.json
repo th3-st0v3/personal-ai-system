@@ -9,13 +9,21 @@
     "${workspaceFolder}/env/**",
     "${workspaceFolder}/.tox/**",
     "${workspaceFolder}/.pytest_cache/**",
-    "${workspaceFolder}/.mypy_cache/**"
+    "${workspaceFolder}/.mypy_cache/**",
+    "${workspaceFolder}/node_modules/**"
+  ],
+  "markdownlint.ignore": [
+    "**/.venv/**",
+    "**/venv/**",
+    "**/env/**",
+    "**/node_modules/**"
   ],
   "files.exclude": {
     "**/.venv": true,
     "**/venv": true,
     "**/env": true,
     "**/.tox": true,
-    "**/__pycache__": true
+    "**/__pycache__": true,
+    "**/node_modules": true
   }
 }
