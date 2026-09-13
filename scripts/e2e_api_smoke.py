@@ -56,7 +56,7 @@ source_results = request("GET", f"/api/engineering/projects/{project_id}/sources
 assert isinstance(source_results, list) and source_results
 plan = request("GET", f"/api/engineering/projects/{project_id}/requirements/test-plan")
 assert isinstance(plan, list) or isinstance(plan, dict)
-evidence = request("POST", f"/api/engineering/projects/{project_id}/requirements/{req_id}/evidence", {"result": "100 psi", "supports_status": "Verified", "source_id": source_id, "description": "CI evidence"})
+evidence = request("POST", f"/api/engineering/projects/{project_id}/requirements/{req_id}/evidence", {"result": "100 psi", "supports_status": "Verified", "source": "CI source", "source_id": source_id, "description": "CI evidence"})
 assert isinstance(evidence, dict) and isinstance(evidence.get("id"), int)
 evidence_list = request("GET", f"/api/engineering/projects/{project_id}/requirements/{req_id}/evidence")
 assert isinstance(evidence_list, list) and evidence_list
