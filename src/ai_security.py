@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 
 MAX_CONTEXT_CHARS = 120_000
 MAX_TOOL_RESULT_CHARS = 32_000
@@ -29,7 +30,7 @@ def untrusted_context(value: object, *, label: str = "external data", limit: int
     return f"<untrusted-data source={json.dumps(label)}>{text}</untrusted-data>"
 
 
-def bound_context(messages: list[dict[str, object]]) -> list[dict[str, object]]:
+def bound_context(messages: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
     """Keep model context bounded and mark non-user tool data as untrusted."""
     bounded: list[dict[str, object]] = []
     total = 0
