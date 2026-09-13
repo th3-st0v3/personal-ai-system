@@ -2,6 +2,7 @@
 
 import inspect
 import math
+from collections.abc import Mapping
 
 import calculations
 import db
@@ -59,12 +60,12 @@ class CalculationApplication:
             raise ValueError(f"Unknown calculation model: {model_key}")
         return definition[2]
 
-    def _validated_inputs(self, model_key: str, inputs: dict[str, float]) -> tuple[MethodVersion, tuple[CalculationParameter, ...], dict[str, float]]:
+    def _validated_inputs(self, model_key: str, inputs: Mapping[str, object]) -> tuple[MethodVersion, tuple[CalculationParameter, ...], dict[str, float]]:
         definition = self._definitions.get(model_key)
         if definition is None:
             raise ValueError(f"Unknown calculation model: {model_key}")
-        if not isinstance(inputs, dict):
-            raise ValueError("inputs must be a dictionary.")
+        if not isinstance(inputs, Mapping):
+            raise ValueError("inputs must be an object.")
         _, method, parameters = definition
         expected = {parameter.name: parameter for parameter in parameters}
         supplied = set(inputs)
@@ -73,7 +74,8 @@ class CalculationApplication:
             raise ValueError("Unknown inputs: " + ", ".join(sorted(unknown)))
         callable_parameters = inspect.signature(CALCULATION_REGISTRY[model_key].calculate).parameters
         missing = [
-            name for name, parameter in expected.items()
+            name
+            for name, parameter in expected.items()
             if parameter.required and name not in supplied and callable_parameters[name].default is inspect.Parameter.empty
         ]
         if missing:
@@ -93,18 +95,18 @@ class CalculationApplication:
             validated[name] = numeric_value
         return method, parameters, validated
 
-    def run_trace(self, model_key: str, inputs: dict[str, float]) -> CalculationTrace:
+    def run_trace(self, model_key: str, inputs: Mapping[str, object]) -> CalculationTrace:
         """Validate and execute a model with an expanded, auditable solution trace."""
         _, _, validated = self._validated_inputs(model_key, inputs)
         return expand_trace(calculations.calculate_detailed(model_key, **validated))
 
-    def run(self, model_key: str, inputs: dict[str, float]) -> CalculationRecord:
+    def run(self, model_key: str, inputs: Mapping[str, object]) -> CalculationRecord:
         trace = self.run_trace(model_key, inputs)
         method = self.get_method(model_key)
         parameters = self.get_parameters(model_key)
         return CalculationRecord(calculation_type=trace.key, inputs=trace.inputs, units={parameter.name: parameter.default_unit or "" for parameter in parameters}, assumptions=trace.assumptions, method=trace.equation, result=trace.result, result_unit=trace.result_unit, source="deterministic calculation library", method_version=method.version)
 
-    def run_and_save(self, model_key: str, inputs: dict[str, float]) -> tuple[int, CalculationRecord]:
+    def run_and_save(self, model_key: str, inputs: Mapping[str, object]) -> tuple[int, CalculationRecord]:
         record = self.run(model_key, inputs)
         calculation_id = db.save_calculation_record(record)
         if calculation_id is None:
