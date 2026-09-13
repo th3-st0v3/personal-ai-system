@@ -35,8 +35,7 @@
         return;
       }
       if (tab === 'plugins') {
-        const plugins = await api('/api/plugins');
-        content.innerHTML = `<div class="properties">${plugins.length ? plugins.map((item) => `<div class="property"><span>${esc(item.name)} · ${esc(item.version)}</span><strong>${item.enabled ? 'Enabled' : 'Disabled'}</strong></div>`).join('') : '<div class="empty-state">No plugins are registered.</div>'}</div>`;
+        content.innerHTML = `<div class="empty-state"><strong>Plugins are not yet a backend capability.</strong><p class="muted">The current product exposes governed connections and tools instead. This tab stays informational until a real plugin registry exists.</p></div>`;
         return;
       }
       if (tab === 'you') {
@@ -82,27 +81,16 @@
         { label: 'Calculations', items: catalog.filter((item) => `${item.name} ${item.key} ${item.domain}`.toLowerCase().includes(query)).map((item) => ({ kind: 'calculation', id: item.key, title: item.name, meta: item.domain || '' })) },
       ];
       renderSearchResults(query, groups);
-    } catch (error) {
-      window.showError?.(error);
-    }
+    } catch (error) { window.showError?.(error); }
   };
 
-  document.addEventListener('input', (event) => {
-    if (event.target?.id !== 'global-search') return;
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(runSearch, 140);
-  });
+  document.addEventListener('input', (event) => { if (event.target?.id === 'global-search') { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 140); } });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') document.querySelector('.global-search-results')?.remove();
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-      event.preventDefault();
-      $('global-search')?.focus();
-      $('global-search')?.select();
-    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('global-search')?.focus(); $('global-search')?.select(); }
   });
   document.addEventListener('click', (event) => {
-    const input = $('global-search');
-    const results = document.querySelector('.global-search-results');
+    const input = $('global-search'); const results = document.querySelector('.global-search-results');
     if (results && event.target !== input && !results.contains(event.target)) results.remove();
   });
   new MutationObserver(hydrateSettings).observe(document.body, { childList: true, subtree: true });
