@@ -63,9 +63,9 @@
     panel.querySelectorAll('[data-search-id]').forEach((button) => button.addEventListener('click', async () => {
       panel.remove();
       const kind = button.dataset.searchKind;
-      const id = Number(button.dataset.searchId);
-      if (kind === 'chat') return openChat(id);
-      if (kind === 'project') return openProject(id);
+      const id = button.dataset.searchId;
+      if (kind === 'chat') return openChat(Number(id));
+      if (kind === 'project') return openProject(Number(id));
       if (kind === 'calculation') return openCalculation(id);
     }));
   };
