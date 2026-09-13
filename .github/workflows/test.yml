@@ -27,47 +27,40 @@ jobs:
           PYTHONPATH: src
         run: python -m unittest discover -s src -p 'test_*.py' -v
       - name: Static type check
-        id: pyright
         continue-on-error: true
         run: |
+          set +e
           mkdir -p .runtime/ci
           npx --yes pyright@latest src scripts > .runtime/ci/pyright.txt 2>&1
-          echo $? > .runtime/ci/pyright.exit
+          code=$?
+          echo "$code" > .runtime/ci/pyright.exit
           cat .runtime/ci/pyright.txt
+          exit 0
       - name: Markdown lint
-        id: markdown
         continue-on-error: true
         run: |
+          set +e
           mkdir -p .runtime/ci
           npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules" > .runtime/ci/markdown.txt 2>&1
-          echo $? > .runtime/ci/markdown.exit
+          code=$?
+          echo "$code" > .runtime/ci/markdown.exit
           cat .runtime/ci/markdown.txt
+          exit 0
       - name: Validate web client syntax
-        id: web
         continue-on-error: true
         run: |
-          mkdir -p .runtime/ci
           set +e
-          node --check web/app.js
-          a=$?
-          node --check web/interaction-fixes.js
-          b=$?
-          node --check web/beta-features.js
-          c=$?
-          node --check web/ui-stability.js
-          d=$?
-          node --check web/product-polish.js
-          e=$?
-          node --check web/ux-hardening.js
-          f=$?
-          node --check web/ux-final.js
-          g=$?
-          node --check web/ux-shortcuts.js
-          h=$?
-          node --check web/engineering-final.js
-          i=$?
-          code=$((a|b|c|d|e|f|g|h|i))
-          echo "$code" > .runtime/ci/web.exit
+          mkdir -p .runtime/ci
+          node --check web/app.js; a=$?
+          node --check web/interaction-fixes.js; b=$?
+          node --check web/beta-features.js; c=$?
+          node --check web/ui-stability.js; d=$?
+          node --check web/product-polish.js; e=$?
+          node --check web/ux-hardening.js; f=$?
+          node --check web/ux-final.js; g=$?
+          node --check web/ux-shortcuts.js; h=$?
+          node --check web/engineering-final.js; i=$?
+          echo "$((a|b|c|d|e|f|g|h|i))" > .runtime/ci/web.exit
           exit 0
       - name: Upload diagnostics
         if: always()
