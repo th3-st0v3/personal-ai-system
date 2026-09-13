@@ -23,6 +23,17 @@ MODEL_PROFILES = {
     "free": "openrouter/free",
 }
 
+# Explicit candidates keep the Auto profile inside the currently verified free
+# model pool. OpenRouter still chooses the task-appropriate model and provider.
+FREE_AUTO_MODELS = (
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "poolside/laguna-s-2.1:free",
+    "thinkingmachines/inkling:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "cohere/north-mini-code:free",
+    "google/gemma-4-31b-it:free",
+)
+
 
 def initialize(connection: sqlite3.Connection) -> None:
     connection.executescript("""
@@ -142,7 +153,11 @@ def _openrouter(messages:list[dict[str,object]],project_id:int|None,model:str|No
     for _ in range(_MAX_TOOL_ROUNDS):
         payload_data={"model":selected_model,"messages":request_messages,"tools":_tools(),"tool_choice":"auto"}
         if selected_model in {"openrouter/auto","openrouter/auto-beta"}:
-            payload_data["plugins"]=[{"id":"auto-router","cost_tier":os.environ.get("OPENROUTER_AUTO_COST_TIER","high")}]
+            payload_data["plugins"]=[{
+                "id":"auto-router",
+                "cost_tier":os.environ.get("OPENROUTER_AUTO_COST_TIER","max"),
+                "allowed_models":list(FREE_AUTO_MODELS),
+            }]
         payload=json.dumps(payload_data).encode()
         request=urllib.request.Request("https://openrouter.ai/api/v1/chat/completions",data=payload,headers={"Authorization":f"Bearer {api_key}","Content-Type":"application/json","HTTP-Referer":"http://localhost","X-Title":"Personal AI System"},method="POST")
         with urllib.request.urlopen(request,timeout=45) as response:data=json.loads(response.read().decode("utf-8"))
@@ -195,4 +210,4 @@ def respond(connection:sqlite3.Connection,chat_id:int,content:str,*,model:str|No
     return result
 
 
-__all__=["initialize","create_chat","list_chats","get_chat","add_message","rename_chat","set_pinned","move_chat","delete_chat","respond","MODEL_PROFILES"]
+__all__=["initialize","create_chat","list_chats","get_chat","add_message","rename_chat","set_pinned","move_chat","delete_chat","respond","MODEL_PROFILES","FREE_AUTO_MODELS"]
