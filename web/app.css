@@ -1,0 +1,17 @@
+/*
+ * Engineering AI Workspace — canonical stylesheet entrypoint.
+ *
+ * This is the single stylesheet referenced by the application shell. The
+ * imported layers preserve the existing cascade while migration is completed
+ * safely. New UI work belongs in design-system.css; compatibility layers are
+ * intentionally isolated here until their selectors have been migrated and
+ * regression-tested.
+ */
+@import url("/styles.css");
+@import url("/ux-hardening.css");
+@import url("/product-polish.css");
+@import url("/final-polish.css");
+@import url("/engineering-final.css");
+@import url("/production-ui.css");
+@import url("/design-system.css");
+@import url("/ui-completion.css");
