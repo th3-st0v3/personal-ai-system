@@ -9,10 +9,19 @@ import access_control
 import auth_service
 import chat_service
 import db
+import workspace_browser
 from calculation_application import CalculationApplication
 
 
 class SearchWebApplication:
+    def __init__(self) -> None:
+        # Search includes workspace notes, whose small browser schema is owned by
+        # workspace_browser. Initialize it here so a fresh database can always
+        # execute the aggregate search path without a hidden dependency on a
+        # prior note operation.
+        connection = workspace_browser._connection()
+        connection.close()
+
     def _json(self, status: int, body: object) -> tuple[int, list[tuple[str, str]], bytes]:
         payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
         return status, [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))], payload
@@ -23,7 +32,10 @@ class SearchWebApplication:
         if not raw:
             return None
         cookie = SimpleCookie()
-        cookie.load(str(raw))
+        try:
+            cookie.load(str(raw))
+        except Exception:
+            return None
         return cookie["pas_session"].value if "pas_session" in cookie else None
 
     def _actor_id(self, environ: dict[str, object], connection) -> str | None:
@@ -45,12 +57,10 @@ class SearchWebApplication:
                 allowed_chats = access_control.owned_chat_ids(connection, actor)
                 chat_rows = chat_service.list_chats(connection)
                 chats = [item for item in chat_rows if query in str(item["title"]).casefold() and (allowed_chats is None or int(item["id"]) in allowed_chats)]
-                notes_query = (
-                    "SELECT id,project_id,title,content FROM workspace_notes "
-                    "WHERE (lower(title) LIKE ? OR lower(content) LIKE ?) "
-                    "ORDER BY updated_at DESC LIMIT 30"
-                )
-                notes_rows = connection.execute(notes_query, (f"%{query}%", f"%{query}%")).fetchall()
+                notes_rows = connection.execute(
+                    "SELECT id,project_id,title,content FROM workspace_notes WHERE lower(title) LIKE ? OR lower(content) LIKE ? ORDER BY updated_at DESC LIMIT 30",
+                    (f"%{query}%", f"%{query}%"),
+                ).fetchall()
                 notes = [
                     {"id": int(row[0]), "project_id": int(row[1]), "title": str(row[2]), "content": str(row[3])}
                     for row in notes_rows
