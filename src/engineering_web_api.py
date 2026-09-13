@@ -1,6 +1,7 @@
 """Project-scoped web boundary for engineering requirements and evidence."""
 from __future__ import annotations
 
+import base64
 import json
 from urllib.parse import parse_qs, urlsplit
 
@@ -8,6 +9,7 @@ import db
 import engineering_plans
 import github_ingestion
 import ingestion_service
+import pdf_ingestion
 import policy
 from engineering_application import EngineeringApplication
 
@@ -28,75 +30,81 @@ class EngineeringWebApplication:
     @staticmethod
     def _require_project(project_id: int) -> None:
         connection = db.get_connection()
-        try:
-            row = connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
-        finally:
-            connection.close()
-        if row is None:
-            raise ValueError(f"No project found with ID {project_id}.")
+        try: row = connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        finally: connection.close()
+        if row is None: raise ValueError(f"No project found with ID {project_id}.")
 
     @staticmethod
     def _require_requirement(project_id: int, requirement_id: int) -> None:
         row = db.get_requirement(requirement_id)
-        if row is None or row[1] != project_id:
-            raise ValueError("Requirement not found in project.")
+        if row is None or row[1] != project_id: raise ValueError("Requirement not found in project.")
 
     @staticmethod
     def _require_source(project_id: int, source_id: int) -> None:
         connection = db.get_connection()
-        try:
-            row = connection.execute("SELECT id FROM sources WHERE id = ? AND project_id = ?", (source_id, project_id)).fetchone()
-        finally:
-            connection.close()
-        if row is None:
-            raise ValueError("Source not found in project.")
+        try: row = connection.execute("SELECT id FROM sources WHERE id = ? AND project_id = ?", (source_id, project_id)).fetchone()
+        finally: connection.close()
+        if row is None: raise ValueError("Source not found in project.")
 
     @staticmethod
     def _require_design_case(project_id: int, design_case_id: int) -> None:
         connection = db.get_connection()
-        try:
-            row = connection.execute("SELECT id FROM design_cases WHERE id = ? AND project_id = ?", (design_case_id, project_id)).fetchone()
-        finally:
-            connection.close()
-        if row is None:
-            raise ValueError("Design case not found in project.")
+        try: row = connection.execute("SELECT id FROM design_cases WHERE id = ? AND project_id = ?", (design_case_id, project_id)).fetchone()
+        finally: connection.close()
+        if row is None: raise ValueError("Design case not found in project.")
 
     @staticmethod
     def _require_evidence(project_id: int, evidence_id: int) -> None:
         connection = db.get_connection()
-        try:
-            row = connection.execute("SELECT e.id FROM evidence e JOIN requirements r ON r.id = e.requirement_id WHERE e.id = ? AND r.project_id = ?", (evidence_id, project_id)).fetchone()
-        finally:
-            connection.close()
-        if row is None:
-            raise ValueError("Evidence not found in project.")
+        try: row = connection.execute("SELECT e.id FROM evidence e JOIN requirements r ON r.id = e.requirement_id WHERE e.id = ? AND r.project_id = ?", (evidence_id, project_id)).fetchone()
+        finally: connection.close()
+        if row is None: raise ValueError("Evidence not found in project.")
 
     def _requirements_with_evidence(self, project_id: int) -> tuple[list[dict[str, object]], dict[int, list[dict[str, object]]]]:
         requirements = self.engineering.list_requirements(project_id)
         evidence_by_requirement: dict[int, list[dict[str, object]]] = {}
         for requirement in requirements:
-            evidence_by_requirement[int(requirement["id"])] = [
-                self.engineering.get_evidence(row[0])
-                for row in db.get_evidence_for_requirement(int(requirement["id"]))
-            ]
+            evidence: list[dict[str, object]] = []
+            for row in db.get_evidence_for_requirement(int(requirement["id"])):
+                item = self.engineering.get_evidence(row[0])
+                if item is not None: evidence.append(item)
+            evidence_by_requirement[int(requirement["id"])] = evidence
         return requirements, evidence_by_requirement
+
+    def _ingest_text(self, project_id: int, data: dict[str, object]) -> dict[str, object]:
+        connection = db.get_connection()
+        try:
+            policy.require(connection, "local", "ingest_source")
+            return ingestion_service.ingest_text(connection, project_id, str(data["title"]), str(data["content"]), source_type=str(data.get("source_type", "text")), version=None if data.get("version") is None else str(data["version"]), url=None if data.get("url") is None else str(data["url"]), chunk_chars=int(data.get("chunk_chars", ingestion_service.DEFAULT_CHUNK_CHARS)))
+        finally: connection.close()
+
+    def _ingest_github(self, project_id: int, data: dict[str, object]) -> dict[str, object]:
+        connection = db.get_connection()
+        try:
+            policy.require(connection, "local", "ingest_source")
+            return github_ingestion.ingest_public_file(connection, project_id, str(data["url"]))
+        finally: connection.close()
+
+    def _ingest_pdf(self, project_id: int, data: dict[str, object]) -> dict[str, object]:
+        encoded = data.get("data_base64")
+        if not isinstance(encoded, str): raise ValueError("data_base64 is required for PDF ingestion.")
+        try: payload = base64.b64decode(encoded, validate=True)
+        except Exception as exc: raise ValueError("PDF data is not valid base64.") from exc
+        text, page_count = pdf_ingestion.extract_pdf_text(payload)
+        result = self._ingest_text(project_id, {**data, "content": text, "source_type": "pdf"})
+        result["page_count"] = page_count
+        result["bytes"] = len(payload)
+        return result
 
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
-            if len(body) > self.MAX_REQUEST_BODY_BYTES:
-                return self._json(413, {"error": "Request body too large."})
-            parsed = urlsplit(target)
-            path = parsed.path.rstrip("/") or "/"
-            query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
+            if len(body) > self.MAX_REQUEST_BODY_BYTES: return self._json(413, {"error": "Request body too large."})
+            parsed = urlsplit(target); path = parsed.path.rstrip("/") or "/"; query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
             data = json.loads(body or b"{}")
-            if not isinstance(data, dict):
-                raise ValueError("JSON request body must be an object.")
+            if not isinstance(data, dict): raise ValueError("JSON request body must be an object.")
             parts = path.strip("/").split("/")
-            if len(parts) < 4 or parts[:3] != ["api", "engineering", "projects"]:
-                return self._json(404, {"error": "Not found"})
-            project_id = int(parts[3])
-            self._require_project(project_id)
-            resource = parts[4] if len(parts) > 4 else ""
+            if len(parts) < 4 or parts[:3] != ["api", "engineering", "projects"]: return self._json(404, {"error": "Not found"})
+            project_id = int(parts[3]); self._require_project(project_id); resource = parts[4] if len(parts) > 4 else ""
             if method == "GET" and len(parts) == 5 and resource == "requirements": return self._json(200, self.engineering.list_requirements(project_id))
             if method == "POST" and len(parts) == 5 and resource == "requirements": return self._json(201, {"id": db.create_requirement(project_id, data["description"])})
             if method == "GET" and len(parts) == 6 and resource == "requirements" and parts[5] == "test-plan": return self._json(200, engineering_plans.build_test_plan(self.engineering.list_requirements(project_id)))
@@ -107,20 +115,9 @@ class EngineeringWebApplication:
                 file_id=data.get("file_id")
                 if file_id is not None and self._workspace_file(project_id,int(file_id)) is None: raise ValueError("File not found in project.")
                 return self._json(201,{"id":self.engineering.create_source(project_id,data["title"],data["source_type"],author=data.get("author"),publisher=data.get("publisher"),version=data.get("version"),url=data.get("url"),file_id=file_id,checksum=data.get("checksum"))})
-            if method == "POST" and len(parts) == 6 and resource == "sources" and parts[5] == "ingest":
-                connection=db.get_connection()
-                try:
-                    policy.require(connection,"local","ingest_source")
-                    result=ingestion_service.ingest_text(connection,project_id,data["title"],data["content"],source_type=data.get("source_type","text"),version=data.get("version"),url=data.get("url"),chunk_chars=int(data.get("chunk_chars",ingestion_service.DEFAULT_CHUNK_CHARS)))
-                finally: connection.close()
-                return self._json(201,result)
-            if method == "POST" and len(parts) == 6 and resource == "sources" and parts[5] == "github":
-                connection=db.get_connection()
-                try:
-                    policy.require(connection,"local","ingest_source")
-                    result=github_ingestion.ingest_public_file(connection,project_id,data["url"])
-                finally: connection.close()
-                return self._json(201,result)
+            if method == "POST" and len(parts) == 6 and resource == "sources" and parts[5] == "ingest": return self._json(201, self._ingest_text(project_id, data))
+            if method == "POST" and len(parts) == 6 and resource == "sources" and parts[5] == "github": return self._json(201, self._ingest_github(project_id, data))
+            if method == "POST" and len(parts) == 6 and resource == "sources" and parts[5] == "pdf": return self._json(201, self._ingest_pdf(project_id, data))
             if method == "GET" and len(parts) == 6 and resource == "sources" and parts[5] == "search":
                 connection=db.get_connection()
                 try: results=ingestion_service.search_chunks(connection,project_id,query["q"],int(query.get("limit","10")))
@@ -134,7 +131,7 @@ class EngineeringWebApplication:
                     connection=db.get_connection()
                     try: evidence_ids=[row[0] for row in connection.execute("SELECT id FROM evidence WHERE requirement_id=? ORDER BY id",(requirement_id,)).fetchall()]
                     finally: connection.close()
-                    return self._json(200,[self.engineering.get_evidence(evidence_id) for evidence_id in evidence_ids])
+                    return self._json(200,[item for evidence_id in evidence_ids if (item:=self.engineering.get_evidence(evidence_id)) is not None])
                 if method=="POST":
                     source_id=data.get("source_id")
                     if source_id is not None:self._require_source(project_id,int(source_id))
