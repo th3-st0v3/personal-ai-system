@@ -35,7 +35,8 @@
         return;
       }
       if (tab === 'plugins') {
-        content.innerHTML = `<div class="empty-state"><strong>Plugins are not yet a backend capability.</strong><p class="muted">The current product exposes governed connections and tools instead. This tab stays informational until a real plugin registry exists.</p></div>`;
+        const plugins = await api('/api/plugins');
+        content.innerHTML = `<div class="properties">${plugins.length ? plugins.map((item) => `<div class="property"><span>${esc(item.name)} · ${esc(item.version)}</span><strong>${item.enabled ? 'Enabled' : 'Disabled'}</strong><small>${esc((item.capabilities || []).join(', '))}</small></div>`).join('') : '<div class="empty-state">No plugins are registered yet.</div>'}</div>`;
         return;
       }
       if (tab === 'you') {
