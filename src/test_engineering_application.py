@@ -45,11 +45,16 @@ class TestEngineeringApplication(unittest.TestCase):
         if project is None:
             self.fail("project should exist after creation")
         requirement = self.app.list_requirements(self.project_id)[0]
+        identifier = requirement.get("identifier")
+        status = requirement.get("status")
+        priority = requirement.get("priority")
+        if not isinstance(identifier, str) or not isinstance(status, str) or not isinstance(priority, str):
+            self.fail("updated requirement should contain identifier, status, and priority")
         self.assertEqual(project["workspace_id"], workspace_id)
         self.assertEqual(project["owner_id"], user_id)
-        self.assertEqual(requirement["identifier"], "REQ-001")
-        self.assertEqual(requirement["status"], "Verified")
-        self.assertEqual(requirement["priority"], "High")
+        self.assertEqual(identifier, "REQ-001")
+        self.assertEqual(status, "Verified")
+        self.assertEqual(priority, "High")
 
     def test_source_evidence_and_invalidation(self):
         requirement_id = db.create_requirement(self.project_id, "Support the design")
@@ -76,8 +81,10 @@ class TestEngineeringApplication(unittest.TestCase):
         self.assertEqual(decision["id"], decision_id)
         self.assertEqual(decision["status"], "Active")
         connection = db.get_connection()
-        try: row = connection.execute("SELECT entity_type, entity_id, action, metadata FROM audit_events WHERE id = ?", (audit_id,)).fetchone()
-        finally: connection.close()
+        try:
+            row = connection.execute("SELECT entity_type, entity_id, action, metadata FROM audit_events WHERE id = ?", (audit_id,)).fetchone()
+        finally:
+            connection.close()
         self.assertIsNotNone(row)
         audit_row = cast(tuple[object, object, object, object], row)
         self.assertEqual(audit_row[0:3], ("decision", decision_id, "created"))
@@ -90,4 +97,5 @@ class TestEngineeringApplication(unittest.TestCase):
         with self.assertRaises(ValueError): self.app.invalidate_evidence(99999, "reason")
 
 
-if __name__ == "__main__": unittest.main()
+if __name__ == "__main__":
+    unittest.main()
