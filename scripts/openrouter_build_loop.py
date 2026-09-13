@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypedDict
 
 from engineering_context import collect_context
 
@@ -34,11 +35,46 @@ The human reviews every file change before it is applied.
 """
 
 
+class RequestRecord(TypedDict):
+    day: str
+    at: str
+
+
+class ApprovalRecord(TypedDict):
+    created_at: str
+    action_justification: str
+    file_path: str
+    code: str
+    status: str
+
+
+class ProposalState(TypedDict):
+    schema: int
+    phase: str
+    completed_tasks: list[str]
+    backlog: list[str]
+    approval_queue: list[ApprovalRecord]
+    request_history: list[RequestRecord]
+    last_request_at: str | None
+
+
+class NewStatePayload(TypedDict, total=False):
+    backlog: list[str]
+    completed_tasks: list[str]
+
+
+class Proposal(TypedDict):
+    action_justification: str
+    file_path: str
+    code_to_execute: str
+    new_state: NewStatePayload
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def default_state() -> dict[str, object]:
+def default_state() -> ProposalState:
     return {
         "schema": STATE_SCHEMA,
         "phase": "beta",
@@ -56,18 +92,18 @@ def default_state() -> dict[str, object]:
     }
 
 
-def load_state(path: Path) -> dict[str, object]:
+def load_state(path: Path) -> ProposalState:
     if not path.exists():
         state = default_state()
         save_state(path, state)
         return state
-    state = json.loads(path.read_text(encoding="utf-8"))
-    if state.get("schema") != STATE_SCHEMA:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or raw.get("schema") != STATE_SCHEMA:
         raise ValueError("Unsupported state schema version.")
-    return state
+    return raw  # validated enough by state consumers and persisted schema
 
 
-def save_state(path: Path, state: dict[str, object]) -> None:
+def save_state(path: Path, state: ProposalState) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
@@ -78,11 +114,11 @@ def day_key() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def request_count_today(state: dict[str, object]) -> int:
-    return sum(1 for item in state["request_history"] if item.get("day") == day_key())
+def request_count_today(state: ProposalState) -> int:
+    return sum(1 for item in state["request_history"] if item["day"] == day_key())
 
 
-def sleep_for_budget(state: dict[str, object], minimum_interval: int) -> None:
+def sleep_for_budget(state: ProposalState, minimum_interval: int) -> None:
     last = state.get("last_request_at")
     if not last:
         return
@@ -107,12 +143,19 @@ def validate_proposal(proposal: dict[str, object]) -> None:
         raise ValueError("Proposal new_state must be an object.")
 
 
-def call_openrouter(api_key: str, model: str, state: dict[str, object], repo_context: str, max_output_tokens: int, base_url: str) -> dict[str, object]:
+def call_openrouter(
+    api_key: str,
+    model: str,
+    state: ProposalState,
+    repo_context: str,
+    max_output_tokens: int,
+    base_url: str,
+) -> Proposal:
     user_payload = {
-        "phase": state.get("phase"),
-        "backlog": state.get("backlog", [])[:20],
-        "recent_queue": state.get("approval_queue", [])[-10:],
-        "completed_tasks": state.get("completed_tasks", [])[-20:],
+        "phase": state["phase"],
+        "backlog": state["backlog"][:20],
+        "recent_queue": state["approval_queue"][-10:],
+        "completed_tasks": state["completed_tasks"][-20:],
         "repository_context": repo_context,
         "instruction": "Propose exactly one next repository change. Do not apply it.",
     }
@@ -143,12 +186,14 @@ def call_openrouter(api_key: str, model: str, state: dict[str, object], repo_con
         raise ValueError("OpenRouter response exceeded the safety size limit.")
     data = json.loads(body.decode("utf-8"))
     result = json.loads(data["choices"][0]["message"]["content"])
+    if not isinstance(result, dict):
+        raise ValueError("OpenRouter proposal must be an object.")
     validate_proposal(result)
-    return result
+    return result  # proposal schema was validated above
 
 
-def enqueue_proposal(state: dict[str, object], proposal: dict[str, object]) -> None:
-    queue = state.setdefault("approval_queue", [])
+def enqueue_proposal(state: ProposalState, proposal: Proposal) -> None:
+    queue = state["approval_queue"]
     queue.append({
         "created_at": utc_now(),
         "action_justification": proposal["action_justification"],
@@ -159,9 +204,9 @@ def enqueue_proposal(state: dict[str, object], proposal: dict[str, object]) -> N
     if len(queue) > 50:
         del queue[:-50]
     new_state = proposal["new_state"]
-    if isinstance(new_state.get("backlog"), list):
+    if "backlog" in new_state:
         state["backlog"] = new_state["backlog"]
-    if isinstance(new_state.get("completed_tasks"), list):
+    if "completed_tasks" in new_state:
         state["completed_tasks"] = new_state["completed_tasks"]
 
 
@@ -203,7 +248,8 @@ def main() -> int:
             try:
                 proposal = call_openrouter(api_key, args.model, state, repo_context, args.max_output_tokens, args.base_url)
                 state["last_request_at"] = utc_now()
-                state["request_history"].append({"day": day_key(), "at": state["last_request_at"]})
+                last_request_at = state["last_request_at"]
+                state["request_history"].append({"day": day_key(), "at": last_request_at})
                 enqueue_proposal(state, proposal)
                 save_state(state_path, state)
                 print(f"Queued: {proposal['action_justification']}")
