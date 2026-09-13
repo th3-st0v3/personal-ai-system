@@ -2,6 +2,11 @@
   "typeCheckingMode": "basic",
   "include": ["src", "scripts"],
   "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.git",
+    "**/.venv",
+    "**/.*",
     "src/test_*.py",
     "src/web_api.py",
     "src/engineering_web_api.py"
