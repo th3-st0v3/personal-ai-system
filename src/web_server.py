@@ -158,12 +158,15 @@ class SiteApplication:
                 access_control.require_authenticated(connection, actor_id)
                 project_id = body.get("project_id") if method == "POST" else query.get("project_id")
                 if project_id is not None:
-                    project_id_int = int(project_id)
-                    access_control.require_project(connection, actor_id, project_id_int)
+                    access_control.require_project(connection, actor_id, int(project_id))
                 return actor_id
             parts = [part for part in path.split("/") if part]
             if len(parts) >= 3 and parts[1] == "projects":
-                project_id = int(parts[2]) if parts[0] == "api" else int(parts[3])
+                project_id = int(parts[2])
+                access_control.require_project(connection, actor_id, project_id)
+                return actor_id
+            if len(parts) >= 4 and parts[1:3] == ["engineering", "projects"]:
+                project_id = int(parts[3])
                 access_control.require_project(connection, actor_id, project_id)
                 return actor_id
             if len(parts) >= 3 and parts[1] == "chats":
@@ -254,12 +257,11 @@ class SiteApplication:
             start = self._start_response(environ, start_response)
             start("403 Forbidden", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
             return [payload]
-
         try:
-            query = {key: values[-1] for key, values in parse_qs(str(environ.get("QUERY_STRING", ""))).items()}
-            actor_id = self._authorize(environ, method, path.rstrip("/") or "/", query)
-            captured_paths = {"/api/projects", "/api/chats", "/api/auth/signup"}
             normalized_path = path.rstrip("/") or "/"
+            query = {key: values[-1] for key, values in parse_qs(str(environ.get("QUERY_STRING", ""))).items()}
+            actor_id = self._authorize(environ, method, normalized_path, query)
+            captured_paths = {"/api/projects", "/api/chats", "/api/auth/signup"}
             if normalized_path in captured_paths:
                 status, headers, body = self._capture_dispatch(environ)
                 if normalized_path == "/api/auth/signup" and status.startswith("201"):
@@ -276,18 +278,16 @@ class SiteApplication:
                             connection.close()
                 elif normalized_path == "/api/projects" and method == "POST" and status.startswith("201") and actor_id is not None:
                     payload = json.loads(body)
-                    project_id = int(payload["id"])
                     connection = db.get_connection()
                     try:
-                        access_control.claim_project(connection, project_id, int(actor_id))
+                        access_control.claim_project(connection, int(payload["id"]), int(actor_id))
                     finally:
                         connection.close()
                 elif normalized_path == "/api/chats" and method == "POST" and status.startswith("201") and actor_id is not None:
                     payload = json.loads(body)
-                    chat_id = int(payload["id"])
                     connection = db.get_connection()
                     try:
-                        access_control.claim_chat(connection, chat_id, int(actor_id))
+                        access_control.claim_chat(connection, int(payload["id"]), int(actor_id))
                     finally:
                         connection.close()
                 if method == "GET" and normalized_path in {"/api/projects", "/api/chats"} and status.startswith("200"):
@@ -302,7 +302,8 @@ class SiteApplication:
         except PermissionError as exc:
             payload = json.dumps({"error": str(exc) or "Permission denied"}, separators=(",", ":")).encode()
             start = self._start_response(environ, start_response)
-            start("403 Forbidden" if str(exc) != "Authentication required." else "401 Unauthorized", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
+            status = "401 Unauthorized" if str(exc) == "Authentication required." else "403 Forbidden"
+            start(status, [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
             return [payload]
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             payload = json.dumps({"error": str(exc) or "Invalid request"}, separators=(",", ":")).encode()
