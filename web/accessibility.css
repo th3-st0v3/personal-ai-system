@@ -1,0 +1,39 @@
+/* Cross-cutting accessibility and mobile ergonomics. Loaded after the visual layers. */
+@media (max-width: 900px) {
+  .icon-button, .quiet-icon, .quiet-button, .outline-button, .text-button, .account-button,
+  .primary-button, .nav-item, .tool-row { min-height: 40px; }
+
+  .nav-item, .tool-row { padding-block: 9px; }
+
+  .sidebar[aria-hidden="true"] { visibility: hidden; }
+  body.nav-open::before {
+    content: "";
+    position: fixed;
+    inset: 52px 0 0;
+    z-index: 19;
+    background: rgba(15, 18, 23, .38);
+  }
+  body.nav-open .sidebar { z-index: 20; }
+}
+
+@media (max-width: 520px) {
+  .topbar { padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right)); }
+  .composer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .composer-row { align-items: stretch; }
+  .composer-left { flex: 1; }
+  .mode-select { flex: 1; min-width: 0; max-width: none; }
+  .send-button { min-width: 72px; }
+  .welcome-card h2 { line-height: 1.2; }
+  .user-bubble { max-width: 94%; }
+}
+
+/* Never rely on color alone for focus; keep focus visible on keyboard navigation. */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--ui-accent, #3559d8);
+  outline-offset: 2px;
+}
+
+@media (prefers-contrast: more) {
+  :where(button, input, textarea, select) { border-width: 2px; }
+  .nav-item.active, .calc-nav-group:hover, .calc-nav-all:hover { text-decoration: underline; }
+}
