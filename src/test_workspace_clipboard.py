@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from typing import cast
 
 import db
 from workspace_application import WorkspaceApplication
@@ -23,14 +24,15 @@ class TestWorkspaceClipboard(unittest.TestCase):
         child = self.app.create_folder(self.project_id, "Inputs", root)
         note = self.app.create_note(self.project_id, "requirements", "pressure = 100 kPa", child)
         file_id = self.app.create_file(self.project_id, "data.txt", b"engineering data", "text/plain", child)
-
         duplicate = self.app.duplicate_item(self.project_id, "folder", root)
         children = self.app.list_children(self.project_id, duplicate)
         self.assertEqual([item.name for item in children], ["Inputs"])
         nested = children[0]
         nested_items = self.app.list_children(self.project_id, nested.id)
         self.assertEqual({item.name for item in nested_items}, {"data.txt", "requirements"})
-        self.assertEqual(self.app.get_note(note).content, "pressure = 100 kPa")
+        original_note = self.app.get_note(note); self.assertIsNotNone(original_note)
+        if original_note is None: self.fail("note could not be retrieved")
+        self.assertEqual(original_note.content, "pressure = 100 kPa")
         self.assertEqual(self.app.read_file(file_id), b"engineering data")
 
     def test_copy_and_paste_renames_conflicts(self):
@@ -39,7 +41,9 @@ class TestWorkspaceClipboard(unittest.TestCase):
         clipboard = self.app.copy_selection(self.project_id, [("folder", folder)])
         pasted = self.app.paste_selection(self.project_id, None, clipboard)
         self.assertEqual(len(pasted), 1)
-        self.assertEqual(self.app.get_folder(pasted[0])["name"], "Results (copy)")
+        pasted_folder = self.app.get_folder(pasted[0]); self.assertIsNotNone(pasted_folder)
+        if pasted_folder is None: self.fail("pasted folder could not be retrieved")
+        self.assertEqual(pasted_folder["name"], "Results (copy)")
         copied_items = self.app.list_children(self.project_id, pasted[0])
         self.assertEqual(copied_items[0].name, "report")
         self.assertEqual(copied_items[0].content, "first")
@@ -47,22 +51,18 @@ class TestWorkspaceClipboard(unittest.TestCase):
     def test_copy_rejects_other_project(self):
         other = self.app.create_project("Other")
         folder = self.app.create_folder(other, "Private")
-        with self.assertRaises(ValueError):
-            self.app.copy_selection(self.project_id, [("folder", folder)])
+        with self.assertRaises(ValueError): self.app.copy_selection(self.project_id, [("folder", folder)])
 
     def test_paste_rejects_other_project_clipboard(self):
         other = self.app.create_project("Other")
         folder = self.app.create_folder(other, "Private")
-        with self.assertRaises(ValueError):
-            self.app.paste_selection(self.project_id, None, [{"kind": "folder", "id": folder}])
+        with self.assertRaises(ValueError): self.app.paste_selection(self.project_id, None, [{"kind": "folder", "id": folder}])
 
     def test_copy_folder_into_descendant_is_rejected(self):
         root = self.app.create_folder(self.project_id, "Root")
         child = self.app.create_folder(self.project_id, "Child", root)
         clipboard = self.app.copy_selection(self.project_id, [("folder", root)])
-        with self.assertRaises(ValueError):
-            self.app.paste_selection(self.project_id, child, clipboard)
+        with self.assertRaises(ValueError): self.app.paste_selection(self.project_id, child, clipboard)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
