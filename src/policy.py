@@ -17,7 +17,7 @@ RATE_LIMITS = {
 
 
 def initialize(connection: sqlite3.Connection) -> None:
-    """Create the authorization schema. Application startup should call this once."""
+    """Create the authorization schema; safe to call repeatedly during migration/compatibility paths."""
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS permission_grants (
             actor_id TEXT NOT NULL,
@@ -42,6 +42,7 @@ def initialize(connection: sqlite3.Connection) -> None:
 
 def grant(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
     validate_action(action)
+    initialize(connection)
     actor_id = _actor(actor_id)
     connection.execute(
         "INSERT INTO permission_grants(actor_id, action, enabled) VALUES (?, ?, 1) "
@@ -53,6 +54,7 @@ def grant(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
 
 def revoke(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
     validate_action(action)
+    initialize(connection)
     connection.execute(
         "UPDATE permission_grants SET enabled=0, updated_at=datetime('now') WHERE actor_id=? AND action=?",
         (_actor(actor_id), action),
@@ -62,6 +64,7 @@ def revoke(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
 
 def allowed(connection: sqlite3.Connection, actor_id: str, action: str) -> bool:
     validate_action(action)
+    initialize(connection)
     actor_id = _actor(actor_id)
     row = connection.execute(
         "SELECT enabled FROM permission_grants WHERE actor_id=? AND action=?",
@@ -107,6 +110,7 @@ def _audit(connection: sqlite3.Connection, actor_id: str, action: str, permitted
 
 
 def purge_audit_log(connection: sqlite3.Connection, *, max_age_seconds: int = 30 * 24 * 60 * 60) -> int:
+    initialize(connection)
     cursor = connection.execute("DELETE FROM action_audit_log WHERE created_at<?", (time.time() - max_age_seconds,))
     connection.commit()
     return cursor.rowcount
