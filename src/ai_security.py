@@ -5,7 +5,7 @@ import json
 
 MAX_CONTEXT_CHARS = 120_000
 MAX_TOOL_RESULT_CHARS = 32_000
-ALLOWED_TOOLS = frozenset({"run_calculation", "run_simulation", "get_project_items"})
+ALLOWED_TOOLS = frozenset({"run_calculation", "run_simulation", "get_project_items", "search_project_sources"})
 
 
 def validate_tool(name: str, arguments: object) -> dict[str, object]:
@@ -13,6 +13,13 @@ def validate_tool(name: str, arguments: object) -> dict[str, object]:
         raise ValueError(f"Tool '{name}' is not authorized.")
     if not isinstance(arguments, dict):
         raise ValueError("Tool arguments must be an object.")
+    if name == "search_project_sources":
+        query = arguments.get("query")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("search_project_sources requires a non-empty query.")
+        limit = arguments.get("limit", 8)
+        if not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise ValueError("search_project_sources limit must be between 1 and 20.")
     return {"tool": name, "authorization": "allowed", "arguments": arguments}
 
 
