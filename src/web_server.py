@@ -10,6 +10,7 @@ import io
 import json
 from http.cookies import SimpleCookie
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import access_control
@@ -127,7 +128,7 @@ class SiteApplication:
         stream = environ.get("wsgi.input")
         if not hasattr(stream, "read"):
             raise ValueError("Request body stream is unavailable.")
-        body = stream.read(length)
+        body = stream.read(length)  # type: ignore[union-attr]
         if not isinstance(body, bytes):
             body = bytes(body)
         environ["wsgi.input"] = io.BytesIO(body)
@@ -158,23 +159,23 @@ class SiteApplication:
                 access_control.require_authenticated(connection, actor_id)
                 project_id = body.get("project_id") if method == "POST" else query.get("project_id")
                 if project_id is not None:
-                    access_control.require_project(connection, actor_id, int(project_id))
+                    access_control.require_project(connection, actor_id, int(str(project_id)))
                 return actor_id
             parts = [part for part in path.split("/") if part]
             if len(parts) >= 3 and parts[1] == "projects":
-                project_id = int(parts[2])
+                project_id = int(str(parts[2]))
                 access_control.require_project(connection, actor_id, project_id)
                 return actor_id
             if len(parts) >= 4 and parts[1:3] == ["engineering", "projects"]:
-                project_id = int(parts[3])
+                project_id = int(str(parts[3]))
                 access_control.require_project(connection, actor_id, project_id)
                 return actor_id
             if len(parts) >= 3 and parts[1] == "chats":
-                chat_id = int(parts[2])
+                chat_id = int(str(parts[2]))
                 access_control.require_chat(connection, actor_id, chat_id)
                 target_project = body.get("project_id") if method == "PATCH" else None
                 if target_project is not None:
-                    access_control.require_project(connection, actor_id, int(target_project))
+                    access_control.require_project(connection, actor_id, int(str(target_project)))
                 return actor_id
         finally:
             connection.close()
@@ -211,7 +212,7 @@ class SiteApplication:
         return [payload]
 
     def _capture_dispatch(self, environ) -> tuple[str, list[tuple[str, str]], bytes]:
-        captured: dict[str, object] = {}
+        captured: dict[str, Any] = {}
 
         def capture_start(status, headers, exc_info=None):
             captured["status"] = status
@@ -227,7 +228,10 @@ class SiteApplication:
             if callable(close):
                 close()
         status = str(captured.get("status", "500 Error"))
-        headers = [(str(name), str(value)) for name, value in captured.get("headers", [])]
+        raw_headers = captured.get("headers", [])
+        headers: list[tuple[str, str]] = []
+        if isinstance(raw_headers, list):
+            headers = [(str(pair[0]), str(pair[1])) for pair in raw_headers if isinstance(pair, (list, tuple)) and len(pair) >= 2]
         return status, headers, body
 
     def _filter_list_response(self, path: str, body: bytes, actor_id: str | None) -> bytes:
@@ -246,7 +250,17 @@ class SiteApplication:
             connection.close()
         if allowed is None:
             return body
-        filtered = [row for row in payload if isinstance(row, dict) and int(row.get("id", -1)) in allowed]
+        filtered = []
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            raw_id = row.get("id")
+            try:
+                row_id = int(raw_id) if isinstance(raw_id, (int, str, float)) and not isinstance(raw_id, bool) else None
+            except (TypeError, ValueError):
+                row_id = None
+            if row_id is not None and row_id in allowed:
+                filtered.append(row)
         return json.dumps(filtered, ensure_ascii=False, separators=(",", ":")).encode()
 
     def __call__(self, environ, start_response):
@@ -267,7 +281,7 @@ class SiteApplication:
                 if normalized_path == "/api/auth/signup" and status.startswith("201"):
                     try:
                         payload = json.loads(body)
-                        user_id = int(payload["user"]["id"])
+                        user_id = int(str(payload["user"]["id"]))
                     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                         user_id = None
                     if user_id is not None:
@@ -280,14 +294,14 @@ class SiteApplication:
                     payload = json.loads(body)
                     connection = db.get_connection()
                     try:
-                        access_control.claim_project(connection, int(payload["id"]), int(actor_id))
+                        access_control.claim_project(connection, int(str(payload["id"])), int(actor_id))
                     finally:
                         connection.close()
                 elif normalized_path == "/api/chats" and method == "POST" and status.startswith("201") and actor_id is not None:
                     payload = json.loads(body)
                     connection = db.get_connection()
                     try:
-                        access_control.claim_chat(connection, int(payload["id"]), int(actor_id))
+                        access_control.claim_chat(connection, int(str(payload["id"])), int(actor_id))
                     finally:
                         connection.close()
                 if method == "GET" and normalized_path in {"/api/projects", "/api/chats"} and status.startswith("200"):
@@ -300,13 +314,14 @@ class SiteApplication:
             start = self._start_response(environ, start_response)
             return self._dispatch(environ, start)
         except PermissionError as exc:
-            payload = json.dumps({"error": str(exc) or "Permission denied"}, separators=(",", ":")).encode()
+            message = str(exc)
+            status = "401 Unauthorized" if message == "Authentication required." else "403 Forbidden"
+            payload = json.dumps({"error": message or "Permission denied"}, separators=(",", ":")).encode()
             start = self._start_response(environ, start_response)
-            status = "401 Unauthorized" if str(exc) == "Authentication required." else "403 Forbidden"
             start(status, [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
             return [payload]
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            payload = json.dumps({"error": str(exc) or "Invalid request"}, separators=(",", ":")).encode()
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = b'{"error":"Invalid request."}'
             start = self._start_response(environ, start_response)
             start("400 Bad Request", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
             return [payload]

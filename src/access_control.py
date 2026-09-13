@@ -4,6 +4,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Iterable
 
+ActorId = int | str | None
+
 
 def initialize(connection: sqlite3.Connection) -> None:
     connection.executescript(
@@ -38,7 +40,7 @@ def has_users(connection: sqlite3.Connection) -> bool:
     return row is not None
 
 
-def _user_id(actor_id: str | None) -> int | None:
+def _user_id(actor_id: ActorId) -> int | None:
     if actor_id is None or actor_id == "local":
         return None
     try:
@@ -47,7 +49,7 @@ def _user_id(actor_id: str | None) -> int | None:
         raise PermissionError("Authentication required.") from exc
 
 
-def require_authenticated(connection: sqlite3.Connection, actor_id: str | None) -> int | None:
+def require_authenticated(connection: sqlite3.Connection, actor_id: ActorId) -> int | None:
     """Allow legacy local-only operation only while no accounts exist."""
     user_id = _user_id(actor_id)
     if user_id is None and has_users(connection):
@@ -55,7 +57,7 @@ def require_authenticated(connection: sqlite3.Connection, actor_id: str | None) 
     return user_id
 
 
-def project_allowed(connection: sqlite3.Connection, actor_id: str | None, project_id: int) -> bool:
+def project_allowed(connection: sqlite3.Connection, actor_id: ActorId, project_id: int) -> bool:
     user_id = _user_id(actor_id)
     if user_id is None:
         return not has_users(connection)
@@ -66,12 +68,12 @@ def project_allowed(connection: sqlite3.Connection, actor_id: str | None, projec
     return row is not None
 
 
-def require_project(connection: sqlite3.Connection, actor_id: str | None, project_id: int) -> None:
+def require_project(connection: sqlite3.Connection, actor_id: ActorId, project_id: int) -> None:
     if not project_allowed(connection, actor_id, project_id):
         raise PermissionError("Project access denied.")
 
 
-def chat_allowed(connection: sqlite3.Connection, actor_id: str | None, chat_id: int) -> bool:
+def chat_allowed(connection: sqlite3.Connection, actor_id: ActorId, chat_id: int) -> bool:
     user_id = _user_id(actor_id)
     if user_id is None:
         return not has_users(connection)
@@ -92,7 +94,7 @@ def chat_allowed(connection: sqlite3.Connection, actor_id: str | None, chat_id: 
     return row is not None
 
 
-def require_chat(connection: sqlite3.Connection, actor_id: str | None, chat_id: int) -> None:
+def require_chat(connection: sqlite3.Connection, actor_id: ActorId, chat_id: int) -> None:
     if not chat_allowed(connection, actor_id, chat_id):
         raise PermissionError("Chat access denied.")
 
@@ -130,7 +132,7 @@ def claim_legacy_data(connection: sqlite3.Connection, user_id: int) -> None:
     connection.commit()
 
 
-def owned_project_ids(connection: sqlite3.Connection, actor_id: str | None) -> set[int] | None:
+def owned_project_ids(connection: sqlite3.Connection, actor_id: ActorId) -> set[int] | None:
     user_id = _user_id(actor_id)
     if user_id is None:
         return None if not has_users(connection) else set()
@@ -141,7 +143,7 @@ def owned_project_ids(connection: sqlite3.Connection, actor_id: str | None) -> s
     return {int(row[0]) for row in rows}
 
 
-def owned_chat_ids(connection: sqlite3.Connection, actor_id: str | None) -> set[int] | None:
+def owned_chat_ids(connection: sqlite3.Connection, actor_id: ActorId) -> set[int] | None:
     user_id = _user_id(actor_id)
     if user_id is None:
         return None if not has_users(connection) else set()
@@ -165,12 +167,22 @@ def owned_chat_ids(connection: sqlite3.Connection, actor_id: str | None) -> set[
 def filter_rows(rows: Iterable[dict[str, object]], allowed_ids: set[int] | None, key: str = "id") -> list[dict[str, object]]:
     if allowed_ids is None:
         return list(rows)
-    return [row for row in rows if int(row[key]) in allowed_ids]
+    filtered: list[dict[str, object]] = []
+    for row in rows:
+        raw_id = row.get(key)
+        if isinstance(raw_id, bool):
+            continue
+        try:
+            row_id = int(raw_id) if isinstance(raw_id, (int, str, float)) else None
+        except (TypeError, ValueError):
+            row_id = None
+        if row_id is not None and row_id in allowed_ids:
+            filtered.append(row)
+    return filtered
 
 
 __all__ = [
-    "initialize", "has_users", "require_authenticated", "project_allowed",
-    "require_project", "chat_allowed", "require_chat", "claim_project",
-    "claim_chat", "claim_legacy_data", "owned_project_ids", "owned_chat_ids",
-    "filter_rows",
+    "ActorId", "initialize", "has_users", "require_authenticated", "project_allowed",
+    "require_project", "chat_allowed", "require_chat", "claim_project", "claim_chat",
+    "claim_legacy_data", "owned_project_ids", "owned_chat_ids", "filter_rows",
 ]

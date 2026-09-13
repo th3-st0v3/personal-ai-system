@@ -56,7 +56,7 @@ class SearchWebApplication:
                 allowed_projects = access_control.owned_project_ids(connection, actor)
                 allowed_chats = access_control.owned_chat_ids(connection, actor)
                 chat_rows = chat_service.list_chats(connection)
-                chats = [item for item in chat_rows if query in str(item["title"]).casefold() and (allowed_chats is None or int(item["id"]) in allowed_chats)]
+                chats = [item for item in chat_rows if query in str(item["title"]).casefold() and (allowed_chats is None or int(str(item["id"])) in allowed_chats)]
                 notes_rows = connection.execute(
                     "SELECT id,project_id,title,content FROM workspace_notes WHERE lower(title) LIKE ? OR lower(content) LIKE ? ORDER BY updated_at DESC LIMIT 30",
                     (f"%{query}%", f"%{query}%"),
@@ -85,9 +85,10 @@ class SearchWebApplication:
             ]
             return self._json(200, {"chats": chats[:30], "projects": projects[:30], "notes": notes[:30], "calculations": calculations[:30]})
         except PermissionError as exc:
-            return self._json(401 if str(exc) == "Authentication required." else 403, {"error": str(exc)})
-        except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            return self._json(400, {"error": str(exc)})
+            message = str(exc)
+            return self._json(401 if message == "Authentication required." else 403, {"error": message or "Permission denied"})
+        except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+            return self._json(400, {"error": "Invalid search request."})
         except Exception:
             return self._json(500, {"error": "Search failed"})
 
