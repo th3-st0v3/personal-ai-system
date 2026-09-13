@@ -62,24 +62,33 @@ def revoke(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
     connection.commit()
 
 
-def allowed(connection: sqlite3.Connection, actor_id: str, action: str) -> bool:
-    validate_action(action)
-    initialize(connection)
-    actor_id = _actor(actor_id)
+def _permission_allowed(connection: sqlite3.Connection, actor_id: str, action: str) -> bool:
     row = connection.execute(
         "SELECT enabled FROM permission_grants WHERE actor_id=? AND action=?",
         (actor_id, action),
     ).fetchone()
-    permitted = bool(row[0]) if row is not None else actor_id == "local" and action in DEFAULT_SAFE_ACTIONS
+    return bool(row[0]) if row is not None else actor_id == "local" and action in DEFAULT_SAFE_ACTIONS
+
+
+def allowed(connection: sqlite3.Connection, actor_id: str, action: str) -> bool:
+    validate_action(action)
+    initialize(connection)
+    actor_id = _actor(actor_id)
+    permitted = _permission_allowed(connection, actor_id, action)
     _audit(connection, actor_id, action, permitted, None if permitted else "permission denied")
     return permitted
 
 
 def require(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
+    """Require permission and consume one rate-limit slot for the actual action."""
+    validate_action(action)
+    initialize(connection)
     actor_id = _actor(actor_id)
-    if not allowed(connection, actor_id, action):
+    if not _permission_allowed(connection, actor_id, action):
+        _audit(connection, actor_id, action, False, "permission denied")
         raise PermissionError(f"Permission denied for action '{action}'.")
     _enforce_rate_limit(connection, actor_id, action)
+    _audit(connection, actor_id, action, True, None)
 
 
 def validate_action(action: str) -> None:
