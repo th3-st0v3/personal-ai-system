@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -23,8 +23,12 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s src -p 'test_*.py' -v
+      - name: Static type check
+        run: npx --yes pyright@latest src scripts
+      - name: Markdown lint
+        run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules"
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Validate web client syntax
-        run: node --check web/app.js && node --check web/interaction-fixes.js && node --check web/beta-features.js && node --check web/product-polish.js && node --check web/ux-hardening.js
+        run: node --check web/app.js && node --check web/interaction-fixes.js && node --check web/beta-features.js && node --check web/ui-stability.js && node --check web/product-polish.js && node --check web/ux-hardening.js
