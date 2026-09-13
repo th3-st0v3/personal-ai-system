@@ -258,9 +258,17 @@ def respond(connection: sqlite3.Connection, chat_id: int, content: str, *, model
     chat_messages = chat_with_messages.get("messages")
     if not isinstance(chat_messages, list):
         raise RuntimeError("Chat messages are malformed.")
-    messages = [{"role": message.get("role"), "content": message.get("content")} for message in chat_messages if isinstance(message, Mapping)]
+    messages: list[dict[str, object]] = []
+    for message in chat_messages:
+        if not isinstance(message, Mapping):
+            continue
+        role = message.get("role")
+        message_content = message.get("content")
+        if isinstance(role, str) and isinstance(message_content, str):
+            messages.append({"role": role, "content": message_content})
+    chat_project_id = chat.get("project_id")
+    project_id = chat_project_id if isinstance(chat_project_id, int) else None
     events: list[dict[str, object]] = []
-    project_id = chat.get("project_id") if isinstance(chat.get("project_id"), int) else None
     try:
         answer = _local_answer(content) if mode == "local" else None
         if answer is None:
