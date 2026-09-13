@@ -62,6 +62,21 @@ jobs:
           node --check web/engineering-final.js; i=$?
           echo "$((a|b|c|d|e|f|g|h|i))" > .runtime/ci/web.exit
           exit 0
+      - name: Browser/API smoke test
+        env:
+          PYTHONPATH: src
+        run: |
+          set -e
+          python scripts/serve_web.py > .runtime/ci/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null; then break; fi
+            sleep 0.25
+          done
+          curl -fsS http://127.0.0.1:8000/ | grep -q 'chat-form'
+          curl -fsS http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
+          curl -fsS http://127.0.0.1:8000/api/manifest | grep -q 'Engineering'
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
