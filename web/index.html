@@ -43,7 +43,7 @@
     </aside>
     <main id="main" class="main">
       <section id="home-view" class="view chat-view">
-        <div id="chat-header" class="chat-header"><div><div id="chat-context" class="eyebrow"></div><h1 id="chat-title">New chat</h1></div><div class="header-actions"><button id="new-chat-header" class="outline-button" type="button">New chat</button><button id="project-chat-button" class="outline-button" type="button" hidden>Project</button></div></div>
+        <div id="chat-header" class="chat-header"><div><div id="chat-context" class="eyebrow"></div><div class="chat-title-line"><h1 id="chat-title">New chat</h1></div></div><div class="header-actions"><button id="new-chat-header" class="outline-button" type="button">New chat</button><button id="project-chat-button" class="outline-button" type="button" hidden>Project</button></div></div>
         <div id="chat-messages" class="chat-messages" aria-live="polite"><div class="welcome-card"><div class="welcome-mark">✦</div><h2>What are you working on?</h2><p>Ask an engineering question, inspect project material, run a deterministic calculation, or start a simulation.</p><div class="prompt-grid"><button type="button" data-prompt="Build a transparent engineering model for this problem and identify the assumptions.">Model an engineering problem</button><button type="button" data-prompt="Explain this like a tutor, then give me progressively harder practice problems.">Study something</button><button type="button" data-prompt="Digest the information I provide into claims, evidence, assumptions, and open questions.">Digest information</button></div></div></div>
         <form id="chat-form" class="composer" autocomplete="off"><textarea id="chat-input" rows="1" placeholder="Message…" aria-label="Message"></textarea><div class="composer-row"><div class="composer-left"><button id="attach-button" class="icon-button" type="button" title="Attach a file" aria-label="Attach a file">＋</button><input id="chat-file-input" type="file" hidden><select id="ai-mode" class="mode-select" aria-label="AI model"><option value="auto">Auto</option><option value="claude">Claude Opus 5</option><option value="gpt">GPT-5.4</option><option value="gemini">Gemini 3.1 Pro</option><option value="free">Free</option></select></div><button id="send-chat" class="primary-button send-button" type="submit">Send</button></div></form>
       </section>
@@ -58,5 +58,6 @@
   <script src="/ui-stability.js" defer></script>
   <script src="/product-polish.js" defer></script>
   <script src="/ux-hardening.js" defer></script>
+  <script src="/ux-final.js" defer></script>
 </body>
 </html>
