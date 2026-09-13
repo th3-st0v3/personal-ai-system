@@ -15,6 +15,7 @@ from pathlib import Path
 from engineering_context import collect_context
 
 DEFAULT_MODEL = "openrouter/free"
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MAX_DAILY_REQUESTS = 45
 DEFAULT_MIN_INTERVAL_SECONDS = 2100
 MAX_RESPONSE_BYTES = 2_000_000
@@ -106,7 +107,7 @@ def validate_proposal(proposal: dict[str, object]) -> None:
         raise ValueError("Proposal new_state must be an object.")
 
 
-def call_openrouter(api_key: str, model: str, state: dict[str, object], repo_context: str, max_output_tokens: int) -> dict[str, object]:
+def call_openrouter(api_key: str, model: str, state: dict[str, object], repo_context: str, max_output_tokens: int, base_url: str) -> dict[str, object]:
     user_payload = {
         "phase": state.get("phase"),
         "backlog": state.get("backlog", [])[:20],
@@ -124,8 +125,9 @@ def call_openrouter(api_key: str, model: str, state: dict[str, object], repo_con
         "response_format": {"type": "json_object"},
         "max_tokens": max_output_tokens,
     }
+    endpoint = base_url.rstrip("/") + "/chat/completions"
     request = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
+        endpoint,
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -168,6 +170,7 @@ def main() -> int:
     parser.add_argument("--state", default=".runtime/ai_os_project_state.json")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--base-url", default=os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--max-daily-requests", type=int, default=DEFAULT_MAX_DAILY_REQUESTS)
     parser.add_argument("--min-interval-seconds", type=int, default=DEFAULT_MIN_INTERVAL_SECONDS)
     parser.add_argument("--max-output-tokens", type=int, default=2500)
@@ -185,6 +188,7 @@ def main() -> int:
     state = load_state(state_path)
     repo_context = collect_context(Path(args.repo), max_chars=MAX_CONTEXT_CHARS)
     print(f"Engineering build assistant ready. Model: {args.model}")
+    print(f"Endpoint: {args.base_url}")
     print(f"Requests today: {request_count_today(state)}/{args.max_daily_requests}")
     print("Repository context loaded; model changes are queued for human review.")
 
@@ -197,7 +201,7 @@ def main() -> int:
         attempts = 0
         while True:
             try:
-                proposal = call_openrouter(api_key, args.model, state, repo_context, args.max_output_tokens)
+                proposal = call_openrouter(api_key, args.model, state, repo_context, args.max_output_tokens, args.base_url)
                 state["last_request_at"] = utc_now()
                 state["request_history"].append({"day": day_key(), "at": state["last_request_at"]})
                 enqueue_proposal(state, proposal)
