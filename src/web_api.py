@@ -217,6 +217,7 @@ class WebApplication:
         self,
         method: str,
         path: str,
+        query: dict[str, str],
         data: dict[str, object],
     ) -> tuple[int, object] | None:
         if method == "POST" and path == "/api/chats":
@@ -229,7 +230,7 @@ class WebApplication:
                 connection.close()
             return 201, {"id": chat_id}
         if method == "GET" and path == "/api/chats":
-            project_id = int(data["project_id"]) if "project_id" in data else None
+            project_id = int(query["project_id"]) if query.get("project_id") else None
             connection = db.get_connection()
             try:
                 return 200, chat_service.list_chats(connection, project_id)
@@ -497,14 +498,23 @@ class WebApplication:
             return 200, properties
         return None
 
-    def _normalize_response(self, result: tuple[int, object]) -> tuple[int, list[tuple[str, str]] | None, object]:
-        status, body = result
+    @staticmethod
+    def _split_response_body(body: object) -> tuple[object, list[tuple[str, str]] | None]:
         if isinstance(body, dict) and "_headers" in body:
-            headers = body.pop("_headers")
-            if not isinstance(headers, list):
+            payload = dict(body)
+            raw_headers = payload.pop("_headers")
+            if not isinstance(raw_headers, list):
                 raise TypeError("Response headers must be a list.")
-            return status, headers, body
-        return status, None, body
+            headers: list[tuple[str, str]] = []
+            for header in raw_headers:
+                if not isinstance(header, tuple) or len(header) != 2:
+                    raise TypeError("Response headers must contain (name, value) tuples.")
+                name, value = header
+                if not isinstance(name, str) or not isinstance(value, str):
+                    raise TypeError("Response header names and values must be strings.")
+                headers.append((name, value))
+            return payload, headers
+        return body, None
 
     def request(
         self,
@@ -529,12 +539,13 @@ class WebApplication:
 
             result = self._handle_root_routes(method, path, query, data, user, token, actor_id)
             if result is None:
-                result = self._handle_chat_routes(method, path, data)
+                result = self._handle_chat_routes(method, path, query, data)
             if result is None:
                 result = self._handle_project_routes(method, path.split("/"), query, data, actor_id)
             if result is None:
                 return self._json(404, {"error": "Not found"})
-            status, extra_headers, response_body = self._normalize_response(result)
+            status, response_body = result
+            response_body, extra_headers = self._split_response_body(response_body)
             return self._json(status, response_body, extra_headers)
         except PermissionError as exc:
             return self._json(403, {"error": str(exc) or "Permission denied"})
