@@ -2,10 +2,16 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from typing import cast
 
 import db
 import ingestion_service
 import policy
+
+
+def as_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list): raise AssertionError(f"expected list, got {value!r}")
+    return cast(list[dict[str, object]], value)
 
 
 class TestIngestionPolicy(unittest.TestCase):
@@ -25,24 +31,21 @@ class TestIngestionPolicy(unittest.TestCase):
     def test_text_ingestion_is_versioned_and_searchable(self):
         connection = db.get_connection()
         try:
-            source = ingestion_service.ingest_text(
-                connection, self.project_id, "test.md", "Pressure requirement: 5 MPa.\nUse steel.",
-                version="1", chunk_chars=100,
-            )
+            source = ingestion_service.ingest_text(connection, self.project_id, "test.md", "Pressure requirement: 5 MPa.\nUse steel.", version="1", chunk_chars=100)
             hits = ingestion_service.search_chunks(connection, self.project_id, "5 MPa")
-        finally:
-            connection.close()
+        finally: connection.close()
         self.assertEqual(source["source_type"], "text")
-        self.assertEqual(len(source["chunks"]), 1)
-        self.assertEqual(hits[0]["source"], "test.md")
+        chunks = as_list(source["chunks"])
+        self.assertEqual(len(chunks), 1)
+        hit = hits[0]
+        self.assertEqual(hit["source"], "test.md")
 
     def test_duplicate_content_reuses_source(self):
         connection = db.get_connection()
         try:
             first = ingestion_service.ingest_text(connection, self.project_id, "same", "alpha")
             second = ingestion_service.ingest_text(connection, self.project_id, "same", "alpha")
-        finally:
-            connection.close()
+        finally: connection.close()
         self.assertEqual(first["id"], second["id"])
 
     def test_policy_defaults_and_explicit_grants(self):
@@ -50,23 +53,18 @@ class TestIngestionPolicy(unittest.TestCase):
         try:
             self.assertTrue(policy.allowed(connection, "local", "run_calculation"))
             self.assertFalse(policy.allowed(connection, "local", "execute_code"))
-            with self.assertRaises(PermissionError):
-                policy.require(connection, "local", "execute_code")
+            with self.assertRaises(PermissionError): policy.require(connection, "local", "execute_code")
             policy.grant(connection, "local", "run_simulation")
             self.assertTrue(policy.allowed(connection, "local", "run_simulation"))
             policy.revoke(connection, "local", "run_simulation")
             self.assertFalse(policy.allowed(connection, "local", "run_simulation"))
-        finally:
-            connection.close()
+        finally: connection.close()
 
     def test_invalid_actions_are_rejected(self):
         connection = db.get_connection()
         try:
-            with self.assertRaises(ValueError):
-                policy.validate_action("sudo")
-        finally:
-            connection.close()
+            with self.assertRaises(ValueError): policy.validate_action("sudo")
+        finally: connection.close()
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
