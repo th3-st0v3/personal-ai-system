@@ -27,7 +27,17 @@ def _require_project(connection: sqlite3.Connection, project_id: int) -> None:
         raise ValueError(f"No project found with ID {project_id}.")
 
 
-def ingest_text(connection: sqlite3.Connection, project_id: int, title: str, content: str, *, source_type: str = "text", version: str | None = None, url: str | None = None, chunk_chars: int = DEFAULT_CHUNK_CHARS) -> dict[str, object]:
+def ingest_text(
+    connection: sqlite3.Connection,
+    project_id: int,
+    title: str,
+    content: str,
+    *,
+    source_type: str = "text",
+    version: str | None = None,
+    url: str | None = None,
+    chunk_chars: int = DEFAULT_CHUNK_CHARS,
+) -> dict[str, object]:
     """Store source text as inert, traceable data; never execute or interpret it as instructions."""
     workspace_storage._initialize_schema(connection)
     engineering_schema.initialize(connection)
@@ -42,14 +52,22 @@ def ingest_text(connection: sqlite3.Connection, project_id: int, title: str, con
     checksum = _checksum(content)
     existing = connection.execute("SELECT id, checksum FROM sources WHERE project_id = ? AND title = ? ORDER BY id DESC LIMIT 1", (project_id, title)).fetchone()
     if existing and existing[1] == checksum:
-        return get_source(connection, existing[0])
-    cursor = connection.execute("INSERT INTO sources (project_id, title, source_type, version, url, checksum) VALUES (?, ?, ?, ?, ?, ?)", (project_id, title, source_type, version, url, checksum))
-    source_id = int(cursor.lastrowid)
+        return get_source(connection, int(existing[0]))
+    cursor = connection.execute(
+        "INSERT INTO sources (project_id, title, source_type, version, url, checksum) VALUES (?, ?, ?, ?, ?, ?)",
+        (project_id, title, source_type, version, url, checksum),
+    )
+    source_id = cursor.lastrowid
+    if source_id is None:
+        raise RuntimeError("Database did not return a source ID.")
     parts = _chunks(content, chunk_chars)
     for index, part in enumerate(parts):
-        connection.execute("INSERT INTO source_chunks (source_id, chunk_index, content, location_text, checksum) VALUES (?, ?, ?, ?, ?)", (source_id, index, part, f"chunk {index + 1}/{len(parts)}", _checksum(part)))
+        connection.execute(
+            "INSERT INTO source_chunks (source_id, chunk_index, content, location_text, checksum) VALUES (?, ?, ?, ?, ?)",
+            (source_id, index, part, f"chunk {index + 1}/{len(parts)}", _checksum(part)),
+        )
     connection.commit()
-    return get_source(connection, source_id)
+    return get_source(connection, int(source_id))
 
 
 def get_source(connection: sqlite3.Connection, source_id: int) -> dict[str, object]:
