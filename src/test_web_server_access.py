@@ -60,6 +60,9 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
 
     def test_users_are_isolated_from_projects_chats_and_engineering_routes(self):
         alice_cookie, alice = self.signup("alice@example.com")
+        status, _, me = self.request("GET", "/api/auth/me", alice_cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(me["user"]["id"], alice["id"])
         status, _, created = self.request("POST", "/api/projects", {"name": "Alice project"}, alice_cookie)
         self.assertEqual(status, 201)
         alice_project_id = created["id"]
@@ -69,6 +72,9 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
 
         bob_cookie, bob = self.signup("bob@example.com")
         self.assertNotEqual(alice["id"], bob["id"])
+        status, _, me = self.request("GET", "/api/auth/me", bob_cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(me["user"]["id"], bob["id"])
 
         status, _, projects = self.request("GET", "/api/projects", bob_cookie)
         self.assertEqual(status, 200)
@@ -103,5 +109,4 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         self.assertEqual(status, 401)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
