@@ -1,6 +1,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const calculationEndpoint = (key) => `/api/calculations/${encodeURIComponent(key)}`;
   const notify = (message) => {
     if (typeof showError === 'function') showError(new Error(String(message)));
     else window.alert(String(message));
@@ -18,6 +19,7 @@
     const button = form.querySelector('button[type="submit"], button:not([type])');
     if (button) button.disabled = true;
     try {
+      await api(calculationEndpoint(key));
       const trace = await send('/api/calculations/run/save', { model_key: key, inputs });
       resultNode.innerHTML = `<div class="trace"><div class="trace-status">Saved as calculation record #${esc(trace.record_id)}</div><strong>${esc(trace.result)} ${esc(trace.result_unit)}</strong><ol>${(trace.steps || []).map((step) => `<li>${esc(step)}</li>`).join('')}</ol><h3>Assumptions</h3><ul>${(trace.assumptions || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul><h3>Limitations</h3><ul>${(trace.limitations || []).map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>`;
     } catch (error) {
