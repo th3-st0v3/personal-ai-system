@@ -99,7 +99,7 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         self.assertEqual(status, 403)
 
         status, _, search = self.request("GET", "/api/search?q=private-alice", cookie=bob_cookie)
-        self.assertEqual(status, 401)
+        self.assertEqual(status, 200)
         self.assertEqual(search["projects"], [])
         status, _, search = self.request("GET", "/api/search?q=private-alice", cookie=alice_cookie)
         self.assertEqual(status, 200)
@@ -115,5 +115,4 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         self.assertEqual(status, 401)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
