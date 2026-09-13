@@ -6,6 +6,7 @@ import hmac
 import secrets
 import sqlite3
 from datetime import datetime, timezone
+from typing import cast
 
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 SESSION_TOKEN_BYTES = 32
@@ -16,11 +17,7 @@ def _columns(connection: sqlite3.Connection) -> set[str]:
 
 
 def initialize(connection: sqlite3.Connection) -> None:
-    """Create/migrate authentication tables.
-
-    This function is intentionally an explicit schema hook. Call it from the
-    application's startup/schema layer rather than from every auth operation.
-    """
+    """Create/migrate authentication tables; application startup owns schema initialization."""
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +74,8 @@ def _hash_password(password: str, salt: bytes) -> str:
 
 
 def _require_credentials(email: str, password: str) -> tuple[str, str]:
-    email = email.strip().casefold()
+    email = str(email).strip().casefold()
+    password = str(password)
     if "@" not in email or len(email) < 5:
         raise ValueError("Enter a valid email address.")
     if len(password) < 8:
@@ -132,22 +130,36 @@ def login(connection: sqlite3.Connection, email: str, password: str) -> tuple[st
 
 
 def rotate_session(connection: sqlite3.Connection, token: str | None) -> str | None:
-    """Rotate a live session token and revoke the old identifier."""
     if not token:
         return None
     token_hash = _token_hash(token)
     now = _now()
-    row = connection.execute(
-        "SELECT user_id,expires_at,revoked_at FROM sessions WHERE token_hash=?",
-        (token_hash,),
-    ).fetchone()
+    row = connection.execute("SELECT user_id,expires_at,revoked_at FROM sessions WHERE token_hash=?", (token_hash,)).fetchone()
     if row is None or row[2] is not None or float(row[1]) <= now:
         return None
     connection.execute("UPDATE sessions SET revoked_at=?,last_seen_at=? WHERE token_hash=?", (now, now, token_hash))
     return _issue_session(connection, int(row[0]), rotated_from=token_hash)
 
 
-def logout(connection: sqlite3.Connection, token: str | None) -> None:
+def logout(connection_or_token: sqlite3.Connection | str | None, token: str | None = None) -> None:
+    """Revoke a session.
+
+    The preferred form is ``logout(connection, token)``. The single-token form
+    remains as a compatibility adapter for legacy web handlers and opens the
+    configured database through ``db.get_connection``.
+    """
+    if token is None and not isinstance(connection_or_token, sqlite3.Connection):
+        token_value = cast(str | None, connection_or_token)
+        if not token_value:
+            return
+        import db
+        connection = db.get_connection()
+        try:
+            logout(connection, token_value)
+        finally:
+            connection.close()
+        return
+    connection = cast(sqlite3.Connection, connection_or_token)
     if not token:
         return
     connection.execute(
