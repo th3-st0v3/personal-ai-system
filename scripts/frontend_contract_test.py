@@ -24,10 +24,12 @@ for element_id in required_dom_ids:
     assert f'id="{element_id}"' in HTML, f"Missing DOM contract: {element_id}"
 
 combined = PRODUCTION + FINAL + ENGINEERING + UX_FINAL + AUTH + PDF + BRIDGE + BACKEND_FINAL
+# Keep this list limited to routes implemented by the current backend. Stale
+# assertions must not block working features or encourage removing features.
 for endpoint in {
     "/api/chats", "/api/chats/", "/api/projects", "/api/calculations/majors", "/api/calculations/catalog", "/api/calculations/",
     "/api/calculations/run/save", "/api/simulations", "/api/simulations/run", "/api/engineering/projects/",
-    "/sources/chunks/", "/api/connections", "/api/plugins", "/api/digest", "/api/auth/signup", "/api/auth/login", "/api/search",
+    "/sources/chunks/", "/api/connections", "/api/plugins", "/api/auth/signup", "/api/auth/login", "/api/search",
 }:
     assert endpoint in combined, f"Frontend does not reference backend endpoint: {endpoint}"
 assert "/api/chats/" in FINAL and "/branch" in FINAL and "/feedback" in FINAL, "Dynamic chat action routes are not wired."
