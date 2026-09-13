@@ -4,12 +4,17 @@
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const attr = (value) => esc(value).replace(/'/g, '&#39;');
+  const api = async (path) => {
+    const response = await fetch(path, { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({ error: 'Invalid server response' }));
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  };
 
   let catalog = [];
   let categories = [];
   let initialized = false;
-
-  const categorySlug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  let allowNextNewChatClick = false;
 
   const closeCalculationMenu = () => {
     const menu = $('calculation-categories');
@@ -20,22 +25,17 @@
     toggle?.classList.remove('expanded');
   };
 
-  const openNewChat = async () => {
-    if (typeof window.createChat !== 'function') return;
+  const triggerExistingNewChat = (button) => {
+    if (!button) return;
+    allowNextNewChatClick = true;
+    button.click();
+  };
+
+  const openNewChat = () => {
     closeCalculationMenu();
-    try {
-      const button = $('new-chat') || $('new-chat-header');
-      if (button) button.disabled = true;
-      await window.createChat(window.state?.projectId ?? null);
-      if (typeof window.setView === 'function') window.setView('chat');
-      const input = $('chat-input');
-      input?.focus();
-    } catch (error) {
-      window.showError?.(error);
-    } finally {
-      const button = $('new-chat') || $('new-chat-header');
-      if (button) button.disabled = false;
-    }
+    const button = $('new-chat');
+    triggerExistingNewChat(button);
+    requestAnimationFrame(() => $('chat-input')?.focus());
   };
 
   const groupItems = (category) => catalog.filter((item) => (item.categories || []).includes(category));
@@ -60,7 +60,7 @@
     page.innerHTML = `<div class="page calculation-page"><div class="page-head calculation-page-head"><div><div class="eyebrow">Engineering tools</div><h1 class="page-title">Calculations</h1><p class="page-subtitle">Deterministic calculators organized by engineering discipline and workflow.</p></div><div class="calculation-page-actions"><label class="calculation-search"><span aria-hidden="true">⌕</span><input id="calculation-search-input" type="search" placeholder="Search calculations…" autocomplete="off"></label></div></div><div id="calculation-catalog-content" class="calculation-catalog-content"><div class="loading-state">Loading calculation library…</div></div></div>`;
     try {
       if (!catalog.length) {
-        catalog = await window.api('/api/calculations/catalog');
+        catalog = await api('/api/calculations/catalog');
         categories = [...new Set(catalog.flatMap((item) => item.categories || []))];
         renderCalculationMenu();
       }
@@ -72,6 +72,8 @@
       $('retry-calculations')?.addEventListener('click', openCalculations);
     }
   };
+
+  const calculationCard = (item) => `<button type="button" class="calculation-card" data-open-calculation="${attr(item.key)}"><span class="calculation-card-top"><span class="calculation-card-icon">Σ</span><span class="calculation-card-domain">${esc(item.domain || 'Engineering')}</span></span><strong>${esc(item.name)}</strong><span class="calculation-card-equation">${esc(item.equation || 'Deterministic model')}</span><span class="calculation-card-meta">${esc((item.subcategories || [])[0] || 'Calculation')} · ${esc(item.result_unit || 'Result')}</span></button>`;
 
   const renderCalculationGroups = (query) => {
     const content = $('calculation-catalog-content');
@@ -89,8 +91,6 @@
 
     content.innerHTML = groups.map((group) => `<section class="calculation-group-section" data-calculation-group="${attr(group.category)}"><div class="calculation-group-heading"><div><h2>${esc(group.category)}</h2><p>${group.items.length} calculator${group.items.length === 1 ? '' : 's'}</p></div><button type="button" class="calculation-group-link" data-open-calculation-group="${attr(group.category)}">View group <span>→</span></button></div><div class="calculation-card-grid">${group.items.map(calculationCard).join('')}</div></section>`).join('');
   };
-
-  const calculationCard = (item) => `<button type="button" class="calculation-card" data-open-calculation="${attr(item.key)}"><span class="calculation-card-top"><span class="calculation-card-icon">Σ</span><span class="calculation-card-domain">${esc(item.domain || 'Engineering')}</span></span><strong>${esc(item.name)}</strong><span class="calculation-card-equation">${esc(item.equation || 'Deterministic model')}</span><span class="calculation-card-meta">${esc((item.subcategories || [])[0] || 'Calculation')} · ${esc(item.result_unit || 'Result')}</span></button>`;
 
   const openCalculationGroup = (category) => {
     const items = groupItems(category);
@@ -114,36 +114,44 @@
   const interceptClicks = (event) => {
     const target = event.target?.closest?.('#new-chat, #new-chat-header, #calculations-toggle, [data-calculation-category], [data-open-calculation-group], [data-open-calculation]');
     if (!target) return;
+
     if (target.matches('#new-chat, #new-chat-header')) {
+      if (allowNextNewChatClick) {
+        allowNextNewChatClick = false;
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
-      void openNewChat();
+      openNewChat();
       return;
     }
+
     if (target.id === 'calculations-toggle') {
       event.preventDefault();
       event.stopImmediatePropagation();
       const menu = $('calculation-categories');
       if (!menu) return;
       const willOpen = menu.hidden;
-      if (!catalog.length) void openCalculations();
       menu.hidden = !willOpen;
       target.setAttribute('aria-expanded', String(willOpen));
       target.classList.toggle('expanded', willOpen);
       return;
     }
+
     if (target.matches('[data-calculation-category]')) {
       event.preventDefault();
       event.stopImmediatePropagation();
       openCalculationGroup(target.dataset.calculationCategory);
       return;
     }
+
     if (target.matches('[data-open-calculation-group]')) {
       event.preventDefault();
       event.stopImmediatePropagation();
       openCalculationGroup(target.dataset.openCalculationGroup);
       return;
     }
+
     if (target.matches('[data-open-calculation]')) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -157,7 +165,7 @@
     if ((event.ctrlKey || event.metaKey) && key === 'o' && !typing) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      void openNewChat();
+      openNewChat();
       return;
     }
     if (event.key === 'Escape') closeCalculationMenu();
@@ -176,19 +184,11 @@
       if (!menu || menu.hidden) return;
       if (!event.target?.closest?.('#calculations-toggle, #calculation-categories')) closeCalculationMenu();
     });
-    document.addEventListener('click', (event) => {
-      const calculation = event.target?.closest?.('[data-open-calculation]');
-      if (calculation && $('page-view')?.hidden === false) {
-        event.preventDefault();
-        if (typeof window.openCalculation === 'function') void window.openCalculation(calculation.dataset.openCalculation);
-      }
-    });
     try {
-      catalog = await window.api('/api/calculations/catalog');
+      catalog = await api('/api/calculations/catalog');
       categories = [...new Set(catalog.flatMap((item) => item.categories || []))];
       renderCalculationMenu();
     } catch (error) {
-      // Keep navigation usable even when the catalog API is temporarily unavailable.
       console.warn('Calculation catalog unavailable during UI initialization', error);
     }
   };
