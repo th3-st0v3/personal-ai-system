@@ -20,6 +20,109 @@ jobs:
           node-version: '24'
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
+      - name: Repository LOC audit
+        run: |
+          python - <<'PY'
+          import ast, json, os, re, subprocess, tokenize, io
+          from collections import Counter, defaultdict
+          from pathlib import Path
+
+          files = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')[:-1]
+          text_exts = {'.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.css','.html','.md','.mdx','.json','.jsonc','.yaml','.yml','.toml','.ini','.cfg','.txt','.sh','.bash','.ps1','.xml','.svg','.gitignore','.gitattributes','.editorconfig'}
+          comment_prefix = {'.js':('//',),'.mjs':('//',),'.cjs':('//',),'.ts':('//',),'.tsx':('//',),'.jsx':('//',),'.css':('//','/*','*','*/'),'.html':('<!--','*','-->'),'.sh':('#',),'.bash':('#',),'.ps1':('#',),'.yaml':('#',),'.yml':('#',),'.toml':('#',),'.ini':(';','#'),'.cfg':(';','#'),'.md':(),'.mdx':(),'.txt':()}
+
+          def is_text(path):
+              p=Path(path)
+              if p.suffix.lower() in text_exts or p.name in {'.gitignore','.gitattributes','.editorconfig'}: return True
+              try:
+                  b=Path(path).read_bytes()[:8192]
+                  return b'\\x00' not in b and b.decode('utf-8') is not None
+              except Exception: return False
+
+          def py_metrics(text):
+              lines=text.splitlines()
+              blank=sum(not x.strip() for x in lines)
+              comment_only=set()
+              try:
+                  for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+                      if tok.type == tokenize.COMMENT:
+                          s,e=tok.start[0],tok.end[0]
+                          if lines[s-1].strip().startswith('#'):
+                              comment_only.update(range(s,e+1))
+              except Exception: pass
+              comments=len(comment_only)
+              code=len(lines)-blank-comments
+              funcs=classes=0
+              try:
+                  tree=ast.parse(text)
+                  for n in ast.walk(tree):
+                      if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)): funcs+=1
+                      elif isinstance(n,ast.ClassDef): classes+=1
+              except Exception: pass
+              return len(lines),blank,comments,code,funcs,classes
+
+          def generic_metrics(text,suffix):
+              lines=text.splitlines(); blank=sum(not x.strip() for x in lines); comments=0; block=False
+              for line in lines:
+                  s=line.strip()
+                  if not s: continue
+                  if suffix in {'.js','.mjs','.cjs','.ts','.tsx','.jsx','.css'}:
+                      if block:
+                          comments+=1
+                          if '*/' in s: block=False
+                      elif s.startswith('//'): comments+=1
+                      elif s.startswith('/*'):
+                          comments+=1
+                          if '*/' not in s[2:]: block=True
+                  elif suffix in {'.html'}:
+                      if block:
+                          comments+=1
+                          if '-->' in s: block=False
+                      elif s.startswith('<!--'):
+                          comments+=1
+                          if '-->' not in s[4:]: block=True
+                  elif suffix in {'.sh','.bash','.ps1','.yaml','.yml','.toml','.ini','.cfg'}:
+                      if s.startswith(('#',';')): comments+=1
+              code=len(lines)-blank-comments
+              funcs=classes=0
+              if suffix in {'.js','.mjs','.cjs','.ts','.tsx','.jsx'}:
+                  funcs=sum(1 for l in lines if re.search(r'\bfunction\b|=>\s*\{?|\b(?:async\s+)?[A-Za-z_$][\w$]*\s*\([^;]*\)\s*\{',l))
+                  classes=sum(1 for l in lines if re.match(r'\s*class\s+',l))
+              return len(lines),blank,comments,code,funcs,classes
+
+          rows=[]
+          totals=Counter(); bydir=defaultdict(Counter)
+          for f in files:
+              if not is_text(f): continue
+              text=Path(f).read_text(encoding='utf-8',errors='replace')
+              suf=Path(f).suffix.lower()
+              if suf=='.py': m=py_metrics(text)
+              else: m=generic_metrics(text,suf)
+              total,blank,comments,code,funcs,classes=m
+              p=Path(f)
+              parts=p.parts
+              top=parts[0] if len(parts)>1 else '(root)'
+              category='production'
+              low=f.lower()
+              if '/test_' in low or low.startswith('test_') or low.endswith('_test.py') or low.startswith('tests/') or '/tests/' in low: category='tests'
+              elif low.startswith('docs/') or low.endswith('.md') or low.endswith('.mdx') or p.name in {'SECURITY.md','README.md'}: category='docs'
+              elif low.startswith('.github/') or low.startswith('.vscode/') or p.name in {'.gitignore','.gitattributes','.editorconfig','requirements.txt','pyrightconfig.json'} or suf in {'.json','.jsonc','.yaml','.yml','.toml','.ini','.cfg'}: category='config'
+              elif low.startswith('scripts/'): category='scripts'
+              elif low.startswith('web/') or low.startswith('src/'): category='production'
+              else: category='other'
+              r={'file':f,'lines':total,'blank':blank,'comments':comments,'code':code,'functions':funcs,'classes':classes,'category':category}
+              rows.append(r)
+              totals['files']+=1; totals['lines']+=total; totals['blank']+=blank; totals['comments']+=comments; totals['code']+=code; totals['functions']+=funcs; totals['classes']+=classes
+              c=bydir[top]; c['files']+=1; c['lines']+=total; c['blank']+=blank; c['comments']+=comments; c['code']+=code; c[category]+=total
+
+          cats=defaultdict(Counter)
+          for r in rows:
+              cats[r['category']].update({k:r[k] for k in ['files','lines','blank','comments','code','functions','classes']})
+
+          print('=== EXACT TRACKED-TEXT LOC AUDIT ===')
+          print(json.dumps({'totals':totals,'categories':cats,'directories':bydir,'largest_files':sorted(rows,key=lambda r:r['lines'],reverse=True)[:20]},default=str,indent=2))
+          print('=== END AUDIT ===')
+          PY
       - name: Run beta smoke test
         env:
           PYTHONPATH: src
