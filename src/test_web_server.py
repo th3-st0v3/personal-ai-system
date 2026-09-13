@@ -37,11 +37,15 @@ class TestSiteApplication(unittest.TestCase):
     def test_delegates_major_calculation_navigation(self):
         response,_,payload=self.call("/api/calculations/majors")
         self.assertEqual(response["status"],"200 OK")
-        petroleum=next(item for item in payload if item["name"]=="Petroleum Engineering")
-        self.assertTrue(petroleum["calculations"])
-        response,_,detail=self.call("/api/calculations/majors/Petroleum%20Engineering")
+        names={item["name"] for item in payload}
+        self.assertEqual(len(names),6)
+        self.assertIn("Energy & Earth Resources Engineering", names)
+        energy=next(item for item in payload if item["name"]=="Energy & Earth Resources Engineering")
+        self.assertIn("Petroleum Engineering", energy["includes"])
+        self.assertTrue(energy["calculations"])
+        response,_,detail=self.call("/api/calculations/majors/Energy%20%26%20Earth%20Resources%20Engineering")
         self.assertEqual(response["status"],"200 OK")
-        self.assertEqual(detail["name"],"Petroleum Engineering")
+        self.assertEqual(detail["name"],"Energy & Earth Resources Engineering")
     def test_rejects_path_traversal(self):
         response,_,_=self.call("/../README.md"); self.assertEqual(response["status"],"404 Error")
 
