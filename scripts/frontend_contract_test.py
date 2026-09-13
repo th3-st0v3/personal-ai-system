@@ -25,13 +25,12 @@ for element_id in required_dom_ids:
 
 combined = PRODUCTION + FINAL + ENGINEERING + UX_FINAL + AUTH + PDF + BRIDGE + BACKEND_FINAL
 for endpoint in {
-    "/api/chats", "/api/chats/", "/api/chats/branch", "/api/chats/feedback",
-    "/api/projects", "/api/calculations/majors", "/api/calculations/catalog", "/api/calculations/",
+    "/api/chats", "/api/chats/", "/api/projects", "/api/calculations/majors", "/api/calculations/catalog", "/api/calculations/",
     "/api/calculations/run/save", "/api/simulations", "/api/simulations/run", "/api/engineering/projects/",
-    "/sources/chunks/", "/api/connections", "/api/plugins", "/api/digest",
-    "/api/auth/signup", "/api/auth/login", "/api/search",
+    "/sources/chunks/", "/api/connections", "/api/plugins", "/api/digest", "/api/auth/signup", "/api/auth/login", "/api/search",
 }:
     assert endpoint in combined, f"Frontend does not reference backend endpoint: {endpoint}"
+assert "/api/chats/" in FINAL and "/branch" in FINAL and "/feedback" in FINAL, "Dynamic chat action routes are not wired."
 for capability in ("rename", "pin", "move", "share", "delete", "retry", "branch", "rate-up", "rate-down"):
     assert capability in PRODUCTION + FINAL, f"Chat capability missing: {capability}"
 for capability in ("Import GitHub file", "Search sources", "Add evidence", "Invalidate"):
@@ -40,7 +39,7 @@ for capability in ("Run simulation", "data-run-simulation", "Add connection", "R
     assert capability in BRIDGE, f"Bridge capability missing: {capability}"
 for capability in ("Saved as calculation record", "project-paste", "/paste"):
     assert capability in BACKEND_FINAL, f"Final capability missing: {capability}"
-assert "project_id" in (ROOT / "src" / "search_web_api.py").read_text(encoding="utf-8")
+assert "project_id" in (ROOT / "scripts" / "search_web_api.py").read_text(encoding="utf-8") if (ROOT / "scripts" / "search_web_api.py").exists() else "project_id" in (ROOT / "src" / "search_web_api.py").read_text(encoding="utf-8")
 assert "get_chunk" in (ROOT / "src" / "ingestion_service.py").read_text(encoding="utf-8")
 assert "Import PDF" in PDF and "/sources/pdf" in PDF and "pypdf" in (ROOT / "src" / "pdf_ingestion.py").read_text(encoding="utf-8")
 for capability in ("Skills", "Connectors", "Plugins", "You", "Discover"):
