@@ -5,6 +5,7 @@ import json
 from urllib.parse import parse_qs, urlsplit
 
 import db
+import engineering_plans
 import ingestion_service
 import policy
 from engineering_application import EngineeringApplication
@@ -69,6 +70,16 @@ class EngineeringWebApplication:
         if row is None:
             raise ValueError("Evidence not found in project.")
 
+    def _requirements_with_evidence(self, project_id: int) -> tuple[list[dict[str, object]], dict[int, list[dict[str, object]]]]:
+        requirements = self.engineering.list_requirements(project_id)
+        evidence_by_requirement: dict[int, list[dict[str, object]]] = {}
+        for requirement in requirements:
+            evidence_by_requirement[int(requirement["id"])] = [
+                self.engineering.get_evidence(row[0])
+                for row in db.get_evidence_for_requirement(int(requirement["id"]))
+            ]
+        return requirements, evidence_by_requirement
+
     def request(self, method: str, target: str, body: bytes = b"") -> tuple[int, list[tuple[str, str]], bytes]:
         try:
             if len(body) > self.MAX_REQUEST_BODY_BYTES:
@@ -89,6 +100,8 @@ class EngineeringWebApplication:
                 return self._json(200, self.engineering.list_requirements(project_id))
             if method == "POST" and len(parts) == 5 and resource == "requirements":
                 return self._json(201, {"id": db.create_requirement(project_id, data["description"])})
+            if method == "GET" and len(parts) == 6 and resource == "requirements" and parts[5] == "test-plan":
+                return self._json(200, engineering_plans.build_test_plan(self.engineering.list_requirements(project_id)))
             if resource == "requirements" and len(parts) == 6 and method == "PATCH":
                 requirement_id = int(parts[5])
                 self._require_requirement(project_id, requirement_id)
@@ -106,12 +119,7 @@ class EngineeringWebApplication:
                 connection = db.get_connection()
                 try:
                     policy.require(connection, "local", "ingest_source")
-                    result = ingestion_service.ingest_text(
-                        connection, project_id, data["title"], data["content"],
-                        source_type=data.get("source_type", "text"),
-                        version=data.get("version"), url=data.get("url"),
-                        chunk_chars=int(data.get("chunk_chars", ingestion_service.DEFAULT_CHUNK_CHARS)),
-                    )
+                    result = ingestion_service.ingest_text(connection, project_id, data["title"], data["content"], source_type=data.get("source_type", "text"), version=data.get("version"), url=data.get("url"), chunk_chars=int(data.get("chunk_chars", ingestion_service.DEFAULT_CHUNK_CHARS)))
                 finally:
                     connection.close()
                 return self._json(201, result)
@@ -122,6 +130,9 @@ class EngineeringWebApplication:
                 finally:
                     connection.close()
                 return self._json(200, results)
+            if method == "GET" and len(parts) == 5 and resource == "report":
+                requirements, evidence_by_requirement = self._requirements_with_evidence(project_id)
+                return self._json(200, engineering_plans.build_weekly_report(requirements, self.engineering.list_sources(project_id), self.engineering.list_decisions(project_id), evidence_by_requirement))
             if resource == "requirements" and len(parts) == 7 and parts[6] == "evidence":
                 requirement_id = int(parts[5])
                 self._require_requirement(project_id, requirement_id)
