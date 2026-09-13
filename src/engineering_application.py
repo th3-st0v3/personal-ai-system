@@ -8,6 +8,7 @@ existing calculation and workspace services.
 import json
 
 import db
+import engineering_plans
 import engineering_schema
 import workspace_storage
 
@@ -48,16 +49,16 @@ class EngineeringApplication:
         }
 
     @staticmethod
-    def _requirement(row):
+    def _requirement(row) -> engineering_plans.RequirementRecord:
         return {
-            "id": row[0], "project_id": row[1], "description": row[2],
-            "status": row[3], "created_at": row[4], "identifier": row[5],
+            "id": int(row[0]), "project_id": int(row[1]), "description": str(row[2]),
+            "status": str(row[3]), "created_at": str(row[4]), "identifier": row[5],
             "title": row[6], "acceptance_criteria": row[7], "priority": row[8],
-            "updated_at": row[9],
+            "updated_at": str(row[9]),
         }
 
     @staticmethod
-    def _source(row):
+    def _source(row) -> dict[str, object]:
         return {
             "id": row[0], "project_id": row[1], "title": row[2], "author": row[3],
             "publisher": row[4], "source_type": row[5], "version": row[6],
@@ -65,7 +66,7 @@ class EngineeringApplication:
         }
 
     @staticmethod
-    def _evidence(row):
+    def _evidence(row) -> dict[str, object]:
         return {
             "id": row[0], "requirement_id": row[1], "source": row[2],
             "location": row[3], "result": row[4], "supports_status": row[5],
@@ -76,7 +77,7 @@ class EngineeringApplication:
         }
 
     @staticmethod
-    def _decision(row):
+    def _decision(row) -> dict[str, object]:
         return {
             "id": row[0], "project_id": row[1], "requirement_id": row[2],
             "design_case_id": row[3], "title": row[4], "description": row[5],
@@ -206,7 +207,7 @@ class EngineeringApplication:
         finally:
             connection.close()
 
-    def list_requirements(self, project_id):
+    def list_requirements(self, project_id: int) -> list[engineering_plans.RequirementRecord]:
         connection = db.get_connection()
         try:
             rows = connection.execute(
@@ -268,7 +269,7 @@ class EngineeringApplication:
         finally:
             connection.close()
 
-    def list_sources(self, project_id):
+    def list_sources(self, project_id) -> list[dict[str, object]]:
         connection = db.get_connection()
         try:
             rows = connection.execute(
@@ -361,39 +362,79 @@ class EngineeringApplication:
         finally:
             connection.close()
 
-    def list_decisions(self, project_id):
+    def list_decisions(self, project_id) -> list[dict[str, object]]:
         connection = db.get_connection()
         try:
             rows = connection.execute(
                 "SELECT id, project_id, requirement_id, design_case_id, title, description, "
-                "decision, rationale, status, created_at, updated_at FROM decisions "
-                "WHERE project_id = ? ORDER BY id",
+                "decision, rationale, status, created_at, updated_at "
+                "FROM decisions WHERE project_id = ? ORDER BY id",
                 (project_id,),
             ).fetchall()
             return [self._decision(row) for row in rows]
         finally:
             connection.close()
 
-    def record_audit_event(self, entity_type, entity_id, action, *, workspace_id=None,
-                           user_id=None, metadata=None):
-        entity_type = self._require_text(entity_type, "entity_type")
-        action = self._require_text(action, "action")
+    def get_decision(self, decision_id):
         connection = db.get_connection()
         try:
-            if workspace_id is not None and connection.execute("SELECT id FROM workspaces WHERE id = ?", (workspace_id,)).fetchone() is None:
-                raise ValueError(f"No workspace found with ID {workspace_id}.")
-            if user_id is not None and connection.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone() is None:
-                raise ValueError(f"No user found with ID {user_id}.")
-            cursor = connection.execute(
-                "INSERT INTO audit_events (workspace_id, user_id, entity_type, entity_id, action, metadata) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (workspace_id, user_id, entity_type, entity_id, action,
-                 None if metadata is None else json.dumps(metadata, sort_keys=True)),
-            )
-            connection.commit()
-            return cursor.lastrowid
+            row = connection.execute(
+                "SELECT id, project_id, requirement_id, design_case_id, title, description, "
+                "decision, rationale, status, created_at, updated_at FROM decisions WHERE id = ?",
+                (decision_id,),
+            ).fetchone()
+            return None if row is None else self._decision(row)
         finally:
             connection.close()
 
+    def update_decision(self, decision_id, *, decision=None, rationale=None, status=None):
+        if status is not None and status not in {"Proposed", "Accepted", "Rejected", "Superseded"}:
+            raise ValueError("Invalid decision status.")
+        changed = {key: value for key, value in {"decision": decision, "rationale": rationale, "status": status}.items() if value is not None}
+        if not changed:
+            raise ValueError("At least one decision field must be provided.")
+        connection = db.get_connection()
+        try:
+            if connection.execute("SELECT id FROM decisions WHERE id = ?", (decision_id,)).fetchone() is None:
+                raise ValueError(f"No decision found with ID {decision_id}.")
+            assignments = ", ".join(f"{key} = ?" for key in changed)
+            values = list(changed.values()) + [decision_id]
+            connection.execute(
+                f"UPDATE decisions SET {assignments}, updated_at = datetime('now') WHERE id = ?",
+                values,
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def list_design_cases(self, project_id):
+        connection = db.get_connection()
+        try:
+            rows = connection.execute(
+                "SELECT id, project_id, well_id, name, description, status, created_at, updated_at "
+                "FROM design_cases WHERE project_id = ? ORDER BY id",
+                (project_id,),
+            ).fetchall()
+            return [{
+                "id": row[0], "project_id": row[1], "well_id": row[2], "name": row[3],
+                "description": row[4], "status": row[5], "created_at": row[6], "updated_at": row[7],
+            } for row in rows]
+        finally:
+            connection.close()
+
+    def list_wells(self, project_id):
+        connection = db.get_connection()
+        try:
+            rows = connection.execute(
+                "SELECT id, project_id, identifier, name, description, status, created_at, updated_at "
+                "FROM wells WHERE project_id = ? ORDER BY id",
+                (project_id,),
+            ).fetchall()
+            return [{
+                "id": row[0], "project_id": row[1], "identifier": row[2], "name": row[3],
+                "description": row[4], "status": row[5], "created_at": row[6], "updated_at": row[7],
+            } for row in rows]
+        finally:
+            connection.close()
 
 __all__ = ["EngineeringApplication"]
