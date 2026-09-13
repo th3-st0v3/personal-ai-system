@@ -56,7 +56,7 @@ class SearchWebApplication:
                 allowed_projects = access_control.owned_project_ids(connection, actor)
                 allowed_chats = access_control.owned_chat_ids(connection, actor)
                 chat_rows = chat_service.list_chats(connection)
-                chats = [item for item in chat_rows if query in str(item["title"]).casefold() and (allowed_chats is None or int(item["id"]) in allowed_chats)]
+                chats = [item for item in chat_rows if query in str(item["title"]).casefold() and (allowed_chats is None or int(str(item["id"])) in allowed_chats)]
                 notes_rows = connection.execute(
                     "SELECT id,project_id,title,content FROM workspace_notes WHERE lower(title) LIKE ? OR lower(content) LIKE ? ORDER BY updated_at DESC LIMIT 30",
                     (f"%{query}%", f"%{query}%"),
