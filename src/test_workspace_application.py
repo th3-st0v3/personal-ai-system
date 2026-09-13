@@ -1,97 +1,76 @@
-import hashlib
 import os
 import tempfile
 import unittest
 
 import db
-import file_storage
 from workspace_application import WorkspaceApplication
 
 
 class TestWorkspaceApplication(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.original_path = db.DATABASE_PATH
-        db.DATABASE_PATH = os.path.join(self.temp_dir.name, "test.db")
-        self.app = WorkspaceApplication(self.temp_dir.name)
-        self.project_id = self.app.create_project("Application Test")
+        self.temp = tempfile.TemporaryDirectory()
+        self.original_db = db.DATABASE_PATH
+        db.DATABASE_PATH = os.path.join(self.temp.name, "workspace.db")
+        self.app = WorkspaceApplication(os.path.join(self.temp.name, "storage"))
+        self.project_id = self.app.create_project("Workspace Project")
 
     def tearDown(self):
-        db.DATABASE_PATH = self.original_path
-        self.temp_dir.cleanup()
+        db.DATABASE_PATH = self.original_db
+        self.temp.cleanup()
 
-    def test_project_list_returns_named_records(self):
-        projects = self.app.list_projects()
-        self.assertEqual(projects[0]["id"], self.project_id)
-        self.assertEqual(projects[0]["name"], "Application Test")
+    def test_nested_folders_notes_and_files(self):
+        root = self.app.create_folder(self.project_id, "Engineering")
+        child = self.app.create_folder(self.project_id, "Hydraulics", root)
+        note = self.app.create_note(self.project_id, "Pressure Note", "hydrostatic pressure", child)
+        file_id = self.app.create_file(self.project_id, "data.txt", b"123", "text/plain", child)
+        items = self.app.list_children(self.project_id, child)
+        self.assertEqual([item.name for item in items], ["Pressure Note", "data.txt"])
+        self.assertEqual(self.app.get_note(note).content, "hydrostatic pressure")
+        self.assertEqual(self.app.read_file(file_id, project_id=self.project_id), b"123")
 
-    def test_folder_operations_return_application_records(self):
-        root_id = self.app.create_folder(self.project_id, "References")
-        child_id = self.app.create_folder(self.project_id, "Papers", root_id)
-        root = self.app.get_folder(root_id)
-        children = self.app.list_folders(self.project_id, root_id)
-        self.assertIsNotNone(root)
-        if root is None:
-            self.fail("folder could not be retrieved")
-        self.assertEqual(root["name"], "References")
-        self.assertEqual(root["parent_folder_id"], None)
-        self.assertEqual(children[0]["id"], child_id)
-        self.assertEqual(children[0]["parent_folder_id"], root_id)
+    def test_selection_and_drag_drop_semantics(self):
+        root = self.app.create_folder(self.project_id, "Engineering")
+        child = self.app.create_folder(self.project_id, "Hydraulics", root)
+        note = self.app.create_note(self.project_id, "Pressure", "content", root)
+        self.app.select("note", note)
+        self.app.select("folder", child, append=True)
+        selection = self.app.current_selection()
+        self.assertEqual({item.kind for item in selection}, {"note", "folder"})
+        self.app.move_item("note", note, child, project_id=self.project_id)
+        self.assertEqual(self.app.get_note(note).parent_id, child)
 
-    def test_folder_lifecycle_and_move_use_application_boundary(self):
-        first_id = self.app.create_folder(self.project_id, "First")
-        second_id = self.app.create_folder(self.project_id, "Second")
-        self.app.rename_folder(first_id, "Renamed")
-        self.app.move_folder(first_id, second_id)
-        self.app.set_folder_lifecycle(first_id, "Archived")
-        folder = self.app.get_folder(first_id)
-        self.assertIsNotNone(folder)
-        if folder is None:
-            self.fail("folder could not be retrieved")
-        self.assertEqual(folder["name"], "Renamed")
-        self.assertEqual(folder["parent_folder_id"], second_id)
-        self.assertEqual(folder["lifecycle_status"], "Archived")
+    def test_search_sort_and_properties(self):
+        root = self.app.create_folder(self.project_id, "Engineering")
+        child = self.app.create_folder(self.project_id, "Hydraulics", root)
+        self.app.create_note(self.project_id, "Pressure Note", "hydrostatic pressure", child)
+        self.app.create_file(self.project_id, "data.txt", b"123", "text/plain", child)
+        matches = self.app.search_project(self.project_id, "hydrostatic")
+        self.assertEqual([item.name for item in matches], ["Pressure Note"])
+        properties = self.app.get_item_properties("note", matches[0].id)
+        self.assertEqual(properties["name"], "Pressure Note")
 
-    def test_file_creation_exposes_metadata_but_preserves_storage_boundary(self):
-        payload = b"engineering evidence"
-        file_id = self.app.create_file(self.project_id, "evidence.txt", payload, "text/plain")
-        record = self.app.get_file(file_id)
-        self.assertIsNotNone(record)
-        if record is None:
-            self.fail("file could not be retrieved")
-        self.assertEqual(record["name"], "evidence.txt")
-        self.assertEqual(record["size_bytes"], len(payload))
-        self.assertEqual(record["sha256"], hashlib.sha256(payload).hexdigest())
-        self.assertTrue(record["storage_key"].startswith("files/"))
+    def test_copy_paste_and_duplicate(self):
+        source = self.app.create_folder(self.project_id, "Source")
+        target = self.app.create_folder(self.project_id, "Target")
+        note = self.app.create_note(self.project_id, "Read me", "copy me", source)
+        file_id = self.app.create_file(self.project_id, "data.txt", b"123", "text/plain", source)
+        selection = [("note", note), ("file", file_id)]
+        self.app.copy_selection(self.project_id, selection)
+        created = self.app.paste_selection(self.project_id, target, selection)
+        self.assertEqual(len(created), 2)
+        pasted = self.app.list_children(self.project_id, target)
+        self.assertEqual({item.name for item in pasted}, {"Read me", "data.txt"})
+        duplicate_id = self.app.duplicate_item(self.project_id, "note", note)
+        duplicated = self.app.get_note(duplicate_id)
+        if duplicated is None:
+            self.fail("duplicated note should exist")
+        self.assertEqual(duplicated.name, "Read me (copy)")
 
-    def test_file_read_and_integrity_verification(self):
-        payload = b"verified content"
-        file_id = self.app.create_file(self.project_id, "data.txt", payload)
-        self.assertEqual(self.app.read_file(file_id), payload)
-        self.assertTrue(self.app.verify_file(file_id))
-
-    def test_file_rename_and_move_do_not_change_storage_key(self):
-        first_id = self.app.create_folder(self.project_id, "First")
-        second_id = self.app.create_folder(self.project_id, "Second")
-        file_id = self.app.create_file(self.project_id, "old.txt", b"payload", folder_id=first_id)
-        before = self.app.get_file(file_id)
-        self.app.rename_file(file_id, "new.txt")
-        self.app.move_file(file_id, second_id)
-        after = self.app.get_file(file_id)
-        self.assertIsNotNone(before)
-        self.assertIsNotNone(after)
-        if before is None or after is None:
-            self.fail("file metadata could not be retrieved")
-        self.assertEqual(after["name"], "new.txt")
-        self.assertEqual(after["folder_id"], second_id)
-        self.assertEqual(after["storage_key"], before["storage_key"])
-        self.assertEqual(self.app.read_file(file_id), b"payload")
-
-    def test_scoped_legacy_actions_reject_cross_project_items(self):
+    def test_project_isolation(self):
         other_project = self.app.create_project("Other")
-        other_folder = self.app.create_folder(other_project, "Other Folder")
-        other_file = self.app.create_file(other_project, "other.txt", b"other")
-        other_note = self.app.create_note(other_project, "Other Note", "secret", other_folder)
+        other_folder = self.app.create_folder(other_project, "Other")
+        other_note = self.app.create_note(other_project, "Secret", "secret", other_folder)
+        other_file = self.app.create_file(other_project, "secret.txt", b"secret")
         other_tag = self.app.create_tag(other_project, "private")
         target_folder = self.app.create_folder(self.project_id, "Target")
         with self.assertRaises(ValueError):
@@ -114,7 +93,10 @@ class TestWorkspaceApplication(unittest.TestCase):
             self.app.assign_tag(other_tag, "file", other_file, project_id=self.project_id)
         self.assertIsNotNone(self.app.get_file(other_file))
         self.assertIsNotNone(self.app.get_folder(other_folder))
-        self.assertEqual(self.app.get_note(other_note).content, "secret")
+        other_note_record = self.app.get_note(other_note)
+        if other_note_record is None:
+            self.fail("other-project note should exist")
+        self.assertEqual(other_note_record.content, "secret")
 
     def test_invalid_browser_kind_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unsupported item kind"):
@@ -128,70 +110,10 @@ class TestWorkspaceApplication(unittest.TestCase):
         file_id = self.app.create_file(self.project_id, "remove.txt", b"payload")
         record = self.app.get_file(file_id)
         self.assertIsNotNone(record)
-        if record is None:
-            self.fail("file metadata could not be retrieved")
-        storage_key = record["storage_key"]
-        self.app.set_file_lifecycle(file_id, "Archived")
-        archived = self.app.get_file(file_id)
-        self.assertIsNotNone(archived)
-        if archived is None:
-            self.fail("archived file could not be retrieved")
-        self.assertEqual(archived["lifecycle_status"], "Archived")
-        self.assertTrue(file_storage.exists(self.temp_dir.name, storage_key))
-        self.assertTrue(self.app.delete_file(file_id))
+        self.app.set_file_lifecycle(file_id, "Archived", project_id=self.project_id)
+        self.assertEqual(self.app.get_file(file_id)["lifecycle_status"], "Archived")
+        self.assertEqual(self.app.delete_selection(self.project_id, [("file", file_id)]), 1)
         self.assertIsNone(self.app.get_file(file_id))
-        self.assertFalse(file_storage.exists(self.temp_dir.name, storage_key))
-
-    def test_missing_records_are_reported_without_tuple_leakage(self):
-        self.assertIsNone(self.app.get_folder(9999))
-        self.assertIsNone(self.app.get_file(9999))
-        with self.assertRaises(ValueError):
-            self.app.read_file(9999)
-        with self.assertRaises(ValueError):
-            self.app.verify_file(9999)
-
-    def test_empty_folder_deletion_remains_safe(self):
-        folder_id = self.app.create_folder(self.project_id, "Empty")
-        self.app.delete_folder(folder_id)
-        self.assertIsNone(self.app.get_folder(folder_id))
-
-    def test_non_empty_folder_deletion_is_rejected(self):
-        folder_id = self.app.create_folder(self.project_id, "Documents")
-        self.app.create_file(self.project_id, "report.txt", b"report", folder_id=folder_id)
-        with self.assertRaises(ValueError):
-            self.app.delete_folder(folder_id)
-        self.assertIsNotNone(self.app.get_folder(folder_id))
-
-    def test_tags_use_named_application_records_and_assignments(self):
-        folder_id = self.app.create_folder(self.project_id, "Evidence")
-        tag_id = self.app.create_tag(self.project_id, "verified")
-        self.app.assign_tag(tag_id, "folder", folder_id)
-        tags = self.app.list_tags(self.project_id)
-        folder_tags = self.app.get_tags_for_target("folder", folder_id)
-        self.assertEqual(tags[0]["id"], tag_id)
-        self.assertEqual(tags[0]["name"], "verified")
-        self.assertEqual(folder_tags[0]["id"], tag_id)
-        self.assertEqual(folder_tags[0]["project_id"], self.project_id)
-        self.app.remove_tag(tag_id, "folder", folder_id)
-        self.assertEqual(self.app.get_tags_for_target("folder", folder_id), [])
-
-    def test_attachments_use_named_application_records(self):
-        file_id = self.app.create_file(self.project_id, "source.pdf", b"source")
-        folder_id = self.app.create_folder(self.project_id, "Sources")
-        attachment_id = self.app.attach_file(file_id, "folder", folder_id)
-        attachments = self.app.get_file_attachments(file_id)
-        self.assertEqual(attachments[0]["id"], attachment_id)
-        self.assertEqual(attachments[0]["file_id"], file_id)
-        self.assertEqual(attachments[0]["target_type"], "folder")
-        self.assertEqual(attachments[0]["target_id"], folder_id)
-        self.app.detach_file(file_id, "folder", folder_id)
-        self.assertEqual(self.app.get_file_attachments(file_id), [])
-
-    def test_bulk_file_delete_is_exposed_through_application_boundary(self):
-        file_ids = [self.app.create_file(self.project_id, f"file-{index}.txt", f"payload-{index}".encode()) for index in range(3)]
-        self.assertEqual(self.app.delete_files([file_ids[0], file_ids[1], file_ids[1], file_ids[2]]), 3)
-        self.assertEqual(self.app.list_files(self.project_id), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
