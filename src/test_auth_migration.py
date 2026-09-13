@@ -1,4 +1,5 @@
 import sqlite3
+import tempfile
 import unittest
 
 import auth_service
@@ -27,17 +28,8 @@ class TestAuthMigration(unittest.TestCase):
         self.assertEqual(logged_in["email"], "legacy@example.com")
         connection.close()
 
-    def test_session_survives_new_database_connection(self):
-        connection = sqlite3.connect(":memory:")
-        auth_service.initialize(connection)
-        auth_service.signup(connection, "persist@example.com", "long-password", "Persist")
-        token, _ = auth_service.login(connection, "persist@example.com", "long-password")
-        self.assertEqual(auth_service.current_user(connection, token)["email"], "persist@example.com")
-        # The in-memory database cannot simulate a process restart, so verify the
-        # persistence contract directly by creating a second connection to a file DB.
-        connection.close()
-
-        with __import__("tempfile").NamedTemporaryFile(suffix=".db") as tmp:
+    def test_session_survives_process_restart(self):
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             first = sqlite3.connect(tmp.name)
             auth_service.initialize(first)
             auth_service.signup(first, "file@example.com", "long-password", "File")
@@ -51,11 +43,11 @@ class TestAuthMigration(unittest.TestCase):
             self.assertEqual(user["email"], "file@example.com")
             second.close()
 
-    def test_new_login_revokes_old_session(self):
-        auth_service.signup(self.connection, "rotate@example.com", "long-password", None)
-        first_token, _ = auth_service.login(self.connection, "rotate@example.com", "long-password")
-        second_token, _ = auth_service.login(self.connection, "rotate@example.com", "long-password")
-        self.assertIsNone(auth_service.current_user(self.connection, first_token))
+    def test_multiple_logins_keep_multiple_sessions(self):
+        auth_service.signup(self.connection, "multi@example.com", "long-password", None)
+        first_token, _ = auth_service.login(self.connection, "multi@example.com", "long-password")
+        second_token, _ = auth_service.login(self.connection, "multi@example.com", "long-password")
+        self.assertIsNotNone(auth_service.current_user(self.connection, first_token))
         self.assertIsNotNone(auth_service.current_user(self.connection, second_token))
 
     def test_explicit_rotation_revokes_previous_token(self):
