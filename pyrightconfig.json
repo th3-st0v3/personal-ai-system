@@ -11,10 +11,10 @@
     "**/.tox",
     "**/.pytest_cache",
     "**/.mypy_cache",
-    "**/.*",
-    "src/test_*.py",
-    "src/web_api.py",
-    "src/engineering_web_api.py"
+    "**/.ruff_cache",
+    "**/dist",
+    "**/build",
+    "**/site-packages/**"
   ],
   "reportMissingModuleSource": "none"
 }
