@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
       - name: Run beta smoke test
         env:
           PYTHONPATH: src
@@ -33,15 +35,11 @@ jobs:
       - name: Validate web client syntax
         run: |
           set -e
-          node --check web/app.js
-          node --check web/interaction-fixes.js
-          node --check web/beta-features.js
-          node --check web/ui-stability.js
-          node --check web/product-polish.js
-          node --check web/ux-hardening.js
-          node --check web/ux-final.js
-          node --check web/ux-shortcuts.js
-          node --check web/engineering-final.js
+          for file in web/*.js; do node --check "$file"; done
+      - name: Frontend contract smoke test
+        env:
+          PYTHONPATH: src
+        run: python scripts/frontend_contract_test.py
       - name: Browser/API smoke test
         env:
           PYTHONPATH: src
@@ -58,6 +56,7 @@ jobs:
           done
           test "$ready" -eq 1
           curl -fsS http://127.0.0.1:8000/ | grep -q 'chat-form'
+          curl -fsS http://127.0.0.1:8000/ | grep -q 'production-ui.js'
           curl -fsS http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
           curl -fsS http://127.0.0.1:8000/api/manifest | grep -q 'Engineering'
       - name: Upload diagnostics
