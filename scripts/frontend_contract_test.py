@@ -13,13 +13,16 @@ ENGINEERING = (ROOT / "web" / "engineering-final.js").read_text(encoding="utf-8"
 UX_FINAL = (ROOT / "web" / "ux-final.js").read_text(encoding="utf-8")
 AUTH = (ROOT / "web" / "auth-ui.js").read_text(encoding="utf-8")
 PDF = (ROOT / "web" / "pdf-ui.js").read_text(encoding="utf-8")
+UI_COMPLETION = (ROOT / "web" / "ui-completion.js").read_text(encoding="utf-8")
+DESIGN_SYSTEM = (ROOT / "web" / "design-system.css").read_text(encoding="utf-8")
 
-required_scripts = {"production-ui.js", "auth-ui.js", "pdf-ui.js", "engineering-final.js", "ux-final.js", "final-controls.js", "final-interactions.js", "backend-frontend-bridge.js", "backend-final.js"}
+required_scripts = {"production-ui.js", "auth-ui.js", "pdf-ui.js", "engineering-final.js", "ux-final.js", "final-controls.js", "final-interactions.js", "backend-frontend-bridge.js", "backend-final.js", "ui-completion.js"}
 for script in required_scripts:
     assert f'src="/{script}"' in HTML, f"Missing {script} from index.html"
     assert (ROOT / "web" / script).is_file(), f"Missing script file: {script}"
+assert '/design-system.css' in HTML and DESIGN_SYSTEM, "Canonical design system is not loaded."
 
-required_dom_ids = {"chat-form", "chat-input", "send-chat", "ai-mode", "global-search", "chat-list", "project-files", "project-calculations", "project-simulations", "project-engineering", "calculations-toggle", "login-button", "signup-button", "account-button"}
+required_dom_ids = {"chat-form", "chat-input", "send-chat", "ai-mode", "global-search", "chat-list", "project-files", "project-calculations", "project-simulations", "project-engineering", "calculations-toggle", "calculation-categories", "login-button", "signup-button", "account-button"}
 for element_id in required_dom_ids:
     assert f'id="{element_id}"' in HTML, f"Missing DOM contract: {element_id}"
 
@@ -46,4 +49,14 @@ assert "get_chunk" in (ROOT / "src" / "ingestion_service.py").read_text(encoding
 assert "Import PDF" in PDF and "/sources/pdf" in PDF and "pypdf" in (ROOT / "src" / "pdf_ingestion.py").read_text(encoding="utf-8")
 for capability in ("Skills", "Connectors", "Plugins", "You", "Discover"):
     assert capability in UX_FINAL, f"Customize capability missing: {capability}"
+
+# The completion layer owns the navigation UX and must preserve the full
+# catalog hierarchy without duplicating calculation implementations.
+for capability in (
+    "Ctrl+O", "data-calculation-category", "data-calculation-subgroup",
+    "data-open-calculation-group", "data-open-calculation-subgroup",
+    "calculation-group-card-grid", "calculation-card-grid", "prefers-reduced-motion",
+):
+    assert capability in UI_COMPLETION + DESIGN_SYSTEM, f"Frontend completion capability missing: {capability}"
+assert "subcategories" in UI_COMPLETION, "Calculation groups are not derived from catalog subcategories."
 print("frontend/backend contract: PASS")
