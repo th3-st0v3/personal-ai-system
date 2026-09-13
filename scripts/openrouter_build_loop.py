@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from engineering_context import collect_context
 
@@ -75,21 +75,7 @@ def utc_now() -> str:
 
 
 def default_state() -> ProposalState:
-    return {
-        "schema": STATE_SCHEMA,
-        "phase": "beta",
-        "completed_tasks": [],
-        "backlog": [
-            "Build the supervised engineering workload execution path.",
-            "Add safe local sandbox integration behind a capability boundary.",
-            "Connect deterministic calculations to workload manifests.",
-            "Add simulation study and provenance primitives.",
-            "Add shadow-mode telemetry and verification reporting.",
-        ],
-        "approval_queue": [],
-        "request_history": [],
-        "last_request_at": None,
-    }
+    return {"schema": STATE_SCHEMA, "phase": "beta", "completed_tasks": [], "backlog": ["Build the supervised engineering workload execution path.", "Add safe local sandbox integration behind a capability boundary.", "Connect deterministic calculations to workload manifests.", "Add simulation study and provenance primitives.", "Add shadow-mode telemetry and verification reporting."], "approval_queue": [], "request_history": [], "last_request_at": None}
 
 
 def load_state(path: Path) -> ProposalState:
@@ -100,7 +86,7 @@ def load_state(path: Path) -> ProposalState:
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or raw.get("schema") != STATE_SCHEMA:
         raise ValueError("Unsupported state schema version.")
-    return raw  # validated enough by state consumers and persisted schema
+    return cast(ProposalState, raw)
 
 
 def save_state(path: Path, state: ProposalState) -> None:
@@ -122,64 +108,27 @@ def sleep_for_budget(state: ProposalState, minimum_interval: int) -> None:
     last = state.get("last_request_at")
     if not last:
         return
-    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
-    remaining = minimum_interval - elapsed
+    remaining = minimum_interval - (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
     if remaining > 0:
         time.sleep(remaining)
 
 
 def validate_proposal(proposal: dict[str, object]) -> None:
-    required = {"action_justification", "file_path", "code_to_execute", "new_state"}
-    if set(proposal) != required:
+    if set(proposal) != {"action_justification", "file_path", "code_to_execute", "new_state"}:
         raise ValueError("Model response does not match the required proposal schema.")
     if not isinstance(proposal["action_justification"], str) or not proposal["action_justification"].strip():
         raise ValueError("Proposal justification must be non-empty.")
     path = str(proposal["file_path"] or "").strip()
     if path and (Path(path).is_absolute() or ".." in Path(path).parts):
         raise ValueError("Proposal path must stay inside the repository.")
-    if not isinstance(proposal["code_to_execute"], str):
-        raise ValueError("Proposal code must be a string.")
-    if not isinstance(proposal["new_state"], dict):
-        raise ValueError("Proposal new_state must be an object.")
+    if not isinstance(proposal["code_to_execute"], str) or not isinstance(proposal["new_state"], dict):
+        raise ValueError("Proposal payload types are invalid.")
 
 
-def call_openrouter(
-    api_key: str,
-    model: str,
-    state: ProposalState,
-    repo_context: str,
-    max_output_tokens: int,
-    base_url: str,
-) -> Proposal:
-    user_payload = {
-        "phase": state["phase"],
-        "backlog": state["backlog"][:20],
-        "recent_queue": state["approval_queue"][-10:],
-        "completed_tasks": state["completed_tasks"][-20:],
-        "repository_context": repo_context,
-        "instruction": "Propose exactly one next repository change. Do not apply it.",
-    }
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(user_payload, separators=(",", ":"))},
-        ],
-        "response_format": {"type": "json_object"},
-        "max_tokens": max_output_tokens,
-    }
-    endpoint = base_url.rstrip("/") + "/chat/completions"
-    request = urllib.request.Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",
-            "X-Title": "Personal AI System Engineering Build Assistant",
-        },
-        method="POST",
-    )
+def call_openrouter(api_key: str, model: str, state: ProposalState, repo_context: str, max_output_tokens: int, base_url: str) -> Proposal:
+    user_payload = {"phase": state["phase"], "backlog": state["backlog"][:20], "recent_queue": state["approval_queue"][-10:], "completed_tasks": state["completed_tasks"][-20:], "repository_context": repo_context, "instruction": "Propose exactly one next repository change. Do not apply it."}
+    payload = {"model": model, "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": json.dumps(user_payload, separators=(",", ":"))}], "response_format": {"type": "json_object"}, "max_tokens": max_output_tokens}
+    request = urllib.request.Request(base_url.rstrip("/") + "/chat/completions", data=json.dumps(payload).encode("utf-8"), headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "HTTP-Referer": "http://localhost", "X-Title": "Personal AI System Engineering Build Assistant"}, method="POST")
     with urllib.request.urlopen(request, timeout=60) as response:
         body = response.read(MAX_RESPONSE_BYTES + 1)
     if len(body) > MAX_RESPONSE_BYTES:
@@ -189,20 +138,13 @@ def call_openrouter(
     if not isinstance(result, dict):
         raise ValueError("OpenRouter proposal must be an object.")
     validate_proposal(result)
-    return result  # proposal schema was validated above
+    return cast(Proposal, result)
 
 
 def enqueue_proposal(state: ProposalState, proposal: Proposal) -> None:
-    queue = state["approval_queue"]
-    queue.append({
-        "created_at": utc_now(),
-        "action_justification": proposal["action_justification"],
-        "file_path": proposal["file_path"],
-        "code": proposal["code_to_execute"],
-        "status": "pending_review",
-    })
-    if len(queue) > 50:
-        del queue[:-50]
+    state["approval_queue"].append({"created_at": utc_now(), "action_justification": proposal["action_justification"], "file_path": proposal["file_path"], "code": proposal["code_to_execute"], "status": "pending_review"})
+    if len(state["approval_queue"]) > 50:
+        del state["approval_queue"][:-50]
     new_state = proposal["new_state"]
     if "backlog" in new_state:
         state["backlog"] = new_state["backlog"]
@@ -228,7 +170,6 @@ def main() -> int:
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise SystemExit("OPENROUTER_API_KEY is not set. See docs/openrouter-build-assistant.md.")
-
     state_path = Path(args.state)
     state = load_state(state_path)
     repo_context = collect_context(Path(args.repo), max_chars=MAX_CONTEXT_CHARS)
@@ -236,7 +177,6 @@ def main() -> int:
     print(f"Endpoint: {args.base_url}")
     print(f"Requests today: {request_count_today(state)}/{args.max_daily_requests}")
     print("Repository context loaded; model changes are queued for human review.")
-
     while True:
         if request_count_today(state) >= args.max_daily_requests:
             print("Daily request budget reached; preserving state and exiting safely.")
