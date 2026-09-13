@@ -42,6 +42,8 @@ class TestEngineeringApplication(unittest.TestCase):
         requirement_id = db.create_requirement(self.project_id, "Maintain pressure")
         self.app.update_requirement(requirement_id, identifier="REQ-001", title="Pressure requirement", acceptance_criteria="Pressure remains above threshold", priority="High", status="Verified")
         project = self.app.get_project(self.project_id)
+        if project is None:
+            self.fail("project should exist after creation")
         requirement = self.app.list_requirements(self.project_id)[0]
         self.assertEqual(project["workspace_id"], workspace_id)
         self.assertEqual(project["owner_id"], user_id)
@@ -88,5 +90,4 @@ class TestEngineeringApplication(unittest.TestCase):
         with self.assertRaises(ValueError): self.app.invalidate_evidence(99999, "reason")
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
