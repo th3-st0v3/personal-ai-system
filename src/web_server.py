@@ -10,6 +10,7 @@ import io
 import json
 from http.cookies import SimpleCookie
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import access_control
@@ -127,7 +128,7 @@ class SiteApplication:
         stream = environ.get("wsgi.input")
         if not hasattr(stream, "read"):
             raise ValueError("Request body stream is unavailable.")
-        body = stream.read(length)
+        body = stream.read(length)  # type: ignore[union-attr]
         if not isinstance(body, bytes):
             body = bytes(body)
         environ["wsgi.input"] = io.BytesIO(body)
@@ -211,7 +212,7 @@ class SiteApplication:
         return [payload]
 
     def _capture_dispatch(self, environ) -> tuple[str, list[tuple[str, str]], bytes]:
-        captured: dict[str, object] = {}
+        captured: dict[str, Any] = {}
 
         def capture_start(status, headers, exc_info=None):
             captured["status"] = status
@@ -227,7 +228,10 @@ class SiteApplication:
             if callable(close):
                 close()
         status = str(captured.get("status", "500 Error"))
-        headers = [(str(name), str(value)) for name, value in captured.get("headers", [])]
+        raw_headers = captured.get("headers", [])
+        headers: list[tuple[str, str]] = []
+        if isinstance(raw_headers, list):
+            headers = [(str(pair[0]), str(pair[1])) for pair in raw_headers if isinstance(pair, (list, tuple)) and len(pair) >= 2]
         return status, headers, body
 
     def _filter_list_response(self, path: str, body: bytes, actor_id: str | None) -> bytes:
@@ -246,7 +250,17 @@ class SiteApplication:
             connection.close()
         if allowed is None:
             return body
-        filtered = [row for row in payload if isinstance(row, dict) and int(row.get("id", -1)) in allowed]
+        filtered = []
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            raw_id = row.get("id")
+            try:
+                row_id = int(raw_id) if isinstance(raw_id, (int, str, float)) and not isinstance(raw_id, bool) else None
+            except (TypeError, ValueError):
+                row_id = None
+            if row_id is not None and row_id in allowed:
+                filtered.append(row)
         return json.dumps(filtered, ensure_ascii=False, separators=(",", ":")).encode()
 
     def __call__(self, environ, start_response):
@@ -300,13 +314,14 @@ class SiteApplication:
             start = self._start_response(environ, start_response)
             return self._dispatch(environ, start)
         except PermissionError as exc:
-            payload = json.dumps({"error": str(exc) or "Permission denied"}, separators=(",", ":")).encode()
+            message = str(exc)
+            status = "401 Unauthorized" if message == "Authentication required." else "403 Forbidden"
+            payload = json.dumps({"error": message or "Permission denied"}, separators=(",", ":")).encode()
             start = self._start_response(environ, start_response)
-            status = "401 Unauthorized" if str(exc) == "Authentication required." else "403 Forbidden"
             start(status, [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
             return [payload]
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            payload = json.dumps({"error": str(exc) or "Invalid request"}, separators=(",", ":")).encode()
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = b'{"error":"Invalid request."}'
             start = self._start_response(environ, start_response)
             start("400 Bad Request", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
             return [payload]
