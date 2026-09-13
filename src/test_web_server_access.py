@@ -58,12 +58,12 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         self.assertEqual(status, 201)
         return self.cookie(headers), payload["user"]
 
-    def test_users_are_isolated_from_projects_chats_and_engineering_routes(self):
+    def test_users_are_isolated_from_projects_chats_search_and_engineering_routes(self):
         alice_cookie, alice = self.signup("alice@example.com")
         status, _, me = self.request("GET", "/api/auth/me", cookie=alice_cookie)
         self.assertEqual(status, 200)
         self.assertEqual(me["user"]["id"], alice["id"])
-        status, _, created = self.request("POST", "/api/projects", {"name": "Alice project"}, alice_cookie)
+        status, _, created = self.request("POST", "/api/projects", {"name": "Alice project", "description": "private-alice"}, alice_cookie)
         self.assertEqual(status, 201)
         alice_project_id = created["id"]
         status, _, created = self.request("POST", "/api/chats", {"project_id": alice_project_id}, cookie=alice_cookie)
@@ -79,7 +79,6 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
         status, _, projects = self.request("GET", "/api/projects", cookie=bob_cookie)
         self.assertEqual(status, 200)
         self.assertEqual(projects, [])
-
         status, _, projects = self.request("GET", "/api/projects", cookie=alice_cookie)
         self.assertEqual(status, 200)
         self.assertEqual({item["id"] for item in projects}, {self.legacy_project_id, alice_project_id})
@@ -98,6 +97,13 @@ class TestSiteApplicationResourceAuthorization(unittest.TestCase):
             "POST", f"/api/chats/{alice_chat_id}/messages", {"content": "unauthorized", "mode": "local"}, bob_cookie
         )
         self.assertEqual(status, 403)
+
+        status, _, search = self.request("GET", "/api/search?q=private-alice", cookie=bob_cookie)
+        self.assertEqual(status, 401)
+        self.assertEqual(search["projects"], [])
+        status, _, search = self.request("GET", "/api/search?q=private-alice", cookie=alice_cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual({item["id"] for item in search["projects"]}, {alice_project_id})
 
         status, _, _ = self.request("GET", f"/api/engineering/projects/{alice_project_id}/requirements", cookie=bob_cookie)
         self.assertEqual(status, 403)
