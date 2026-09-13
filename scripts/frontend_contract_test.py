@@ -27,8 +27,6 @@ for element_id in required_dom_ids:
     assert f'id="{element_id}"' in HTML, f"Missing DOM contract: {element_id}"
 
 combined = PRODUCTION + FINAL + ENGINEERING + UX_FINAL + AUTH + PDF + BRIDGE + BACKEND_FINAL
-# Keep this list limited to routes implemented by the current backend. Stale
-# assertions must not block working features or encourage removing features.
 for endpoint in {
     "/api/chats", "/api/chats/", "/api/projects", "/api/calculations/majors", "/api/calculations/catalog", "/api/calculations/",
     "/api/calculations/run/save", "/api/simulations", "/api/simulations/run", "/api/engineering/projects/",
@@ -44,7 +42,8 @@ for capability in ("Run simulation", "data-run-simulation", "Add connection", "R
     assert capability in BRIDGE, f"Bridge capability missing: {capability}"
 for capability in ("Saved as calculation record", "project-paste", "/paste"):
     assert capability in BACKEND_FINAL, f"Final capability missing: {capability}"
-assert "project_id" in (ROOT / "scripts" / "search_web_api.py").read_text(encoding="utf-8") if (ROOT / "scripts" / "search_web_api.py").exists() else "project_id" in (ROOT / "src" / "search_web_api.py").read_text(encoding="utf-8")
+search_source = (ROOT / "scripts" / "search_web_api.py") if (ROOT / "scripts" / "search_web_api.py").exists() else (ROOT / "src" / "search_web_api.py")
+assert "project_id" in search_source.read_text(encoding="utf-8")
 assert "get_chunk" in (ROOT / "src" / "ingestion_service.py").read_text(encoding="utf-8")
 assert "Import PDF" in PDF and "/sources/pdf" in PDF and "pypdf" in (ROOT / "src" / "pdf_ingestion.py").read_text(encoding="utf-8")
 for capability in ("Skills", "Connectors", "Plugins", "You", "Discover"):
@@ -53,10 +52,10 @@ for capability in ("Skills", "Connectors", "Plugins", "You", "Discover"):
 # The completion layer owns the navigation UX and must preserve the full
 # catalog hierarchy without duplicating calculation implementations.
 for capability in (
-    "Ctrl+O", "data-calculation-category", "data-calculation-subgroup",
+    "data-calculation-category", "data-calculation-subgroup",
     "data-open-calculation-group", "data-open-calculation-subgroup",
     "calculation-group-card-grid", "calculation-card-grid", "prefers-reduced-motion",
 ):
     assert capability in UI_COMPLETION + DESIGN_SYSTEM, f"Frontend completion capability missing: {capability}"
-assert "subcategories" in UI_COMPLETION, "Calculation groups are not derived from catalog subcategories."
+assert "Ctrl+O" in HTML and "subcategories" in UI_COMPLETION, "Calculation shortcut/group contract is incomplete."
 print("frontend/backend contract: PASS")
