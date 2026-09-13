@@ -7,7 +7,9 @@ ACTIONS = {
     "read_project", "ingest_source", "run_calculation", "run_simulation",
     "modify_project_data", "execute_code", "remote_execution", "external_api_cost",
 }
-DEFAULT_SAFE_ACTIONS = {"read_project", "ingest_source", "run_calculation"}
+# Local deterministic simulations have no host/network side effects, so they are
+# safe-by-default while remote execution, code execution, and paid APIs remain gated.
+DEFAULT_SAFE_ACTIONS = {"read_project", "ingest_source", "run_calculation", "run_simulation"}
 
 
 def initialize(connection: sqlite3.Connection) -> None:
