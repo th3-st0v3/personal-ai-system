@@ -16,16 +16,17 @@ class SearchWebApplication:
 
     def request(self, method: str, target: str) -> tuple[int, list[tuple[str, str]], bytes]:
         try:
-            if method != "GET" or urlsplit(target).path.rstrip("/") != "/api/search": return self._json(404, {"error": "Not found"})
-            query = parse_qs(urlsplit(target).query).get("q", [""])[-1].strip().casefold()
+            parsed = urlsplit(target)
+            if method != "GET" or parsed.path.rstrip("/") != "/api/search": return self._json(404, {"error": "Not found"})
+            query = parse_qs(parsed.query).get("q", [""])[-1].strip().casefold()
             if not query: return self._json(200, {"chats": [], "projects": [], "notes": [], "calculations": []})
             connection = db.get_connection()
             try:
                 chats = [item for item in chat_service.list_chats(connection) if query in str(item["title"]).casefold()]
                 notes = [{"id": int(row[0]), "title": str(row[1]), "content": str(row[2])} for row in connection.execute("SELECT id,title,content FROM workspace_notes WHERE lower(title) LIKE ? OR lower(content) LIKE ? ORDER BY updated_at DESC LIMIT 30", (f"%{query}%", f"%{query}%")).fetchall()]
+                projects = [{"id": int(row[0]), "name": str(row[1]), "description": str(row[2] or "")} for row in connection.execute("SELECT id,name,description FROM projects WHERE lower(name) LIKE ? OR lower(description) LIKE ? ORDER BY created_at DESC LIMIT 30", (f"%{query}%", f"%{query}%")).fetchall()]
             finally:
                 connection.close()
-            projects = [{"id": int(row[0]), "name": str(row[1]), "description": str(row[2] or "")} for row in db.get_projects() if query in str(row[1]).casefold() or query in str(row[2] or "").casefold()]
             catalog = CalculationApplication().list_catalog_items()
             calculations = [{"key": item.key, "name": item.name, "domain": item.domain} for item in catalog if query in f"{item.key} {item.name} {item.domain}".casefold()]
             return self._json(200, {"chats": chats[:30], "projects": projects[:30], "notes": notes, "calculations": calculations[:30]})
