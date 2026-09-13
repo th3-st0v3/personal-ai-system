@@ -24,6 +24,20 @@ class EngineeringWebApplication:
         self.engineering = engineering or EngineeringApplication()
 
     @staticmethod
+    def _as_int(value: object, field: str) -> int:
+        """Convert a JSON/query value to an integer while narrowing its static type."""
+        if isinstance(value, bool):
+            raise ValueError(f"{field} must be an integer.")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError as exc:
+                raise ValueError(f"{field} must be an integer.") from exc
+        raise ValueError(f"{field} must be an integer.")
+
+    @staticmethod
     def _json(status: int, body: object) -> tuple[int, list[tuple[str, str]], bytes]:
         payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
         return status, [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))], payload
@@ -95,11 +109,13 @@ class EngineeringWebApplication:
         row = get_file(file_id)
         return row if row is not None and int(row[1]) == project_id else None
 
-    def _requirements_with_evidence(self, project_id: int) -> tuple[list[dict[str, object]], dict[int, list[dict[str, object]]]]:
+    def _requirements_with_evidence(
+        self, project_id: int
+    ) -> tuple[list[engineering_plans.RequirementRecord], dict[int, list[dict[str, object]]]]:
         requirements = self.engineering.list_requirements(project_id)
         evidence_by_requirement: dict[int, list[dict[str, object]]] = {}
         for requirement in requirements:
-            requirement_id = int(requirement["id"])
+            requirement_id = self._as_int(requirement["id"], "requirement_id")
             evidence_items: list[dict[str, object]] = []
             for row in db.get_evidence_for_requirement(requirement_id):
                 item = self.engineering.get_evidence(int(row[0]))
@@ -108,8 +124,7 @@ class EngineeringWebApplication:
             evidence_by_requirement[requirement_id] = evidence_items
         return requirements, evidence_by_requirement
 
-    @staticmethod
-    def _ingest_payload(project_id: int, data: dict[str, object], content: str, source_type: str) -> dict[str, object]:
+    def _ingest_payload(self, project_id: int, data: dict[str, object], content: str, source_type: str) -> dict[str, object]:
         connection = db.get_connection()
         try:
             policy.require(connection, "local", "ingest_source")
@@ -123,7 +138,7 @@ class EngineeringWebApplication:
                 source_type=source_type,
                 version=None if version_raw is None else str(version_raw),
                 url=None if url_raw is None else str(url_raw),
-                chunk_chars=int(data.get("chunk_chars", ingestion_service.DEFAULT_CHUNK_CHARS)),
+                chunk_chars=self._as_int(data.get("chunk_chars", ingestion_service.DEFAULT_CHUNK_CHARS), "chunk_chars"),
             )
         finally:
             connection.close()
@@ -161,7 +176,7 @@ class EngineeringWebApplication:
         if len(parts) == 6 and parts[5] == "test-plan" and method == "GET":
             return 200, engineering_plans.build_test_plan(self.engineering.list_requirements(project_id))
         if len(parts) == 6 and method == "PATCH":
-            requirement_id = int(parts[5])
+            requirement_id = self._as_int(parts[5], "requirement_id")
             self._require_requirement(project_id, requirement_id)
             self.engineering.update_requirement(
                 requirement_id,
@@ -174,7 +189,7 @@ class EngineeringWebApplication:
             updated = next(item for item in self.engineering.list_requirements(project_id) if int(item["id"]) == requirement_id)
             return 200, updated
         if len(parts) == 7 and parts[6] == "evidence":
-            requirement_id = int(parts[5])
+            requirement_id = self._as_int(parts[5], "requirement_id")
             self._require_requirement(project_id, requirement_id)
             if method == "GET":
                 connection = db.get_connection()
@@ -193,7 +208,7 @@ class EngineeringWebApplication:
                 return 200, evidence
             if method == "POST":
                 source_id_raw = data.get("source_id")
-                source_id = int(source_id_raw) if source_id_raw is not None else None
+                source_id = self._as_int(source_id_raw, "source_id") if source_id_raw is not None else None
                 if source_id is not None:
                     self._require_source(project_id, source_id)
                 evidence_id = self.engineering.create_evidence(
@@ -216,7 +231,7 @@ class EngineeringWebApplication:
             return 200, self.engineering.list_sources(project_id)
         if len(parts) == 5 and method == "POST":
             file_id_raw = data.get("file_id")
-            file_id = int(file_id_raw) if file_id_raw is not None else None
+            file_id = self._as_int(file_id_raw, "file_id") if file_id_raw is not None else None
             if file_id is not None and self._workspace_file(project_id, file_id) is None:
                 raise ValueError("File not found in project.")
             source_id = self.engineering.create_source(
@@ -241,14 +256,14 @@ class EngineeringWebApplication:
             query_text = query.get("q", "").strip()
             if not query_text:
                 raise ValueError("q is required.")
-            limit = int(query.get("limit", "10"))
+            limit = self._as_int(query.get("limit", "10"), "limit")
             connection = db.get_connection()
             try:
                 return 200, ingestion_service.search_chunks(connection, project_id, query_text, limit)
             finally:
                 connection.close()
         if len(parts) == 7 and parts[5] == "chunks" and method == "GET":
-            chunk_id = int(parts[6])
+            chunk_id = self._as_int(parts[6], "chunk_id")
             connection = db.get_connection()
             try:
                 return 200, ingestion_service.get_chunk(connection, project_id, chunk_id)
@@ -268,7 +283,7 @@ class EngineeringWebApplication:
             )
             return 200, report
         if resource == "evidence" and len(parts) == 6 and parts[5] == "invalidate" and method == "POST":
-            evidence_id = int(data["id"])
+            evidence_id = self._as_int(data["id"], "evidence_id")
             self._require_evidence(project_id, evidence_id)
             self.engineering.invalidate_evidence(evidence_id, str(data["reason"]))
             return 200, {"invalidated": True}
@@ -277,8 +292,8 @@ class EngineeringWebApplication:
         if resource == "decisions" and len(parts) == 5 and method == "POST":
             requirement_raw = data.get("requirement_id")
             design_case_raw = data.get("design_case_id")
-            requirement_id = int(requirement_raw) if requirement_raw is not None else None
-            design_case_id = int(design_case_raw) if design_case_raw is not None else None
+            requirement_id = self._as_int(requirement_raw, "requirement_id") if requirement_raw is not None else None
+            design_case_id = self._as_int(design_case_raw, "design_case_id") if design_case_raw is not None else None
             if requirement_id is not None:
                 self._require_requirement(project_id, requirement_id)
             if design_case_id is not None:
@@ -308,7 +323,7 @@ class EngineeringWebApplication:
             parts = path.strip("/").split("/")
             if len(parts) < 4 or parts[:3] != ["api", "engineering", "projects"]:
                 return self._json(404, {"error": "Not found"})
-            project_id = int(parts[3])
+            project_id = self._as_int(parts[3], "project_id")
             self._require_project(project_id)
             data = {str(key): value for key, value in raw_data.items()}
 
@@ -331,7 +346,7 @@ class EngineeringWebApplication:
 
     def __call__(self, environ, start_response):
         try:
-            length = int(environ.get("CONTENT_LENGTH") or 0)
+            length = self._as_int(environ.get("CONTENT_LENGTH") or 0, "content_length")
             if length < 0:
                 raise ValueError("Content length cannot be negative.")
             if length > self.MAX_REQUEST_BODY_BYTES:
@@ -340,7 +355,8 @@ class EngineeringWebApplication:
                 target = environ.get("PATH_INFO", "/")
                 if environ.get("QUERY_STRING"):
                     target += "?" + environ["QUERY_STRING"]
-                body = environ["wsgi.input"].read(length) if length else b""
+                body_stream = environ["wsgi.input"]
+                body = body_stream.read(length) if hasattr(body_stream, "read") and length else b""
                 status, headers, payload = self.request(environ.get("REQUEST_METHOD", "GET"), target, body)
         except (TypeError, ValueError) as exc:
             status, headers, payload = self._json(400, {"error": str(exc) or "Invalid request"})
