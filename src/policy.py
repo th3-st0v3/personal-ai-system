@@ -9,22 +9,15 @@ ACTIONS = {
     "modify_project_data", "execute_code", "remote_execution", "external_api_cost",
 }
 DEFAULT_SAFE_ACTIONS = {"read_project", "ingest_source", "run_calculation", "run_simulation"}
-
-# Per actor/action limits. Deterministic local calculations are intentionally
-# generous; network, code, and paid actions are much tighter.
 RATE_LIMITS = {
-    "read_project": (120, 60),
-    "ingest_source": (20, 60),
-    "run_calculation": (120, 60),
-    "run_simulation": (60, 60),
-    "modify_project_data": (60, 60),
-    "execute_code": (10, 60),
-    "remote_execution": (5, 60),
-    "external_api_cost": (5, 60),
+    "read_project": (120, 60), "ingest_source": (20, 60), "run_calculation": (120, 60),
+    "run_simulation": (60, 60), "modify_project_data": (60, 60), "execute_code": (10, 60),
+    "remote_execution": (5, 60), "external_api_cost": (5, 60),
 }
 
 
 def initialize(connection: sqlite3.Connection) -> None:
+    """Create the authorization schema. Application startup should call this once."""
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS permission_grants (
             actor_id TEXT NOT NULL,
@@ -42,8 +35,7 @@ def initialize(connection: sqlite3.Connection) -> None:
             reason TEXT,
             created_at REAL NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_action_audit_actor_action_time
-            ON action_audit_log(actor_id, action, created_at);
+        CREATE INDEX IF NOT EXISTS idx_action_audit_actor_action_time ON action_audit_log(actor_id, action, created_at);
     """)
     connection.commit()
 
@@ -51,7 +43,6 @@ def initialize(connection: sqlite3.Connection) -> None:
 def grant(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
     validate_action(action)
     actor_id = _actor(actor_id)
-    initialize(connection)
     connection.execute(
         "INSERT INTO permission_grants(actor_id, action, enabled) VALUES (?, ?, 1) "
         "ON CONFLICT(actor_id, action) DO UPDATE SET enabled=1, updated_at=datetime('now')",
@@ -62,7 +53,6 @@ def grant(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
 
 def revoke(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
     validate_action(action)
-    initialize(connection)
     connection.execute(
         "UPDATE permission_grants SET enabled=0, updated_at=datetime('now') WHERE actor_id=? AND action=?",
         (_actor(actor_id), action),
@@ -73,7 +63,6 @@ def revoke(connection: sqlite3.Connection, actor_id: str, action: str) -> None:
 def allowed(connection: sqlite3.Connection, actor_id: str, action: str) -> bool:
     validate_action(action)
     actor_id = _actor(actor_id)
-    initialize(connection)
     row = connection.execute(
         "SELECT enabled FROM permission_grants WHERE actor_id=? AND action=?",
         (actor_id, action),
@@ -106,7 +95,6 @@ def _enforce_rate_limit(connection: sqlite3.Connection, actor_id: str, action: s
     count = int(row[0]) if row else 0
     if count >= maximum:
         _audit(connection, actor_id, action, False, f"rate limit exceeded ({maximum}/{window_seconds}s)")
-        connection.commit()
         raise PermissionError(f"Rate limit exceeded for action '{action}'. Try again later.")
 
 
@@ -119,8 +107,7 @@ def _audit(connection: sqlite3.Connection, actor_id: str, action: str, permitted
 
 
 def purge_audit_log(connection: sqlite3.Connection, *, max_age_seconds: int = 30 * 24 * 60 * 60) -> int:
-    cutoff = time.time() - max_age_seconds
-    cursor = connection.execute("DELETE FROM action_audit_log WHERE created_at<?", (cutoff,))
+    cursor = connection.execute("DELETE FROM action_audit_log WHERE created_at<?", (time.time() - max_age_seconds,))
     connection.commit()
     return cursor.rowcount
 
