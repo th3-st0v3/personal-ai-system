@@ -4,23 +4,30 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-BRIDGE = (ROOT / "web" / "backend-frontend-bridge.js").read_text(encoding="utf-8")
-BACKEND_FINAL = (ROOT / "web" / "backend-final.js").read_text(encoding="utf-8")
-PRODUCTION = (ROOT / "web" / "production-ui.js").read_text(encoding="utf-8")
-FINAL = (ROOT / "web" / "final-interactions.js").read_text(encoding="utf-8")
-ENGINEERING = (ROOT / "web" / "engineering-final.js").read_text(encoding="utf-8")
-UX_FINAL = (ROOT / "web" / "ux-final.js").read_text(encoding="utf-8")
-AUTH = (ROOT / "web" / "auth-ui.js").read_text(encoding="utf-8")
-PDF = (ROOT / "web" / "pdf-ui.js").read_text(encoding="utf-8")
-UI_COMPLETION = (ROOT / "web" / "ui-completion.js").read_text(encoding="utf-8")
-DESIGN_SYSTEM = (ROOT / "web" / "design-system.css").read_text(encoding="utf-8")
+WEB = ROOT / "web"
+HTML = (WEB / "index.html").read_text(encoding="utf-8")
+BRIDGE = (WEB / "backend-frontend-bridge.js").read_text(encoding="utf-8")
+BACKEND_FINAL = (WEB / "backend-final.js").read_text(encoding="utf-8")
+PRODUCTION = (WEB / "production-ui.js").read_text(encoding="utf-8")
+FINAL = (WEB / "final-interactions.js").read_text(encoding="utf-8")
+ENGINEERING = (WEB / "engineering-final.js").read_text(encoding="utf-8")
+UX_FINAL = (WEB / "ux-final.js").read_text(encoding="utf-8")
+AUTH = (WEB / "auth-ui.js").read_text(encoding="utf-8")
+PDF = (WEB / "pdf-ui.js").read_text(encoding="utf-8")
+UI_COMPLETION = (WEB / "ui-completion.js").read_text(encoding="utf-8")
+APP_CSS = (WEB / "app.css").read_text(encoding="utf-8")
+DESIGN_SYSTEM = (WEB / "design-system.css").read_text(encoding="utf-8")
+ACCESSIBILITY = (WEB / "accessibility.css").read_text(encoding="utf-8")
+ACCESSIBILITY_RUNTIME = (WEB / "accessibility-runtime.js").read_text(encoding="utf-8")
 
-required_scripts = {"production-ui.js", "auth-ui.js", "pdf-ui.js", "engineering-final.js", "ux-final.js", "final-controls.js", "final-interactions.js", "backend-frontend-bridge.js", "backend-final.js", "ui-completion.js"}
+required_scripts = {"production-ui.js", "auth-ui.js", "pdf-ui.js", "engineering-final.js", "ux-final.js", "final-controls.js", "final-interactions.js", "backend-frontend-bridge.js", "backend-final.js", "accessibility-runtime.js", "ui-completion.js"}
 for script in required_scripts:
     assert f'src="/{script}"' in HTML, f"Missing {script} from index.html"
-    assert (ROOT / "web" / script).is_file(), f"Missing script file: {script}"
-assert '/design-system.css' in HTML and DESIGN_SYSTEM, "Canonical design system is not loaded."
+    assert (WEB / script).is_file(), f"Missing script file: {script}"
+assert 'href="/app.css"' in HTML and APP_CSS, "Canonical stylesheet entrypoint is not loaded."
+assert "/design-system.css" in APP_CSS and DESIGN_SYSTEM, "Canonical design system is not reachable from app.css."
+assert "/accessibility.css" in APP_CSS and ACCESSIBILITY, "Accessibility layer is not reachable from app.css."
+assert "PASAccessibility" in ACCESSIBILITY_RUNTIME, "Shared accessibility runtime is not exposed."
 
 required_dom_ids = {"chat-form", "chat-input", "send-chat", "ai-mode", "global-search", "chat-list", "project-files", "project-calculations", "project-simulations", "project-engineering", "calculations-toggle", "calculation-categories", "login-button", "signup-button", "account-button"}
 for element_id in required_dom_ids:
