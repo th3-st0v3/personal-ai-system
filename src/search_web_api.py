@@ -85,9 +85,10 @@ class SearchWebApplication:
             ]
             return self._json(200, {"chats": chats[:30], "projects": projects[:30], "notes": notes[:30], "calculations": calculations[:30]})
         except PermissionError as exc:
-            return self._json(401 if str(exc) == "Authentication required." else 403, {"error": str(exc)})
-        except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            return self._json(400, {"error": str(exc)})
+            message = str(exc)
+            return self._json(401 if message == "Authentication required." else 403, {"error": message or "Permission denied"})
+        except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+            return self._json(400, {"error": "Invalid search request."})
         except Exception:
             return self._json(500, {"error": "Search failed"})
 
