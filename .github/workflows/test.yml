@@ -31,4 +31,4 @@ jobs:
       - name: Markdown lint
         run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules"
       - name: Validate web client syntax
-        run: node --check web/app.js && node --check web/interaction-fixes.js && node --check web/beta-features.js && node --check web/ui-stability.js && node --check web/product-polish.js && node --check web/ux-hardening.js
+        run: node --check web/app.js && node --check web/interaction-fixes.js && node --check web/beta-features.js && node --check web/ui-stability.js && node --check web/product-polish.js && node --check web/ux-hardening.js && node --check web/ux-final.js && node --check web/ux-shortcuts.js && node --check web/engineering-final.js
