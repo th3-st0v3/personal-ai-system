@@ -23,7 +23,7 @@ The architecture and implementation should evolve toward these requirements with
 
 ---
 
-# 1. Overall Mission
+## 1. Overall Mission
 
 Build a long-term personal AI and technical intelligence system that can continuously improve the user's:
 
@@ -48,9 +48,9 @@ The system should help the user become increasingly capable independently rather
 
 ---
 
-# 2. Long-Term Goals
+## 2. Long-Term Goals
 
-## 2.1 Petroleum Engineering
+### 2.1 Petroleum Engineering
 
 The system should support long-term mastery of:
 
@@ -75,7 +75,7 @@ The system should eventually connect engineering theory with practical projects,
 
 ---
 
-## 2.2 Computer Engineering
+### 2.2 Computer Engineering
 
 Computer Engineering is a major long-term goal.
 
@@ -105,7 +105,7 @@ The system should eventually support physical Computer Engineering projects when
 
 ---
 
-## 2.3 Computer Science and Software Engineering
+### 2.3 Computer Science and Software Engineering
 
 The system should support mastery of:
 
@@ -133,7 +133,7 @@ The user should eventually be able to design and implement substantial software 
 
 ---
 
-# 3. Mathematics, Science, and Technical Foundations
+## 3. Mathematics, Science, and Technical Foundations
 
 The system should support structured learning in:
 
@@ -173,9 +173,9 @@ The system should support concept maps, learning sequences, and personalized stu
 
 ---
 
-# 4. Functional Requirements
+## 4. Functional Requirements
 
-## 4.1 Personal Knowledge System
+### 4.1 Personal Knowledge System
 
 The system should maintain a persistent personal knowledge base that can store and organize:
 
@@ -192,7 +192,7 @@ The system should maintain a persistent personal knowledge base that can store a
 
 The system should support retrieval, summarization, cross-linking, and structured reasoning over stored knowledge.
 
-## 4.2 Learning and Skill Development
+### 4.2 Learning and Skill Development
 
 The system should help the user:
 
@@ -208,7 +208,7 @@ The system should help the user:
 
 The system should encourage active learning rather than passive consumption.
 
-## 4.3 Research and Information Discovery
+### 4.3 Research and Information Discovery
 
 The system should support:
 
@@ -222,7 +222,7 @@ The system should support:
 
 The system should distinguish between trustworthy, weak, speculative, and outdated information.
 
-## 4.4 Project Execution Support
+### 4.4 Project Execution Support
 
 The system should support:
 
@@ -239,7 +239,7 @@ The system should support:
 
 It should support both small learning projects and larger multi-step technical builds.
 
-## 4.5 Agent and Workflow Coordination
+### 4.5 Agent and Workflow Coordination
 
 The system should be able to coordinate multiple specialized capabilities such as:
 
@@ -254,7 +254,7 @@ The system should be able to coordinate multiple specialized capabilities such a
 
 These agents should be orchestrated via explicit workflows, not ad hoc unpredictable behavior.
 
-## 4.6 Technical Tool Use
+### 4.6 Technical Tool Use
 
 The system should integrate with tools needed for technical work, including:
 
@@ -273,9 +273,9 @@ Tool access should be governed by explicit policies and user intent.
 
 ---
 
-# 5. Non-Functional Requirements
+## 5. Non-Functional Requirements
 
-## 5.1 Safety and Security
+### 5.1 Safety and Security
 
 The system must respect explicit permissions, trust boundaries, and safe defaults.
 
@@ -292,7 +292,7 @@ Requirements include:
 
 The system should not automatically execute destructive or high-risk actions without clear authorization.
 
-## 5.2 Privacy and Data Control
+### 5.2 Privacy and Data Control
 
 The system should support:
 
@@ -305,7 +305,7 @@ The system should support:
 
 The user should understand how the system stores, uses, and exposes their information.
 
-## 5.3 Reliability and Maintainability
+### 5.3 Reliability and Maintainability
 
 The system should be robust, observable, and understandable.
 
@@ -320,7 +320,7 @@ It should support:
 
 Long-term maintainability is a critical requirement.
 
-## 5.4 Extensibility
+### 5.4 Extensibility
 
 The system should support incremental growth without fragile architecture.
 
@@ -334,7 +334,7 @@ It should allow:
 
 The system should be designed to evolve rather than be bound to a single implementation choice.
 
-## 5.5 Performance and Responsiveness
+### 5.5 Performance and Responsiveness
 
 The system should support workflows that are:
 
@@ -348,7 +348,7 @@ The architecture should favor practical responsiveness over unnecessary complexi
 
 ---
 
-# 6. Architecture Principles
+## 6. Architecture Principles
 
 The system should be designed around a few core principles:
 
@@ -364,11 +364,11 @@ The system should treat capability, safety, and maintainability as co-equal goal
 
 ---
 
-# 7. Required Capability Classes
+## 7. Required Capability Classes
 
 Requirements should be categorized as follows.
 
-## 7.1 REQUIRED NOW
+### 7.1 REQUIRED NOW
 
 Capabilities that are essential for the current system to meaningfully support the user's long-term technical growth.
 
@@ -383,7 +383,7 @@ Examples include:
 - user-controlled permissions
 - reliable local data handling
 
-## 7.2 REQUIRED EVENTUALLY
+### 7.2 REQUIRED EVENTUALLY
 
 Capabilities that are central to the long-term system mission but may not be required in the immediate implementation.
 
@@ -397,7 +397,7 @@ Examples include:
 - multi-domain research synthesis
 - deeper automation for engineering workflows
 
-## 7.3 IMPORTANT LATER
+### 7.3 IMPORTANT LATER
 
 Capabilities that are useful and likely valuable but not critical in the near term.
 
@@ -409,7 +409,7 @@ Examples include:
 - richer external service integrations
 - advanced personalized coaching
 
-## 7.4 EXPERIMENTAL
+### 7.4 EXPERIMENTAL
 
 Capabilities that may be promising, but are uncertain or high-risk.
 
@@ -420,7 +420,7 @@ Examples include:
 - advanced self-improvement features
 - aggressive automation of long-running workflows
 
-## 7.5 OPTIONAL
+### 7.5 OPTIONAL
 
 Features that may improve user experience but are not fundamental to the system mission.
 
@@ -431,7 +431,7 @@ Examples include:
 - optional analytics dashboards
 - gamified learning experiences
 
-## 7.6 REJECTED
+### 7.6 REJECTED
 
 Requirements that conflict with the system mission, are unsafe, or create unacceptable dependence or risk.
 
@@ -445,7 +445,7 @@ Examples include:
 
 ---
 
-# 8. Product and Human Relationship Requirements
+## 8. Product and Human Relationship Requirements
 
 The system should support the user's growth rather than replace their judgment or responsibility.
 
@@ -462,11 +462,11 @@ The system should not be designed to create helpless dependence. It should incre
 
 ---
 
-# 9. Development and Evolution Requirements
+## 9. Development and Evolution Requirements
 
 The system should evolve in stages.
 
-## 9.1 Stage 1: Foundation
+### 9.1 Stage 1: Foundation
 
 - reliable personal memory
 - note-taking and retrieval
@@ -475,7 +475,7 @@ The system should evolve in stages.
 - safe execution workflows
 - structured learning support
 
-## 9.2 Stage 2: Knowledge and Research
+### 9.2 Stage 2: Knowledge and Research
 
 - domain knowledge integration
 - research workflows
@@ -483,7 +483,7 @@ The system should evolve in stages.
 - stronger planning and synthesis
 - cross-project learning memory
 
-## 9.3 Stage 3: Engineering Execution
+### 9.3 Stage 3: Engineering Execution
 
 - project orchestration
 - tool integration
@@ -491,14 +491,14 @@ The system should evolve in stages.
 - software and engineering workflow maturity
 - stronger domain-specific reasoning
 
-## 9.4 Stage 4: Advanced Personal Technical Operating System
+### 9.4 Stage 4: Advanced Personal Technical Operating System
 
 - multi-agent coordination
 - broader autonomous capability under guardrails
 - advanced research, engineering, and project execution support
 - deeper personalization, memory, and decision support
 
-## 9.5 Stage 5: Long-Term Technical Intelligence Platform
+### 9.5 Stage 5: Long-Term Technical Intelligence Platform
 
 - robust personal technical intelligence
 - broad engineering and science support
@@ -507,7 +507,7 @@ The system should evolve in stages.
 
 ---
 
-# 10. Success Criteria
+## 10. Success Criteria
 
 The system should be considered successful when it can reliably:
 
@@ -524,7 +524,7 @@ Long-term success is not measured only by convenience or output volume. It is me
 
 ---
 
-# 11. Final Requirement Statement
+## 11. Final Requirement Statement
 
 The Personal AI System must evolve into a safe, extensible, personal technical intelligence platform that augments the user's engineering, research, software, and decision-making capabilities over time.
 
