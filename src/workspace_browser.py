@@ -33,8 +33,7 @@ class BrowserItem:
 
 def _lastrowid(cursor: sqlite3.Cursor, label: str) -> int:
     value = cursor.lastrowid
-    if value is None:
-        raise RuntimeError(f"Database did not return a {label} ID.")
+    if value is None: raise RuntimeError(f"Database did not return a {label} ID.")
     return int(value)
 
 
@@ -48,8 +47,7 @@ def _connection() -> sqlite3.Connection:
         FOREIGN KEY(folder_id, project_id) REFERENCES folders(id, project_id) ON DELETE RESTRICT)""")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_workspace_notes_parent ON workspace_notes(project_id, folder_id, updated_at)")
     connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_notes_sibling_name ON workspace_notes(project_id, folder_id, title COLLATE NOCASE)")
-    connection.commit()
-    return connection
+    connection.commit(); return connection
 
 
 def _require_project(connection: sqlite3.Connection, project_id: int) -> None:
@@ -131,7 +129,7 @@ def list_children(project_id: int, folder_id: int | None=None, *, sort: str="a_z
 
 
 def list_project_items(project_id: int, *, recursive: bool=True, sort: str="a_z") -> list[BrowserItem]:
-    result=[]; queue:[int|None]=[None]
+    result: list[BrowserItem]=[]; queue: list[int | None]=[None]
     while queue:
         folder_id=queue.pop(0); children=list_children(project_id,folder_id,sort=sort); result.extend(children)
         if recursive: queue.extend(i.id for i in children if i.kind=="folder")
@@ -143,7 +141,7 @@ def create_file(storage_root, project_id: int, name: str, data: bytes, mime_type
 
 
 def move_item(kind: ItemKind, item_id: int, target_folder_id: int | None) -> None:
-    cast(dict[str, Any], {"folder":workspace_storage.move_folder,"file":workspace_storage.move_file,"note":move_note})[kind](item_id,target_folder_id)
+    cast(dict[ItemKind, Any], {"folder":workspace_storage.move_folder,"file":workspace_storage.move_file,"note":move_note})[kind](item_id,target_folder_id)
 
 
 def rename_item(kind: ItemKind, item_id: int, name: str) -> None:
@@ -190,8 +188,8 @@ def _delete_folder_tree(storage_root, project_id: int, folder_id: int) -> None:
 
 def delete_selection(storage_root, project_id: int, selection: Iterable[tuple[ItemKind,int]]) -> int:
     selected={(kind,int(item_id)) for kind,item_id in selection}
-    if any(not _exists(kind,item_id) for kind,item_id in selected): raise ValueError("Selection contains a missing workspace item.")
-    if any(_item_project(kind,item_id) != project_id for kind,item_id in selected): raise ValueError("Selection contains an item from another project.")
+    if any(not _exists(cast(ItemKind,kind),item_id) for kind,item_id in selected): raise ValueError("Selection contains a missing workspace item.")
+    if any(_item_project(cast(ItemKind,kind),item_id) != project_id for kind,item_id in selected): raise ValueError("Selection contains an item from another project.")
     folders=[item_id for kind,item_id in selected if kind=="folder"]
     roots=[fid for fid in folders if not any(fid!=other and _folder_contains(project_id,fid,other) for other in folders)]
     deleted=0
@@ -239,23 +237,19 @@ def get_context_actions(kind: ItemKind, *, selection_count: int=1) -> tuple[str,
     return ("open","preview","download","rename","duplicate","move","copy","replace","delete","properties")
 
 
-def project_context_actions() -> tuple[str,...]:
-    return ("open","new_folder","new_note","upload_file","paste","sort","search","delete_all_files","properties")
+def project_context_actions() -> tuple[str,...]: return ("open","new_folder","new_note","upload_file","paste","sort","search","delete_all_files","properties")
 
 
 def get_breadcrumbs(kind: ItemKind,item_id: int) -> list[tuple[str,int,str]]:
-    project_id=_item_project(kind,item_id)
-    c=_connection()
+    project_id=_item_project(kind,item_id); c=_connection()
     try:
-        project=c.execute("SELECT name FROM projects WHERE id=?",(project_id,)).fetchone()
-        result=[("project",project_id,str(project[0]) if project else "Project")]
+        project=c.execute("SELECT name FROM projects WHERE id=?",(project_id,)).fetchone(); result=[("project",project_id,str(project[0]) if project else "Project")]
     finally: c.close()
-    if kind=="folder":
-        folder_id=item_id
+    if kind=="folder": folder_id=item_id
     elif kind=="file":
-        file_row=workspace_storage.get_file(item_id)
-        if file_row is None: raise ValueError(f"No file found with ID {item_id}.")
-        folder_id=None if file_row[2] is None else int(file_row[2])
+        row=workspace_storage.get_file(item_id)
+        if row is None: raise ValueError(f"No file found with ID {item_id}.")
+        folder_id=None if row[2] is None else int(row[2])
     else:
         note=get_note(item_id)
         if note is None: raise ValueError(f"No note found with ID {item_id}.")
