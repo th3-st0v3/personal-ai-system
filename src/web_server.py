@@ -163,15 +163,15 @@ class SiteApplication:
                 return actor_id
             parts = [part for part in path.split("/") if part]
             if len(parts) >= 3 and parts[1] == "projects":
-                project_id = int(parts[2])
+                project_id = int(str(parts[2]))
                 access_control.require_project(connection, actor_id, project_id)
                 return actor_id
             if len(parts) >= 4 and parts[1:3] == ["engineering", "projects"]:
-                project_id = int(parts[3])
+                project_id = int(str(parts[3]))
                 access_control.require_project(connection, actor_id, project_id)
                 return actor_id
             if len(parts) >= 3 and parts[1] == "chats":
-                chat_id = int(parts[2])
+                chat_id = int(str(parts[2]))
                 access_control.require_chat(connection, actor_id, chat_id)
                 target_project = body.get("project_id") if method == "PATCH" else None
                 if target_project is not None:
