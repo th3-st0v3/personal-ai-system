@@ -1,0 +1,10 @@
+{
+  "typeCheckingMode": "basic",
+  "include": ["src", "scripts"],
+  "exclude": [
+    "src/test_*.py",
+    "src/web_api.py",
+    "src/engineering_web_api.py"
+  ],
+  "reportMissingModuleSource": "none"
+}
