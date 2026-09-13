@@ -199,7 +199,7 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/projects/1/duplicate", {"kind": "unsupported", "id": 1})[0], 400)
         self.assertEqual(self.request("POST", "/api/projects/1/delete", {"selection": [{"kind": "unsupported", "id": 1}]})[0], 400)
         self.assertEqual(self.request("POST", "/api/calculations/run", raw_body=b"[]")[0], 400)
-        self.assertEqual(self.request("POST", "/api/calculations/run", raw_body=b"x" * (WebApplication.MAX_REQUEST_BODY_BYTES + 1))[0], 400)
+        self.assertEqual(self.request("POST", "/api/calculations/run", raw_body=b"x" * (WebApplication.MAX_REQUEST_BODY_BYTES + 1))[0], 413)
         self.assertEqual(self.request("GET", "/not-found")[0], 404)
 
     def test_wsgi_adapter_returns_json_and_rejects_oversized_content_length(self):

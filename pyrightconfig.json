@@ -14,7 +14,8 @@
     "**/.ruff_cache",
     "**/dist",
     "**/build",
-    "**/site-packages/**"
+    "**/site-packages/**",
+    "**/.*"
   ],
   "reportMissingModuleSource": "none"
 }

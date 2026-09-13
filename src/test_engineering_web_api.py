@@ -21,7 +21,10 @@ class TestEngineeringWebApplication(unittest.TestCase):
         db.DATABASE_PATH = os.path.join(self.temp.name, "engineering.db")
         self.workspace = WorkspaceApplication(os.path.join(self.temp.name, "storage"))
         self.app = create_engineering_app()
-        self.project_id = self.workspace.create_project("Engineering Project")
+        project_id = self.workspace.create_project("Engineering Project")
+        if project_id is None:
+            self.fail("project creation should return an ID")
+        self.project_id = project_id
 
     def tearDown(self):
         db.DATABASE_PATH = self.original_db
@@ -33,12 +36,12 @@ class TestEngineeringWebApplication(unittest.TestCase):
         return status, json.loads(raw)
 
     def test_project_scoped_source_and_evidence_guards(self):
-        other_project = self.workspace.create_project("Other")
-        source_id = self.app.engineering.create_source(self.project_id, "Private", "document")
+        other_project = as_int(self.workspace.create_project("Other"))
+        source_id = as_int(self.app.engineering.create_source(self.project_id, "Private", "document"))
         with self.assertRaisesRegex(ValueError, "Source not found"):
             self.app._require_source(other_project, source_id)
         requirement_id = db.create_requirement(self.project_id, "Requirement")
-        evidence_id = self.app.engineering.create_evidence(requirement_id, "Confirmed", "Verified", source="Private", description="Evidence")
+        evidence_id = as_int(self.app.engineering.create_evidence(requirement_id, "Confirmed", "Verified", source="Private", description="Evidence"))
         with self.assertRaisesRegex(ValueError, "Evidence not found"):
             self.app._require_evidence(other_project, evidence_id)
         self.app._require_evidence(self.project_id, evidence_id)
@@ -71,7 +74,7 @@ class TestEngineeringWebApplication(unittest.TestCase):
         self.assertEqual(as_int(decision_items[0]["id"]), decision_id)
 
     def test_cross_project_requirement_and_source_access_is_rejected(self):
-        other_project = self.workspace.create_project("Other")
+        other_project = as_int(self.workspace.create_project("Other"))
         status, created = self.request("POST", f"/api/engineering/projects/{self.project_id}/requirements", {"description": "Private"})
         self.assertEqual(status, 201)
         private_requirement = as_int(created["id"])
@@ -91,5 +94,4 @@ class TestEngineeringWebApplication(unittest.TestCase):
         self.assertEqual(self.request("POST", f"/api/engineering/projects/{self.project_id}/requirements/9999/evidence", {"result": "x", "supports_status": "Verified"})[0], 400)
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()
