@@ -25,7 +25,10 @@ class CalculationExecutionWebApplication:
             return [payload]
         try:
             length = int(environ.get("CONTENT_LENGTH") or 0)
-            raw = environ.get("wsgi.input").read(length) if length else b"{}"
+            wsgi_input = environ.get("wsgi.input")
+            if length and wsgi_input is None:
+                raise ValueError("Request body stream is unavailable.")
+            raw = wsgi_input.read(length) if length and wsgi_input is not None else b"{}"
             data = json.loads(raw)
             if not isinstance(data, dict):
                 raise ValueError("JSON request body must be an object.")
