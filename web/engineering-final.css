@@ -1,0 +1,11 @@
+.engineering-source-tools { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(127,127,127,.16); }
+.inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.source-search-results { margin-top: 12px; display: grid; gap: 8px; max-height: 420px; overflow: auto; }
+.source-search-result { padding: 10px 12px; border: 1px solid rgba(127,127,127,.18); border-radius: 10px; }
+.source-search-result strong, .source-search-result span { display: block; }
+.source-search-result span { margin-top: 2px; font-size: .78rem; opacity: .6; }
+.source-search-result p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 150px; overflow: auto; font-size: .88rem; }
+.evidence-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.evidence-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 8px; border: 1px solid rgba(127,127,127,.18); border-radius: 8px; font-size: .78rem; }
+.evidence-invalidate { padding: 3px 6px !important; font-size: .72rem !important; }
+.evidence-requirement-row { align-items: flex-start; }
