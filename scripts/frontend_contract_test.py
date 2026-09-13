@@ -9,12 +9,10 @@ PRODUCTION = (ROOT / "web" / "production-ui.js").read_text(encoding="utf-8")
 ENGINEERING = (ROOT / "web" / "engineering-final.js").read_text(encoding="utf-8")
 UX_FINAL = (ROOT / "web" / "ux-final.js").read_text(encoding="utf-8")
 AUTH = (ROOT / "web" / "auth-ui.js").read_text(encoding="utf-8")
+PDF = (ROOT / "web" / "pdf-ui.js").read_text(encoding="utf-8")
 
 required_scripts = {
-    "production-ui.js",
-    "auth-ui.js",
-    "engineering-final.js",
-    "ux-final.js",
+    "production-ui.js", "auth-ui.js", "pdf-ui.js", "engineering-final.js", "ux-final.js",
 }
 for script in required_scripts:
     assert f'src="/{script}"' in HTML, f"Missing {script} from index.html"
@@ -29,17 +27,11 @@ for element_id in required_dom_ids:
     assert f'id="{element_id}"' in HTML, f"Missing DOM contract: {element_id}"
 
 required_frontend_capabilities = {
-    "/api/chats",
-    "/api/chats/",
-    "/api/projects",
-    "/api/calculations/majors",
-    "/api/calculations/catalog",
-    "/api/simulations",
-    "/api/engineering/projects/",
-    "/api/connections",
-    "/api/plugins",
+    "/api/chats", "/api/chats/", "/api/projects", "/api/calculations/majors",
+    "/api/calculations/catalog", "/api/simulations", "/api/engineering/projects/",
+    "/api/connections", "/api/plugins", "/api/auth/signup", "/api/auth/login",
 }
-combined = PRODUCTION + ENGINEERING + UX_FINAL + AUTH
+combined = PRODUCTION + ENGINEERING + UX_FINAL + AUTH + PDF
 for endpoint in required_frontend_capabilities:
     assert endpoint in combined, f"Frontend does not reference backend endpoint: {endpoint}"
 
@@ -49,10 +41,11 @@ for capability in ("rename", "pin", "move", "share", "delete", "retry", "branch"
 for capability in ("Import GitHub file", "Search sources", "Add evidence", "Invalidate"):
     assert capability in ENGINEERING, f"Engineering UI capability missing: {capability}"
 
+assert "Import PDF" in PDF, "PDF import control missing"
+assert "/sources/pdf" in PDF, "PDF UI does not call the PDF ingestion endpoint"
+assert "pypdf" in (ROOT / "src" / "pdf_ingestion.py").read_text(encoding="utf-8"), "PDF backend extractor missing"
+
 for capability in ("Skills", "Connectors", "Plugins", "You", "Discover"):
     assert capability in UX_FINAL, f"Customize capability missing: {capability}"
-
-for capability in ("/api/auth/signup", "/api/auth/login"):
-    assert capability in AUTH, f"Auth frontend capability missing: {capability}"
 
 print("frontend/backend contract: PASS")
