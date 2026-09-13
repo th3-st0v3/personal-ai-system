@@ -23,17 +23,7 @@ from web_api import WebApplication
 class SiteApplication:
     """Serve the web client and delegate each API namespace to its boundary."""
 
-    def __init__(
-        self,
-        api: WebApplication,
-        web_root: str | Path | None = None,
-        engineering_api: EngineeringWebApplication | None = None,
-        integration_api: IntegrationWebApplication | None = None,
-        calculation_navigation_api=None,
-        calculation_execution_api=None,
-        chat_actions=None,
-        search_api=None,
-    ):
+    def __init__(self, api: WebApplication, web_root: str | Path | None = None, engineering_api: EngineeringWebApplication | None = None, integration_api: IntegrationWebApplication | None = None, calculation_navigation_api=None, calculation_execution_api=None, chat_actions=None, search_api=None):
         self.api = api
         self.engineering_api = engineering_api or create_engineering_app()
         self.integration_api = integration_api or create_integration_app()
@@ -79,9 +69,8 @@ class SiteApplication:
     @classmethod
     def _start_response(cls, environ: dict[str, object], start_response):
         def wrapped(status, headers, exc_info=None):
-            normalized = [(str(name), str(value)) for name, value in headers]
             transformed: list[tuple[str, str]] = []
-            for name, value in normalized:
+            for name, value in ((str(n), str(v)) for n, v in headers):
                 if name.casefold() == "set-cookie":
                     value = cls._secure_cookie(environ, value)
                 transformed.append((name, value))
@@ -98,16 +87,16 @@ class SiteApplication:
                 if name.casefold() not in existing:
                     transformed.append((name, value))
             return start_response(status, transformed, exc_info)
-
         return wrapped
 
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO", "/")
         method = str(environ.get("REQUEST_METHOD", "GET")).upper()
         if method in {"POST", "PUT", "PATCH", "DELETE"} and str(path).startswith("/api/") and not self._origin_allowed(environ):
+            payload = b'{"error":"Request origin is not allowed for this session."}'
             start = self._start_response(environ, start_response)
-            start("403 Forbidden", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", "57")])
-            return [b'{"error":"Request origin is not allowed for this session."}']
+            start("403 Forbidden", [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(payload)))])
+            return [payload]
 
         start = self._start_response(environ, start_response)
         if path.startswith("/api/engineering/"):
@@ -134,37 +123,14 @@ class SiteApplication:
         if not candidate.is_file():
             start("404 Error", [("Content-Type", "text/plain; charset=utf-8")])
             return [b"Not found"]
-        content_types = {
-            ".html": "text/html; charset=utf-8",
-            ".js": "text/javascript; charset=utf-8",
-            ".css": "text/css; charset=utf-8",
-            ".json": "application/json; charset=utf-8",
-        }
+        content_types = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8"}
         payload = candidate.read_bytes()
         start("200 OK", [("Content-Type", content_types.get(candidate.suffix, "application/octet-stream")), ("Content-Length", str(len(payload)))])
         return [payload]
 
 
-def create_site_app(
-    api: WebApplication,
-    web_root: str | Path | None = None,
-    engineering_api: EngineeringWebApplication | None = None,
-    integration_api: IntegrationWebApplication | None = None,
-    calculation_navigation_api=None,
-    calculation_execution_api=None,
-    chat_actions=None,
-    search_api=None,
-) -> SiteApplication:
-    return SiteApplication(
-        api,
-        web_root,
-        engineering_api,
-        integration_api,
-        calculation_navigation_api,
-        calculation_execution_api,
-        chat_actions,
-        search_api,
-    )
+def create_site_app(api: WebApplication, web_root: str | Path | None = None, engineering_api: EngineeringWebApplication | None = None, integration_api: IntegrationWebApplication | None = None, calculation_navigation_api=None, calculation_execution_api=None, chat_actions=None, search_api=None) -> SiteApplication:
+    return SiteApplication(api, web_root, engineering_api, integration_api, calculation_navigation_api, calculation_execution_api, chat_actions, search_api)
 
 
 __all__ = ["SiteApplication", "create_site_app"]
