@@ -25,9 +25,14 @@ class TestSiteApplication(unittest.TestCase):
         if raw and "application/json" in cast(dict[str,str],captured.get("headers",{})).get("Content-Type",""): parsed=json.loads(raw)
         return captured,raw,parsed
     def test_serves_interactive_client_assets(self):
-        for path,content_type in (("/","text/html"),("/app.js","text/javascript"),("/interaction-fixes.js","text/javascript"),("/beta-features.js","text/javascript"),("/styles.css","text/css")):
+        for path, content_type in (
+    ("/", "text/html"),
+    ("/app.js", "text/javascript"),
+    ("/ui-completion.js", "text/javascript"),
+    ("/styles.css", "text/css"),
+):
             response,body,_=self.call(path); self.assertEqual(response["status"],"200 OK"); self.assertIn(content_type,cast(dict[str,str],response["headers"])["Content-Type"]); self.assertGreater(len(body),100)
-        _,index,_=self.call("/"); text=index.decode(); self.assertIn("/app.js",text); self.assertIn("/interaction-fixes.js",text); self.assertIn("/beta-features.js",text)
+        _,index,_=self.call("/"); text=index.decode(); self.assertIn("/app.js",text); self.assertIn("/ui-completion.js",text); self.assertIn("/styles.css",text)
     def test_delegates_api_routes(self):
         response,_,payload=self.call("/api/health"); self.assertEqual(response["status"],"200 OK"); self.assertEqual(payload,{"status":"ok"})
     def test_delegates_engineering_routes(self):

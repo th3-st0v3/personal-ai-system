@@ -11,6 +11,8 @@ import db
 import engineering_plans
 import engineering_schema
 import workspace_storage
+import auth_service
+import uuid
 
 
 class EngineeringApplication:
@@ -19,6 +21,7 @@ class EngineeringApplication:
     def __init__(self):
         connection = db.get_connection()
         try:
+            auth_service.initialize(connection)
             # Engineering sources may reference workspace files, so establish
             # the workspace-storage schema before the engineering schema.
             workspace_storage._initialize_schema(connection)
@@ -122,11 +125,16 @@ class EngineeringApplication:
 
     def create_user(self, name, email=None):
         name = self._require_text(name, "name")
+        email_value = (
+            self._require_text(email, "email")
+            if email is not None
+            else f"engineering-{uuid.uuid4().hex}@local.invalid"
+        )
         connection = db.get_connection()
         try:
             cursor = connection.execute(
                 "INSERT INTO users (name, email) VALUES (?, ?)",
-                (name, email),
+                (name, email_value),
             )
             connection.commit()
             return cursor.lastrowid

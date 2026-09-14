@@ -7,6 +7,7 @@ import workspace_clipboard
 import workspace_file_service
 import workspace_search
 import workspace_storage
+import auth_service
 
 
 class WorkspaceApplication:
@@ -18,6 +19,7 @@ class WorkspaceApplication:
         self.storage_root = storage_root
         connection = db.get_connection()
         try:
+            auth_service.initialize(connection)
             workspace_storage._initialize_schema(connection)
             engineering_schema.initialize(connection)
         finally:
