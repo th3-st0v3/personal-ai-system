@@ -3,6 +3,7 @@ import sqlite3
 import tempfile
 import unittest
 
+import auth_service
 import db
 from engineering_schema import initialize
 
@@ -15,6 +16,7 @@ class TestEngineeringSchema(unittest.TestCase):
         connection = sqlite3.connect(db.DATABASE_PATH)
         connection.execute("PRAGMA foreign_keys = ON")
         db.initialize_database(connection)
+        auth_service.initialize(connection)
         initialize(connection)
         connection.close()
 
