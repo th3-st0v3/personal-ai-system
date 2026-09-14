@@ -8,15 +8,28 @@
   <title>Engineering AI Workspace</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Manrope:wght@400;500;600;650&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Manrope:wght@400;500;650&display=swap">
   <link rel="stylesheet" href="/styles.css">
+  <style>
+    /* Small shell-level fixes that must work before the feature renderer hydrates. */
+    .account-dock-fixed{position:fixed;right:18px;bottom:18px;z-index:40;display:flex;align-items:center;gap:10px;min-width:190px;max-width:280px;padding:9px 12px;border:1px solid var(--border,#dfe3e8);border-radius:14px;background:var(--surface,#fff);box-shadow:0 10px 30px rgba(0,0,0,.12);cursor:pointer;text-align:left}
+    .account-dock-fixed:hover{transform:translateY(-1px);box-shadow:0 14px 34px rgba(0,0,0,.16)}
+    .account-dock-fixed .avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#20242a;color:#fff;font-size:12px;font-weight:650;flex:0 0 auto}
+    .account-dock-fixed .account-copy{min-width:0;display:flex;flex-direction:column;gap:2px}.account-dock-fixed strong,.account-dock-fixed span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.account-dock-fixed strong{font-size:13px}.account-dock-fixed span{font-size:11px;opacity:.68}
+    .account-dock-fixed.guest .avatar{background:transparent;color:inherit;border:1px solid var(--border,#dfe3e8)}
+    .auth-form{display:grid;gap:12px}.auth-form label{display:grid;gap:6px}.auth-form input{width:100%;box-sizing:border-box}.auth-switch{margin-top:12px;font-size:12px;opacity:.75}.auth-switch button{border:0;background:none;padding:0;font:inherit;text-decoration:underline;cursor:pointer}
+    .attachment-strip{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 8px}.attachment-chip{display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid var(--border,#dfe3e8);border-radius:10px;background:var(--surface,#fff);font-size:12px;max-width:240px}.attachment-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attachment-chip button{border:0;background:none;cursor:pointer;opacity:.65}.attachment-chip button:hover{opacity:1}.chat-attachments-button{font-size:12px!important}
+    .top-file-button{display:none}.has-chat-files .top-file-button{display:inline-flex}
+    .file-view-grid{display:grid;gap:10px}.chat-file-card{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border,#dfe3e8);border-radius:10px}.chat-file-card .file-kind{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;background:var(--muted-surface,#f3f5f7)}
+    @media (max-width:900px){.account-dock-fixed{right:12px;bottom:12px;min-width:0}.account-dock-fixed .account-copy{display:none}.account-dock-fixed{padding:7px}.account-dock-fixed .avatar{width:36px;height:36px}.top-actions{gap:5px}}
+  </style>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand-home" type="button" aria-label="Go to Personal AI home">Engineering AI Workspace</button>
     <button id="menu-toggle" class="icon-button" type="button" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="false">☰</button>
     <label class="global-search" aria-label="Search"><span aria-hidden="true">⌕</span><input id="global-search" type="search" placeholder="Search chats, projects, notes, calculations…" autocomplete="off"></label>
-    <div class="top-actions"><button id="share-current" class="icon-button" type="button" title="Share" aria-label="Share current workspace">↗</button><button id="login-button" class="text-button" type="button">Log in</button><button id="signup-button" class="primary-button" type="button">Sign up</button><button id="account-button" class="account-button" type="button" hidden></button></div>
+    <div class="top-actions"><button id="share-current" class="icon-button" type="button" title="Share" aria-label="Share current workspace">↗</button><button id="chat-files-top" class="icon-button top-file-button" type="button" title="Chat files" aria-label="View files attached to this chat">▣</button><button id="login-button" class="text-button" type="button">Log in</button><button id="signup-button" class="primary-button" type="button">Sign up</button><button id="account-button" class="account-button" type="button" hidden></button></div>
   </header>
   <div id="layout" class="layout">
     <aside id="sidebar" class="sidebar" aria-label="Main navigation">
@@ -36,14 +49,86 @@
       <section id="home-view" class="view chat-view">
         <div id="chat-header" class="chat-header"><div><div id="chat-context" class="eyebrow">Personal AI</div><div class="chat-title-line"><h1 id="chat-title">New chat</h1></div></div><div class="header-actions"><button id="new-chat-header" class="outline-button" type="button">New chat</button><button id="project-chat-button" class="outline-button" type="button" hidden>Project</button></div></div>
         <div id="chat-messages" class="chat-messages" aria-live="polite"><div class="welcome-card"><div class="welcome-mark" aria-hidden="true">✦</div><h2>What are you working on?</h2><p>Ask an engineering question, inspect project material, run a deterministic calculation, or start a simulation.</p><div class="prompt-grid"><button type="button" data-prompt="Build a transparent engineering model for this problem and identify the assumptions.">Model an engineering problem</button><button type="button" data-prompt="Explain this like a tutor, then give me progressively harder practice problems.">Study something</button><button type="button" data-prompt="Digest the information I provide into claims, evidence, assumptions, and open questions.">Digest information</button></div></div></div>
-        <form id="chat-form" class="composer" autocomplete="off"><textarea id="chat-input" rows="1" placeholder="Message…" aria-label="Message"></textarea><div class="composer-row"><div class="composer-left"><button id="attach-button" class="icon-button" type="button" title="Attach a file" aria-label="Attach a file">＋</button><input id="chat-file-input" type="file" hidden><select id="ai-mode" class="mode-select" aria-label="AI model"><option value="auto">Auto</option><option value="claude">Claude Opus 5</option><option value="gpt">GPT-5.4</option><option value="gemini">Gemini 3.1 Pro</option><option value="free">Free</option></select></div><button id="send-chat" class="primary-button send-button" type="submit">Send</button></div></form>
+        <form id="chat-form" class="composer" autocomplete="off"><div id="attachment-strip" class="attachment-strip" hidden></div><textarea id="chat-input" rows="1" placeholder="Message…" aria-label="Message"></textarea><div class="composer-row"><div class="composer-left"><button id="attach-button" class="icon-button" type="button" title="Attach files, images, or videos" aria-label="Attach files, images, or videos">＋</button><input id="chat-file-input" type="file" hidden multiple accept="*/*"><select id="ai-mode" class="mode-select" aria-label="AI model"><option value="auto">Auto</option><option value="claude">Claude Opus 5</option><option value="gpt">GPT-5.4</option><option value="gemini">Gemini 3.1 Pro</option><option value="free">Free</option></select></div><button id="send-chat" class="primary-button send-button" type="submit">Send</button></div></form>
       </section>
       <section id="page-view" class="view page-view" hidden></section>
     </main>
     <aside id="project-tools" class="project-tools" hidden><div class="panel-title">Project tools</div><button id="project-files" class="tool-row" type="button"><span aria-hidden="true">▣</span><span>Files & notes</span></button><button id="project-calculations" class="tool-row" type="button"><span aria-hidden="true">Σ</span><span>Calculations</span></button><button id="project-simulations" class="tool-row" type="button"><span aria-hidden="true">◒</span><span>Simulations</span></button><button id="project-engineering" class="tool-row" type="button"><span aria-hidden="true">⌁</span><span>Engineering evidence</span></button><div class="project-tools-divider"></div><div id="project-files-panel" class="project-files-panel" hidden></div></aside>
   </div>
   <div id="modal" class="modal" hidden><div class="modal-backdrop" data-close-modal></div><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><h2 id="modal-title"></h2><button id="modal-close" class="icon-button" type="button" aria-label="Close">×</button></div><div id="modal-body"></div></section></div>
+  <div id="account-dock-fixed" class="account-dock-fixed guest" role="button" tabindex="0" aria-label="Account"></div>
   <script src="/ui-completion.js" defer></script>
   <script src="/app.js" defer></script>
+  <script>
+    window.addEventListener('load', () => {
+      const $ = id => document.getElementById(id);
+      const esc = value => String(value ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const authApi = async (path, payload) => {
+        const response = await fetch(path, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        const data = await response.json().catch(() => ({error:'Invalid server response'}));
+        if(!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        return data;
+      };
+      const initials = name => name.split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]).join('').toUpperCase() || '?';
+      const showAuth = mode => {
+        const login = mode === 'login';
+        window.modal(login ? 'Log in' : 'Create your account', `<form id="auth-form" class="auth-form"><label>Email<input name="email" type="email" autocomplete="${login?'email':'email'}" required></label><label>Password<input name="password" type="password" minlength="8" autocomplete="${login?'current-password':'new-password'}" required></label>${login?'':'<label>Display name<input name="display_name" autocomplete="name" maxlength="80"></label>'}<div class="form-actions"><button type="button" class="outline-button" id="auth-cancel">Cancel</button><button class="primary-button" type="submit">${login?'Log in':'Create account'}</button></div><div class="auth-switch">${login?'New here?':'Already have an account?'} <button type="button" id="auth-switch">${login?'Create an account':'Log in'}</button></div></form>`);
+        $('auth-cancel').onclick=window.closeModal;
+        $('auth-switch').onclick=()=>showAuth(login?'signup':'login');
+        $('auth-form').onsubmit=async event=>{event.preventDefault();const button=event.target.querySelector('button[type="submit"]');button.disabled=true;try{const result=await authApi(login?'/api/auth/login':'/api/auth/signup',Object.fromEntries(new FormData(event.target)));window.state.user=result.user;window.closeModal();syncAuthUI();window.showError?.({message: login?'Logged in.':'Account created.'});}catch(error){const old=event.target.querySelector('.auth-error');old?.remove();event.target.insertAdjacentHTML('beforeend',`<div class="error auth-error">${esc(error.message)}</div>`);}finally{button.disabled=false;}};
+      };
+      const syncAuthUI = () => {
+        const user = window.state?.user;
+        const loginButton=$('login-button'), signupButton=$('signup-button'), topAccount=$('account-button'), dock=$('account-dock-fixed');
+        if(loginButton) loginButton.hidden=!!user;
+        if(signupButton) signupButton.hidden=!!user;
+        if(topAccount) topAccount.hidden=true;
+        if(!dock)return;
+        const name=user?.display_name || user?.email || 'Log in or sign up';
+        dock.classList.toggle('guest',!user); dock.innerHTML=`<span class="avatar">${user?esc(initials(name)):'?'}</span><span class="account-copy"><strong>${esc(name)}</strong><span>${user?'Free plan · Account':'Log in or sign up'}</span></span>`;
+      };
+      const attachmentState = new Map();
+      const currentKey = () => String(window.state?.chatId || 'draft');
+      const currentFiles = () => attachmentState.get(currentKey()) || [];
+      const renderAttachments = () => {
+        const strip=$('attachment-strip'); if(!strip)return; const files=currentFiles(); strip.hidden=!files.length; strip.innerHTML=files.map((file,index)=>`<div class="attachment-chip"><span title="${esc(file.name)}">${esc(file.name)}</span><button type="button" data-remove-attachment="${index}" aria-label="Remove ${esc(file.name)}">×</button></div>`).join('');
+        document.body.classList.toggle('has-chat-files',files.length>0);
+      };
+      const addFiles = async fileList => {
+        const files=[...fileList]; if(!files.length)return; const existing=currentFiles();
+        for(const file of files){
+          if(file.size>8*1024*1024){window.showError?.({message:`${file.name} is larger than 8 MB.`});continue;}
+          const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error||new Error('Unable to read file'));reader.readAsDataURL(file);});
+          existing.push({name:file.name,type:file.type||'application/octet-stream',size:file.size,dataUrl});
+        }
+        attachmentState.set(currentKey(),existing); renderAttachments();
+      };
+      const showChatFiles = () => {
+        const files=currentFiles();
+        window.modal('Files in this chat',files.length?`<div class="file-view-grid">${files.map((file,index)=>`<div class="chat-file-card"><span class="file-kind">${file.type.startsWith('image/')?'▧':file.type.startsWith('video/')?'▶':'□'}</span><div><strong>${esc(file.name)}</strong><div class="muted">${esc(file.type)} · ${(file.size/1024).toFixed(1)} KB</div></div><button type="button" class="outline-button" data-open-chat-file="${index}">Open</button></div>`).join('')}</div>`:'<div class="empty-state">No files attached to this chat yet.</div>');
+        document.querySelectorAll('[data-open-chat-file]').forEach(button=>button.onclick=()=>{const file=files[Number(button.dataset.openChatFile)];if(!file)return;const safeType=esc(file.type);let body;if(file.type.startsWith('image/'))body=`<img class="file-preview" src="${file.dataUrl}" alt="${esc(file.name)}">`;else if(file.type.startsWith('video/'))body=`<video class="file-preview" controls src="${file.dataUrl}"></video>`;else body=`<div class="property"><span>Type</span><strong>${safeType}</strong></div><div class="property"><span>Size</span><strong>${(file.size/1024).toFixed(1)} KB</strong></div><a class="outline-button" href="${file.dataUrl}" download="${esc(file.name)}">Download</a>`;window.modal(file.name,body);});
+      };
+      const wire = () => {
+        $('login-button')?.addEventListener('click',()=>showAuth('login'));
+        $('signup-button')?.addEventListener('click',()=>showAuth('signup'));
+        $('account-dock-fixed')?.addEventListener('click',()=>{
+          const user=window.state?.user;
+          if(!user)return showAuth('login');
+          window.modal('Account',`<div class="form-stack"><div class="property"><span>Account</span><strong>${esc(user.display_name||user.email)}</strong></div><div class="property"><span>Plan</span><strong>Free</strong></div><div class="property"><span>Email</span><strong>${esc(user.email)}</strong></div><div class="form-actions"><button class="outline-button" id="account-settings-fixed">Settings</button><button class="danger-button" id="account-logout-fixed">Log out</button></div></div>`);
+          $('account-settings-fixed').onclick=()=>{window.closeModal();window.setView?.('settings');window.renderSettingsPage?.();};
+          $('account-logout-fixed').onclick=async()=>{try{await authApi('/api/auth/logout',{});window.state.user=null;window.closeModal();syncAuthUI();window.showError?.({message:'Logged out.'});}catch(error){window.showError?.(error);}};
+        });
+        $('account-dock-fixed')?.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.currentTarget.click();}});
+        $('attach-button')?.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();$('chat-file-input')?.click();},true);
+        $('chat-file-input')?.addEventListener('change',event=>{event.stopImmediatePropagation();addFiles(event.target.files).catch(error=>window.showError?.(error)).finally(()=>{event.target.value='';});},true);
+        $('attachment-strip')?.addEventListener('click',event=>{const button=event.target.closest('[data-remove-attachment]');if(!button)return;const files=currentFiles();files.splice(Number(button.dataset.removeAttachment),1);attachmentState.set(currentKey(),files);renderAttachments();});
+        $('chat-files-top')?.addEventListener('click',showChatFiles);
+        const originalSend=window.sendMessage;
+        if(originalSend && !window.__pasSendWrapped){window.__pasSendWrapped=true;window.sendMessage=async(content,model)=>{const files=currentFiles();if(files.length){const names=files.map(file=>file.name).join(', ');const text=String(content||$('chat-input')?.value||'').trim();const attachmentNote=`[Attached files: ${names}]`;const next=text?`${text}\n\n${attachmentNote}`:attachmentNote;await originalSend(next,model);if(window.state?.chatId){attachmentState.delete(currentKey());renderAttachments();}}else return originalSend(content,model);};}
+        syncAuthUI(); renderAttachments();
+      };
+      wire();
+    });
+  </script>
 </body>
 </html>
