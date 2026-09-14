@@ -1,287 +1,46 @@
+/* ui-completion.js — page renderers and feature views; no chat send/render implementation. */
 (() => {
   'use strict';
+  const $=(id)=>document.getElementById(id); const esc=(value)=>window.escapeHtml(value); const attr=(value)=>window.attr(value); const st=()=>window.state; const api=(...args)=>window.api(...args); const send=(...args)=>window.send(...args); const setView=(...args)=>window.setView(...args); const modal=(...args)=>window.modal(...args); const closeModal=(...args)=>window.closeModal(...args); const patch=(...args)=>window.patch(...args); const toast=(message)=>window.showError(new Error(message));
 
-  const $ = (id) => document.getElementById(id);
-  const esc = (value) => String(value ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const attr = (value) => esc(value).replace(/'/g, '&#39;');
-  const api = async (path) => {
-    const response = await fetch(path, { credentials: 'same-origin' });
-    const data = await response.json().catch(() => ({ error: 'Invalid server response' }));
-    if (!response.ok) throw new Error(data.error || 'Request failed');
-    return data;
-  };
+  function renderAccountDock(){const sidebar=$('sidebar');if(!sidebar)return;let dock=sidebar.querySelector('.account-dock');if(!dock){dock=document.createElement('button');dock.type='button';dock.className='account-dock';dock.onclick=()=>{setView('settings');renderSettingsPage();};sidebar.appendChild(dock);}const user=st().user;const name=user?.display_name||user?.email||'Account';const initials=name.split(/\s+/).filter(Boolean).slice(0,2).map((part)=>part[0]).join('').toUpperCase()||'?';dock.innerHTML=`<span class="account-avatar">${esc(initials)}</span><span class="account-name">${esc(name)}</span>`;}
+  function renderProjectsPage(projects){$('page-view').innerHTML=`<div class="page"><div class="page-head"><div><div class="eyebrow">Workspace</div><h1 class="page-title">Projects</h1><p class="page-subtitle">Keep chats, files, calculations, simulations, and engineering evidence together.</p></div><button id="create-project-page" class="primary-button">New project</button></div><div class="card-grid">${projects.map((project)=>`<button type="button" class="page-card" data-open-project="${project.id}"><h3>${esc(project.name)}</h3><p>${esc(project.description||'No description yet')}</p><span class="muted">Created ${esc(project.created_at||'')}</span></button>`).join('')||'<div class="empty-state">No projects yet. Create one to start a workspace.</div>'}</div></div>`;}
+  function renderProjectFilesPage(title){const s=st();$('project-files-panel').hidden=false;$('project-files-panel').innerHTML=`<div class="sidebar-heading"><span>${esc(title)}</span><button id="close-files-panel" class="quiet-icon" type="button" aria-label="Close files panel">×</button></div><div class="file-actions"><button class="quiet-button" id="project-new-folder">New folder</button><button class="quiet-button" id="project-new-note">New note</button><button class="quiet-button" id="project-upload">Upload</button></div><div class="file-tools"><label>Sort <select id="project-sort">${['none','a_z','z_a','recent_old','old_recent','last_modified_new_old','last_modified_old_new'].map((value)=>`<option value="${value}" ${s.sort===value?'selected':''}>${esc(({none:'None',a_z:'A–Z',z_a:'Z–A',recent_old:'Recent → old',old_recent:'Old → recent',last_modified_new_old:'Modified → old',last_modified_old_new:'Old → modified'})[value])}</option>`).join('')}</select></label><span id="selection-count" class="muted"></span></div><div id="bulk-actions" class="bulk-actions" hidden><button class="quiet-button" data-bulk="archive">Archive</button><button class="quiet-button" data-bulk="invalidate">Invalidate</button><button class="quiet-button" data-bulk="copy">Copy</button><button class="quiet-button" data-bulk="paste">Paste</button><button class="danger-button" data-bulk="delete">Delete</button></div><div id="file-list" class="file-grid">${s.items.length?s.items.map(itemRow).join(''):'<div class="empty-state">This location is empty.</div>'}</div>`;$('bulk-actions').querySelectorAll('[data-bulk]').forEach((button)=>button.onclick=()=>window.bulkAction(button.dataset.bulk));window.updateSelectionCount?.();}
+  function itemRow(item){const s=st();const lifecycle=item.metadata?.lifecycle_status&&item.metadata.lifecycle_status!=='Active'?` · ${esc(item.metadata.lifecycle_status)}`:'';const icon=item.kind==='folder'?'▰':item.kind==='note'?'▤':(item.mime_type||'').startsWith('image/')?'▧':'□';return `<div class="file-row" draggable="true" data-kind="${attr(item.kind)}" data-id="${item.id}" data-name="${attr(item.name)}"><input class="item-check" type="checkbox" ${s.selected.has(`${item.kind}:${item.id}`)?'checked':''} aria-label="Select ${attr(item.name)}"><button class="file-open" type="button"><span>${icon}</span><span><span class="file-name">${esc(item.name)}</span><span class="file-meta">${esc(item.kind)}${lifecycle}</span></span></button><button class="quiet-icon item-more" type="button" title="More options" aria-label="More options">⋯</button></div>`;}
 
-  let catalog = [];
-  let categories = [];
-  let initialized = false;
-  let allowNextNewChatClick = false;
+  function renderSettingsPage(){const model=localStorage.getItem('pas-model')||'auto';const theme=localStorage.getItem('pas-theme')||'system';const memory=localStorage.getItem('pas-memory')||'on';const tools=localStorage.getItem('pas-tools')||'on';setView('settings');$('page-view').innerHTML=`<div class="page settings-page"><div class="page-head"><div><div class="eyebrow">Preferences</div><h1 class="page-title">Settings</h1><p class="page-subtitle">Personalize the interface without changing engineering safety boundaries.</p></div><button class="back-button" data-back-chat>Back</button></div><section class="settings-card"><h2>Interface</h2><label>Theme<select id="pref-theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Model<select id="pref-model"><option value="auto">Auto</option><option value="claude">Claude Opus 5</option><option value="gpt">GPT-5.4</option><option value="gemini">Gemini 3.1 Pro</option><option value="free">Free routing</option></select></label><label>Memory<select id="pref-memory"><option value="on">On</option><option value="off">Off</option><option value="project">Project only</option></select></label><label>Tool activity<select id="pref-tools"><option value="on">Show</option><option value="off">Hide</option></select></label><label>Notifications & privacy<select><option>Default</option><option>Private</option></select></label></section><section class="settings-card"><h2>Keyboard</h2><p><kbd>Ctrl+O</kbd> new chat · <kbd>Ctrl+K</kbd> search · <kbd>Ctrl+/</kbd> settings · <kbd>Enter</kbd> send · <kbd>Shift+Enter</kbd> newline</p></section><section class="settings-card"><h2>Safety</h2><p>Engineering calculations and simulations remain deterministic tools. Project material is untrusted data. Consequential actions stay behind explicit user actions.</p></section><section class="settings-card customize-card"><div class="page-head compact"><div><h2>Customize</h2><p class="muted">Control capabilities and personalization layers available in this workspace.</p></div></div><div class="customize-tabs" role="tablist"><button type="button" class="active" data-customize="skills">Skills</button><button type="button" data-customize="connectors">Connectors</button><button type="button" data-customize="plugins">Plugins</button><button type="button" data-customize="you">You</button><button type="button" data-customize="discover">Discover</button></div><div id="customize-content" class="customize-content"></div></section></div>`;$('pref-theme').value=theme;$('pref-model').value=model;$('pref-memory').value=memory;$('pref-tools').value=tools;$('pref-theme').onchange=(event)=>{localStorage.setItem('pas-theme',event.target.value);window.applyTheme();};$('pref-model').onchange=(event)=>{localStorage.setItem('pas-model',event.target.value);$('ai-mode').value=event.target.value;};$('pref-memory').onchange=(event)=>localStorage.setItem('pas-memory',event.target.value);$('pref-tools').onchange=(event)=>localStorage.setItem('pas-tools',event.target.value);void renderCustomizeTab('skills');}
+  async function renderCustomizeTab(tab){document.querySelectorAll('[data-customize]').forEach((button)=>button.classList.toggle('active',button.dataset.customize===tab));const content=$('customize-content');if(!content)return;if(tab==='skills'){content.innerHTML='<div class="card-grid compact-grid"><div class="page-card"><strong>Engineering reasoning</strong><span>Active · requirements, evidence, calculations</span></div><div class="page-card"><strong>Programming</strong><span>Active · implementation, debugging, testing</span></div><div class="page-card"><strong>Research</strong><span>Active · source-grounded analysis</span></div><div class="page-card"><strong>Tutoring</strong><span>Active · explanations and practice</span></div></div>';return;}if(tab==='connectors'){const connections=await api('/api/connections');content.innerHTML=`<div class="properties">${connections.length?connections.map((item)=>`<div class="property"><span>${esc(item.name)} · ${esc(item.provider||'')}</span><strong>${esc(item.status)}</strong></div>`).join(''):'<div class="empty-state">No provider connections are registered.</div>'}</div>`;return;}if(tab==='plugins'){const plugins=await api('/api/plugins');content.innerHTML=`<div class="properties">${plugins.length?plugins.map((item)=>`<div class="property"><span>${esc(item.name)} · ${esc(item.version)}</span><strong>${item.enabled?'Enabled':'Disabled'}</strong></div>`).join(''):'<div class="empty-state">No plugins are registered yet.</div>'}</div>`;return;}if(tab==='you'){const user=st().user;content.innerHTML=`<div class="properties"><div class="property"><span>Display name</span><strong>${esc(user?.display_name||'Not signed in')}</strong></div><div class="property"><span>Email</span><strong>${esc(user?.email||'Local-only session')}</strong></div><div class="property"><span>Model preference</span><strong>${esc(localStorage.getItem('pas-model')||'auto')}</strong></div><div class="property"><span>Theme</span><strong>${esc(localStorage.getItem('pas-theme')||'system')}</strong></div></div>`;return;}const catalog=await api('/api/calculations/catalog');const simulations=await api('/api/simulations');content.innerHTML=`<div class="card-grid compact-grid"><div class="page-card"><strong>${catalog.length} calculators</strong><span>Deterministic engineering calculation library</span></div><div class="page-card"><strong>${simulations.length} simulations</strong><span>Deterministic models with explicit assumptions and limitations</span></div><div class="page-card"><strong>6 engineering groups</strong><span>Cross-major calculator navigation</span></div></div>`;}
+  function renderEducationPage(){$('page-view').innerHTML=`<div class="page"><div class="page-head"><div><div class="eyebrow">Learning</div><h1 class="page-title">Education</h1><p class="page-subtitle">Study plans, explanations, exercises, programming, and project-linked learning.</p></div><button class="back-button" data-back-chat>Back</button></div><div class="card-grid"><button type="button" class="page-card" data-prompt-card="Explain this like a tutor, then give me progressively harder practice problems."><h3>Tutor mode</h3><p>Concept explanation, derivation, examples, and practice.</p></button><button type="button" class="page-card" data-prompt-card="Create a study plan for my next exam with active recall, spaced repetition, and progressively harder problems."><h3>Study planner</h3><p>Turn a target into a practical study sequence.</p></button><button type="button" class="page-card" data-prompt-card="Give me a programming problem at my level, test my solution, and then help me improve it."><h3>Programming</h3><p>Interactive exercises and code review.</p></button><button type="button" class="page-card" data-prompt-card="Help me design a weekly schedule that balances school, engineering projects, exercise, and recovery."><h3>Scheduling</h3><p>Plan work blocks without losing the bigger picture.</p></button></div></div>`;}
 
-  const itemsForCategory = (category) => catalog.filter((item) => (item.categories || []).includes(category));
-  const groupsForCategory = (category) => [...new Set(itemsForCategory(category).flatMap((item) => item.subcategories || []))];
-  const itemsForGroup = (category, group) => itemsForCategory(category).filter((item) => (item.subcategories || []).includes(group));
+  async function openSimulationsView(){setView('simulations');const simulations=await api('/api/simulations');$('page-view').innerHTML=`<div class="page"><div class="page-head"><div><div class="eyebrow">Engineering tools</div><h1 class="page-title">Simulations</h1><p class="page-subtitle">Deterministic engineering models with explicit inputs, steps, assumptions, and limitations.</p></div><button class="back-button" data-back-chat>Back</button></div><div class="card-grid">${simulations.map((simulation)=>`<article class="page-card simulation-card" data-simulation-key="${attr(simulation.key)}"><div class="eyebrow">${esc(simulation.discipline)}</div><h3>${esc(simulation.name)}</h3><p>${esc(simulation.description)}</p><div class="simulation-parameters">${(simulation.parameters||[]).map((name)=>`<label>${esc(name)}<input data-sim-input="${attr(name)}" type="number" step="any" placeholder="value"></label>`).join('')}</div><button type="button" class="primary-button" data-run-simulation>Run simulation</button><div class="simulation-result" data-sim-result></div></article>`).join('')||'<div class="empty-state">No simulations registered.</div>'}</div></div>`;document.querySelectorAll('[data-run-simulation]').forEach((button)=>button.onclick=async()=>{const card=button.closest('[data-simulation-key]');const inputs=Object.fromEntries([...card.querySelectorAll('[data-sim-input]')].filter((input)=>input.value.trim()!=='').map((input)=>[input.dataset.simInput,Number(input.value)]));try{const result=await send('/api/simulations/run',{simulation_key:card.dataset.simulationKey,inputs});card.querySelector('[data-sim-result]').innerHTML=`<div class="trace"><strong>${esc(result.result??result.value??'')}</strong><h4>Outputs</h4><pre class="text-preview">${esc(JSON.stringify(result,null,2))}</pre></div>`;}catch(error){toast(error.message);}});}
 
-  const closeCalculationMenu = () => {
-    const menu = $('calculation-categories');
-    const toggle = $('calculations-toggle');
-    if (!menu) return;
-    menu.hidden = true;
-    menu.querySelectorAll('.calc-nav-subnav').forEach((subnav) => { subnav.hidden = true; });
-    menu.querySelectorAll('.calc-nav-item[data-calculation-category]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
-    toggle?.setAttribute('aria-expanded', 'false');
-    toggle?.classList.remove('expanded');
-  };
+  async function openConnectionsView(){setView('connections');const [connections,plugins]=await Promise.all([api('/api/connections'),api('/api/plugins')]);$('page-view').innerHTML=`<div class="page"><div class="page-head"><div><div class="eyebrow">Integrations</div><h1 class="page-title">Connections & plugins</h1><p class="page-subtitle">External capabilities remain explicit, inspectable, and user-controlled.</p></div><button class="back-button" data-back-chat>Back</button></div><div class="card-grid"><section class="page-card"><div class="page-card-head"><h3>Information digestion</h3><button type="button" class="outline-button" data-connection-action="digest">Digest text</button></div><p>Turn supplied text into qualified claims and verification questions.</p></section><section class="page-card"><div class="page-card-head"><h3>Connections</h3><button type="button" class="quiet-button" data-connection-action="add">Add</button></div><div class="properties">${connections.length?connections.map((item)=>`<div class="property"><span>${esc(item.name)} · ${esc(item.provider||'')}</span><strong>${esc(item.status)}</strong><small>${esc((item.capabilities||[]).join(', '))}</small></div>`).join(''):'<div class="empty-state">No connections registered.</div>'}</div></section><section class="page-card"><div class="page-card-head"><h3>Plugins</h3><button type="button" class="quiet-button" data-plugin-action="add">Register</button></div><div class="properties">${plugins.length?plugins.map((item)=>`<div class="property"><span>${esc(item.name)} · ${esc(item.version)}</span><strong>${item.enabled?'Enabled':'Disabled'} <button type="button" class="quiet-button" data-toggle-plugin="${item.id}">${item.enabled?'Disable':'Enable'}</button></strong><small>${esc((item.capabilities||[]).join(', '))}</small></div>`).join(''):'<div class="empty-state">No plugins registered.</div>'}</div></section></div></div>`;}
+  function connectionAction(action){if(action==='digest')return digestForm();if(action!=='add')return;modal('Add connection','<form id="connection-form" class="form-stack"><label>Name<input name="name" required></label><label>Provider<input name="provider" required placeholder="openrouter"></label><label>Capabilities<input name="capabilities" placeholder="chat, embeddings"></label><div class="form-actions"><button type="button" class="outline-button" id="connection-cancel">Cancel</button><button class="primary-button">Save</button></div></form>');$('connection-cancel').onclick=closeModal;$('connection-form').onsubmit=async(event)=>{event.preventDefault();const values=Object.fromEntries(new FormData(event.target));values.capabilities=values.capabilities?String(values.capabilities).split(',').map((value)=>value.trim()).filter(Boolean):[];try{await send('/api/connections',values);closeModal();await openConnectionsView();}catch(error){$('connection-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
+  async function togglePlugin(id,enabled){await send(`/api/plugins/${id}/enabled`,{enabled});await openConnectionsView();}
+  function pluginAction(action){if(action!=='add')return;modal('Register plugin','<form id="plugin-form" class="form-stack"><label>Name<input name="name" required></label><label>Version<input name="version" value="0.1.0"></label><label>Description<input name="description"></label><label>Entrypoint<input name="entrypoint" required placeholder="package.module:main"></label><label>Capabilities<input name="capabilities" placeholder="tool, search"></label><div class="form-actions"><button type="button" class="outline-button" id="plugin-cancel">Cancel</button><button class="primary-button">Register</button></div></form>');$('plugin-cancel').onclick=closeModal;$('plugin-form').onsubmit=async(event)=>{event.preventDefault();const values=Object.fromEntries(new FormData(event.target));values.capabilities=values.capabilities?String(values.capabilities).split(',').map((value)=>value.trim()).filter(Boolean):[];try{await send('/api/plugins',values);closeModal();await openConnectionsView();}catch(error){$('plugin-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
+  function digestForm(){modal('Digest information','<form id="digest-form" class="form-stack"><label>Text<textarea id="digest-input" placeholder="Paste an article, notes, specifications, or source excerpt…" required></textarea></label><div class="form-actions"><button class="primary-button">Digest</button></div></form>');$('digest-form').onsubmit=async(event)=>{event.preventDefault();try{const result=await send('/api/digest',{text:$('digest-input').value});$('modal-body').innerHTML=`<div class="properties"><div class="property"><span>Summary</span><strong>${esc(result.summary)}</strong></div><div class="property"><span>Key points</span><strong>${result.key_points.map(esc).join(' ')}</strong></div><div class="property"><span>Claims</span><strong>${result.claims.map(esc).join(' ')||'None extracted.'}</strong></div><div class="property"><span>Uncertain or qualified</span><strong>${result.uncertain_or_qualified.map(esc).join(' ')||'None extracted.'}</strong></div><div class="property"><span>Open questions</span><strong>${result.open_questions.map(esc).join(' ')||'None identified.'}</strong></div></div>`;}catch(error){$('modal-body').insertAdjacentHTML('beforeend',`<div class="error">${esc(error.message)}</div>`);}};}
 
-  const triggerExistingNewChat = (button) => {
-    if (!button) return;
-    allowNextNewChatClick = true;
-    button.click();
-  };
+  function renderCalculationMenu(){const menu=$('calculation-categories');const catalog=st().calculationCatalog||[];const categories=[...new Set(catalog.flatMap((item)=>item.categories||[]))];if(!menu)return;menu.innerHTML=categories.map((category)=>{const items=catalog.filter((item)=>(item.categories||[]).includes(category));const groups=[...new Set(items.flatMap((item)=>item.subcategories||[]))];return `<div class="calc-nav-section"><button class="calc-nav-item" type="button" data-calculation-category="${attr(category)}" aria-expanded="false"><span class="calc-nav-icon">Σ</span><span class="calc-nav-label">${esc(category)}</span><span class="calc-nav-count">${items.length}</span><span class="calc-nav-arrow">›</span></button><div class="calc-nav-subnav" hidden>${groups.map((group)=>`<button type="button" class="calc-nav-group" data-open-calculation-subgroup="${attr(category)}" data-calculation-subgroup="${attr(group)}"><span>${esc(group)}</span><span>${items.filter((item)=>(item.subcategories||[]).includes(group)).length}</span></button>`).join('')}<button class="calc-nav-all" type="button" data-open-calculation-group="${attr(category)}">View all in ${esc(category)} →</button></div></div>`;}).join('');}
+  async function loadCalculationCatalog(){if(!st().calculationCatalog?.length){st().calculationCatalog=await api('/api/calculations/catalog');renderCalculationMenu();}return st().calculationCatalog;}
+  window.toggleCalculationsMenu=async()=>{const menu=$('calculation-categories');if(!menu)return;if(menu.hidden){try{await loadCalculationCatalog();menu.hidden=false;}catch(error){toast(error.message);}}else menu.hidden=true;};
+  const calculationCard=(item)=>`<button type="button" class="calculation-card" data-open-calculation="${attr(item.key)}"><span class="calculation-card-top"><span class="calculation-card-icon">Σ</span><span class="calculation-card-domain">${esc(item.domain||'Engineering')}</span></span><strong>${esc(item.name)}</strong><span class="calculation-card-equation">${esc(item.equation||'Deterministic model')}</span><span class="calculation-card-meta">${esc((item.subcategories||[])[0]||'Calculation')} · ${esc(item.result_unit||'Result')}</span></button>`;
+  async function openCalculationsView(majorName=null){const catalog=await loadCalculationCatalog();const categories=[...new Set(catalog.flatMap((item)=>item.categories||[]))];setView('calculations');const chosen=majorName||st().calcMajor;if(!chosen){$('page-view').innerHTML=`<div class="page calculation-page"><div class="page-head"><div><div class="eyebrow">Engineering tools</div><h1 class="page-title">Calculations</h1><p class="page-subtitle">Choose a discipline, narrow to a group, then open the deterministic calculator.</p></div></div><div class="calculation-category-grid">${categories.map((category)=>`<button class="page-card" data-open-calculation-group="${attr(category)}"><h3>${esc(category)}</h3><p>${catalog.filter((item)=>(item.categories||[]).includes(category)).length} calculators</p></button>`).join('')}</div></div>`;return;}st().calcMajor=chosen;await openCalculationGroupView(chosen);}
+  async function openCalculationGroupView(category){const catalog=await loadCalculationCatalog();const items=catalog.filter((item)=>(item.categories||[]).includes(category));const groups=[...new Set(items.flatMap((item)=>item.subcategories||[]))];st().calcMajor=category;setView('calculations');$('page-view').innerHTML=`<div class="page calculation-page"><div class="calculation-breadcrumb"><button class="breadcrumb-button" data-back-calculations>Calculations</button><span>›</span><strong>${esc(category)}</strong></div><div class="page-head"><div><div class="eyebrow">Calculation discipline</div><h1 class="page-title">${esc(category)}</h1><p class="page-subtitle">Choose a calculation group.</p></div><label class="calculation-search"><span>⌕</span><input id="calculation-group-search" type="search" placeholder="Search this discipline…"></label></div><div class="calculation-group-card-grid">${groups.map((group)=>`<button class="calculation-group-card" type="button" data-open-calculation-subgroup="${attr(category)}" data-calculation-subgroup="${attr(group)}"><span class="calculation-group-card-icon">Σ</span><span><strong>${esc(group)}</strong><small>${items.filter((item)=>(item.subcategories||[]).includes(group)).length} calculators</small></span><span>→</span></button>`).join('')}</div></div>`;$('calculation-group-search').oninput=(event)=>{const q=event.target.value.toLowerCase().trim();document.querySelectorAll('.calculation-group-card').forEach((card)=>{card.hidden=!!q&&!card.textContent.toLowerCase().includes(q);});};}
+  async function openCalculationSubgroupView(category,group){const catalog=await loadCalculationCatalog();const items=catalog.filter((item)=>(item.categories||[]).includes(category)&&(item.subcategories||[]).includes(group));st().calcMajor=category;setView('calculations');$('page-view').innerHTML=`<div class="page calculation-page"><div class="calculation-breadcrumb"><button class="breadcrumb-button" data-back-major="${attr(category)}">${esc(category)}</button><span>›</span><strong>${esc(group)}</strong></div><div class="page-head"><div><div class="eyebrow">Calculation group</div><h1 class="page-title">${esc(group)}</h1><p class="page-subtitle">${items.length} deterministic calculators.</p></div><label class="calculation-search"><span>⌕</span><input id="calculation-search" type="search" placeholder="Search this group…"></label></div><div id="calculation-items" class="calculation-card-grid">${items.map(calculationCard).join('')}</div></div>`;$('calculation-search').oninput=(event)=>{const q=event.target.value.toLowerCase().trim();$('calculation-items').innerHTML=items.filter((item)=>`${item.name} ${item.key} ${item.domain} ${(item.use_cases||[]).join(' ')}`.toLowerCase().includes(q)).map(calculationCard).join('')||'<div class="empty-state">No matching calculators.</div>';};}
+  async function openCalculationDetailView(key){const detail=await api(`/api/calculations/${encodeURIComponent(key)}`);st().calcKey=key;setView('calculations');$('page-view').innerHTML=`<div class="page"><div class="calculation-breadcrumb"><button class="breadcrumb-button" data-back-major="${attr(st().calcMajor||'')}">${esc(st().calcMajor||'Calculations')}</button><span>›</span><strong>${esc(detail.model.name)}</strong></div><div class="eyebrow">${esc(detail.model.domain)}</div><h1 class="page-title">${esc(detail.model.name)}</h1><code class="calc-equation">${esc(detail.method.equation)}</code><p class="page-subtitle">${esc(detail.model.description)}</p><form id="calc-form" class="calc-form"><input type="hidden" name="_calculation" value="${attr(key)}">${detail.parameters.map((parameter)=>`<label>${esc(parameter.name)}${parameter.required?'':' (optional)'}<input name="${attr(parameter.name)}" type="number" step="any" ${parameter.required?'required':''} placeholder="${attr(parameter.default_unit||'value')}"><span>${esc(parameter.description)}</span></label>`).join('')}<div class="form-actions"><button type="submit" class="primary-button">Calculate</button><button type="button" class="outline-button" id="save-calc">Calculate & save</button></div></form><div id="calc-result"></div></div>`;$('calc-form').onsubmit=async(event)=>{event.preventDefault();await runCalculation('/api/calculations/run',event,key);};$('save-calc').onclick=async()=>await runCalculation('/api/calculations/run/save',{target:$('calc-form')},key);}
+  async function runCalculation(path,event,key){const inputs=Object.fromEntries([...new FormData(event.target)].filter(([name,value])=>name!=='_calculation'&&String(value).trim()!=='').map(([name,value])=>[name,Number(value)]));const buttons=event.target.querySelectorAll('button');buttons.forEach((button)=>button.disabled=true);try{const result=await send(path,{model_key:key,inputs});$('calc-result').innerHTML=`<div class="trace">${result.record_id?`<div class="trace-status">Saved as calculation record #${esc(result.record_id)}</div>`:''}<strong>${esc(result.result)} ${esc(result.result_unit||'')}</strong><ol>${(result.steps||[]).map((step)=>`<li>${esc(step)}</li>`).join('')}</ol><h3>Assumptions</h3><ul>${(result.assumptions||[]).map((item)=>`<li>${esc(item)}</li>`).join('')}</ul><h3>Limitations</h3><ul>${(result.limitations||[]).map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></div>`;}catch(error){$('calc-result').innerHTML=`<div class="error">${esc(error.message)}</div>`;}finally{buttons.forEach((button)=>button.disabled=false);}}
 
-  const openNewChat = () => {
-    closeCalculationMenu();
-    triggerExistingNewChat($('new-chat'));
-    requestAnimationFrame(() => $('chat-input')?.focus());
-  };
+  async function openProjectEngineeringView(){const s=st();if(!s.projectId){toast('Select a project first.');return;}try{const [requirements,sources,decisions]=await Promise.all([api(`/api/engineering/projects/${s.projectId}/requirements`),api(`/api/engineering/projects/${s.projectId}/sources`),api(`/api/engineering/projects/${s.projectId}/decisions`)]);setView('engineering');$('page-view').innerHTML=`<div class="page engineering-page"><div class="page-head"><div><div class="eyebrow">Project engineering</div><h1 class="page-title">${esc(s.project?.name||'Project')}</h1><p class="page-subtitle">Requirements, sources, decisions, evidence, and traceability tools.</p></div><button class="back-button" data-back-chat>Back to chat</button></div><div class="card-grid"><section class="page-card"><h3>Requirements</h3><div class="properties">${requirements.map((item)=>`<div class="property"><strong>${esc(item.title||item.description)}</strong><span>${esc(item.status||'')}</span></div>`).join('')||'<div class="empty-state">No requirements yet.</div>'}</div><div class="inline-actions"><button class="outline-button" data-engineering-action="requirement">Add requirement</button><button class="quiet-button" data-engineering-action="test-plan">Generate test plan</button></div></section><section class="page-card"><h3>Sources</h3><div class="properties">${sources.map((item)=>`<div class="property"><strong>${esc(item.title)}</strong><span>${esc(item.source_type||'')}</span></div>`).join('')||'<div class="empty-state">No sources yet.</div>'}</div><div class="inline-actions"><button class="outline-button" data-engineering-action="source">Add source</button><button class="quiet-button" data-engineering-action="ingest-source">Ingest text</button><button class="quiet-button" data-engineering-action="github-source">Import GitHub</button><button class="quiet-button" data-engineering-action="pdf-source">Import PDF</button><button class="quiet-button" data-engineering-action="search-sources">Search sources</button></div></section><section class="page-card"><h3>Decisions</h3><div class="properties">${decisions.map((item)=>`<div class="property"><strong>${esc(item.title)}</strong><span>${esc(item.decision||'')}</span></div>`).join('')||'<div class="empty-state">No decisions yet.</div>'}</div><button class="outline-button" data-engineering-action="decision">Add decision</button></section><section class="page-card"><h3>Weekly report</h3><p>Summarize requirement status, evidence coverage, sources, decisions, and unclear items.</p><button class="outline-button" data-engineering-action="report">Generate report</button></section></div><section><h2 class="section-title">Evidence coverage</h2><div id="evidence-workspace" class="file-grid"></div></section></div>`;const workspace=$('evidence-workspace');for(const requirement of requirements){const evidence=await api(`/api/engineering/projects/${s.projectId}/requirements/${requirement.id}/evidence`);workspace.insertAdjacentHTML('beforeend',`<div class="file-row evidence-requirement-row"><span>⌁</span><span><span class="file-name">Requirement #${requirement.id}: ${esc(requirement.title||requirement.description)}</span><span class="file-meta">${evidence.length} evidence records · ${esc(requirement.status||'')}</span><span class="evidence-list">${evidence.map((item)=>`<span class="evidence-chip">${esc(item.supports_status||'Unverified')} · ${esc(item.description||item.result||'')}<button type="button" class="quiet-button" data-evidence-action="invalidate" data-id="${item.id}">Invalidate</button></span>`).join('')}</span></span><button class="quiet-button" data-evidence-action="add" data-id="${requirement.id}">Add evidence</button></div>`);}}catch(error){toast(error.message);}}
+  window.engineeringAction=async(action,id)=>{const projectId=st().projectId;if(!projectId)return;if(['requirement','source','decision','evidence'].includes(action))return engineeringForm(action,id);if(action==='ingest-source')return sourceIngestForm();if(action==='github-source')return githubSourceForm();if(action==='pdf-source')return pdfSourceForm();if(action==='search-sources')return sourceSearchForm();if(action==='test-plan'){const plan=await api(`/api/engineering/projects/${projectId}/requirements/test-plan`);return modal('Engineering test plan',`<div class="properties">${plan.map((item)=>`<div class="property"><span>${esc(item.identifier||`Requirement #${item.requirement_id}`)}</span><strong>${esc(item.title)}</strong><div>${esc(item.verification_method)} · ${esc(item.acceptance_criteria)}</div></div>`).join('')||'<div class="empty-state">No requirements yet.</div>'}</div>`);}if(action==='report'){const report=await api(`/api/engineering/projects/${projectId}/report`);return modal('Weekly engineering report',`<div class="properties"><div class="property"><span>Summary</span><strong>${esc(report.summary)}</strong></div><div class="property"><span>Sources</span><strong>${esc(report.sources)}</strong></div><div class="property"><span>Decisions</span><strong>${esc(report.decisions)}</strong></div><div class="property"><span>Unclear statuses</span><strong>${report.unclear_statuses?.length||0}</strong></div>${(report.unclear_statuses||[]).map((item)=>`<div class="property"><span>Requirement #${item.requirement_id}</span><strong>${esc(item.reason)}</strong></div>`).join('')}</div>`);};};
+  async function engineeringForm(kind,requirementId=null){const body={requirement:'<label>Description<textarea name="description" required></textarea></label><label>Title<input name="title"></label>',source:'<label>Title<input name="title" required></label><label>Source type<input name="source_type" value="document"></label><label>Author<input name="author"></label><label>Publisher<input name="publisher"></label><label>URL<input name="url"></label>',decision:'<label>Title<input name="title" required></label><label>Decision<textarea name="decision" required></textarea></label><label>Rationale<textarea name="rationale"></textarea></label>',evidence:'<label>Result<textarea name="result" required></textarea></label><label>Status<select name="supports_status"><option>Verified</option><option>At risk</option><option>Failed</option><option>Unverified</option></select></label><label>Source<textarea name="source" required></textarea></label><label>Description<textarea name="description"></textarea></label>'}[kind];modal(`New ${kind}`,`<form id="engineering-form" class="form-stack">${body}<div class="form-actions"><button type="button" class="outline-button" id="engineering-cancel">Cancel</button><button class="primary-button">Save</button></div></form>`);$('engineering-cancel').onclick=closeModal;$('engineering-form').onsubmit=async(event)=>{event.preventDefault();const values=Object.fromEntries(new FormData(event.target));try{if(kind==='requirement')await send(`/api/engineering/projects/${st().projectId}/requirements`,values);if(kind==='source')await send(`/api/engineering/projects/${st().projectId}/sources`,values);if(kind==='decision')await send(`/api/engineering/projects/${st().projectId}/decisions`,values);if(kind==='evidence')await send(`/api/engineering/projects/${st().projectId}/requirements/${requirementId}/evidence`,values);closeModal();await openProjectEngineeringView();}catch(error){$('engineering-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
+  function sourceIngestForm(){modal('Ingest engineering source','<form id="source-ingest-form" class="form-stack"><p class="muted">Paste text or Markdown. It is stored as source data with a checksum and searchable chunks; it is never executed.</p><label>Title<input name="title" required placeholder="requirements.md"></label><label>Version<input name="version"></label><label>Source type<input name="source_type" value="text"></label><label>URL<input name="url" placeholder="optional"></label><label>Content<textarea name="content" required></textarea></label><div class="form-actions"><button type="button" class="outline-button" id="source-ingest-cancel">Cancel</button><button class="primary-button">Ingest</button></div></form>');$('source-ingest-cancel').onclick=closeModal;$('source-ingest-form').onsubmit=async(event)=>{event.preventDefault();try{await send(`/api/engineering/projects/${st().projectId}/sources/ingest`,Object.fromEntries(new FormData(event.target)));closeModal();await openProjectEngineeringView();}catch(error){$('source-ingest-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
+  function githubSourceForm(){modal('Import GitHub file','<form id="github-source-form" class="form-stack"><p class="muted">Import a public GitHub file as inert project evidence.</p><label>GitHub file URL<input name="url" type="url" required placeholder="https://github.com/owner/repo/blob/main/README.md"></label><div class="form-actions"><button type="button" class="outline-button" id="github-cancel">Cancel</button><button class="primary-button">Import</button></div></form>');$('github-cancel').onclick=closeModal;$('github-source-form').onsubmit=async(event)=>{event.preventDefault();try{await send(`/api/engineering/projects/${st().projectId}/sources/github`,Object.fromEntries(new FormData(event.target)));closeModal();await openProjectEngineeringView();}catch(error){$('github-source-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
+  function pdfSourceForm(){modal('Import PDF source','<form id="pdf-source-form" class="form-stack"><p class="muted">Upload a text-based PDF. Scanned PDFs are not OCR’d by this shell.</p><label>Title<input name="title" required></label><label>Version<input name="version"></label><input id="pdf-source-file" type="file" accept="application/pdf" required><div class="form-actions"><button type="button" class="outline-button" id="pdf-cancel">Cancel</button><button class="primary-button">Ingest PDF</button></div></form>');$('pdf-cancel').onclick=closeModal;$('pdf-source-form').onsubmit=async(event)=>{event.preventDefault();const file=$('pdf-source-file').files?.[0];if(!file)return;if(file.size>4*1024*1024)return $('pdf-source-form').insertAdjacentHTML('afterend','<div class="error">PDF must be 4 MB or smaller.</div>');try{const reader=new FileReader();reader.onload=async()=>{try{await send(`/api/engineering/projects/${st().projectId}/sources/pdf`,{title:$('pdf-source-form').querySelector('[name="title"]').value||file.name,version:$('pdf-source-form').querySelector('[name="version"]').value||'',data_base64:String(reader.result).split(',',2)[1]});closeModal();await openProjectEngineeringView();}catch(error){$('pdf-source-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};reader.readAsDataURL(file);}catch(error){$('pdf-source-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
+  function sourceSearchForm(){modal('Search project sources','<form id="source-search-form" class="form-stack"><label>Search<input name="q" required placeholder="pressure drop, material, requirement…"></label><div class="form-actions"><button type="button" class="outline-button" id="source-search-cancel">Cancel</button><button class="primary-button">Search</button></div><div id="source-search-results" class="source-search-results"></div></form>');$('source-search-cancel').onclick=closeModal;$('source-search-form').onsubmit=async(event)=>{event.preventDefault();const query=String(new FormData(event.target).get('q')||'').trim();if(!query)return;try{const results=await api(`/api/engineering/projects/${st().projectId}/sources/search?q=${encodeURIComponent(query)}&limit=20`);$('source-search-results').innerHTML=results.length?results.map((result)=>`<article class="source-search-result"><strong>${esc(result.source)}</strong><span>${esc(result.location)}</span><p>${esc(result.content)}</p></article>`).join(''):'<div class="empty-state">No matching source chunks were found.</div>';}catch(error){$('source-search-results').innerHTML=`<div class="error">${esc(error.message)}</div>`;}};}
+  window.evidenceAction=async(action,id)=>{const projectId=st().projectId;if(action==='add')return engineeringForm('evidence',Number(id));if(action==='invalidate'){const reason=prompt('Why is this evidence being invalidated?');if(!reason?.trim())return;await send(`/api/engineering/projects/${projectId}/evidence/invalidate`,{id:Number(id),reason:reason.trim()});await openProjectEngineeringView();}};
 
-  const renderCalculationMenu = () => {
-    const menu = $('calculation-categories');
-    if (!menu) return;
-    menu.innerHTML = categories.map((category, index) => {
-      const groups = groupsForCategory(category);
-      const safeId = `calc-category-${index}`;
-      return `<div class="calc-nav-section"><button class="calc-nav-item" type="button" data-calculation-category="${attr(category)}" aria-expanded="false" aria-controls="${safeId}"><span class="calc-nav-icon">Σ</span><span class="calc-nav-label">${esc(category)}</span><span class="calc-nav-count">${itemsForCategory(category).length}</span><span class="calc-nav-arrow">›</span></button><div id="${safeId}" class="calc-nav-subnav" hidden>${groups.map((group) => `<button class="calc-nav-group" type="button" data-calculation-group="${attr(category)}" data-calculation-subgroup="${attr(group)}"><span>${esc(group)}</span><span>${itemsForGroup(category, group).length}</span></button>`).join('')}<button class="calc-nav-all" type="button" data-open-calculation-group="${attr(category)}">View all in ${esc(category)} <span>→</span></button></div></div>`;
-    }).join('');
-  };
+  async function renderSearchResults(result){document.querySelector('.global-search-results')?.remove();const hits=[...(result.chats||[]).map((item)=>({kind:'chat',id:item.id,title:item.title,meta:item.pinned?'Pinned':''})),...(result.projects||[]).map((item)=>({kind:'project',id:item.id,title:item.name,meta:item.description||''})),...(result.notes||[]).map((item)=>({kind:'note',id:item.id,projectId:item.project_id,title:item.title,meta:String(item.content||'').slice(0,120)})),...(result.calculations||[]).map((item)=>({kind:'calculation',id:item.key,title:item.name,meta:item.domain||''}))];const panel=document.createElement('div');panel.className='global-search-results';panel.innerHTML=hits.length?hits.slice(0,24).map((item)=>`<button type="button" data-search-${item.kind}="${attr(item.id)}" ${item.projectId?`data-search-project="${item.projectId}"`:''}><span class="search-kind">${esc(item.kind)}</span><strong>${esc(item.title)}</strong><small>${esc(item.meta)}</small></button>`).join(''):'<div class="empty-state">No matches.</div>';$('global-search').parentElement.appendChild(panel);}
 
-  const calculationCard = (item) => `<button type="button" class="calculation-card" data-open-calculation="${attr(item.key)}"><span class="calculation-card-top"><span class="calculation-card-icon">Σ</span><span class="calculation-card-domain">${esc(item.domain || 'Engineering')}</span></span><strong>${esc(item.name)}</strong><span class="calculation-card-equation">${esc(item.equation || 'Deterministic model')}</span><span class="calculation-card-meta">${esc((item.subcategories || [])[0] || 'Calculation')} · ${esc(item.result_unit || 'Result')}</span></button>`;
-
-  const calculationGroupCard = (category, group) => {
-    const items = itemsForGroup(category, group);
-    return `<button type="button" class="calculation-group-card" data-open-calculation-subgroup="${attr(category)}" data-calculation-subgroup="${attr(group)}"><span class="calculation-group-card-icon">Σ</span><span><strong>${esc(group)}</strong><small>${items.length} calculator${items.length === 1 ? '' : 's'}</small></span><span class="calculation-group-card-arrow">→</span></button>`;
-  };
-
-  const calculationMatches = (items, query) => {
-    const normalized = String(query || '').trim().toLowerCase();
-    if (!normalized) return items;
-    return items.filter((item) => `${item.name} ${item.key} ${item.domain} ${(item.subcategories || []).join(' ')} ${(item.use_cases || []).join(' ')}`.toLowerCase().includes(normalized));
-  };
-
-  const openCalculations = async () => {
-    closeCalculationMenu();
-    if (typeof window.setView === 'function') window.setView('calculations');
-    const page = $('page-view');
-    if (!page) return;
-    page.hidden = false;
-    $('home-view').hidden = true;
-    $('project-tools').hidden = true;
-    page.innerHTML = `<div class="page calculation-page"><div class="page-head calculation-page-head"><div><div class="eyebrow">Engineering tools</div><h1 class="page-title">Calculations</h1><p class="page-subtitle">A structured library of deterministic engineering models. Start with a discipline, narrow to a group, then run the exact calculator you need.</p></div><div class="calculation-page-actions"><label class="calculation-search"><span aria-hidden="true">⌕</span><input id="calculation-search-input" type="search" placeholder="Search calculations…" autocomplete="off"></label></div></div><div id="calculation-catalog-content" class="calculation-catalog-content"><div class="loading-state">Loading calculation library…</div></div></div>`;
-    try {
-      if (!catalog.length) {
-        catalog = await api('/api/calculations/catalog');
-        categories = [...new Set(catalog.flatMap((item) => item.categories || []))];
-        renderCalculationMenu();
-      }
-      renderCalculationGroups('');
-      $('calculation-search-input')?.addEventListener('input', (event) => renderCalculationGroups(event.target.value));
-      $('calculation-search-input')?.focus();
-    } catch (error) {
-      const content = page.querySelector('#calculation-catalog-content');
-      if (content) content.innerHTML = `<div class="error-state"><strong>Calculations could not be loaded.</strong><span>${esc(error.message || error)}</span><button type="button" class="outline-button" id="retry-calculations">Retry</button></div>`;
-      $('retry-calculations')?.addEventListener('click', openCalculations);
-    }
-  };
-
-  const renderCalculationGroups = (query) => {
-    const content = $('calculation-catalog-content');
-    if (!content) return;
-    const normalized = String(query || '').trim().toLowerCase();
-    if (normalized) {
-      const matches = calculationMatches(catalog, normalized);
-      content.innerHTML = matches.length ? `<section class="calculation-search-results"><div class="calculation-group-heading"><div><h2>Search results</h2><p>${matches.length} calculator${matches.length === 1 ? '' : 's'} matched</p></div></div><div class="calculation-card-grid">${matches.map(calculationCard).join('')}</div></section>` : `<div class="empty-state calculation-empty"><div class="empty-state-icon">⌕</div><h2>No calculations found</h2><p>Try a calculator name, engineering discipline, group, or use case.</p></div>`;
-      return;
-    }
-    content.innerHTML = categories.map((category) => `<section class="calculation-category-section"><div class="calculation-group-heading"><div><span class="eyebrow">Discipline</span><h2>${esc(category)}</h2><p>${itemsForCategory(category).length} calculators · ${groupsForCategory(category).length} groups</p></div><button type="button" class="calculation-group-link" data-open-calculation-group="${attr(category)}">Open discipline <span>→</span></button></div><div class="calculation-group-card-grid">${groupsForCategory(category).map((group) => calculationGroupCard(category, group)).join('')}</div></section>`).join('');
-  };
-
-  const openCalculationGroup = (category) => {
-    const items = itemsForCategory(category);
-    if (!items.length) return;
-    const groups = groupsForCategory(category);
-    const page = $('page-view');
-    if (!page) return;
-    if (typeof window.setView === 'function') window.setView('calculations');
-    $('home-view').hidden = true;
-    page.hidden = false;
-    $('project-tools').hidden = true;
-    page.innerHTML = `<div class="page calculation-page"><div class="calculation-breadcrumb"><button type="button" class="breadcrumb-button" id="back-to-calculations">Calculations</button><span>›</span><strong>${esc(category)}</strong></div><div class="page-head calculation-page-head"><div><div class="eyebrow">Calculation discipline</div><h1 class="page-title">${esc(category)}</h1><p class="page-subtitle">Choose a calculation group to see its deterministic models.</p></div><label class="calculation-search"><span aria-hidden="true">⌕</span><input id="calculation-group-search" type="search" placeholder="Search this discipline…" autocomplete="off"></label></div><div id="calculation-group-content" class="calculation-group-detail"><div class="calculation-group-card-grid">${groups.map((group) => calculationGroupCard(category, group)).join('')}</div></div></div>`;
-    $('back-to-calculations')?.addEventListener('click', openCalculations);
-    $('calculation-group-search')?.addEventListener('input', (event) => {
-      const q = String(event.target.value || '').toLowerCase().trim();
-      const matchingGroups = groups.filter((group) => `${group} ${itemsForGroup(category, group).map((item) => `${item.name} ${item.key} ${item.use_cases?.join(' ') || ''}`).join(' ')}`.toLowerCase().includes(q));
-      $('calculation-group-content').innerHTML = matchingGroups.length ? `<div class="calculation-group-card-grid">${matchingGroups.map((group) => calculationGroupCard(category, group)).join('')}</div>` : `<div class="empty-state calculation-empty"><div class="empty-state-icon">⌕</div><h2>No matching groups</h2><p>Try another term.</p></div>`;
-    });
-    $('calculation-group-search')?.focus();
-  };
-
-  const openCalculationSubgroup = (category, group) => {
-    const items = itemsForGroup(category, group);
-    if (!items.length) return;
-    const page = $('page-view');
-    if (!page) return;
-    closeCalculationMenu();
-    if (typeof window.setView === 'function') window.setView('calculations');
-    $('home-view').hidden = true;
-    page.hidden = false;
-    $('project-tools').hidden = true;
-    page.innerHTML = `<div class="page calculation-page"><div class="calculation-breadcrumb"><button type="button" class="breadcrumb-button" id="back-to-calculation-discipline">${esc(category)}</button><span>›</span><strong>${esc(group)}</strong></div><div class="page-head calculation-page-head"><div><div class="eyebrow">Calculation group</div><h1 class="page-title">${esc(group)}</h1><p class="page-subtitle">${items.length} deterministic calculator${items.length === 1 ? '' : 's'} in ${esc(category)}.</p></div><label class="calculation-search"><span aria-hidden="true">⌕</span><input id="calculation-subgroup-search" type="search" placeholder="Search this group…" autocomplete="off"></label></div><div id="calculation-subgroup-content"><div class="calculation-card-grid">${items.map(calculationCard).join('')}</div></div></div>`;
-    $('back-to-calculation-discipline')?.addEventListener('click', () => openCalculationGroup(category));
-    $('calculation-subgroup-search')?.addEventListener('input', (event) => {
-      const matches = calculationMatches(items, event.target.value);
-      $('calculation-subgroup-content').innerHTML = matches.length ? `<div class="calculation-card-grid">${matches.map(calculationCard).join('')}</div>` : `<div class="empty-state calculation-empty"><div class="empty-state-icon">⌕</div><h2>No matching calculators</h2><p>Try another term.</p></div>`;
-    });
-    $('calculation-subgroup-search')?.focus();
-  };
-
-  const interceptClicks = (event) => {
-    const target = event.target?.closest?.('#new-chat, #new-chat-header, #calculations-toggle, [data-calculation-category], [data-calculation-group], [data-open-calculation-group], [data-open-calculation-subgroup], [data-open-calculation]');
-    if (!target) return;
-
-    if (target.matches('#new-chat, #new-chat-header')) {
-      if (allowNextNewChatClick) { allowNextNewChatClick = false; return; }
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      openNewChat();
-      return;
-    }
-
-    if (target.id === 'calculations-toggle') {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const menu = $('calculation-categories');
-      if (!menu) return;
-      const willOpen = menu.hidden;
-      if (!willOpen) closeCalculationMenu();
-      else {
-        menu.hidden = false;
-        target.setAttribute('aria-expanded', 'true');
-        target.classList.add('expanded');
-      }
-      return;
-    }
-
-    if (target.matches('[data-calculation-category]')) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const section = target.closest('.calc-nav-section');
-      const subnav = section?.querySelector('.calc-nav-subnav');
-      const willOpen = !!subnav?.hidden;
-      $('calculation-categories')?.querySelectorAll('.calc-nav-subnav').forEach((node) => { if (node !== subnav) node.hidden = true; });
-      $('calculation-categories')?.querySelectorAll('.calc-nav-item[data-calculation-category]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
-      if (subnav) subnav.hidden = !willOpen;
-      target.setAttribute('aria-expanded', String(willOpen));
-      return;
-    }
-
-    if (target.matches('[data-calculation-group]') && target.matches('[data-calculation-subgroup]')) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      openCalculationSubgroup(target.dataset.calculationGroup, target.dataset.calculationSubgroup);
-      return;
-    }
-
-    if (target.matches('[data-open-calculation-subgroup]')) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      openCalculationSubgroup(target.dataset.openCalculationSubgroup, target.dataset.calculationSubgroup);
-      return;
-    }
-
-    if (target.matches('[data-open-calculation-group]')) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      openCalculationGroup(target.dataset.openCalculationGroup);
-      return;
-    }
-
-    if (target.matches('[data-open-calculation]')) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (typeof window.openCalculation === 'function') void window.openCalculation(target.dataset.openCalculation);
-    }
-  };
-
-  const interceptKeys = (event) => {
-    const key = event.key.toLowerCase();
-    const typing = event.target?.matches?.('input, textarea, select, [contenteditable="true"]');
-    if ((event.ctrlKey || event.metaKey) && key === 'o' && !typing) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      openNewChat();
-      return;
-    }
-    if (event.key === 'Escape') {
-      closeCalculationMenu();
-      document.body.classList.remove('nav-open');
-    }
-  };
-
-  const enhanceComposer = () => {
-    const input = $('chat-input');
-    if (!input || input.dataset.uiEnhanced) return;
-    input.dataset.uiEnhanced = 'true';
-    const resize = () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`; };
-    input.addEventListener('input', resize);
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        $('chat-form')?.requestSubmit();
-      }
-    });
-    resize();
-  };
-
-  const enhanceMobileNavigation = () => {
-    const toggle = $('menu-toggle');
-    if (!toggle || toggle.dataset.uiEnhanced) return;
-    toggle.dataset.uiEnhanced = 'true';
-    toggle.setAttribute('aria-controls', 'sidebar');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.addEventListener('click', () => {
-      const open = document.body.classList.toggle('nav-open');
-      toggle.setAttribute('aria-expanded', String(open));
-    });
-    document.addEventListener('click', (event) => {
-      if (!document.body.classList.contains('nav-open')) return;
-      if (event.target?.closest?.('#sidebar, #menu-toggle')) return;
-      document.body.classList.remove('nav-open');
-      toggle.setAttribute('aria-expanded', 'false');
-    });
-  };
-
-  const init = async () => {
-    if (initialized) return;
-    initialized = true;
-    const toggle = $('calculations-toggle');
-    toggle?.setAttribute('aria-expanded', 'false');
-    toggle?.setAttribute('aria-controls', 'calculation-categories');
-    document.addEventListener('click', interceptClicks, true);
-    window.addEventListener('keydown', interceptKeys, true);
-    enhanceComposer();
-    enhanceMobileNavigation();
-    document.addEventListener('click', (event) => {
-      const menu = $('calculation-categories');
-      if (!menu || menu.hidden) return;
-      if (!event.target?.closest?.('#calculations-toggle, #calculation-categories')) closeCalculationMenu();
-    });
-    try {
-      catalog = await api('/api/calculations/catalog');
-      categories = [...new Set(catalog.flatMap((item) => item.categories || []))];
-      renderCalculationMenu();
-    } catch (error) {
-      console.warn('Calculation catalog unavailable during UI initialization', error);
-    }
-  };
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
-  else void init();
+  function hydrateUI(){renderAccountDock();$('calculations-toggle')?.setAttribute('aria-controls','calculation-categories');const line=document.querySelector('.chat-title-line');if(line&&!line.querySelector('.chat-title-menu')){const button=document.createElement('button');button.type='button';button.className='icon-button chat-title-menu';button.textContent='⋯';button.title='Chat actions';button.setAttribute('aria-label','Chat actions');line.appendChild(button);}}
+  window.renderAccountDock=renderAccountDock;window.hydrateUI=hydrateUI;window.renderProjectsPage=renderProjectsPage;window.renderProjectFilesPage=renderProjectFilesPage;window.renderSettingsPage=renderSettingsPage;window.renderCustomizeTab=renderCustomizeTab;window.renderEducationPage=renderEducationPage;window.openSimulationsView=openSimulationsView;window.openConnectionsView=openConnectionsView;window.connectionAction=connectionAction;window.pluginAction=pluginAction;window.togglePlugin=togglePlugin;window.openCalculationsView=openCalculationsView;window.openCalculationGroupView=openCalculationGroupView;window.openCalculationSubgroupView=openCalculationSubgroupView;window.openCalculationDetailView=openCalculationDetailView;window.openProjectEngineeringView=openProjectEngineeringView;window.engineeringAction=window.engineeringAction;window.renderSearchResults=renderSearchResults;window.fetchToolSource=async(button)=>{let sources=[];try{sources=JSON.parse(button.dataset.toolFetch||'[]');}catch{return;}const source=sources[0];if(!source)return;if(!st().projectId||!source.chunk_id)return modal('Source','<div class="empty-state">Source metadata is available, but no project chunk ID was returned.</div>');const chunk=await api(`/api/engineering/projects/${st().projectId}/sources/chunks/${source.chunk_id}`);modal(chunk.source||'Source',`<div class="source-detail"><div class="property"><span>Location</span><strong>${esc(chunk.location)}</strong></div><div class="property"><span>Version</span><strong>${esc(chunk.version||'Unversioned')}</strong></div><div class="property"><span>Checksum</span><code>${esc(chunk.checksum)}</code></div><pre class="text-preview">${esc(chunk.content)}</pre></div>`);};
 })();
