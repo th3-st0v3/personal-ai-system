@@ -32,15 +32,6 @@ def initialize(connection):
         )
     """)
     connection.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE,
-            status TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive')),
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-    """)
-    connection.execute("""
         CREATE TABLE IF NOT EXISTS workspace_members (
             workspace_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
