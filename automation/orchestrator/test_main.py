@@ -95,6 +95,38 @@ def test_main_builds_and_persists_context_package(
     assert json.loads(raw) == payload
 
 
+def test_main_persists_planning_request_in_context(
+    tmp_path: Path,
+) -> None:
+    ai_dir = tmp_path / ".ai"
+    ai_dir.mkdir()
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    run_main(
+        project_root,
+        ai_dir,
+        "Make the login button work.",
+    )
+
+    context = StateManager(ai_dir).load_context_package()
+
+    assert (
+        context["agent_request"]["task"]
+        == "Make the login button work."
+    )
+    assert context["agent_request"]["expected_output"] == [
+        "proposed plan",
+        "required verification",
+        "identified blockers",
+    ]
+    assert (
+        "Do not execute actions."
+        in context["agent_request"]["restrictions"]
+    )
+
+
 def test_main_uses_default_objective_when_called_without_argument(
     tmp_path: Path,
 ) -> None:

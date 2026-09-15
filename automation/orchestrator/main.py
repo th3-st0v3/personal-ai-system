@@ -5,9 +5,10 @@ from uuid import uuid4
 
 from .config import CONFIG, ensure_runtime_directories
 from .context_builder import ContextBuilder
-from .context_schema import ObjectiveContext
+from .context_schema import ExecutionPolicy, ObjectiveContext
 from .git_manager import GitManager
 from .models import CurrentTask, ProjectState
+from .planner import Planner
 from .state import StateManager
 from .test_runner import TestRunner
 
@@ -27,6 +28,7 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> None:
         git=git,
         state=state,
     )
+    planner = Planner()
 
     branch = git.current_branch()
     head = git.head_commit()
@@ -117,10 +119,19 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> None:
                 }
             )
 
+    execution_policy = ExecutionPolicy()
+
+    agent_request = planner.build_request(
+        task=task,
+        execution_policy=execution_policy,
+    )
+
     context_package = context_builder.build(
         objective=ObjectiveContext(
             primary=objective,
-        )
+        ),
+        execution_policy=execution_policy,
+        agent_request=agent_request,
     )
     state.save_context_package(context_package)
 
