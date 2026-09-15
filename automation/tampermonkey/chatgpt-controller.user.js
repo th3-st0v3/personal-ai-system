@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -389,6 +389,94 @@
                 if (isVisible(element)) {
                     return element;
                 }
+            }
+        }
+
+        return null;
+    }
+
+    function findNewChat(observation = null) {
+        const semanticNewChat =
+            findNewChatFromObservation(observation);
+
+        if (semanticNewChat) {
+            return semanticNewChat;
+        }
+
+        return findNewChatWithSelectors();
+    }
+
+    function findNewChatFromObservation(observation) {
+        if (
+            !observation ||
+            !Array.isArray(observation.interactive_elements)
+        ) {
+            return null;
+        }
+
+        const semanticNewChat =
+            observation.interactive_elements.find(
+                (element) =>
+                    element &&
+                    element.control === 'new_chat' &&
+                    (element.role === 'link' ||
+                        element.role === 'button') &&
+                    typeof element.id === 'string' &&
+                    element.id.length > 0
+            );
+
+        if (!semanticNewChat) {
+            return null;
+        }
+
+        const elements =
+            document.querySelectorAll('[data-pasi-id]');
+
+        for (const element of elements) {
+            if (
+                element.getAttribute('data-pasi-id') ===
+                    semanticNewChat.id &&
+                isVisible(element)
+            ) {
+                return element;
+            }
+        }
+
+        return null;
+    }
+
+    function findNewChatWithSelectors() {
+        const selectors = [
+            'a[aria-label="New chat"]',
+            'button[aria-label="New chat"]',
+            '[data-testid="new-chat-button"]'
+        ];
+
+        for (const selector of selectors) {
+            const elements =
+                document.querySelectorAll(selector);
+
+            for (const element of elements) {
+                if (isVisible(element)) {
+                    return element;
+                }
+            }
+        }
+
+        const elements =
+            document.querySelectorAll('a, button');
+
+        for (const element of elements) {
+            if (!isVisible(element)) {
+                continue;
+            }
+
+            if (
+                getLabel(element)
+                    .trim()
+                    .toLowerCase() === 'new chat'
+            ) {
+                return element;
             }
         }
 
