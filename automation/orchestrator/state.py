@@ -19,6 +19,7 @@ class StateManager:
         self.retry_state_path = ai_dir / "retry-state.json"
         self.test_results_path = ai_dir / "test-results.json"
         self.browser_results_path = ai_dir / "browser-results.json"
+        self.context_package_path = ai_dir / "context-package.json"
         self.handoff_path = ai_dir / "handoff.json"
         self.queue_path = ai_dir / "queue.json"
         self.lock_path = ai_dir / "lock.json"
@@ -112,6 +113,28 @@ class StateManager:
             self.browser_results_path,
             results,
         )
+
+    def save_context_package(
+        self,
+        context_package: Any,
+    ) -> None:
+        self.write_json(
+            self.context_package_path,
+            context_package.to_context_dict(),
+        )
+
+    def load_context_package(
+        self,
+    ) -> dict[str, Any]:
+        value = self.read_json(
+            self.context_package_path,
+            {},
+        )
+
+        if not isinstance(value, dict):
+            return {}
+
+        return value
 
     def load_browser_results(
         self,
