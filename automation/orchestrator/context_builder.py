@@ -9,6 +9,7 @@ from uuid import uuid4
 from .context_schema import (
     AgentRequest,
     BrowserContext,
+    BrowserPageContext,
     Capability,
     ContextPackage,
     DiffSummary,
@@ -16,6 +17,7 @@ from .context_schema import (
     ExecutionPolicy,
     FilesContext,
     GitWslContext,
+    SyncState,
     MemoryContext,
     ObjectiveContext,
     ProjectContext,
@@ -200,7 +202,7 @@ class ContextBuilder:
     def _sync_state(
         self,
         upstream: str | None,
-    ) -> tuple[int, int, str]:
+    ) -> tuple[int, int, SyncState]:
         if upstream is None:
             return 0, 0, "UNKNOWN"
 
@@ -226,7 +228,7 @@ class ContextBuilder:
             return 0, 0, "UNKNOWN"
 
         if ahead == 0 and behind == 0:
-            state = "SYNCED"
+            state: SyncState = "SYNCED"
         elif ahead > 0 and behind == 0:
             state = "LOCAL_AHEAD"
         elif ahead == 0 and behind > 0:
@@ -419,10 +421,10 @@ class ContextBuilder:
             page=(
                 None
                 if title is None and page_type is None
-                else {
-                    "title": title if isinstance(title, str) else None,
-                    "type": page_type if isinstance(page_type, str) else None,
-                }
+                else BrowserPageContext(
+                    title=title if isinstance(title, str) else None,
+                    type=page_type if isinstance(page_type, str) else None,
+                )
             ),
             observation_id=(
                 observation_id
