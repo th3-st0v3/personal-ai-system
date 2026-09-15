@@ -137,6 +137,61 @@ def test_main_marks_precheck_complete(
     assert project_state["status"] == "idle"
     assert (
         project_state["current_phase"]
-        == "precheck_complete"
+        == "context_ready"
     )
 
+
+
+def test_main_creates_and_advances_current_task(
+    tmp_path: Path,
+) -> None:
+    ai_dir = tmp_path / ".ai"
+    ai_dir.mkdir()
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    run_main(
+        project_root,
+        ai_dir,
+        "Make the login button work.",
+    )
+
+    state = StateManager(ai_dir)
+    task = state.load_current_task()
+    project_state = state.load_project_state()
+
+    assert task["objective"] == "Make the login button work."
+    assert task["feature"] == "orchestrator"
+    assert task["status"] == "ready"
+    assert task["phase"] == "context_ready"
+    assert task["attempt"] == 0
+
+    assert project_state["current_task_id"] == task["task_id"]
+    assert project_state["current_feature"] == "orchestrator"
+    assert project_state["current_phase"] == "context_ready"
+
+
+def test_main_uses_same_task_for_context_objective(
+    tmp_path: Path,
+) -> None:
+    ai_dir = tmp_path / ".ai"
+    ai_dir.mkdir()
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    objective = "Verify the authentication flow."
+
+    run_main(
+        project_root,
+        ai_dir,
+        objective,
+    )
+
+    state = StateManager(ai_dir)
+    task = state.load_current_task()
+    context = state.load_context_package()
+
+    assert task["objective"] == objective
+    assert context["objective"]["primary"] == task["objective"]

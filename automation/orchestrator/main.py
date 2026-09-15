@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import argparse
+from uuid import uuid4
 
 from .config import CONFIG, ensure_runtime_directories
 from .context_builder import ContextBuilder
 from .context_schema import ObjectiveContext
 from .git_manager import GitManager
-from .models import ProjectState
+from .models import CurrentTask, ProjectState
 from .state import StateManager
 from .test_runner import TestRunner
 
 
-def main(objective: str = "Inspect the current project state.") -> None:
+DEFAULT_OBJECTIVE = "Inspect the current project state."
+DEFAULT_FEATURE = "orchestrator"
+
+
+def main(objective: str = DEFAULT_OBJECTIVE) -> None:
     ensure_runtime_directories()
 
     state = StateManager(CONFIG.ai_dir)
@@ -26,14 +31,25 @@ def main(objective: str = "Inspect the current project state.") -> None:
     branch = git.current_branch()
     head = git.head_commit()
 
+    task = CurrentTask(
+        task_id=f"task_{uuid4().hex}",
+        feature=DEFAULT_FEATURE,
+        objective=objective,
+        status="running",
+        phase="precheck",
+    )
+
     project_state = ProjectState(
         project="personal-ai-system",
         status="running",
-        current_phase="precheck",
+        current_feature=task.feature,
+        current_phase=task.phase,
+        current_task_id=task.task_id,
         current_branch=branch,
         last_successful_commit=head,
     )
 
+    state.save_current_task(task)
     state.save_project_state(project_state)
 
     git_status = git.status()
@@ -41,9 +57,10 @@ def main(objective: str = "Inspect the current project state.") -> None:
     print()
     print("=== PERSONAL AI SYSTEM ORCHESTRATOR ===")
     print()
-    print(f"Project: {CONFIG.project_root}")
-    print(f"Branch:  {branch}")
-    print(f"HEAD:    {head}")
+    print(f"Project:   {CONFIG.project_root}")
+    print(f"Branch:    {branch}")
+    print(f"HEAD:      {head}")
+    print(f"Task:      {task.task_id}")
     print(f"Objective: {objective}")
     print()
 
@@ -107,6 +124,15 @@ def main(objective: str = "Inspect the current project state.") -> None:
     )
     state.save_context_package(context_package)
 
+    task.status = "ready"
+    task.phase = "context_ready"
+
+    project_state.status = "idle"
+    project_state.current_phase = "context_ready"
+
+    state.save_current_task(task)
+    state.save_project_state(project_state)
+
     print()
     print("=== CONTEXT PACKAGE ===")
     print(f"Context ID: {context_package.context_id}")
@@ -124,14 +150,11 @@ def main(objective: str = "Inspect the current project state.") -> None:
     )
     print(f"Browser:   {browser_status}")
     print(f"Saved:     {state.context_package_path}")
-
-    project_state.status = "idle"
-    project_state.current_phase = "precheck_complete"
-
-    state.save_project_state(project_state)
+    print(f"Task:      {task.task_id}")
+    print(f"Task state: {task.status}/{task.phase}")
 
     print()
-    print("Orchestrator precheck complete.")
+    print("Orchestrator context preparation complete.")
 
 
 if __name__ == "__main__":
@@ -141,7 +164,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "objective",
         nargs="?",
-        default="Inspect the current project state.",
-        help="Objective used to build the ContextPackage.",
+        default=DEFAULT_OBJECTIVE,
+        help="Objective used to create the CurrentTask and ContextPackage.",
     )
     main(parser.parse_args().objective)
