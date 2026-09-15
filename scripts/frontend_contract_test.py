@@ -15,176 +15,105 @@ def test_frontend_contract() -> None:
     ui = (WEB / "ui-completion.js").read_text(encoding="utf-8")
     css = (WEB / "styles.css").read_text(encoding="utf-8")
 
-    # The frontend was intentionally consolidated to these four canonical files.
-    expected_files = {
-        "app.js",
-        "index.html",
-        "styles.css",
-        "ui-completion.js",
-    }
+    expected_files = {"app.js", "index.html", "styles.css", "ui-completion.js"}
+    actual_files = {path.name for path in WEB.iterdir() if path.is_file()}
+    assert actual_files == expected_files, f"Unexpected frontend files: {sorted(actual_files ^ expected_files)}"
 
-    actual_files = {
-        path.name for path in WEB.iterdir() if path.is_file()
-    }
-
-    assert actual_files == expected_files, (
-        f"Unexpected frontend files: "
-        f"{sorted(actual_files ^ expected_files)}"
-    )
-
-    # All four canonical files must exist and be non-empty.
     for filename in expected_files:
         path = WEB / filename
         assert path.is_file(), f"Missing canonical frontend file: {filename}"
         assert path.stat().st_size > 0, f"Empty frontend file: {filename}"
 
-    # index.html must load only the canonical JavaScript entrypoints.
-    script_sources = set(
-        re.findall(r'<script[^>]+src="([^"]+)"', index)
-    )
-
-    expected_scripts = {
-        "/app.js",
-        "/ui-completion.js",
-    }
-
-    assert script_sources == expected_scripts, (
+    script_sources = set(re.findall(r'<script[^>]+src="([^"]+)"', index))
+    assert script_sources == {"/app.js", "/ui-completion.js"}, (
         f"Unexpected script entrypoints: {sorted(script_sources)}"
     )
+    assert 'href="/styles.css"' in index, "Canonical stylesheet is not loaded."
 
-    assert (
-        'href="/styles.css"' in index
-    ), "Canonical stylesheet is not loaded."
-
-    # Deleted frontend layers must not be referenced by index.html.
     legacy_names = {
-        "backend-frontend-bridge.js",
-        "backend-final.js",
-        "production-ui.js",
-        "final-interactions.js",
-        "engineering-final.js",
-        "ux-final.js",
-        "auth-ui.js",
-        "pdf-ui.js",
-        "final-controls.js",
-        "app.css",
-        "design-system.css",
-        "accessibility.css",
-        "accessibility-runtime.js",
+        "backend-frontend-bridge.js", "backend-final.js", "production-ui.js",
+        "final-interactions.js", "engineering-final.js", "ux-final.js", "auth-ui.js",
+        "pdf-ui.js", "final-controls.js", "app.css", "design-system.css",
+        "accessibility.css", "accessibility-runtime.js",
     }
-
     for legacy in legacy_names:
-        assert legacy not in index, (
-            f"Legacy frontend reference remains: {legacy}"
-        )
+        assert legacy not in index, f"Legacy frontend reference remains: {legacy}"
 
-    # Core browser DOM contract.
     required_dom_ids = {
-        "chat-form",
-        "chat-input",
-        "send-chat",
-        "ai-mode",
-        "global-search",
-        "chat-list",
-        "project-files",
-        "project-calculations",
-        "project-simulations",
-        "project-engineering",
-        "calculations-toggle",
-        "calculation-categories",
-        "login-button",
-        "signup-button",
+        "chat-form", "chat-input", "send-chat", "ai-mode", "global-search", "chat-list",
+        "project-files", "project-calculations", "project-simulations", "project-engineering",
+        "calculations-toggle", "calculation-categories", "login-button", "signup-button",
         "account-button",
     }
-
     for element_id in required_dom_ids:
-        assert f'id="{element_id}"' in index, (
-            f"Missing DOM contract: {element_id}"
-        )
+        assert f'id="{element_id}"' in index, f"Missing DOM contract: {element_id}"
 
-    # Canonical interaction ownership.
-    assert "renderMessages" in app, (
-        "Canonical message renderer is missing."
-    )
-    assert "sendMessage" in app, (
-        "Canonical chat send path is missing."
-    )
-    assert "ui-completion.js" not in app, (
-        "app.js should not load the completion layer itself."
-    )
+    assert "renderMessages" in app, "Canonical message renderer is missing."
+    assert "sendMessage" in app, "Canonical chat send path is missing."
+    assert "ui-completion.js" not in app, "app.js should not load the completion layer itself."
 
-    # Feature/navigation ownership remains in the completion layer.
     for capability in (
-        "renderSettingsPage",
-        "renderProjectsPage",
-        "openSimulationsView",
-        "openConnectionsView",
-        "data-customize",
+        "renderSettingsPage", "renderProjectsPage", "openSimulationsView",
+        "openConnectionsView", "data-customize",
     ):
-        assert capability in ui, (
-            f"Frontend completion capability missing: {capability}"
-        )
+        assert capability in ui, f"Frontend completion capability missing: {capability}"
 
     combined = app + ui
-
-    # Important backend contracts used by the current frontend.
     required_api_prefixes = (
-        "/api/auth/logout",
-        "/api/auth/me",
-        "/api/chats",
-        "/api/projects",
-        "/api/manifest",
-        "/api/search",
-        "/api/calculations/catalog",
-        "/api/calculations/run",
-        "/api/calculations/run/save",
-        "/api/connections",
-        "/api/plugins",
-        "/api/digest",
-        "/api/simulations",
-        "/api/simulations/run",
-        "/api/engineering/projects/",
+        "/api/auth/logout", "/api/auth/me", "/api/chats", "/api/projects", "/api/manifest",
+        "/api/search", "/api/calculations/catalog", "/api/calculations/run",
+        "/api/calculations/run/save", "/api/connections", "/api/plugins", "/api/digest",
+        "/api/simulations", "/api/simulations/run", "/api/engineering/projects/",
     )
-
     for endpoint in required_api_prefixes:
-        assert endpoint in combined, (
-            f"Frontend does not reference backend endpoint: {endpoint}"
-        )
+        assert endpoint in combined, f"Frontend does not reference backend endpoint: {endpoint}"
 
-    # Basic chat capabilities.
     for capability in (
-        "rename",
-        "pin",
-        "move",
-        "share",
-        "delete",
-        "retry",
-        "branch",
-        "rate-up",
-        "rate-down",
+        "rename", "pin", "move", "share", "delete", "retry", "branch", "rate-up", "rate-down",
     ):
-        assert capability in combined, (
-            f"Chat capability missing: {capability}"
-        )
+        assert capability in combined, f"Chat capability missing: {capability}"
 
-    # Engineering/workspace capabilities.
     for capability in (
-        "Import GitHub file",
-        "Search sources",
-        "Add evidence",
-        "Invalidate",
-        "Run simulation",
-        "Add connection",
-        "Register plugin",
+        "Import GitHub file", "Search sources", "Add evidence", "Invalidate",
+        "Run simulation", "Add connection", "Register plugin",
     ):
-        assert capability in combined, (
-            f"Feature capability missing: {capability}"
-        )
+        assert capability in combined, f"Feature capability missing: {capability}"
 
-    # Accessibility/reduced-motion styling remains in the consolidated stylesheet.
-    assert "prefers-reduced-motion" in css, (
-        "Reduced-motion support is missing."
-    )
-    assert ":focus-visible" in css, (
-        "Keyboard focus styling is missing."
-    )
+    assert "prefers-reduced-motion" in css, "Reduced-motion support is missing."
+    assert ":focus-visible" in css, "Keyboard focus styling is missing."
+
+
+def test_foundation_ux_contracts() -> None:
+    """Lock the five foundation invariants before the broader UX pass proceeds."""
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    app = (WEB / "app.js").read_text(encoding="utf-8")
+    ui = (WEB / "ui-completion.js").read_text(encoding="utf-8")
+    css = (WEB / "styles.css").read_text(encoding="utf-8")
+
+    # One settings renderer and no obsolete CLI/Claude Code settings section.
+    assert len(re.findall(r"function\s+renderSettingsPage\s*\(", ui)) == 1
+    assert "Claude Code / CLI" not in ui
+    assert "Claude Code" not in ui
+
+    # Rounded design tokens are active and the stylesheet does not flatten the UI globally.
+    assert "--ui-radius-sm:7px" in css
+    assert "--ui-radius-md:10px" in css
+    assert "--ui-radius-lg:14px" in css
+    assert not re.search(r"\*[^{}]*\{[^{}]*border-radius\s*:\s*0", css)
+
+    # Search and auth controls are present and not hidden by the static shell.
+    assert 'id="global-search"' in index
+    assert 'id="login-button"' in index
+    assert 'id="signup-button"' in index
+    assert "global-search" in css
+    assert "Ctrl+K" in app
+
+    # There is exactly one canonical message POST construction.
+    message_post = re.findall(r"api\(`?/api/chats/\$\{state\.chatId\}/messages", app)
+    assert len(message_post) == 1, f"Expected one chat-message POST path, found {len(message_post)}"
+    assert "model:modelOverride||modelProfile(selectedMode)" in app
+    assert "auto: 'profile:auto'" in app
+    assert "claude: 'profile:claude-opus'" in app
+    assert "gpt: 'profile:gpt-5.4'" in app
+    assert "gemini: 'profile:gemini-3.1-pro'" in app
+    assert "free: 'profile:free'" in app
