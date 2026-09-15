@@ -146,6 +146,32 @@ function loadResolver() {
     };
 }
 
+function loadStateVerifier() {
+    const source = fs.readFileSync(
+        controllerPath,
+        'utf8'
+    );
+
+    const verifier = extractFunction(
+        source,
+        'isNewChatStateReady'
+    );
+
+    const context = {
+        findComposer(observation) {
+            return observation?.testComposer || null;
+        }
+    };
+
+    vm.createContext(context);
+    vm.runInContext(
+        `${verifier}\nthis.verify = isNewChatStateReady;`,
+        context
+    );
+
+    return context.verify;
+}
+
 function makeElement(id, visible = true) {
     return {
         style: {
@@ -215,4 +241,48 @@ test('new_chat observation ignores non-new-chat and hidden elements', () => {
     );
 
     assert.equal(result, null);
+});
+
+test('new_chat state verifies a fresh observation, changed URL, and composer', () => {
+    const verify = loadStateVerifier();
+    const clickTimestamp = Date.parse('2026-09-15T10:00:00.000Z');
+
+    const result = verify(
+        'https://chatgpt.com/c/old-chat',
+        clickTimestamp,
+        {
+            captured_at: '2026-09-15T10:00:01.000Z',
+            page: {
+                url: 'https://chatgpt.com/c/new-chat'
+            },
+            interactive_elements: [],
+            testComposer: { id: 'pasi-composer' }
+        },
+        'https://chatgpt.com/c/new-chat'
+    );
+
+    assert.equal(result, true);
+});
+
+test('new_chat state rejects stale or unchanged navigation', () => {
+    const verify = loadStateVerifier();
+    const clickTimestamp = Date.parse('2026-09-15T10:00:00.000Z');
+    const observation = {
+        captured_at: '2026-09-15T09:59:59.000Z',
+        page: {
+            url: 'https://chatgpt.com/c/old-chat'
+        },
+        interactive_elements: [],
+        testComposer: { id: 'pasi-composer' }
+    };
+
+    assert.equal(
+        verify(
+            'https://chatgpt.com/c/old-chat',
+            clickTimestamp,
+            observation,
+            'https://chatgpt.com/c/old-chat'
+        ),
+        false
+    );
 });
