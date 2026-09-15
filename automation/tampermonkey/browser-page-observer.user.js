@@ -16,6 +16,10 @@
 (function () {
     'use strict';
 
+        if (window.top !== window.self) {
+        return;
+    }
+
     /*
      * ============================================================
      * CONFIGURATION
@@ -314,6 +318,13 @@
                         element
                     ),
 
+                control:
+                    classifyInteractiveElement(
+                        element,
+                        getRole(element),
+                        getAccessibleName(element)
+                    ),
+
                 text:
                     truncate(
                         cleanText(
@@ -368,6 +379,88 @@
         }
 
         return results;
+    }
+
+    function classifyInteractiveElement(
+        element,
+        role,
+        name
+    ) {
+        const normalizedName =
+            cleanText(
+                name || ''
+            ).toLowerCase();
+
+        if (
+            role === 'textbox' &&
+            (
+                normalizedName ===
+                    'chat with chatgpt' ||
+                element.matches(
+                    '#prompt-textarea'
+                ) ||
+                element.isContentEditable
+            )
+        ) {
+            return 'composer';
+        }
+
+        if (
+            normalizedName === 'new chat'
+        ) {
+            return 'new_chat';
+        }
+
+        if (
+            normalizedName === 'add files and more'
+        ) {
+            return 'attach';
+        }
+
+        if (
+            normalizedName === 'switch model'
+        ) {
+            return 'model_selector';
+        }
+
+        if (
+            normalizedName === 'start dictation'
+        ) {
+            return 'dictation';
+        }
+
+        if (
+            normalizedName === 'start voice'
+        ) {
+            return 'voice';
+        }
+
+        if (
+            normalizedName === 'send message' ||
+            normalizedName === 'send'
+        ) {
+            return 'submit';
+        }
+
+        if (
+            normalizedName === 'copy response'
+        ) {
+            return 'copy_response';
+        }
+
+        if (
+            normalizedName === 'copy message'
+        ) {
+            return 'copy_message';
+        }
+
+        if (
+            normalizedName === 'edit message'
+        ) {
+            return 'edit_message';
+        }
+
+        return null;
     }
 
     /*

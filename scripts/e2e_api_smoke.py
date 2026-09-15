@@ -4,20 +4,25 @@ from __future__ import annotations
 import base64
 import io
 import json
+import uuid
 import urllib.error
 import urllib.request
+import http.cookiejar
 
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 BASE = "http://127.0.0.1:8000"
+COOKIE_JAR = http.cookiejar.CookieJar()
+HTTP = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
+RUN_ID = uuid.uuid4().hex[:8]
 
 
 def request(method: str, path: str, payload: object | None = None) -> object:
     data = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(BASE + path, data=data, method=method, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with HTTP.open(req, timeout=15) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -39,7 +44,17 @@ def sample_pdf() -> bytes:
 
 manifest = request("GET", "/api/manifest")
 assert isinstance(manifest, dict) and manifest.get("api_version") == 3
-project = request("POST", "/api/projects", {"name": "CI E2E Project", "description": "route smoke"})
+account = request(
+    "POST",
+    "/api/auth/signup",
+    {
+        "email": f"ci-{RUN_ID}@example.com",
+        "password": "ci-smoke-password",
+        "display_name": "CI Smoke",
+    },
+)
+assert isinstance(account, dict) and isinstance(account.get("user"), dict)
+project = request("POST", "/api/projects", {"name": f"CI E2E Project {RUN_ID}", "description": "route smoke"})
 assert isinstance(project, dict) and isinstance(project.get("id"), int)
 project_id = project["id"]
 note = request("POST", f"/api/projects/{project_id}/notes", {"title": "CI note", "content": "pressure evidence"})
@@ -67,9 +82,9 @@ inputs = {str(parameter): 1.0 for parameter in simulations[0].get("parameters", 
 sim_result = request("POST", "/api/simulations/run", {"simulation_key": sim_key, "inputs": inputs})
 assert isinstance(sim_result, dict) and "outputs" in sim_result
 
-connections = request("POST", "/api/connections", {"name": "CI provider", "provider": "test", "capabilities": ["chat"]})
+connections = request("POST", "/api/connections", {"name": f"CI provider {RUN_ID}", "provider": "test", "capabilities": ["chat"]})
 assert isinstance(connections, dict) and isinstance(connections.get("id"), int)
-plugins = request("POST", "/api/plugins", {"name": "CI plugin", "version": "0.1.0", "description": "smoke plugin", "entrypoint": "ci.plugin:main", "capabilities": ["test"]})
+plugins = request("POST", "/api/plugins", {"name": f"CI plugin {RUN_ID}", "version": "0.1.0", "description": "smoke plugin", "entrypoint": "ci.plugin:main", "capabilities": ["test"]})
 assert isinstance(plugins, dict) and isinstance(plugins.get("id"), int)
 enabled_plugin = request("POST", f"/api/plugins/{plugins['id']}/enabled", {"enabled": True})
 assert isinstance(enabled_plugin, dict) and enabled_plugin.get("enabled") is True
@@ -79,7 +94,7 @@ assert isinstance(digest, dict) and digest.get("claims")
 chat = request("POST", "/api/chats", {"project_id": project_id})
 assert isinstance(chat, dict) and isinstance(chat.get("id"), int)
 chat_id = chat["id"]
-chat_result = request("POST", f"/api/chats/{chat_id}/messages", {"content": "Create a transparent engineering model.", "model": "profile:free", "mode": "auto"})
+chat_result = request("POST", f"/api/chats/{chat_id}/messages", {"content": "Create a transparent engineering model.", "mode": "local"})
 assert isinstance(chat_result, dict) and isinstance(chat_result.get("messages"), list)
 assistant_messages = [item for item in chat_result["messages"] if isinstance(item, dict) and item.get("role") == "assistant"]
 assert assistant_messages and isinstance(assistant_messages[-1].get("id"), int)

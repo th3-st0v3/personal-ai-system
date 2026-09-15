@@ -67,7 +67,7 @@ def _permission_allowed(connection: sqlite3.Connection, actor_id: str, action: s
         "SELECT enabled FROM permission_grants WHERE actor_id=? AND action=?",
         (actor_id, action),
     ).fetchone()
-    return bool(row[0]) if row is not None else actor_id == "local" and action in DEFAULT_SAFE_ACTIONS
+    return bool(row[0]) if row is not None else action in DEFAULT_SAFE_ACTIONS
 
 
 def allowed(connection: sqlite3.Connection, actor_id: str, action: str) -> bool:

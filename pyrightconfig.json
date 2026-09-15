@@ -1,6 +1,11 @@
 {
   "typeCheckingMode": "basic",
-  "include": ["src", "scripts"],
+  "pythonVersion": "3.14",
+  "include": [
+    "src",
+    "scripts",
+    "automation/orchestrator"
+  ],
   "exclude": [
     "**/node_modules",
     "**/__pycache__",
@@ -16,6 +21,9 @@
     "**/build",
     "**/site-packages/**",
     "**/.*"
+  ],
+  "extraPaths": [
+    "src"
   ],
   "reportMissingModuleSource": "none"
 }

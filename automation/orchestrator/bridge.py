@@ -115,6 +115,19 @@ class BridgeState:
 
         return observation
 
+    def get_browser_observation(
+        self,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            observation = (
+                self.state_manager.load_browser_results()
+            )
+
+            if not isinstance(observation, dict):
+                return None
+
+            return observation
+
     def get_status(self) -> dict[str, Any]:
         with self.lock:
             queue = self.state_manager.load_queue()
@@ -337,6 +350,18 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if path == "/status":
             self._send_json(
                 self.bridge_state.get_status()
+            )
+            return
+
+        if path == "/browser/observation":
+            observation = (
+                self.bridge_state.get_browser_observation()
+            )
+
+            self._send_json(
+                {
+                    "observation": observation
+                }
             )
             return
 

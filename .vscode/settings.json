@@ -1,17 +1,6 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "python.terminal.activateEnvironment": true,
-  "python.analysis.extraPaths": ["${workspaceFolder}/src"],
-  "python.analysis.diagnosticMode": "workspace",
-  "python.analysis.exclude": [
-    "${workspaceFolder}/.venv/**",
-    "${workspaceFolder}/venv/**",
-    "${workspaceFolder}/env/**",
-    "${workspaceFolder}/.tox/**",
-    "${workspaceFolder}/.pytest_cache/**",
-    "${workspaceFolder}/.mypy_cache/**",
-    "${workspaceFolder}/node_modules/**"
-  ],
   "markdownlint.ignore": [
     "**/.venv/**",
     "**/venv/**",

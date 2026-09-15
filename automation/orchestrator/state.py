@@ -113,6 +113,19 @@ class StateManager:
             results,
         )
 
+    def load_browser_results(
+        self,
+    ) -> dict[str, Any]:
+        value = self.read_json(
+            self.browser_results_path,
+            {},
+        )
+
+        if not isinstance(value, dict):
+            return {}
+
+        return value
+
     def save_handoff(
         self,
         handoff: dict[str, Any],

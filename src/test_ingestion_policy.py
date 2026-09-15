@@ -79,6 +79,7 @@ class TestIngestionPolicy(unittest.TestCase):
         connection = db.get_connection()
         try:
             self.assertTrue(policy.allowed(connection, "local", "run_calculation"))
+            self.assertTrue(policy.allowed(connection, "user-1", "run_simulation"))
             self.assertFalse(policy.allowed(connection, "local", "execute_code"))
             with self.assertRaises(PermissionError):
                 policy.require(connection, "local", "execute_code")
