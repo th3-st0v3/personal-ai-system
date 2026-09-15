@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "ResearchQuestion": {
+      "additionalProperties": false,
+      "properties": {
+        "question_id": {
+          "minLength": 1,
+          "title": "Question Id",
+          "type": "string"
+        },
+        "question": {
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question_id",
+        "question"
+      ],
+      "title": "ResearchQuestion",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "objective": {
+      "minLength": 1,
+      "title": "Objective",
+      "type": "string"
+    },
+    "questions": {
+      "items": {
+        "$ref": "#/$defs/ResearchQuestion"
+      },
+      "title": "Questions",
+      "type": "array"
+    },
+    "preferred_source_types": {
+      "items": {
+        "enum": [
+          "web",
+          "browser",
+          "documentation",
+          "github",
+          "database",
+          "file",
+          "other"
+        ],
+        "type": "string"
+      },
+      "title": "Preferred Source Types",
+      "type": "array"
+    },
+    "evidence_requirement": {
+      "default": "any",
+      "enum": [
+        "any",
+        "documented",
+        "direct",
+        "multiple_sources"
+      ],
+      "title": "Evidence Requirement",
+      "type": "string"
+    },
+    "max_sources": {
+      "default": 10,
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Max Sources",
+      "type": "integer"
+    },
+    "constraints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Constraints",
+      "type": "array"
+    }
+  },
+  "required": [
+    "objective"
+  ],
+  "title": "ResearchRequest",
+  "type": "object"
+}

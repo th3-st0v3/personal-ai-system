@@ -12,7 +12,7 @@ def get_project(connection: sqlite3.Connection, project_id: int) -> dict[str, ob
 
 
 def update_project(connection: sqlite3.Connection, project_id: int, *, name: str | None = None, description: str | None = None) -> dict[str, object]:
-    project = get_project(connection, project_id)
+    get_project(connection, project_id)
     values: list[object] = []
     updates: list[str] = []
     if name is not None:

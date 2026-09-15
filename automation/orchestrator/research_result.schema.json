@@ -1,0 +1,184 @@
+{
+  "$defs": {
+    "ResearchFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "finding_id": {
+          "minLength": 1,
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "supporting_observations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Observations",
+          "type": "array"
+        },
+        "design_implications": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Design Implications",
+          "type": "array"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "requires_verification": {
+          "default": false,
+          "title": "Requires Verification",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "finding_id",
+        "statement"
+      ],
+      "title": "ResearchFinding",
+      "type": "object"
+    },
+    "ResearchObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "subject": {
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "aspect": {
+          "minLength": 1,
+          "title": "Aspect",
+          "type": "string"
+        },
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Ref"
+        },
+        "source_locator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Locator"
+        },
+        "kind": {
+          "default": "direct_observation",
+          "enum": [
+            "direct_observation",
+            "documented_behavior",
+            "inferred_behavior"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observation_id",
+        "subject",
+        "aspect",
+        "statement"
+      ],
+      "title": "ResearchObservation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "objective": {
+      "minLength": 1,
+      "title": "Objective",
+      "type": "string"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/ResearchObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ResearchFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "sources_considered": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sources Considered",
+      "type": "array"
+    },
+    "unanswered_questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unanswered Questions",
+      "type": "array"
+    },
+    "evidence_quality": {
+      "default": "unknown",
+      "enum": [
+        "poor",
+        "fair",
+        "good",
+        "strong",
+        "unknown"
+      ],
+      "title": "Evidence Quality",
+      "type": "string"
+    }
+  },
+  "required": [
+    "objective"
+  ],
+  "title": "ResearchResult",
+  "type": "object"
+}

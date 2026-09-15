@@ -16,7 +16,7 @@ def extract_pdf_pages(data: bytes) -> list[str]:
     except Exception as exc:
         raise ValueError("The uploaded file is not a readable PDF.") from exc
     pages: list[str] = []
-    for page_number, page in enumerate(reader.pages, start=1):
+    for page in reader.pages:
         text = (page.extract_text() or "").strip()
         pages.append(text)
     if not any(pages):
