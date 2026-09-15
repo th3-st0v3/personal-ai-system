@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,45 +12,47 @@
     'use strict';
 
     const BRIDGE_URL = 'http://127.0.0.1:8765';
-function bridgeRequest(path, options = {}) {
-    return new Promise((resolve, reject) => {
-        GM_xmlhttpRequest({
-            method: options.method || 'GET',
-            url: `${BRIDGE_URL}${path}`,
-            headers: options.body
-                ? { 'Content-Type': 'application/json' }
-                : undefined,
-            data: options.body
-                ? JSON.stringify(options.body)
-                : undefined,
-            timeout: 10000,
 
-            onload(response) {
-                resolve({
-                    ok: response.status >= 200 &&
-                        response.status < 300,
-                    status: response.status,
-                    text: response.responseText,
-                    async json() {
-                        return JSON.parse(response.responseText);
-                    }
-                });
-            },
+    function bridgeRequest(path, options = {}) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: options.method || 'GET',
+                url: `${BRIDGE_URL}${path}`,
+                headers: options.body
+                    ? { 'Content-Type': 'application/json' }
+                    : undefined,
+                data: options.body
+                    ? JSON.stringify(options.body)
+                    : undefined,
+                timeout: 10000,
 
-            onerror(error) {
-                reject(new Error(
-                    `Bridge request failed: ${path}`
-                ));
-            },
+                onload(response) {
+                    resolve({
+                        ok: response.status >= 200 &&
+                            response.status < 300,
+                        status: response.status,
+                        text: response.responseText,
+                        async json() {
+                            return JSON.parse(response.responseText);
+                        }
+                    });
+                },
 
-            ontimeout() {
-                reject(new Error(
-                    `Bridge request timed out: ${path}`
-                ));
-            }
+                onerror(error) {
+                    reject(new Error(
+                        `Bridge request failed: ${path}`
+                    ));
+                },
+
+                ontimeout() {
+                    reject(new Error(
+                        `Bridge request timed out: ${path}`
+                    ));
+                }
+            });
         });
-    });
-}
+    }
+
     const POLL_INTERVAL_MS = 1000;
     const GENERATION_POLL_MS = 500;
     const COMPOSER_TIMEOUT_MS = 15000;
@@ -99,7 +101,6 @@ function bridgeRequest(path, options = {}) {
 
     async function checkBridge() {
         try {
-
             const response = await bridgeRequest('/health');
 
             return response.ok;
@@ -114,7 +115,6 @@ function bridgeRequest(path, options = {}) {
         }
 
         try {
-
             const response = await bridgeRequest('/next-operation');
 
             if (!response.ok) {
@@ -161,14 +161,21 @@ function bridgeRequest(path, options = {}) {
     }
 
     async function processOperation(operation) {
-        await waitUntilReady();
+        let observation = await getBrowserObservation();
+
+        await waitUntilReady(observation);
 
         await sendHeartbeat(
             operation.operation_id
         );
 
-        const composer =
-            findComposer();
+        let composer =
+            findComposer(observation);
+
+        if (!composer) {
+            observation = await getBrowserObservation();
+            composer = findComposer(observation);
+        }
 
         if (!composer) {
             throw new Error(
@@ -232,7 +239,7 @@ function bridgeRequest(path, options = {}) {
         );
     }
 
-    async function waitUntilReady() {
+    async function waitUntilReady(observation) {
         const start = Date.now();
 
         while (
@@ -241,7 +248,7 @@ function bridgeRequest(path, options = {}) {
         ) {
             if (!isGenerating()) {
                 const composer =
-                    findComposer();
+                    findComposer(observation);
 
                 if (composer) {
                     return;
@@ -254,6 +261,36 @@ function bridgeRequest(path, options = {}) {
         throw new Error(
             'ChatGPT was not ready for a new operation.'
         );
+    }
+
+    async function getBrowserObservation() {
+        try {
+            const response =
+                await bridgeRequest('/browser/observation');
+
+            if (!response.ok) {
+                return null;
+            }
+
+            const payload = await response.json();
+
+            if (
+                !payload ||
+                typeof payload.observation !== 'object' ||
+                payload.observation === null
+            ) {
+                return null;
+            }
+
+            return payload.observation;
+        } catch (error) {
+            console.warn(
+                '[PASI] Browser observation unavailable:',
+                error
+            );
+
+            return null;
+        }
     }
 
     async function waitUntilGenerationFinishes(
@@ -287,7 +324,56 @@ function bridgeRequest(path, options = {}) {
         );
     }
 
-    function findComposer() {
+    function findComposer(observation = null) {
+        const semanticComposer =
+            findComposerFromObservation(observation);
+
+        if (semanticComposer) {
+            return semanticComposer;
+        }
+
+        return findComposerWithSelectors();
+    }
+
+    function findComposerFromObservation(observation) {
+        if (
+            !observation ||
+            !Array.isArray(observation.interactive_elements)
+        ) {
+            return null;
+        }
+
+        const semanticComposer =
+            observation.interactive_elements.find(
+                (element) =>
+                    element &&
+                    element.control === 'composer' &&
+                    element.role === 'textbox' &&
+                    typeof element.id === 'string' &&
+                    element.id.length > 0
+            );
+
+        if (!semanticComposer) {
+            return null;
+        }
+
+        const elements =
+            document.querySelectorAll('[data-pasi-id]');
+
+        for (const element of elements) {
+            if (
+                element.getAttribute('data-pasi-id') ===
+                    semanticComposer.id &&
+                isVisible(element)
+            ) {
+                return element;
+            }
+        }
+
+        return null;
+    }
+
+    function findComposerWithSelectors() {
         const selectors = [
             '#prompt-textarea',
             'textarea[data-id="root"]',
@@ -575,12 +661,12 @@ function bridgeRequest(path, options = {}) {
         operationId
     ) {
         try {
-        await bridgeRequest('/chat/heartbeat', {
-            method: 'POST',
-            body: {
-                operation_id: operationId
-            }
-        });
+            await bridgeRequest('/chat/heartbeat', {
+                method: 'POST',
+                body: {
+                    operation_id: operationId
+                }
+            });
         } catch (error) {
             console.warn(
                 '[PASI] Heartbeat failed:',
@@ -612,15 +698,15 @@ function bridgeRequest(path, options = {}) {
         error
     ) {
         try {
-        await bridgeRequest('/chat/failed', {
-            method: 'POST',
-            body: {
-                operation_id: operationId,
-                error: error instanceof Error
-                    ? error.message
-                    : String(error)
-            }
-        });
+            await bridgeRequest('/chat/failed', {
+                method: 'POST',
+                body: {
+                    operation_id: operationId,
+                    error: error instanceof Error
+                        ? error.message
+                        : String(error)
+                }
+            });
         } catch (reportError) {
             console.error(
                 '[PASI] Failed to report failure:',
