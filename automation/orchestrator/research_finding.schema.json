@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "finding_id": {
+      "minLength": 1,
+      "title": "Finding Id",
+      "type": "string"
+    },
+    "statement": {
+      "minLength": 1,
+      "title": "Statement",
+      "type": "string"
+    },
+    "supporting_observations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supporting Observations",
+      "type": "array"
+    },
+    "design_implications": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Design Implications",
+      "type": "array"
+    },
+    "confidence": {
+      "default": "medium",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "requires_verification": {
+      "default": false,
+      "title": "Requires Verification",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "finding_id",
+    "statement"
+  ],
+  "title": "ResearchFinding",
+  "type": "object"
+}
