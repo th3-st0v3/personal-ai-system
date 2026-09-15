@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      1.5
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -57,6 +57,7 @@
     const GENERATION_POLL_MS = 500;
     const COMPOSER_TIMEOUT_MS = 15000;
     const SEND_BUTTON_TIMEOUT_MS = 10000;
+    const NEW_CHAT_TIMEOUT_MS = 10000;
     const GENERATION_TIMEOUT_MS = 60 * 60 * 1000;
 
     let activeOperationId = null;
@@ -237,6 +238,89 @@
             '[PASI] Operation completed:',
             operation.operation_id
         );
+    }
+
+    async function startNewChat() {
+        let observation = await getBrowserObservation();
+        let newChat = findNewChat(observation);
+
+        if (!newChat) {
+            observation = await getBrowserObservation();
+            newChat = findNewChat(observation);
+        }
+
+        if (!newChat) {
+            throw new Error(
+                'Could not find ChatGPT New chat control.'
+            );
+        }
+
+        if (newChat.disabled) {
+            throw new Error(
+                'ChatGPT New chat control is disabled.'
+            );
+        }
+
+        const previousUrl = window.location.href;
+        const clickTimestamp = Date.now();
+
+        console.log('[PASI] Starting new ChatGPT conversation.');
+        newChat.click();
+
+        const start = Date.now();
+
+        while (
+            Date.now() - start <
+            NEW_CHAT_TIMEOUT_MS
+        ) {
+            await sleep(250);
+
+            const currentObservation =
+                await getBrowserObservation();
+
+            if (
+                isNewChatStateReady(
+                    previousUrl,
+                    clickTimestamp,
+                    currentObservation,
+                    window.location.href
+                )
+            ) {
+                console.log('[PASI] New ChatGPT conversation ready.');
+                return;
+            }
+        }
+
+        throw new Error(
+            'ChatGPT did not reach a verified new-chat state.'
+        );
+    }
+
+    function isNewChatStateReady(
+        previousUrl,
+        clickTimestamp,
+        observation,
+        currentUrl
+    ) {
+        if (
+            typeof previousUrl !== 'string' ||
+            typeof currentUrl !== 'string' ||
+            currentUrl === previousUrl ||
+            !observation ||
+            !observation.page ||
+            !Array.isArray(observation.interactive_elements)
+        ) {
+            return false;
+        }
+
+        const capturedAt =
+            Date.parse(observation.captured_at || '');
+
+        if (!Number.isFinite(capturedAt) || capturedAt < clickTimestamp) {
+            return false;
+        }
+
+        return Boolean(findComposer(observation));
     }
 
     async function waitUntilReady(observation) {
