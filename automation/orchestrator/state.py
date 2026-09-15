@@ -20,6 +20,7 @@ class StateManager:
         self.test_results_path = ai_dir / "test-results.json"
         self.browser_results_path = ai_dir / "browser-results.json"
         self.context_package_path = ai_dir / "context-package.json"
+        self.research_state_path = ai_dir / "research-state.json"
         self.handoff_path = ai_dir / "handoff.json"
         self.queue_path = ai_dir / "queue.json"
         self.lock_path = ai_dir / "lock.json"
@@ -128,6 +129,28 @@ class StateManager:
     ) -> dict[str, Any]:
         value = self.read_json(
             self.context_package_path,
+            {},
+        )
+
+        if not isinstance(value, dict):
+            return {}
+
+        return value
+
+    def save_research_state(
+        self,
+        research_state: Any,
+    ) -> None:
+        self.write_json(
+            self.research_state_path,
+            research_state.model_dump(mode="json"),
+        )
+
+    def load_research_state(
+        self,
+    ) -> dict[str, Any]:
+        value = self.read_json(
+            self.research_state_path,
             {},
         )
 
