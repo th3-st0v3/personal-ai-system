@@ -106,7 +106,7 @@ def test_foundation_ux_contracts() -> None:
     assert 'id="login-button"' in index
     assert 'id="signup-button"' in index
     assert "global-search" in css
-    assert "Ctrl+K" in app
+    assert "Ctrl+K" in ui
 
     # There is exactly one canonical message POST construction.
     message_post = re.findall(r"api\(`?/api/chats/\$\{state\.chatId\}/messages", app)
