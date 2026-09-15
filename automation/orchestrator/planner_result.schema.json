@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "ProposedStep": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_id",
+        "description"
+      ],
+      "title": "ProposedStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "proposed_steps": {
+      "items": {
+        "$ref": "#/$defs/ProposedStep"
+      },
+      "title": "Proposed Steps",
+      "type": "array"
+    },
+    "required_capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    },
+    "verification_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verification Requirements",
+      "type": "array"
+    },
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "human_approval_status": {
+      "default": "not_required",
+      "enum": [
+        "not_required",
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "title": "Human Approval Status",
+      "type": "string"
+    }
+  },
+  "title": "PlannerResult",
+  "type": "object"
+}
