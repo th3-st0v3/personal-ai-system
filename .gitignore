@@ -78,3 +78,6 @@ notes.db
 notes.db-*
 *.db.backup
 notes.db.*
+
+# PASI runtime state
+.ai/
