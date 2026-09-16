@@ -5,9 +5,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Validate this script before doing any work it controls.
-bash -n "$SCRIPT_DIR/check_all.sh"
-
 if [[ -f "$REPO_ROOT/.venv/bin/activate" ]]; then
     # Use the repository's virtual environment automatically when available.
     # shellcheck disable=SC1091
