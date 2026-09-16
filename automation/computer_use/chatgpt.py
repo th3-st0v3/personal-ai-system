@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass
+from typing import Any, Mapping, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+from .adapters import AIAdapter
+from .contracts import AIResponse
+from .completion import completion_from_operation
+
+
+class ChatGPTAdapterError(RuntimeError):
+    """Raised when the ChatGPT bridge cannot satisfy an adapter operation."""
+
+
+class BridgeTransport(Protocol):
+    """Small HTTP transport seam for testing the ChatGPT adapter."""
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any]: ...
+
+
+@dataclass(frozen=True)
+class UrllibBridgeTransport:
+    """JSON transport for the localhost ChatGPT bridge."""
+
+    base_url: str = "http://127.0.0.1:8765"
+    timeout_seconds: float = 10.0
+    max_response_bytes: int = 2_000_000
+
+    def __post_init__(self) -> None:
+        if not self.base_url.startswith("http://127.0.0.1:"):
+            raise ValueError("ChatGPT bridge transport must target localhost HTTP")
+        if self.timeout_seconds <= 0 or self.max_response_bytes <= 0:
+            raise ValueError("transport bounds must be positive")
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any]:
+        body = None
+        headers: dict[str, str] = {}
+        if payload is not None:
+            body = json.dumps(dict(payload)).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(
+            f"{self.base_url.rstrip('/')}/{path.lstrip('/')}",
+            data=body,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                raw = response.read(self.max_response_bytes + 1)
+        except HTTPError as exc:
+            detail = exc.read(self.max_response_bytes).decode("utf-8", errors="replace")
+            raise ChatGPTAdapterError(f"bridge HTTP {exc.code}: {detail[:500]}") from exc
+        except URLError as exc:
+            raise ChatGPTAdapterError(f"bridge request failed: {exc.reason}") from exc
+        if len(raw) > self.max_response_bytes:
+            raise ChatGPTAdapterError("bridge response exceeded configured bound")
+        try:
+            result = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ChatGPTAdapterError("bridge returned invalid JSON") from exc
+        if not isinstance(result, Mapping):
+            raise ChatGPTAdapterError("bridge JSON response must be an object")
+        return result
+
+
+@dataclass
+class ChatGPTAdapter(AIAdapter):
+    """Semantic ChatGPT adapter built on the existing local bridge."""
+
+    transport: BridgeTransport
+    session_id: str
+    poll_interval_seconds: float = 1.0
+    max_wait_seconds: float = 3600.0
+    current_operation_id: str | None = None
+
+    provider: str = "chatgpt"
+
+    def __post_init__(self) -> None:
+        if not self.session_id.strip():
+            raise ValueError("session_id is required")
+        if self.poll_interval_seconds <= 0 or self.max_wait_seconds <= 0:
+            raise ValueError("polling bounds must be positive")
+
+    def new_session(self) -> str:
+        operation = self._queue("new_chat", "")
+        self.current_operation_id = self._operation_id(operation)
+        result = self.wait_for_completion(self.current_operation_id)
+        if result.completion != "complete":
+            raise ChatGPTAdapterError(
+                f"new ChatGPT session did not complete: {result.completion}"
+            )
+        return self.current_operation_id
+
+    def select_reasoning_mode(self, mode: str) -> None:
+        if not mode.strip():
+            raise ValueError("reasoning mode is required")
+        raise ChatGPTAdapterError(
+            "ChatGPT reasoning-mode UI control is not exposed by the current bridge"
+        )
+
+    def submit_prompt(self, prompt: str) -> str:
+        if not prompt.strip():
+            raise ValueError("prompt is required")
+        operation = self._queue("prompt", prompt)
+        operation_id = self._operation_id(operation)
+        self.current_operation_id = operation_id
+        return operation_id
+
+    def read_response(self) -> AIResponse:
+        if self.current_operation_id is None:
+            raise ChatGPTAdapterError("no active ChatGPT operation")
+        return self.read_operation(self.current_operation_id)
+
+    def read_operation(self, operation_id: str) -> AIResponse:
+        if not operation_id.strip():
+            raise ValueError("operation_id is required")
+        payload = self.transport.request(
+            "GET",
+            f"/operation?operation_id={quote(operation_id, safe='')}",
+        )
+        operation = payload.get("operation")
+        if not isinstance(operation, Mapping):
+            raise ChatGPTAdapterError("bridge response did not contain an operation")
+        return self._response_from_operation(operation)
+
+    def wait_for_completion(
+        self,
+        operation_id: str,
+        timeout_seconds: float | None = None,
+    ) -> AIResponse:
+        limit = self.max_wait_seconds if timeout_seconds is None else timeout_seconds
+        if limit <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        started = time.monotonic()
+        while True:
+            response = self.read_operation(operation_id)
+            if response.completion in {"complete", "error", "interrupted"}:
+                return response
+            if time.monotonic() - started >= limit:
+                return AIResponse(
+                    response_id=f"{operation_id}:timeout",
+                    session_id=self.session_id,
+                    provider=self.provider,
+                    operation_id=operation_id,
+                    text="",
+                    completion="timeout",
+                )
+            time.sleep(self.poll_interval_seconds)
+
+    def _queue(self, operation_type: str, prompt: str) -> Mapping[str, Any]:
+        payload = self.transport.request(
+            "POST",
+            "/queue",
+            {"operation_type": operation_type, "prompt": prompt},
+        )
+        operation = payload.get("operation")
+        if not isinstance(operation, Mapping):
+            raise ChatGPTAdapterError("bridge response did not contain an operation")
+        return operation
+
+    def _operation_id(self, operation: Mapping[str, Any]) -> str:
+        operation_id = operation.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            raise ChatGPTAdapterError("bridge operation_id is missing")
+        return operation_id
+
+    def _response_from_operation(self, operation: Mapping[str, Any]) -> AIResponse:
+        operation_id = self._operation_id(operation)
+        completion, text, response_available = completion_from_operation(operation)
+        return AIResponse(
+            response_id=f"{operation_id}:response",
+            session_id=self.session_id,
+            provider=self.provider,
+            operation_id=operation_id,
+            text=text,
+            completion=completion,
+            response_available=response_available,
+            chat_url=_optional_string(operation.get("chat_url")),
+        )
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) else None

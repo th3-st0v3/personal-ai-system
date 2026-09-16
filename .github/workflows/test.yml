@@ -40,6 +40,10 @@ jobs:
         run: |
           set -e
           for file in web/*.js; do node --check "$file"; done
+      - name: Validate automation JavaScript syntax
+        run: |
+          set -e
+          for file in automation/tampermonkey/*.js; do node --check "$file"; done
       - name: Frontend contract smoke test
         env:
           PYTHONPATH: src

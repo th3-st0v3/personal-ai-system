@@ -141,6 +141,7 @@ class AIResponse:
     operation_id: str | None
     text: str
     completion: CompletionState
+    response_available: bool = False
     chat_url: str | None = None
     model: str | None = None
     reasoning_mode: str | None = None
@@ -148,8 +149,8 @@ class AIResponse:
     def __post_init__(self) -> None:
         if not self.provider.strip():
             raise ValueError("provider is required")
-        if self.completion == "complete" and not self.text.strip():
-            raise ValueError("a complete AI response must contain text")
+        if self.response_available and not self.text.strip():
+            raise ValueError("response_available requires non-empty response text")
 
 
 @dataclass(frozen=True)
