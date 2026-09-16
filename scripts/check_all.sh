@@ -88,6 +88,22 @@ if ((${#SRC_NON_LEGACY_PYTHON_TEST_FILES[@]})); then
         python -m pytest -q "${SRC_NON_LEGACY_PYTHON_TEST_FILES[@]}"
 fi
 
+if ! python -c 'import browser_use' >/dev/null 2>&1; then
+    printf '\n==> Browser Use dependency\n'
+    python -m pip install -r requirements-browser.txt
+fi
+
+run_check "Browser Use compatibility" python -c '
+import importlib.metadata
+from browser_use import Agent, Browser
+
+version = importlib.metadata.version("browser-use")
+assert version == "0.13.10", version
+assert Agent is not None
+assert Browser is not None
+print(f"browser-use {version}: import compatibility OK")
+'
+
 if ((${#NON_SRC_PYTHON_TEST_FILES[@]})); then
     run_check "All discovered non-src Python tests" \
         python -m pytest -q "${NON_SRC_PYTHON_TEST_FILES[@]}"
@@ -109,22 +125,5 @@ done
 
 run_check "Frontend contract smoke test" python scripts/frontend_contract_test.py
 run_check "Browser/API smoke test" python scripts/ci_web_smoke.py
-
-if ! python -c 'import browser_use' >/dev/null 2>&1; then
-    printf '\n==> Browser Use dependency\n'
-    python -m pip install -r requirements-browser.txt
-fi
-
-run_check "Browser Use compatibility" python -c '
-import importlib.metadata
-from browser_use import Agent, Browser
-
-version = importlib.metadata.version("browser-use")
-assert version == "0.13.10", version
-assert Agent is not None
-assert Browser is not None
-print(f"browser-use {version}: import compatibility OK")
-'
-run_check "Browser integration contract tests" python -m pytest -q automation/computer_use/test_browser_use.py
 
 printf '\nALL LOCAL VALIDATION PASSED\n'
