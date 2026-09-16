@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
+
+from .research_schema import ResearchFinding, ResearchObservation
+from .schema_base import PASIModel
 
 
 SCHEMA_VERSION = "1.0"
@@ -38,13 +41,6 @@ Priority = Literal[
     "high",
     "critical",
 ]
-
-
-class PASIModel(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        validate_assignment=True,
-    )
 
 
 class ObjectiveContext(PASIModel):
@@ -132,8 +128,8 @@ class TestContext(PASIModel):
 
 class ResearchContext(PASIModel):
     objective: str = Field(min_length=1)
-    observations: list[str] = Field(default_factory=list)
-    findings: list[str] = Field(default_factory=list)
+    observations: list[ResearchObservation] = Field(default_factory=list)
+    findings: list[ResearchFinding] = Field(default_factory=list)
     sources_considered: list[str] = Field(default_factory=list)
     unanswered_questions: list[str] = Field(default_factory=list)
     evidence_quality: Literal[

@@ -43,26 +43,10 @@ jobs:
       - name: Browser/API smoke test
         env:
           PYTHONPATH: src
-        run: |
-          set -e
-          mkdir -p .runtime/ci
-          python scripts/serve_web.py > .runtime/ci/server.log 2>&1 &
-          server_pid=$!
-          trap 'kill $server_pid 2>/dev/null || true' EXIT
-          ready=0
-          for attempt in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null; then ready=1; break; fi
-            sleep 0.25
-          done
-          test "$ready" -eq 1
-          curl -fsS http://127.0.0.1:8000/ | grep -q 'chat-form'
-          curl -fsS http://127.0.0.1:8000/ | grep -q 'production-ui.js'
-          curl -fsS http://127.0.0.1:8000/api/health | grep -q '"status":"ok"'
-          curl -fsS http://127.0.0.1:8000/api/manifest | grep -q 'Engineering'
-          python scripts/e2e_api_smoke.py
+        run: python scripts/ci_web_smoke.py
       - name: Upload diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-diagnostics
           path: .runtime/ci
