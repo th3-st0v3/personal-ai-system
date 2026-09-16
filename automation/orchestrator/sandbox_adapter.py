@@ -154,7 +154,7 @@ class LocalBubblewrapSandbox:
                         process.wait()
                         return SandboxResult(
                             request_id=request.request_id,
-                            task_id=task_id,
+                            task_id=request.task_id,
                             step_id=request.step_id,
                             status="failed",
                             return_code=process.returncode,
