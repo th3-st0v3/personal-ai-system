@@ -12,34 +12,32 @@ _KNOWN_OPERATION_STATUSES = frozenset(
 
 def completion_from_operation(
     operation: Mapping[str, Any],
-) -> tuple[CompletionState, str]:
+) -> tuple[CompletionState, str, bool]:
     """Map bridge operation evidence to a CUCP completion state.
 
-    A bridge `completed` state is only treated as CUCP `complete` when the
-    controller explicitly reports that response text was observed. This keeps
-    transport acknowledgement separate from actual response evidence.
+    A bridge `completed` state is a verified controller acknowledgement that
+    generation finished. Response-text availability is reported separately.
     """
 
     status = operation.get("status")
     if not isinstance(status, str):
-        return "unknown", ""
+        return "unknown", "", False
     status = status.strip().lower()
     text = operation.get("response_text")
     response_text = text if isinstance(text, str) else ""
+    response_available = operation.get("response_text_available") is True and bool(response_text.strip())
 
     if status == "failed":
-        return "error", response_text
+        return "error", response_text, response_available
     if status == "cancelled":
-        return "interrupted", response_text
+        return "interrupted", response_text, response_available
     if status in {"queued", "claimed", "generating"}:
-        return "generating", response_text
+        return "generating", response_text, response_available
     if status == "completed":
-        if operation.get("response_text_available") is True and response_text.strip():
-            return "complete", response_text
-        return "unknown", response_text
+        return "complete", response_text, response_available
     if status not in _KNOWN_OPERATION_STATUSES:
-        return "unknown", response_text
-    return "unknown", response_text
+        return "unknown", response_text, response_available
+    return "unknown", response_text, response_available
 
 
 class ChatGPTCompletionDetector:
@@ -52,8 +50,8 @@ class ChatGPTCompletionDetector:
         latest = observations[-1]
         operation = latest.get("operation")
         if isinstance(operation, Mapping):
-            state, _ = completion_from_operation(operation)
-            if state != "unknown":
+            state, _, _ = completion_from_operation(operation)
+            if state in {"complete", "error", "interrupted", "generating"}:
                 return state
 
         browser = latest.get("browser")
