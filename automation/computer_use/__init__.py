@@ -2,6 +2,13 @@
 
 from .chatgpt import ChatGPTAdapter, ChatGPTAdapterError, UrllibBridgeTransport
 from .completion import ChatGPTCompletionDetector
+from .context import (
+    ConditionalPromptEngine,
+    ContextEngineError,
+    EvidenceContextCollector,
+    FollowUpDecision,
+    TaskState,
+)
 from .contracts import (
     ActionKind,
     ActionProposal,
@@ -34,4 +41,9 @@ __all__ = [
     "ChatGPTAdapterError",
     "UrllibBridgeTransport",
     "ChatGPTCompletionDetector",
+    "ConditionalPromptEngine",
+    "ContextEngineError",
+    "EvidenceContextCollector",
+    "FollowUpDecision",
+    "TaskState",
 ]

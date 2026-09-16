@@ -66,7 +66,7 @@ Diagnostics are normalized into stable fields for path, position, severity, sour
 
 State and diagnostics snapshots are evidence inputs, not execution instructions. Paths must resolve inside the workspace root, absolute paths are rejected, common generated/environment directories are skipped during inventory/search, and no write/delete/command API exists on the adapter.
 
-The adapter therefore fits the future context loop as:
+The adapter therefore fits the context loop as:
 
 ```text
 VS Code / LSP evidence
@@ -75,7 +75,7 @@ VSCodeEvidenceAdapter
   ↓
 Observation (workspace / file / search / diagnostics)
   ↓
-ContextCollector
+EvidenceContextCollector
   ↓
 ContextPackage
   ↓
@@ -96,35 +96,39 @@ The adapter exposes:
 - bounded `wait_for_completion()` polling;
 - an explicit failure when reasoning-mode UI control is requested but the current bridge/controller does not expose that capability.
 
-The existing controller now dispatches `new_chat` operations to its verified `startNewChat()` workflow. Prompt operations continue through the existing composer insertion, send-button verification, and generation polling path. The controller reports completion only after it observes generation stop across its verification window.
+The existing controller dispatches `new_chat` operations to its verified `startNewChat()` workflow. Prompt operations continue through the existing composer insertion, send-button verification, and generation polling path. The controller reports completion only after it observes generation stop across its verification window.
 
-Completion and response-text capture are deliberately separate. A `complete` state means the provider-side operation finished according to the controller's verified completion path; `response_available` indicates whether assistant text was actually captured. This allows the system to continue orchestration without pretending that missing response text exists.
+Completion and response-text capture are deliberately separate. A `complete` state means the provider-side operation finished according to the controller's verified completion path; `response_available` indicates whether assistant text was actually captured. This allows orchestration to distinguish “generation finished” from “text is available” without inventing content.
 
 The normalized completion states are:
 
 `generating`, `quiet`, `complete`, `interrupted`, `error`, `timeout`, and `unknown`.
 
-Unknown or ambiguous evidence never becomes success. A completed operation is still allowed to have `response_available = false`, while a response marked available must contain non-empty text. This distinction is important for later conditional prompting and evidence provenance.
+Unknown or ambiguous evidence never becomes success. A completed operation is allowed to have `response_available = false`, while a response marked available must contain non-empty text.
 
 ## Context and conditional prompting
 
-A later context engine will collect task-scoped observations from VS Code, GitHub, web research, prior AI responses, tests, and deterministic PASI artifacts. It will produce a `ContextPackage` that can be supplied to an AI provider.
+`EvidenceContextCollector` converts a bounded sequence of observations into a `ContextPackage`. It removes semantically duplicate observations even when they were captured at different times, uses stable JSON fingerprints for provenance, orders evidence deterministically, and applies both per-item and total-size limits.
+
+`ConditionalPromptEngine` evaluates an `AIResponse` against explicit `TaskState` requirements and known gaps. It does not infer that an absent statement is true or false; it records missing requirements as gaps and requests additional evidence or verification when needed. A response in `unknown`, `error`, `timeout`, or `interrupted` state always produces a follow-up gap rather than being treated as success.
 
 The intended loop is:
 
 ```text
 AI response
   ↓
-Evaluate response against task state
+Evaluate response against explicit task state
   ↓
-Collect missing/independent evidence
+Collect missing / independent evidence
   ↓
-Compose conditional follow-up prompt
+Build bounded ContextPackage
+  ↓
+Compose conditional follow-up prompt (only when a gap exists)
   ↓
 Submit to selected provider
 ```
 
-The follow-up prompt is therefore evidence-driven rather than a fixed retry string.
+Follow-up prompts carry no authorization. They explicitly treat repository files, diagnostics, web content, and prior model output as untrusted evidence and instruct the model not to claim unobserved capabilities, approvals, tests, or external facts.
 
 ## Authorization
 
@@ -164,8 +168,8 @@ Verification
 
 1. Contract and state-machine foundation.
 2. Read-only VS Code observation and diagnostics adapter.
-3. ChatGPT adapter integration with robust completion detection (this slice).
-4. Conditional prompt/context engine.
+3. ChatGPT adapter integration with robust completion detection.
+4. Bounded evidence context and conditional follow-up engine (this slice).
 5. Web research adapter.
 6. Claude independent-review adapter.
 7. GitHub API/connector plus UI fallback adapter.
