@@ -66,7 +66,7 @@ class BrowserUseTaskAdapter:
             raise BrowserUseAdapterError("browser task exceeds configured bound")
 
         try:
-            from browser_use import Agent, Browser
+            from browser_use import Agent, Browser  # pyright: ignore[reportMissingImports]
         except ImportError as exc:
             raise BrowserUseUnavailable(
                 "browser-use is optional; install requirements-browser.txt to enable it"
