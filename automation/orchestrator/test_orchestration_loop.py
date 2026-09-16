@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 from automation.orchestrator.authorized_executor import AuthorizedExecutor
 from automation.orchestrator.context_schema import (
@@ -19,8 +20,8 @@ from automation.orchestrator.context_schema import (
     TestSummary as PASITestSummary,
     WorkingTreeContext,
 )
-from automation.orchestrator.execution_schema import ExecutionRequest, ExecutionResult
 from automation.orchestrator.execution_adapter import ExecutionAdapter
+from automation.orchestrator.execution_schema import ExecutionRequest, ExecutionResult
 from automation.orchestrator.models import CurrentTask, ProjectState
 from automation.orchestrator.orchestration_loop import (
     BrowserVerificationResult,
@@ -173,7 +174,7 @@ def make_plan(*, browser: bool = False) -> PlannerResult:
     )
 
 
-def test_safe_execution_runs_tests_and_completes(tmp_path) -> None:
+def test_safe_execution_runs_tests_and_completes(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -198,7 +199,7 @@ def test_safe_execution_runs_tests_and_completes(tmp_path) -> None:
     assert state.load_retry_state()["replans"] == 0
 
 
-def test_consequential_plan_waits_for_external_approval(tmp_path) -> None:
+def test_consequential_plan_waits_for_external_approval(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -232,7 +233,7 @@ def test_consequential_plan_waits_for_external_approval(tmp_path) -> None:
     assert state.load_retry_state()["source"] == "authorization"
 
 
-def test_execution_failure_routes_to_diagnosis_and_replan(tmp_path) -> None:
+def test_execution_failure_routes_to_diagnosis_and_replan(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter(should_fail=True)
     connection, executor = make_executor(adapter)
@@ -264,7 +265,7 @@ def test_execution_failure_routes_to_diagnosis_and_replan(tmp_path) -> None:
     assert len(result.execution_results) == 1
 
 
-def test_failed_tests_route_to_diagnosis_and_handoff_when_retry_budget_is_exhausted(tmp_path) -> None:
+def test_failed_tests_route_to_diagnosis_and_handoff_when_retry_budget_is_exhausted(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -302,7 +303,7 @@ def test_failed_tests_route_to_diagnosis_and_handoff_when_retry_budget_is_exhaus
     assert state.load_retry_state()["source"] == "testing"
 
 
-def test_browser_failure_routes_to_diagnosis(tmp_path) -> None:
+def test_browser_failure_routes_to_diagnosis(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -336,7 +337,7 @@ def test_browser_failure_routes_to_diagnosis(tmp_path) -> None:
     assert state.load_retry_state()["source"] == "browser_verification"
 
 
-def test_missing_browser_verifier_is_not_treated_as_success(tmp_path) -> None:
+def test_missing_browser_verifier_is_not_treated_as_success(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
