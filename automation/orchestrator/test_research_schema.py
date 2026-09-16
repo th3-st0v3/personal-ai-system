@@ -6,6 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from automation.orchestrator.research_schema import (
+    Confidence,
+    ObservationKind,
     ResearchFinding,
     ResearchObservation,
 )
@@ -106,10 +108,12 @@ def test_finding_requires_a_statement() -> None:
 
 def test_research_schema_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError):
-        ResearchFinding(
-            finding_id="finding-1",
-            statement="A finding.",
-            unexpected_field="not allowed",
+        ResearchFinding.model_validate(
+            {
+                "finding_id": "finding-1",
+                "statement": "A finding.",
+                "unexpected_field": "not allowed",
+            }
         )
 
 
@@ -121,7 +125,7 @@ def test_research_schema_rejects_unknown_fields() -> None:
         "inferred_behavior",
     ],
 )
-def test_observation_kind_is_constrained(kind: str) -> None:
+def test_observation_kind_is_constrained(kind: ObservationKind) -> None:
     observation = ResearchObservation(
         observation_id="obs-kind",
         subject="Test subject",
@@ -137,7 +141,7 @@ def test_observation_kind_is_constrained(kind: str) -> None:
     "confidence",
     ["low", "medium", "high"],
 )
-def test_confidence_is_constrained(confidence: str) -> None:
+def test_confidence_is_constrained(confidence: Confidence) -> None:
     observation = ResearchObservation(
         observation_id="obs-confidence",
         subject="Test subject",
@@ -158,19 +162,23 @@ def test_confidence_is_constrained(confidence: str) -> None:
 
 def test_invalid_research_values_are_rejected() -> None:
     with pytest.raises(ValidationError):
-        ResearchObservation(
-            observation_id="obs-invalid",
-            subject="Test",
-            aspect="Behavior",
-            statement="Something happened.",
-            kind="guess",
+        ResearchObservation.model_validate(
+            {
+                "observation_id": "obs-invalid",
+                "subject": "Test",
+                "aspect": "Behavior",
+                "statement": "Something happened.",
+                "kind": "guess",
+            }
         )
 
     with pytest.raises(ValidationError):
-        ResearchFinding(
-            finding_id="finding-invalid",
-            statement="Something was found.",
-            confidence="certain",
+        ResearchFinding.model_validate(
+            {
+                "finding_id": "finding-invalid",
+                "statement": "Something was found.",
+                "confidence": "certain",
+            }
         )
 
 
