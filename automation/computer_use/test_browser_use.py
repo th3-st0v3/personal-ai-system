@@ -9,13 +9,17 @@ from automation.computer_use.browser_challenge import (
     mark_cleared,
     mark_waiting_human,
 )
-from automation.computer_use.browser_recovery import BrowserRecoveryResult
+from automation.computer_use.browser_recovery import (
+    BrowserRecoveryResult,
+    ResearchFallbackResolver,
+)
 from automation.computer_use.browser_use_adapter import (
     BrowserRunResult,
     BrowserUseAdapterError,
     BrowserUseTaskAdapter,
 )
-from automation.computer_use.contracts import ActionProposal
+from automation.computer_use.contracts import ActionProposal, Observation
+from automation.computer_use.research import ResearchAdapterError
 
 
 class FakeFallbackResolver:
@@ -30,6 +34,21 @@ class FakeFallbackResolver:
     ) -> BrowserRecoveryResult | None:
         self.calls.append((task, challenge))
         return self.result
+
+
+class FakeResearch:
+    def __init__(self, observation: Observation | None = None, error: Exception | None = None) -> None:
+        self.observation = observation
+        self.error = error
+        self.queries: list[str] = []
+
+    def search(self, query: str) -> Observation:
+        self.queries.append(query)
+        if self.error is not None:
+            raise self.error
+        if self.observation is None:
+            raise AssertionError("missing fake observation")
+        return self.observation
 
 
 class BrowserChallengeTests(unittest.TestCase):
@@ -134,9 +153,6 @@ class BrowserUseAdapterTests(unittest.TestCase):
             asyncio.run(bounded.run("12345"))
 
     def test_missing_optional_dependency_fails_explicitly_when_unavailable(self) -> None:
-        # Core CI intentionally does not install browser-use. The import boundary
-        # must fail with the adapter's explicit optional-dependency error rather
-        # than a generic AttributeError/ImportError leak.
         try:
             import browser_use  # type: ignore[import-not-found] # noqa: F401
         except ImportError:
@@ -233,7 +249,78 @@ class BrowserUseAdapterTests(unittest.TestCase):
         self.assertIn("challenge", observation.data)
 
 
-class BrowserRecoveryResultTests(unittest.TestCase):
+class BrowserRecoveryTests(unittest.TestCase):
+    def _challenge(self) -> BrowserChallenge:
+        return BrowserChallenge(
+            challenge_id="c3",
+            session_id="s1",
+            kind="cloudflare",
+            state="detected",
+            url="https://blocked.example/article",
+            title="Just a moment...",
+        )
+
+    def test_research_fallback_accepts_independent_host(self) -> None:
+        research = FakeResearch(
+            Observation(
+                observation_id="research-search:1",
+                session_id="unspecified",
+                source="web",
+                kind="search",
+                data={
+                    "sources": [
+                        {
+                            "url": "https://blocked.example/mirror",
+                            "title": "Same host",
+                            "content": "protected copy",
+                        },
+                        {
+                            "url": "https://independent.example/article",
+                            "title": "Independent copy",
+                            "content": "usable evidence",
+                        },
+                    ]
+                },
+            )
+        )
+        resolver = ResearchFallbackResolver(research)
+        result = asyncio.run(resolver.resolve("article details", self._challenge()))
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.status, "fallback_succeeded")
+        self.assertEqual(result.source_url, "https://independent.example/article")
+        self.assertEqual(research.queries, ["article details"])
+
+    def test_research_fallback_returns_none_when_research_is_unavailable(self) -> None:
+        research = FakeResearch(error=ResearchAdapterError("no provider"))
+        resolver = ResearchFallbackResolver(research)
+        self.assertIsNone(
+            asyncio.run(resolver.resolve("article details", self._challenge()))
+        )
+
+    def test_research_fallback_does_not_succeed_with_same_host_only(self) -> None:
+        research = FakeResearch(
+            Observation(
+                observation_id="research-search:2",
+                session_id="unspecified",
+                source="web",
+                kind="search",
+                data={
+                    "sources": [
+                        {
+                            "url": "https://blocked.example/other",
+                            "title": "Same host",
+                            "content": "protected copy",
+                        }
+                    ]
+                },
+            )
+        )
+        resolver = ResearchFallbackResolver(research)
+        self.assertIsNone(
+            asyncio.run(resolver.resolve("article details", self._challenge()))
+        )
+
     def test_recovery_status_and_provider_are_validated(self) -> None:
         BrowserRecoveryResult(status="fallback_succeeded", provider="research")
         with self.assertRaises(ValueError):
