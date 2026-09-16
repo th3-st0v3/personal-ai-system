@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .browser_challenge import BrowserChallenge, detect_browser_challenge, mark_waiting_human
+from .browser_recovery import BrowserFallbackResolver, BrowserRecoveryResult
 from .contracts import ActionProposal, Observation
 
 
@@ -23,6 +24,7 @@ class BrowserRunResult:
     url: str = ""
     title: str = ""
     challenge: BrowserChallenge | None = None
+    recovery: BrowserRecoveryResult | None = None
 
     def observation(self) -> Observation:
         data: dict[str, Any] = {
@@ -33,6 +35,13 @@ class BrowserRunResult:
         }
         if self.challenge is not None:
             data["challenge"] = self.challenge.to_dict()
+        if self.recovery is not None:
+            data["recovery"] = {
+                "status": self.recovery.status,
+                "provider": self.recovery.provider,
+                "source_url": self.recovery.source_url,
+                "source_title": self.recovery.source_title,
+            }
         return Observation(
             observation_id=f"browser-run:{self.session_id}",
             session_id=self.session_id,
@@ -44,11 +53,12 @@ class BrowserRunResult:
 
 @dataclass
 class BrowserUseTaskAdapter:
-    """Optional Browser Use integration with explicit human challenge handoff."""
+    """Optional Browser Use integration with safe challenge recovery."""
 
     session_id: str
     llm_factory: Callable[[], Any]
     browser_factory: Callable[[], Any] | None = None
+    fallback_resolver: BrowserFallbackResolver | None = None
     max_steps: int = 40
     max_task_chars: int = 8_000
     background: bool = True
@@ -58,6 +68,37 @@ class BrowserUseTaskAdapter:
             raise ValueError("session_id is required")
         if self.max_steps <= 0 or self.max_task_chars <= 0:
             raise ValueError("browser task bounds must be positive")
+
+    async def _challenge_result(
+        self,
+        task: str,
+        challenge: BrowserChallenge,
+    ) -> BrowserRunResult:
+        if self.fallback_resolver is not None:
+            try:
+                recovery = await self.fallback_resolver.resolve(task, challenge)
+            except Exception as exc:
+                raise BrowserUseAdapterError(
+                    f"browser challenge fallback failed: {exc}"
+                ) from exc
+            if recovery is not None and recovery.status == "fallback_succeeded":
+                return BrowserRunResult(
+                    session_id=self.session_id,
+                    status="fallback_succeeded",
+                    result_text=recovery.result_text[:8000],
+                    url=recovery.source_url,
+                    title=recovery.source_title,
+                    challenge=challenge,
+                    recovery=recovery,
+                )
+
+        return BrowserRunResult(
+            session_id=self.session_id,
+            status="challenge_required",
+            url=challenge.url,
+            title=challenge.title,
+            challenge=mark_waiting_human(challenge),
+        )
 
     async def run(self, task: str) -> BrowserRunResult:
         if not task.strip():
@@ -99,7 +140,7 @@ class BrowserUseTaskAdapter:
                     session_id=self.session_id,
                 )
                 if challenge is not None:
-                    challenge_holder["challenge"] = mark_waiting_human(challenge)
+                    challenge_holder["challenge"] = challenge
             except Exception:
                 return
 
@@ -110,8 +151,8 @@ class BrowserUseTaskAdapter:
             "Perform the requested browser task using only information and controls "
             "available through the browser. If you encounter a CAPTCHA, Cloudflare, "
             "Turnstile, login gate, or other challenge/interstitial, stop immediately "
-            "and report that a human must complete it. Do not bypass, solve, extract "
-            "tokens from, disable, or evade any security challenge.\n\n"
+            "and report the challenge. Do not bypass, solve, extract tokens from, "
+            "disable, spoof, or evade any security challenge.\n\n"
             f"Task: {task}"
         )
 
@@ -129,24 +170,12 @@ class BrowserUseTaskAdapter:
         except Exception as exc:
             challenge = challenge_holder.get("challenge")
             if challenge is not None:
-                return BrowserRunResult(
-                    session_id=self.session_id,
-                    status="challenge_required",
-                    url=challenge.url,
-                    title=challenge.title,
-                    challenge=challenge,
-                )
+                return await self._challenge_result(task, challenge)
             raise BrowserUseAdapterError(f"Browser Use task failed: {exc}") from exc
 
         challenge = challenge_holder.get("challenge")
         if challenge is not None:
-            return BrowserRunResult(
-                session_id=self.session_id,
-                status="challenge_required",
-                url=challenge.url,
-                title=challenge.title,
-                challenge=challenge,
-            )
+            return await self._challenge_result(task, challenge)
 
         result_text = ""
         try:
