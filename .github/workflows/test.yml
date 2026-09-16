@@ -62,7 +62,7 @@ jobs:
           python scripts/e2e_api_smoke.py
       - name: Upload diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-diagnostics
           path: .runtime/ci
