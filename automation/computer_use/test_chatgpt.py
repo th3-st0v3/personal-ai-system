@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from automation.computer_use.chatgpt import ChatGPTAdapter, ChatGPTAdapterError
 from automation.computer_use.completion import ChatGPTCompletionDetector, completion_from_operation
+from automation.computer_use.contracts import Observation
 
 
 class FakeTransport:
@@ -22,6 +23,16 @@ class FakeTransport:
         if not self.responses:
             raise AssertionError("unexpected transport request")
         return self.responses.pop(0)
+
+
+def observation(data: Mapping[str, Any]) -> Observation:
+    return Observation(
+        observation_id="test-observation",
+        session_id="session-1",
+        source="test",
+        kind="completion",
+        data=data,
+    )
 
 
 class CompletionTests(unittest.TestCase):
@@ -58,20 +69,20 @@ class CompletionTests(unittest.TestCase):
     def test_detector_prefers_operation_error_over_browser_quiet(self) -> None:
         detector = ChatGPTCompletionDetector()
         self.assertEqual(
-            detector.detect([{"operation": {"status": "failed"}, "browser": {"quiet": True}}]),
+            detector.detect([observation({"operation": {"status": "failed"}, "browser": {"quiet": True}})]),
             "error",
         )
 
     def test_detector_maps_browser_evidence_when_operation_is_unavailable(self) -> None:
         detector = ChatGPTCompletionDetector()
-        self.assertEqual(detector.detect([{"browser": {"generation_active": True}}]), "generating")
-        self.assertEqual(detector.detect([{"browser": {"quiet": True}}]), "quiet")
-        self.assertEqual(detector.detect([{"browser": {"interrupted": True}}]), "interrupted")
+        self.assertEqual(detector.detect([observation({"browser": {"generation_active": True}})]), "generating")
+        self.assertEqual(detector.detect([observation({"browser": {"quiet": True}})]), "quiet")
+        self.assertEqual(detector.detect([observation({"browser": {"interrupted": True}})]), "interrupted")
 
     def test_detector_never_treats_ambiguous_evidence_as_success(self) -> None:
         detector = ChatGPTCompletionDetector()
-        for observation in ({}, {"operation": {}}, {"browser": {}}):
-            self.assertEqual(detector.detect([observation]), "unknown")
+        for item in ({}, {"operation": {}}, {"browser": {}}):
+            self.assertEqual(detector.detect([observation(item)]), "unknown")
 
 
 class ChatGPTAdapterTests(unittest.TestCase):
