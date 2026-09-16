@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -45,11 +44,7 @@ class BrowserRunResult:
 
 @dataclass
 class BrowserUseTaskAdapter:
-    """Optional Browser Use integration with explicit human challenge handoff.
-
-    The adapter intentionally does not expose CAPTCHA/Cloudflare solving or
-    fingerprint/rate-limit evasion. A detected challenge is a non-success result.
-    """
+    """Optional Browser Use integration with explicit human challenge handoff."""
 
     session_id: str
     llm_factory: Callable[[], Any]
@@ -106,7 +101,6 @@ class BrowserUseTaskAdapter:
                 if challenge is not None:
                     challenge_holder["challenge"] = mark_waiting_human(challenge)
             except Exception:
-                # Observation failure must not become an implicit success signal.
                 return
 
         async def should_stop() -> bool:
@@ -158,7 +152,7 @@ class BrowserUseTaskAdapter:
         try:
             result_text = str(history.final_result() or "")
         except Exception:
-            result_text = ""
+            pass
 
         url = ""
         title = ""
@@ -176,7 +170,12 @@ class BrowserUseTaskAdapter:
             title=title,
         )
 
-    def execute_authorized(self, action: ActionProposal, *, approval_granted: bool) -> BrowserRunResult:
+    async def execute_authorized(
+        self,
+        action: ActionProposal,
+        *,
+        approval_granted: bool,
+    ) -> BrowserRunResult:
         """Execute only an explicitly approved browser_task action."""
         if action.session_id != self.session_id:
             raise ValueError("action belongs to a different session")
@@ -187,4 +186,4 @@ class BrowserUseTaskAdapter:
         task = action.parameters.get("task")
         if not isinstance(task, str):
             raise ValueError("browser_task action requires a string task parameter")
-        return asyncio.run(self.run(task))
+        return await self.run(task)
