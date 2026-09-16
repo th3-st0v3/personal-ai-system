@@ -130,6 +130,21 @@ class TestContext(PASIModel):
     build: BuildContext | None = None
 
 
+class ResearchContext(PASIModel):
+    objective: str = Field(min_length=1)
+    observations: list[str] = Field(default_factory=list)
+    findings: list[str] = Field(default_factory=list)
+    sources_considered: list[str] = Field(default_factory=list)
+    unanswered_questions: list[str] = Field(default_factory=list)
+    evidence_quality: Literal[
+        "poor",
+        "fair",
+        "good",
+        "strong",
+        "unknown",
+    ] = "unknown"
+
+
 class BrowserControl(PASIModel):
     id: str = Field(min_length=1)
     control: str = Field(min_length=1)
@@ -228,6 +243,7 @@ class ContextPackage(PASIModel):
     memory: MemoryContext
     git_wsl: GitWslContext
     tests: TestContext
+    research: ResearchContext | None = None
     browser: BrowserContext
     files: FilesContext
     previous_attempts: list[PreviousAttempt] = Field(default_factory=list)
@@ -253,6 +269,7 @@ class ContextPackage(PASIModel):
         memory: MemoryContext,
         git_wsl: GitWslContext,
         tests: TestContext,
+        research: ResearchContext | None = None,
         browser: BrowserContext,
         files: FilesContext,
         previous_attempts: list[PreviousAttempt] | None = None,
@@ -269,6 +286,7 @@ class ContextPackage(PASIModel):
             memory=memory,
             git_wsl=git_wsl,
             tests=tests,
+            research=research,
             browser=browser,
             files=files,
             previous_attempts=previous_attempts or [],

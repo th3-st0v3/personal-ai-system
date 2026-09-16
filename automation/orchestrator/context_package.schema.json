@@ -763,6 +763,61 @@
       "title": "RepositoryContext",
       "type": "object"
     },
+    "ResearchContext": {
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "minLength": 1,
+          "title": "Objective",
+          "type": "string"
+        },
+        "observations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "sources_considered": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources Considered",
+          "type": "array"
+        },
+        "unanswered_questions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unanswered Questions",
+          "type": "array"
+        },
+        "evidence_quality": {
+          "default": "unknown",
+          "enum": [
+            "poor",
+            "fair",
+            "good",
+            "strong",
+            "unknown"
+          ],
+          "title": "Evidence Quality",
+          "type": "string"
+        }
+      },
+      "required": [
+        "objective"
+      ],
+      "title": "ResearchContext",
+      "type": "object"
+    },
     "TestContext": {
       "additionalProperties": false,
       "properties": {
@@ -963,6 +1018,17 @@
     },
     "tests": {
       "$ref": "#/$defs/TestContext"
+    },
+    "research": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResearchContext"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "browser": {
       "$ref": "#/$defs/BrowserContext"

@@ -8,6 +8,12 @@ from automation.orchestrator.context_schema import (
     AgentRequest,
     ContextPackage,
 )
+from automation.orchestrator.research_collector_schema import (
+    ResearchRequest,
+    ResearchResult,
+)
+from automation.orchestrator.research_schema import ResearchObservation
+from automation.orchestrator.research_state import ResearchState
 from automation.orchestrator.main import main
 from automation.orchestrator.state import StateManager
 from automation.orchestrator.planner_schema import PlannerResult
@@ -309,3 +315,140 @@ def test_main_plans_with_the_same_agent_request_and_context_package(
     assert captured_request.task == "Verify the authentication flow."
     assert captured_context.objective.primary == "Verify the authentication flow."
     assert captured_context == persisted_context
+
+
+def test_main_collects_research_for_the_task(
+    tmp_path: Path,
+) -> None:
+    ai_dir = tmp_path / ".ai"
+    ai_dir.mkdir()
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    captured_request: ResearchRequest | None = None
+    captured_result: ResearchResult | None = None
+
+    class CapturingCollector:
+        def collect(
+            self,
+            request: ResearchRequest,
+        ) -> ResearchResult:
+            nonlocal captured_request, captured_result
+
+            captured_request = request
+            captured_result = ResearchResult(
+                objective=request.objective,
+                observations=[
+                    ResearchObservation(
+                        observation_id="obs-1",
+                        subject="login",
+                        aspect="route",
+                        statement="The login route exists.",
+                    )
+                ],
+                findings=[],
+                sources_considered=["repo://src/login.py"],
+                unanswered_questions=[
+                    "Browser behavior still needs verification."
+                ],
+                evidence_quality="good",
+            )
+            return captured_result
+
+    with patch(
+        "automation.orchestrator.main.FakeResearchCollector",
+        return_value=CapturingCollector(),
+    ):
+        run_main(
+            project_root,
+            ai_dir,
+            "Make the login button work.",
+        )
+
+    assert captured_request is not None
+    assert captured_result is not None
+
+    assert captured_request.objective == (
+        "Make the login button work."
+    )
+
+    context = ContextPackage.model_validate(
+        StateManager(ai_dir).load_context_package()
+    )
+
+    assert context.research is not None
+    assert context.research.objective == (
+        "Make the login button work."
+    )
+    assert context.research.observations == [
+        "The login route exists."
+    ]
+    assert context.research.sources_considered == [
+        "repo://src/login.py"
+    ]
+    assert context.research.unanswered_questions == [
+        "Browser behavior still needs verification."
+    ]
+    assert context.research.evidence_quality == "good"
+
+
+def test_main_persists_research_state_for_current_task(
+    tmp_path: Path,
+) -> None:
+    ai_dir = tmp_path / ".ai"
+    ai_dir.mkdir()
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    class CapturingCollector:
+        def collect(
+            self,
+            request: ResearchRequest,
+        ) -> ResearchResult:
+            return ResearchResult(
+                objective=request.objective,
+                observations=[
+                    ResearchObservation(
+                        observation_id="obs-1",
+                        subject="login",
+                        aspect="route",
+                        statement="The login route exists.",
+                    )
+                ],
+                findings=[],
+                sources_considered=["repo://src/login.py"],
+                unanswered_questions=[
+                    "Browser behavior still needs verification."
+                ],
+                evidence_quality="good",
+            )
+
+    with patch(
+        "automation.orchestrator.main.FakeResearchCollector",
+        return_value=CapturingCollector(),
+    ):
+        run_main(
+            project_root,
+            ai_dir,
+            "Make the login button work.",
+        )
+
+    state = StateManager(ai_dir)
+    task = state.load_current_task()
+    research = ResearchState.model_validate(
+        state.load_research_state()
+    )
+
+    assert research.task_id == task["task_id"]
+    assert research.observations[0].statement == (
+        "The login route exists."
+    )
+    assert research.sources_considered == [
+        "repo://src/login.py"
+    ]
+    assert research.unanswered_questions == [
+        "Browser behavior still needs verification."
+    ]
+    assert research.evidence_quality == "good"

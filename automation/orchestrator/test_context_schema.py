@@ -18,6 +18,7 @@ from automation.orchestrator.context_schema import (
     ProjectContext,
     RelevantFile,
     RepositoryContext,
+    ResearchContext,
     WorkingTreeContext,
     TestContext as PASITestContext,
     TestSummary as PASITestSummary,
@@ -97,6 +98,26 @@ def test_context_package_can_be_created() -> None:
     assert package.objective.primary == "Make the login button work."
     assert package.git_wsl.sync_state == "SYNCED"
     assert package.tests.summary.passed == 10
+
+
+def test_context_package_accepts_research_context() -> None:
+    package = make_package()
+
+    package.research = ResearchContext(
+        objective="Make the login button work.",
+        observations=["The login route exists."],
+        findings=["Authentication uses the existing session layer."],
+        sources_considered=["repo://src/auth.py"],
+        unanswered_questions=["Browser behavior still needs verification."],
+        evidence_quality="good",
+    )
+
+    assert package.research is not None
+    assert package.research.objective == "Make the login button work."
+    assert package.research.evidence_quality == "good"
+    assert package.research.findings == [
+        "Authentication uses the existing session layer."
+    ]
 
 
 def test_created_context_has_timezone_aware_timestamp() -> None:

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pydantic import Field
 
 from .context_schema import PASIModel
+from .research_collector_schema import ResearchEvidenceQuality
 from .research_schema import ResearchFinding, ResearchObservation
 
 
@@ -16,6 +17,9 @@ class ResearchState(PASIModel):
     task_id: str = Field(min_length=1)
     observations: list[ResearchObservation] = Field(default_factory=list)
     findings: list[ResearchFinding] = Field(default_factory=list)
+    sources_considered: list[str] = Field(default_factory=list)
+    unanswered_questions: list[str] = Field(default_factory=list)
+    evidence_quality: ResearchEvidenceQuality = "unknown"
     updated_at: datetime = Field(default_factory=utc_now)
 
     def add_observation(

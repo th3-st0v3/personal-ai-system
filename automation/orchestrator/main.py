@@ -5,12 +5,19 @@ from uuid import uuid4
 
 from .config import CONFIG, ensure_runtime_directories
 from .context_builder import ContextBuilder
-from .context_schema import ExecutionPolicy, ObjectiveContext
+from .context_schema import (
+    ExecutionPolicy,
+    ObjectiveContext,
+    ResearchContext,
+)
+from .fake_planner_adapter import FakePlannerAdapter
+from .fake_research_collector import FakeResearchCollector
 from .git_manager import GitManager
 from .models import CurrentTask, ProjectState
 from .planner import Planner
 from .planner_schema import PlannerResult
-from .fake_planner_adapter import FakePlannerAdapter
+from .research_collector_schema import ResearchRequest
+from .research_state import ResearchState
 from .state import StateManager
 from .test_runner import TestRunner
 
@@ -128,11 +135,52 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
         execution_policy=execution_policy,
     )
 
+    research_request = ResearchRequest(
+        objective=objective,
+    )
+
+    research_collector = FakeResearchCollector()
+    research_result = research_collector.collect(research_request)
+    research_state = ResearchState(
+        task_id=task.task_id,
+        observations=list(research_result.observations),
+        findings=list(research_result.findings),
+        sources_considered=list(
+            research_result.sources_considered
+        ),
+        unanswered_questions=list(
+            research_result.unanswered_questions
+        ),
+        evidence_quality=research_result.evidence_quality,
+    )
+
+    state.save_research_state(research_state)
+
+    research_context = ResearchContext(
+        objective=research_result.objective,
+        observations=[
+            observation.statement
+            for observation in research_result.observations
+        ],
+        findings=[
+            finding.statement
+            for finding in research_result.findings
+        ],
+        sources_considered=list(
+            research_result.sources_considered
+        ),
+        unanswered_questions=list(
+            research_result.unanswered_questions
+        ),
+        evidence_quality=research_result.evidence_quality,
+    )
+
     context_package = context_builder.build(
         objective=ObjectiveContext(
             primary=objective,
         ),
         execution_policy=execution_policy,
+        research=research_context,
         agent_request=agent_request,
     )
     state.save_context_package(context_package)
@@ -154,6 +202,24 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
 
     state.save_current_task(task)
     state.save_project_state(project_state)
+
+    print()
+    print("=== RESEARCH RESULT ===")
+    print(f"Objective: {research_result.objective}")
+    print(f"Observations: {len(research_result.observations)}")
+    print(f"Findings: {len(research_result.findings)}")
+    print(
+        f"Sources considered: "
+        f"{research_result.sources_considered}"
+    )
+    print(
+        f"Unanswered questions: "
+        f"{research_result.unanswered_questions}"
+    )
+    print(
+        f"Evidence quality: "
+        f"{research_result.evidence_quality}"
+    )
 
     print()
     print("=== CONTEXT PACKAGE ===")

@@ -45,6 +45,9 @@ def test_research_state_starts_empty() -> None:
     assert state.task_id == "task_test_001"
     assert state.observations == []
     assert state.findings == []
+    assert state.sources_considered == []
+    assert state.unanswered_questions == []
+    assert state.evidence_quality == "unknown"
     assert state.updated_at.tzinfo is not None
 
 
@@ -79,6 +82,28 @@ def test_research_state_can_contain_both_observations_and_findings() -> None:
     assert state.findings[0].supporting_observations == ["obs-001"]
 
 
+def test_research_state_preserves_research_metadata() -> None:
+    state = make_state()
+
+    state.sources_considered = [
+        "source:simulator",
+        "source:documentation",
+    ]
+    state.unanswered_questions = [
+        "How is simulation state persisted?"
+    ]
+    state.evidence_quality = "good"
+
+    assert state.sources_considered == [
+        "source:simulator",
+        "source:documentation",
+    ]
+    assert state.unanswered_questions == [
+        "How is simulation state persisted?"
+    ]
+    assert state.evidence_quality == "good"
+
+
 def test_research_state_requires_task_id() -> None:
     with pytest.raises(ValidationError):
         ResearchState(task_id="")
@@ -88,12 +113,20 @@ def test_research_state_serializes_to_json() -> None:
     state = make_state()
     state.add_observation(make_observation())
     state.add_finding(make_finding())
+    state.sources_considered = ["source:simulator"]
+    state.unanswered_questions = ["What remains to verify?"]
+    state.evidence_quality = "good"
 
     payload = state.model_dump(mode="json")
 
     assert payload["task_id"] == "task_test_001"
     assert payload["observations"][0]["observation_id"] == "obs-001"
     assert payload["findings"][0]["finding_id"] == "finding-001"
+    assert payload["sources_considered"] == ["source:simulator"]
+    assert payload["unanswered_questions"] == [
+        "What remains to verify?"
+    ]
+    assert payload["evidence_quality"] == "good"
 
     json.dumps(payload)
 

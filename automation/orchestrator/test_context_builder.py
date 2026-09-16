@@ -6,6 +6,7 @@ from pathlib import Path
 from automation.orchestrator.context_builder import ContextBuilder
 from automation.orchestrator.context_schema import (
     ObjectiveContext,
+    ResearchContext,
 )
 from automation.orchestrator.git_manager import GitManager
 from automation.orchestrator.state import StateManager
@@ -40,6 +41,67 @@ def test_builder_produces_valid_context_without_optional_evidence(
     assert package.execution_policy.allowed_actions == []
     assert package.git_wsl.sync_state == "UNKNOWN"
     assert package.tests.status == "unknown"
+
+
+def test_builder_accepts_research_context(
+    tmp_path: Path,
+) -> None:
+    builder = make_builder(tmp_path)
+
+    research = ResearchContext(
+        objective="Make the login button work.",
+        observations=["The login route exists."],
+        findings=["Authentication uses the existing session layer."],
+        sources_considered=["repo://src/auth.py"],
+        unanswered_questions=["Browser behavior still needs verification."],
+        evidence_quality="good",
+    )
+
+    package = builder.build(
+        objective=ObjectiveContext(
+            primary="Make the login button work.",
+        ),
+        research=research,
+    )
+
+    assert package.research == research
+    assert package.research is not None
+    assert package.research.evidence_quality == "good"
+
+
+def test_builder_serializes_research_context(
+    tmp_path: Path,
+) -> None:
+    builder = make_builder(tmp_path)
+
+    research = ResearchContext(
+        objective="Make the login button work.",
+        observations=["The login route exists."],
+        findings=["Authentication uses the existing session layer."],
+        sources_considered=["repo://src/auth.py"],
+        unanswered_questions=["Browser behavior still needs verification."],
+        evidence_quality="good",
+    )
+
+    package = builder.build(
+        objective=ObjectiveContext(
+            primary="Make the login button work.",
+        ),
+        research=research,
+    )
+
+    payload = package.to_context_dict()
+
+    assert payload["research"] == {
+        "objective": "Make the login button work.",
+        "observations": ["The login route exists."],
+        "findings": ["Authentication uses the existing session layer."],
+        "sources_considered": ["repo://src/auth.py"],
+        "unanswered_questions": [
+            "Browser behavior still needs verification."
+        ],
+        "evidence_quality": "good",
+    }
 
 
 def test_builder_reads_persisted_test_result(
