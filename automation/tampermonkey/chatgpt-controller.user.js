@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -162,6 +162,37 @@
     }
 
     async function processOperation(operation) {
+        if (!operation || typeof operation.operation_type !== 'string') {
+            throw new Error('ChatGPT operation type is missing.');
+        }
+
+        if (operation.operation_type === 'new_chat') {
+            await startNewChat();
+
+            await reportFinished(
+                operation.operation_id,
+                true
+            );
+
+            console.log(
+                '[PASI] New ChatGPT conversation started:',
+                operation.operation_id
+            );
+            return;
+        }
+
+        if (operation.operation_type === 'select_reasoning') {
+            throw new Error(
+                'ChatGPT reasoning-mode control is not available in this controller yet.'
+            );
+        }
+
+        if (operation.operation_type !== 'prompt') {
+            throw new Error(
+                `Unsupported ChatGPT operation type: ${operation.operation_type}`
+            );
+        }
+
         let observation = await getBrowserObservation();
 
         await waitUntilReady(observation);
@@ -231,7 +262,8 @@
         );
 
         await reportFinished(
-            operation.operation_id
+            operation.operation_id,
+            false
         );
 
         console.log(
@@ -848,13 +880,15 @@
     }
 
     async function reportFinished(
-        operationId
+        operationId,
+        responseObserved
     ) {
         const response = await bridgeRequest('/chat/finished', {
             method: 'POST',
             body: {
                 operation_id: operationId,
-                chat_url: window.location.href
+                chat_url: window.location.href,
+                response_text_available: Boolean(responseObserved)
             }
         });
 
