@@ -1,5 +1,7 @@
 """Provider-independent computer-use control-plane contracts."""
 
+from .chatgpt import ChatGPTAdapter, ChatGPTAdapterError, UrllibBridgeTransport
+from .completion import ChatGPTCompletionDetector
 from .contracts import (
     ActionKind,
     ActionProposal,
@@ -28,4 +30,8 @@ __all__ = [
     "Diagnostic",
     "VSCodeEvidenceAdapter",
     "VSCodeEvidenceError",
+    "ChatGPTAdapter",
+    "ChatGPTAdapterError",
+    "UrllibBridgeTransport",
+    "ChatGPTCompletionDetector",
 ]
