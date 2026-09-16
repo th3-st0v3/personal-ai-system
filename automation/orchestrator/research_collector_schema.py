@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import Field
 
@@ -8,7 +8,7 @@ from .context_schema import PASIModel
 from .research_schema import ResearchFinding, ResearchObservation
 
 
-ResearchSourceType = Literal[
+ResearchSourceType: TypeAlias = Literal[
     "web",
     "browser",
     "documentation",
@@ -18,7 +18,7 @@ ResearchSourceType = Literal[
     "other",
 ]
 
-EvidenceRequirement = Literal[
+EvidenceRequirement: TypeAlias = Literal[
     "any",
     "documented",
     "direct",
@@ -46,23 +46,19 @@ class ResearchRequest(PASIModel):
     constraints: list[str] = Field(default_factory=list)
 
 
+ResearchEvidenceQuality: TypeAlias = Literal[
+    "poor",
+    "fair",
+    "good",
+    "strong",
+    "unknown",
+]
+
+
 class ResearchResult(PASIModel):
-    objective: str = Field(min_length=1)
-
-    observations: list[ResearchObservation] = Field(
-        default_factory=list
-    )
-    findings: list[ResearchFinding] = Field(
-        default_factory=list
-    )
-
+    objective: str
+    observations: list[ResearchObservation] = Field(default_factory=list)
+    findings: list[ResearchFinding] = Field(default_factory=list)
     sources_considered: list[str] = Field(default_factory=list)
     unanswered_questions: list[str] = Field(default_factory=list)
-
-    evidence_quality: Literal[
-        "poor",
-        "fair",
-        "good",
-        "strong",
-        "unknown",
-    ] = "unknown"
+    evidence_quality: ResearchEvidenceQuality = "unknown"

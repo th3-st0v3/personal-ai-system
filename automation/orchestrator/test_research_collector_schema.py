@@ -1,20 +1,18 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
 
 from automation.orchestrator.research_collector_schema import (
+    EvidenceRequirement,
     ResearchQuestion,
     ResearchRequest,
     ResearchResult,
+    ResearchSourceType,
 )
-from automation.orchestrator.research_schema import (
-    ResearchObservation,
-)
-
+from automation.orchestrator.research_schema import ResearchObservation
 
 def test_research_question_captures_required_question() -> None:
     question = ResearchQuestion(
@@ -128,7 +126,7 @@ def test_research_result_can_carry_observations() -> None:
     ],
 )
 def test_research_source_type_is_constrained(
-    source_type: str,
+    source_type: ResearchSourceType,
 ) -> None:
     request = ResearchRequest(
         objective="Research source types.",
@@ -148,7 +146,7 @@ def test_research_source_type_is_constrained(
     ],
 )
 def test_evidence_requirement_is_constrained(
-    requirement: str,
+    requirement: EvidenceRequirement,
 ) -> None:
     request = ResearchRequest(
         objective="Research evidence.",
@@ -162,7 +160,9 @@ def test_invalid_research_source_type_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ResearchRequest(
             objective="Research.",
-            preferred_source_types=["search_engine"],
+            preferred_source_types=[
+                cast(Any, "search_engine")
+            ]
         )
 
 
@@ -170,7 +170,7 @@ def test_invalid_evidence_requirement_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ResearchRequest(
             objective="Research.",
-            evidence_requirement="certain",
+            evidence_requirement=cast(Any, "certain")
         )
 
 
@@ -204,15 +204,25 @@ def test_research_question_requires_nonempty_fields() -> None:
 
 def test_research_models_reject_unknown_fields() -> None:
     with pytest.raises(ValidationError):
-        ResearchRequest(
-            objective="Research.",
-            unexpected_field="not allowed",
+        ResearchResult(
+            **cast(
+                Any,
+                {
+                    "objective": "Research.",
+                    "unexpected_field": "not allowed",
+                },
+            )
         )
 
     with pytest.raises(ValidationError):
         ResearchResult(
-            objective="Research.",
-            unexpected_field="not allowed",
+            **cast(
+            Any,
+                {
+                    "objective": "Research.",
+                    "unexpected_field": "not allowed",
+                },
+            )
         )
 
 

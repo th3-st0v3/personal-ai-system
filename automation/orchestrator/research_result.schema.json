@@ -3,10 +3,32 @@
     "ResearchFinding": {
       "additionalProperties": false,
       "properties": {
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "design_implications": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Design Implications",
+          "type": "array"
+        },
         "finding_id": {
           "minLength": 1,
           "title": "Finding Id",
           "type": "string"
+        },
+        "requires_verification": {
+          "default": false,
+          "title": "Requires Verification",
+          "type": "boolean"
         },
         "statement": {
           "minLength": 1,
@@ -19,28 +41,6 @@
           },
           "title": "Supporting Observations",
           "type": "array"
-        },
-        "design_implications": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Design Implications",
-          "type": "array"
-        },
-        "confidence": {
-          "default": "medium",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "title": "Confidence",
-          "type": "string"
-        },
-        "requires_verification": {
-          "default": false,
-          "title": "Requires Verification",
-          "type": "boolean"
         }
       },
       "required": [
@@ -53,37 +53,35 @@
     "ResearchObservation": {
       "additionalProperties": false,
       "properties": {
-        "observation_id": {
-          "minLength": 1,
-          "title": "Observation Id",
-          "type": "string"
-        },
-        "subject": {
-          "minLength": 1,
-          "title": "Subject",
-          "type": "string"
-        },
         "aspect": {
           "minLength": 1,
           "title": "Aspect",
           "type": "string"
         },
-        "statement": {
-          "minLength": 1,
-          "title": "Statement",
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
           "type": "string"
         },
-        "source_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
+        "kind": {
+          "default": "direct_observation",
+          "enum": [
+            "direct_observation",
+            "documented_behavior",
+            "inferred_behavior"
           ],
-          "default": null,
-          "title": "Source Ref"
+          "title": "Kind",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
         },
         "source_locator": {
           "anyOf": [
@@ -97,24 +95,26 @@
           "default": null,
           "title": "Source Locator"
         },
-        "kind": {
-          "default": "direct_observation",
-          "enum": [
-            "direct_observation",
-            "documented_behavior",
-            "inferred_behavior"
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Kind",
+          "default": null,
+          "title": "Source Ref"
+        },
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
           "type": "string"
         },
-        "confidence": {
-          "default": "medium",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "title": "Confidence",
+        "subject": {
+          "minLength": 1,
+          "title": "Subject",
           "type": "string"
         }
       },
@@ -130,8 +130,26 @@
   },
   "additionalProperties": false,
   "properties": {
+    "evidence_quality": {
+      "default": "unknown",
+      "enum": [
+        "poor",
+        "fair",
+        "good",
+        "strong",
+        "unknown"
+      ],
+      "title": "Evidence Quality",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ResearchFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
     "objective": {
-      "minLength": 1,
       "title": "Objective",
       "type": "string"
     },
@@ -140,13 +158,6 @@
         "$ref": "#/$defs/ResearchObservation"
       },
       "title": "Observations",
-      "type": "array"
-    },
-    "findings": {
-      "items": {
-        "$ref": "#/$defs/ResearchFinding"
-      },
-      "title": "Findings",
       "type": "array"
     },
     "sources_considered": {
@@ -162,18 +173,6 @@
       },
       "title": "Unanswered Questions",
       "type": "array"
-    },
-    "evidence_quality": {
-      "default": "unknown",
-      "enum": [
-        "poor",
-        "fair",
-        "good",
-        "strong",
-        "unknown"
-      ],
-      "title": "Evidence Quality",
-      "type": "string"
     }
   },
   "required": [
