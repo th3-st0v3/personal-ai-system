@@ -59,3 +59,30 @@ jobs:
           name: ci-diagnostics
           path: .runtime/ci
           if-no-files-found: ignore
+
+  browser-use-compat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install pinned browser-use dependency
+        run: |
+          python -m pip install -r requirements-browser.txt
+          python -m pip install 'pytest>=8,<9'
+      - name: Validate browser-use version and public imports
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          from browser_use import Agent, Browser
+
+          version = importlib.metadata.version("browser-use")
+          assert version == "0.13.10", version
+          assert Agent is not None
+          assert Browser is not None
+          print(f"browser-use {version}: import compatibility OK")
+          PY
+      - name: Run browser integration contract tests
+        run: python -m pytest -q automation/computer_use/test_browser_use.py

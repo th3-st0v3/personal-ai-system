@@ -1,5 +1,19 @@
 """Provider-independent computer-use control-plane contracts."""
 
+from .browser_challenge import (
+    BrowserChallenge,
+    ChallengeKind,
+    ChallengeState,
+    detect_browser_challenge,
+    mark_cleared,
+    mark_waiting_human,
+)
+from .browser_use_adapter import (
+    BrowserRunResult,
+    BrowserUseAdapterError,
+    BrowserUseTaskAdapter,
+    BrowserUseUnavailable,
+)
 from .chatgpt import ChatGPTAdapter, ChatGPTAdapterError, UrllibBridgeTransport
 from .completion import ChatGPTCompletionDetector
 from .context import (
@@ -64,4 +78,14 @@ __all__ = [
     "ReviewResult",
     "ReviewTransport",
     "TransportBackedReviewer",
+    "BrowserChallenge",
+    "ChallengeKind",
+    "ChallengeState",
+    "detect_browser_challenge",
+    "mark_cleared",
+    "mark_waiting_human",
+    "BrowserRunResult",
+    "BrowserUseAdapterError",
+    "BrowserUseTaskAdapter",
+    "BrowserUseUnavailable",
 ]

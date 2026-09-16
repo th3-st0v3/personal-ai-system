@@ -130,9 +130,53 @@ Submit to selected provider
 
 Follow-up prompts carry no authorization. They explicitly treat repository files, diagnostics, web content, and prior model output as untrusted evidence and instruct the model not to claim unobserved capabilities, approvals, tests, or external facts.
 
+## Web research evidence
+
+`HTTPSResearchAdapter` is a read-only research implementation. It keeps search-provider behavior behind a `SearchProvider` protocol and represents retrieved material as normalized `ResearchSource` evidence with URL, title, bounded content, retrieval time, and a stable fingerprint.
+
+External retrieval is HTTPS-only, bounded by response size and timeout, and validates the response content type. Deterministic source ranking uses explicit source metadata rather than hidden model judgments. Retrieved content is evidence and never becomes an execution instruction.
+
+## Browser Use integration
+
+`BrowserUseTaskAdapter` is an optional integration with the Browser Use Python library. The dependency is isolated in `requirements-browser.txt`, so the core application does not require Browser Use merely to import or run its existing functionality.
+
+The semantic action is `browser_task`, and it is classified as approval-required. This means a browser agent cannot silently gain new authority simply because a page presents a clickable control.
+
+Browser Use is responsible for dynamic page interaction through its browser session. PASI remains responsible for task bounds, authorization, provenance, and challenge handling. A browser task is bounded by maximum steps and task length and returns structured page/result evidence.
+
+### Security challenges and human handoff
+
+The adapter detects common challenge/interstitial evidence such as CAPTCHA, Cloudflare challenge pages, Turnstile, login walls, and consent gates. A detected challenge becomes a non-success `challenge_required` result with explicit `waiting_human` state. The challenge evidence is recorded as provenance only.
+
+PASI does **not** solve or bypass CAPTCHA, Cloudflare, Turnstile, challenge tokens, fingerprint protections, access controls, or rate limits. The intended behavior is:
+
+```text
+Browser task
+  ↓
+Challenge detected
+  ↓
+Pause / challenge_required
+  ↓
+Human clears the challenge in an appropriate headed session
+  ↓
+Resume with the same authorized task/session
+  ↓
+Re-observe and verify before continuing
+```
+
+A background/headless browser can detect and report the blocker, but a human cannot interact with a hidden page. Human challenge completion therefore requires a headed browser session or an equivalent user-visible handoff mechanism.
+
+The challenge layer deliberately avoids treating a challenge page as successful navigation. Unknown or ambiguous page evidence remains non-success and is surfaced for diagnosis or human review.
+
+## Independent AI review
+
+`IndependentReviewer` provides an advisory second-model boundary for providers such as Claude-class systems without coupling CUCP core code to a particular SDK or credential store. Review requests carry candidate output and evidence fingerprints; review results carry findings and provenance.
+
+When candidate and reviewer provider identities are known, they must be distinct. Review results cannot authorize execution, modify permissions, or override PASI policy. They are additional evidence for verification and diagnosis.
+
 ## Authorization
 
-Computer-use actions must pass through PASI authorization before execution. Safe read/observation actions can proceed without external approval. Actions that modify workspaces, operate consequential GitHub controls, or control the desktop require the appropriate policy permission and external human approval. Unknown actions fail closed.
+Computer-use actions must pass through PASI authorization before execution. Safe read/observation actions can proceed without external approval. Actions that modify workspaces, operate consequential GitHub controls, run browser tasks, or control the desktop require the appropriate policy permission and external human approval. Unknown actions fail closed.
 
 GUI automation must never bypass authorization simply because a button is visible.
 
@@ -169,11 +213,12 @@ Verification
 1. Contract and state-machine foundation.
 2. Read-only VS Code observation and diagnostics adapter.
 3. ChatGPT adapter integration with robust completion detection.
-4. Bounded evidence context and conditional follow-up engine (this slice).
-5. Web research adapter.
-6. Claude independent-review adapter.
-7. GitHub API/connector plus UI fallback adapter.
-8. Persistent background worker with pause/resume/recovery.
-9. Integration with simulation provenance and verification telemetry.
+4. Bounded evidence context and conditional follow-up engine.
+5. Web research evidence adapter.
+6. Independent AI-review contract.
+7. Browser Use integration with challenge handoff (this slice).
+8. GitHub API/connector plus UI fallback adapter.
+9. Persistent background worker with pause/resume/recovery.
+10. Integration with simulation provenance and verification telemetry.
 
 The system should not skip the contract and authorization layers in order to reach end-to-end UI automation faster; those layers are what make later autonomy replaceable, testable, and governable.

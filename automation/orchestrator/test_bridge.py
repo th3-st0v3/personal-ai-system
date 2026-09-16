@@ -18,7 +18,9 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
         prompt="PASI lifecycle test",
     )
 
-    assert bridge.get_operation(operation.operation_id)["status"] == "queued"
+    initial = bridge.get_operation(operation.operation_id)
+    assert initial is not None
+    assert initial["status"] == "queued"
 
     status = bridge.get_status()
     assert status["queue_size"] == 1
@@ -57,7 +59,9 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
         completed["chat_url"]
         == "https://chatgpt.com/c/test"
     )
-    assert bridge.get_operation(operation.operation_id)["status"] == "completed"
+    final = bridge.get_operation(operation.operation_id)
+    assert final is not None
+    assert final["status"] == "completed"
 
     status = bridge.get_status()
     assert status["queue_size"] == 0
@@ -130,6 +134,11 @@ def test_claim_only_returns_queued_operations(
     assert status["queue_size"] == 2
     assert status["history_size"] == 2
     assert status["counts"] == {"claimed": 2}
+
+
+def test_missing_operation_returns_none(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    assert bridge.get_operation("op-does-not-exist") is None
 
 
 def test_new_chat_operation_can_have_empty_prompt(tmp_path: Path) -> None:
