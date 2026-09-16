@@ -182,7 +182,7 @@ def test_main_marks_precheck_complete(
     assert project_state["status"] == "idle"
     assert (
         project_state["current_phase"]
-        == "context_ready"
+        == "planning"
     )
 
 
@@ -208,12 +208,12 @@ def test_main_creates_and_advances_current_task(
     assert task["objective"] == "Make the login button work."
     assert task["feature"] == "orchestrator"
     assert task["status"] == "ready"
-    assert task["phase"] == "context_ready"
+    assert task["phase"] == "planning"
     assert task["attempt"] == 0
 
     assert project_state["current_task_id"] == task["task_id"]
     assert project_state["current_feature"] == "orchestrator"
-    assert project_state["current_phase"] == "context_ready"
+    assert project_state["current_phase"] == "planning"
 
 
 def test_main_uses_same_task_for_context_objective(
