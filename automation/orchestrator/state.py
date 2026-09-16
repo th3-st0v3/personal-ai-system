@@ -95,6 +95,28 @@ class StateManager:
             feature_status,
         )
 
+    def save_retry_state(
+        self,
+        retry_state: dict[str, Any],
+    ) -> None:
+        self.write_json(
+            self.retry_state_path,
+            retry_state,
+        )
+
+    def load_retry_state(
+        self,
+    ) -> dict[str, Any]:
+        value = self.read_json(
+            self.retry_state_path,
+            {},
+        )
+
+        if not isinstance(value, dict):
+            return {}
+
+        return value
+
     def save_test_results(
         self,
         results: dict[str, Any],
