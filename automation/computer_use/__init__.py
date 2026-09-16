@@ -8,6 +8,11 @@ from .browser_challenge import (
     mark_cleared,
     mark_waiting_human,
 )
+from .browser_recovery import (
+    BrowserFallbackResolver,
+    BrowserRecoveryResult,
+    ResearchFallbackResolver,
+)
 from .browser_use_adapter import (
     BrowserRunResult,
     BrowserUseAdapterError,
@@ -88,4 +93,7 @@ __all__ = [
     "BrowserUseAdapterError",
     "BrowserUseTaskAdapter",
     "BrowserUseUnavailable",
+    "BrowserFallbackResolver",
+    "BrowserRecoveryResult",
+    "ResearchFallbackResolver",
 ]

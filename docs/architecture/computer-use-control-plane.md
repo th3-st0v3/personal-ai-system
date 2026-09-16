@@ -144,29 +144,35 @@ The semantic action is `browser_task`, and it is classified as approval-required
 
 Browser Use is responsible for dynamic page interaction through its browser session. PASI remains responsible for task bounds, authorization, provenance, and challenge handling. A browser task is bounded by maximum steps and task length and returns structured page/result evidence.
 
-### Security challenges and human handoff
+### Security challenges and safe recovery
 
-The adapter detects common challenge/interstitial evidence such as CAPTCHA, Cloudflare challenge pages, Turnstile, login walls, and consent gates. A detected challenge becomes a non-success `challenge_required` result with explicit `waiting_human` state. The challenge evidence is recorded as provenance only.
+The adapter detects common challenge/interstitial evidence such as CAPTCHA, Cloudflare challenge pages, Turnstile, login walls, and consent gates. A detected security challenge is never converted into a success result.
 
-PASI does **not** solve or bypass CAPTCHA, Cloudflare, Turnstile, challenge tokens, fingerprint protections, access controls, or rate limits. The intended behavior is:
+PASI does **not** solve or bypass CAPTCHA, Cloudflare, Turnstile, challenge tokens, fingerprint protections, access controls, or rate limits. Browser automation libraries explicitly discourage automating CAPTCHA, and Cloudflare documents these mechanisms as checks intended to distinguish human visitors from automated traffic.
+
+Instead, Browser Use supports a safe recovery boundary:
 
 ```text
 Browser task
   ↓
 Challenge detected
   ↓
-Pause / challenge_required
-  ↓
-Human clears the challenge in an appropriate headed session
-  ↓
-Resume with the same authorized task/session
-  ↓
-Re-observe and verify before continuing
+Try configured independent fallback resolver
+  ├── usable independent source found → return fallback evidence
+  └── no usable fallback → waiting_human
+       ↓
+  User-visible handoff may clear the challenge
+       ↓
+  A future persistent worker can resume the same authorized task/session
+       ↓
+  Re-observe and verify before continuing
 ```
 
-A background/headless browser can detect and report the blocker, but a human cannot interact with a hidden page. Human challenge completion therefore requires a headed browser session or an equivalent user-visible handoff mechanism.
+`ResearchFallbackResolver` implements the first recovery path with the existing read-only research layer. It searches for independent sources and never re-requests the challenged URL or treats a security token/cookie as evidence of authorization. A successful fallback is reported as `fallback_succeeded` and still carries the original challenge as provenance so the orchestrator cannot mistake the fallback for successful access to the protected page.
 
-The challenge layer deliberately avoids treating a challenge page as successful navigation. Unknown or ambiguous page evidence remains non-success and is surfaced for diagnosis or human review.
+The current adapter reports the handoff rather than waiting indefinitely inside the browser call. This keeps the worker from being pinned to a blocked source and leaves persistent pause/resume orchestration to the dedicated background-worker layer.
+
+A background/headless browser can detect and report the blocker, while human completion requires a headed browser session or an equivalent user-visible handoff mechanism. Unknown or ambiguous page evidence remains non-success and is surfaced for diagnosis or human review.
 
 ## Independent AI review
 
@@ -216,7 +222,7 @@ Verification
 4. Bounded evidence context and conditional follow-up engine.
 5. Web research evidence adapter.
 6. Independent AI-review contract.
-7. Browser Use integration with challenge handoff (this slice).
+7. Browser Use integration with challenge detection and safe fallback recovery.
 8. GitHub API/connector plus UI fallback adapter.
 9. Persistent background worker with pause/resume/recovery.
 10. Integration with simulation provenance and verification telemetry.

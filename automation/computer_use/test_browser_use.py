@@ -9,12 +9,46 @@ from automation.computer_use.browser_challenge import (
     mark_cleared,
     mark_waiting_human,
 )
+from automation.computer_use.browser_recovery import (
+    BrowserRecoveryResult,
+    ResearchFallbackResolver,
+)
 from automation.computer_use.browser_use_adapter import (
     BrowserRunResult,
     BrowserUseAdapterError,
     BrowserUseTaskAdapter,
 )
-from automation.computer_use.contracts import ActionProposal
+from automation.computer_use.contracts import ActionProposal, Observation
+from automation.computer_use.research import ResearchAdapterError
+
+
+class FakeFallbackResolver:
+    def __init__(self, result: BrowserRecoveryResult | None) -> None:
+        self.result = result
+        self.calls: list[tuple[str, BrowserChallenge]] = []
+
+    async def resolve(
+        self,
+        task: str,
+        challenge: BrowserChallenge,
+    ) -> BrowserRecoveryResult | None:
+        self.calls.append((task, challenge))
+        return self.result
+
+
+class FakeResearch:
+    def __init__(self, observation: Observation | None = None, error: Exception | None = None) -> None:
+        self.observation = observation
+        self.error = error
+        self.queries: list[str] = []
+
+    def search(self, query: str) -> Observation:
+        self.queries.append(query)
+        if self.error is not None:
+            raise self.error
+        if self.observation is None:
+            raise AssertionError("missing fake observation")
+        return self.observation
 
 
 class BrowserChallengeTests(unittest.TestCase):
@@ -119,9 +153,6 @@ class BrowserUseAdapterTests(unittest.TestCase):
             asyncio.run(bounded.run("12345"))
 
     def test_missing_optional_dependency_fails_explicitly_when_unavailable(self) -> None:
-        # Core CI intentionally does not install browser-use. The import boundary
-        # must fail with the adapter's explicit optional-dependency error rather
-        # than a generic AttributeError/ImportError leak.
         try:
             import browser_use  # type: ignore[import-not-found] # noqa: F401
         except ImportError:
@@ -150,6 +181,56 @@ class BrowserUseAdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             asyncio.run(self.adapter.execute_authorized(other, approval_granted=True))
 
+    def test_challenge_uses_independent_fallback_before_human_handoff(self) -> None:
+        challenge = BrowserChallenge(
+            challenge_id="c1",
+            session_id="s1",
+            kind="cloudflare",
+            state="detected",
+            url="https://blocked.example/article",
+            title="Just a moment...",
+        )
+        resolver = FakeFallbackResolver(
+            BrowserRecoveryResult(
+                status="fallback_succeeded",
+                provider="research",
+                result_text="independent source content",
+                source_url="https://public.example/article",
+                source_title="Public copy",
+            )
+        )
+        adapter = BrowserUseTaskAdapter(
+            session_id="s1",
+            llm_factory=lambda: object(),
+            fallback_resolver=resolver,
+        )
+        result = asyncio.run(adapter._challenge_result("find the article details", challenge))
+        self.assertEqual(result.status, "fallback_succeeded")
+        self.assertEqual(result.recovery, resolver.result)
+        self.assertIsNotNone(result.challenge)
+        assert result.challenge is not None
+        self.assertEqual(result.challenge.state, "detected")
+        self.assertEqual(len(resolver.calls), 1)
+        observation = result.observation()
+        self.assertEqual(observation.data["status"], "fallback_succeeded")
+        self.assertEqual(observation.data["recovery"]["provider"], "research")
+        self.assertEqual(observation.data["challenge"]["kind"], "cloudflare")
+
+    def test_challenge_without_fallback_enters_human_handoff(self) -> None:
+        challenge = BrowserChallenge(
+            challenge_id="c2",
+            session_id="s1",
+            kind="captcha",
+            state="detected",
+            url="https://blocked.example",
+            title="CAPTCHA",
+        )
+        result = asyncio.run(self.adapter._challenge_result("inspect", challenge))
+        self.assertEqual(result.status, "challenge_required")
+        self.assertIsNotNone(result.challenge)
+        assert result.challenge is not None
+        self.assertEqual(result.challenge.state, "waiting_human")
+
     def test_result_observation_never_hides_challenge_status(self) -> None:
         result = BrowserRunResult(
             session_id="s1",
@@ -166,6 +247,86 @@ class BrowserUseAdapterTests(unittest.TestCase):
         observation = result.observation()
         self.assertEqual(observation.data["status"], "challenge_required")
         self.assertIn("challenge", observation.data)
+
+
+class BrowserRecoveryTests(unittest.TestCase):
+    def _challenge(self) -> BrowserChallenge:
+        return BrowserChallenge(
+            challenge_id="c3",
+            session_id="s1",
+            kind="cloudflare",
+            state="detected",
+            url="https://blocked.example/article",
+            title="Just a moment...",
+        )
+
+    def test_research_fallback_accepts_independent_host(self) -> None:
+        research = FakeResearch(
+            Observation(
+                observation_id="research-search:1",
+                session_id="unspecified",
+                source="web",
+                kind="search",
+                data={
+                    "sources": [
+                        {
+                            "url": "https://blocked.example/mirror",
+                            "title": "Same host",
+                            "content": "protected copy",
+                        },
+                        {
+                            "url": "https://independent.example/article",
+                            "title": "Independent copy",
+                            "content": "usable evidence",
+                        },
+                    ]
+                },
+            )
+        )
+        resolver = ResearchFallbackResolver(research)
+        result = asyncio.run(resolver.resolve("article details", self._challenge()))
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.status, "fallback_succeeded")
+        self.assertEqual(result.source_url, "https://independent.example/article")
+        self.assertEqual(research.queries, ["article details"])
+
+    def test_research_fallback_returns_none_when_research_is_unavailable(self) -> None:
+        research = FakeResearch(error=ResearchAdapterError("no provider"))
+        resolver = ResearchFallbackResolver(research)
+        self.assertIsNone(
+            asyncio.run(resolver.resolve("article details", self._challenge()))
+        )
+
+    def test_research_fallback_does_not_succeed_with_same_host_only(self) -> None:
+        research = FakeResearch(
+            Observation(
+                observation_id="research-search:2",
+                session_id="unspecified",
+                source="web",
+                kind="search",
+                data={
+                    "sources": [
+                        {
+                            "url": "https://blocked.example/other",
+                            "title": "Same host",
+                            "content": "protected copy",
+                        }
+                    ]
+                },
+            )
+        )
+        resolver = ResearchFallbackResolver(research)
+        self.assertIsNone(
+            asyncio.run(resolver.resolve("article details", self._challenge()))
+        )
+
+    def test_recovery_status_and_provider_are_validated(self) -> None:
+        BrowserRecoveryResult(status="fallback_succeeded", provider="research")
+        with self.assertRaises(ValueError):
+            BrowserRecoveryResult(status="succeeded", provider="research")
+        with self.assertRaises(ValueError):
+            BrowserRecoveryResult(status="fallback_succeeded", provider="")
 
 
 if __name__ == "__main__":
