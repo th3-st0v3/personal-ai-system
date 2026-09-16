@@ -280,6 +280,7 @@ def main(
     print(f"Blockers: {planner_result.blockers}")
 
     if execution_adapter is not None:
+        assert connection is not None
         supervised_result: ExecutionLoopResult = run_supervised_execution(
             connection,
             actor_id=actor_id or "",
