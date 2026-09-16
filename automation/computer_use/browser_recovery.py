@@ -5,7 +5,8 @@ from typing import Protocol
 from urllib.parse import urlparse
 
 from .browser_challenge import BrowserChallenge
-from .research import HTTPSResearchAdapter, ResearchAdapterError
+from .contracts import Observation
+from .research import ResearchAdapterError
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,12 @@ class BrowserFallbackResolver(Protocol):
     ) -> BrowserRecoveryResult | None: ...
 
 
+class ResearchSearchBoundary(Protocol):
+    """Minimal read-only research surface required by the fallback resolver."""
+
+    def search(self, query: str) -> Observation: ...
+
+
 @dataclass(frozen=True)
 class ResearchFallbackResolver:
     """Use the existing read-only research layer as an alternate-source fallback.
@@ -50,7 +57,7 @@ class ResearchFallbackResolver:
     through a different route.
     """
 
-    research: HTTPSResearchAdapter
+    research: ResearchSearchBoundary
     max_result_chars: int = 12_000
 
     def __post_init__(self) -> None:
