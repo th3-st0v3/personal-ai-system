@@ -12,6 +12,20 @@
           "minLength": 1,
           "title": "Description",
           "type": "string"
+        },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Capabilities",
+          "type": "array"
+        },
+        "verification_requirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Verification Requirements",
+          "type": "array"
         }
       },
       "required": [
