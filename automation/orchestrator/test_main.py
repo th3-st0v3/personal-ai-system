@@ -8,15 +8,18 @@ from automation.orchestrator.context_schema import (
     AgentRequest,
     ContextPackage,
 )
+from automation.orchestrator.main import main
+from automation.orchestrator.planner_schema import PlannerResult
 from automation.orchestrator.research_collector_schema import (
     ResearchRequest,
     ResearchResult,
 )
-from automation.orchestrator.research_schema import ResearchObservation
+from automation.orchestrator.research_schema import (
+    ResearchFinding,
+    ResearchObservation,
+)
 from automation.orchestrator.research_state import ResearchState
-from automation.orchestrator.main import main
 from automation.orchestrator.state import StateManager
-from automation.orchestrator.planner_schema import PlannerResult
 
 
 def make_fake_config(
@@ -345,9 +348,22 @@ def test_main_collects_research_for_the_task(
                         subject="login",
                         aspect="route",
                         statement="The login route exists.",
+                        source_ref="repo://src/login.py",
+                        source_locator="src/login.py:42",
+                        kind="direct_observation",
+                        confidence="high",
                     )
                 ],
-                findings=[],
+                findings=[
+                    ResearchFinding(
+                        finding_id="finding-1",
+                        statement="The existing authentication route can be reused.",
+                        supporting_observations=["obs-1"],
+                        design_implications=["Preserve the existing session layer."],
+                        confidence="medium",
+                        requires_verification=True,
+                    )
+                ],
                 sources_considered=["repo://src/login.py"],
                 unanswered_questions=[
                     "Browser behavior still needs verification."
@@ -368,29 +384,32 @@ def test_main_collects_research_for_the_task(
 
     assert captured_request is not None
     assert captured_result is not None
-
-    assert captured_request.objective == (
-        "Make the login button work."
-    )
+    assert captured_request.objective == "Make the login button work."
 
     context = ContextPackage.model_validate(
         StateManager(ai_dir).load_context_package()
     )
 
     assert context.research is not None
-    assert context.research.objective == (
-        "Make the login button work."
+    assert context.research.objective == "Make the login button work."
+
+    observation = context.research.observations[0]
+    assert observation.statement == "The login route exists."
+    assert observation.source_ref == "repo://src/login.py"
+    assert observation.source_locator == "src/login.py:42"
+    assert observation.kind == "direct_observation"
+    assert observation.confidence == "high"
+
+    finding = context.research.findings[0]
+    assert finding.statement == (
+        "The existing authentication route can be reused."
     )
-    assert context.research.observations == [
-        "The login route exists."
+    assert finding.supporting_observations == ["obs-1"]
+    assert finding.design_implications == [
+        "Preserve the existing session layer."
     ]
-    assert context.research.sources_considered == [
-        "repo://src/login.py"
-    ]
-    assert context.research.unanswered_questions == [
-        "Browser behavior still needs verification."
-    ]
-    assert context.research.evidence_quality == "good"
+    assert finding.confidence == "medium"
+    assert finding.requires_verification is True
 
 
 def test_main_persists_research_state_for_current_task(
