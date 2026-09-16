@@ -29,11 +29,7 @@ class EvidenceContextCollector:
             raise ContextEngineError("objective is required")
 
         unique: dict[str, Mapping[str, Any]] = {}
-        fingerprints: list[str] = []
         for item in observations[: self.max_observations]:
-            fingerprint = item.fingerprint()
-            if fingerprint in unique:
-                continue
             normalized = {
                 "observation_id": item.observation_id,
                 "session_id": item.session_id,
@@ -41,25 +37,23 @@ class EvidenceContextCollector:
                 "kind": item.kind,
                 "data": self._bounded_json_value(dict(item.data)),
             }
-            unique[fingerprint] = normalized
-            fingerprints.append(fingerprint)
+            semantic_fingerprint = self._stable_fingerprint(normalized)
+            if semantic_fingerprint in unique:
+                continue
+            unique[semantic_fingerprint] = normalized
 
-        evidence = tuple(unique[key] for key in sorted(unique))
-        ordered_fingerprints = tuple(sorted(fingerprints))
-        evidence = self._bound_total_evidence(evidence, ordered_fingerprints)
-        context_id = sha256(
-            json.dumps(
-                {"objective": objective, "fingerprints": list(ordered_fingerprints)},
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        ordered = [(fingerprint, unique[fingerprint]) for fingerprint in sorted(unique)]
+        evidence = self._bound_total_evidence(tuple(item for _, item in ordered))
+        included_fingerprints = tuple(self._stable_fingerprint(item) for item in evidence)
+        context_id = self._stable_fingerprint(
+            {"objective": objective, "fingerprints": list(included_fingerprints)}
+        )
         return ContextPackage(
             context_id=context_id,
             session_id=self._session_id(evidence),
             objective=objective,
             evidence=evidence,
-            source_fingerprints=ordered_fingerprints,
+            source_fingerprints=included_fingerprints,
         )
 
     def _bounded_json_value(self, value: Any) -> Any:
@@ -70,8 +64,7 @@ class EvidenceContextCollector:
 
     def _bound_total_evidence(
         self,
-        evidence: tuple[Mapping[str, Any], ...],
-        fingerprints: Sequence[str],
+        evidence: Sequence[Mapping[str, Any]],
     ) -> tuple[Mapping[str, Any], ...]:
         kept: list[Mapping[str, Any]] = []
         total = 0
@@ -93,6 +86,13 @@ class EvidenceContextCollector:
         if len(sessions) == 1:
             return next(iter(sessions))
         return "multi-session"
+
+    @staticmethod
+    def _stable_fingerprint(value: Any) -> str:
+        encoded = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+        )
+        return sha256(encoded.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -121,17 +121,31 @@ class ConditionalPromptEngine:
     def evaluate(self, task: TaskState, response: AIResponse) -> FollowUpDecision:
         gaps: list[str] = list(task.known_gaps)
         if response.completion in {"error", "timeout", "interrupted", "unknown"}:
-            gaps.append(f"AI response state is {response.completion}; establish a reliable response before proceeding.")
+            gaps.append(
+                f"AI response state is {response.completion}; establish a reliable response before proceeding."
+            )
         if response.completion == "complete" and not response.response_available:
-            gaps.append("The response finished, but its text was not captured; retrieve or re-observe the response.")
+            gaps.append(
+                "The response finished, but its text was not captured; retrieve or re-observe the response."
+            )
         if task.verification_needed and response.completion == "complete":
-            gaps.append("Verify the proposed result against repository state, tests, or other independent evidence before taking action.")
-        gaps.extend(requirement for requirement in task.requirements if requirement.lower() not in response.text.lower())
+            gaps.append(
+                "Verify the proposed result against repository state, tests, or other independent evidence before taking action."
+            )
+        response_text = response.text.casefold()
+        gaps.extend(
+            requirement
+            for requirement in task.requirements
+            if requirement.casefold() not in response_text
+        )
         deduped = tuple(dict.fromkeys(gap.strip() for gap in gaps if gap.strip()))
         if not deduped:
             return FollowUpDecision(needed=False)
-        prompt = self._compose(task.objective, deduped)
-        return FollowUpDecision(needed=True, gaps=deduped, prompt=prompt)
+        return FollowUpDecision(
+            needed=True,
+            gaps=deduped,
+            prompt=self._compose(task.objective, deduped),
+        )
 
     def _compose(self, objective: str, gaps: Sequence[str]) -> str:
         prompt = (
