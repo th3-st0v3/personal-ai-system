@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from .orchestration_types import TaskPhase
+from .orchestration_types import ProjectPhase, TaskPhase
 
 
 def utc_now() -> str:
@@ -16,7 +16,7 @@ class ProjectState:
     project: str = "personal-ai-system"
     status: str = "idle"
     current_feature: str | None = None
-    current_phase: TaskPhase | str = "idle"
+    current_phase: ProjectPhase = "idle"
     current_task_id: str | None = None
     current_branch: str | None = None
     last_successful_commit: str | None = None
