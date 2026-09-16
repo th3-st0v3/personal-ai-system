@@ -18,6 +18,8 @@ HumanApprovalStatus = Literal[
 class ProposedStep(PASIModel):
     step_id: str = Field(min_length=1)
     description: str = Field(min_length=1)
+    required_capabilities: list[str] = Field(default_factory=list)
+    verification_requirements: list[str] = Field(default_factory=list)
 
 
 class PlannerResult(PASIModel):
