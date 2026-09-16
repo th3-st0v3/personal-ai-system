@@ -31,7 +31,7 @@ class AuthorizationGateway(Protocol):
         action: ActionProposal,
         *,
         external_human_approval: bool = False,
-    ) -> ActionRisk: ...
+    ) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -51,19 +51,17 @@ class DefaultAuthorizationGateway:
         action: ActionProposal,
         *,
         external_human_approval: bool = False,
-    ) -> ActionRisk:
+    ) -> bool:
         risk = action.effective_risk()
         if risk == "safe":
-            return risk
-        if risk == "approval_required" and external_human_approval:
-            return risk
-        if risk == "denied":
-            return risk
-        return risk
+            return True
+        if risk == "approval_required":
+            return external_human_approval
+        return False
 
 
 class ControlPlane:
-    """Small deterministic state machine for the computer-use control loop.
+    """Deterministic state machine for the computer-use control loop.
 
     It deliberately does not perform UI automation. Concrete adapters are invoked by
     a later execution layer after this controller has produced an authorization result.
@@ -98,35 +96,34 @@ class ControlPlane:
             if self.phase != "awaiting_authorization":
                 self.transition("awaiting_authorization")
             selected_gateway.authorize(action, external_human_approval=False)
-            result = AuthorizationResult(
+            return AuthorizationResult(
                 action_id=action.action_id,
                 risk=risk,
                 allowed=False,
                 requires_human_approval=True,
                 reason="external human approval is required",
             )
-        elif risk == "denied":
-            result = AuthorizationResult(
+
+        allowed = selected_gateway.authorize(
+            action,
+            external_human_approval=external_human_approval,
+        )
+        if not allowed:
+            return AuthorizationResult(
                 action_id=action.action_id,
                 risk=risk,
                 allowed=False,
-                requires_human_approval=False,
-                reason="action is outside the computer-use capability boundary",
-            )
-        else:
-            selected_gateway.authorize(
-                action,
-                external_human_approval=external_human_approval,
-            )
-            result = AuthorizationResult(
-                action_id=action.action_id,
-                risk=risk,
-                allowed=True,
-                requires_human_approval=False,
-                reason="action is permitted by the computer-use capability boundary",
+                requires_human_approval=risk == "approval_required",
+                reason="authorization gateway rejected the action",
             )
 
-        return result
+        return AuthorizationResult(
+            action_id=action.action_id,
+            risk=risk,
+            allowed=True,
+            requires_human_approval=False,
+            reason="authorization gateway permitted the action",
+        )
 
     def record_event(self, event: ControlEvent) -> None:
         if event.session_id != self.session.session_id:
