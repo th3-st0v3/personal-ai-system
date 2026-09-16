@@ -10,6 +10,31 @@ from automation.orchestrator.orchestration_state import (
     transition,
     validate_transition,
 )
+from automation.orchestrator.orchestration_types import TaskPhase
+
+
+EXPECTED_TRANSITIONS: dict[TaskPhase, frozenset[TaskPhase]] = {
+    "selection": frozenset({"precheck", "handoff", "failed"}),
+    "precheck": frozenset({"research", "context_ready", "handoff", "failed"}),
+    "research": frozenset({"context_ready", "diagnosis", "handoff", "failed"}),
+    "context_ready": frozenset({"planning", "handoff", "failed"}),
+    "planning": frozenset(
+        {"awaiting_approval", "executing", "testing", "handoff", "failed"}
+    ),
+    "awaiting_approval": frozenset({"executing", "handoff", "failed"}),
+    "executing": frozenset({"testing", "diagnosis", "handoff", "failed"}),
+    "testing": frozenset(
+        {"browser_verification", "diagnosis", "completed", "handoff", "failed"}
+    ),
+    "browser_verification": frozenset(
+        {"completed", "diagnosis", "handoff", "failed"}
+    ),
+    "diagnosis": frozenset({"replanning", "handoff", "failed"}),
+    "replanning": frozenset({"planning", "executing", "handoff", "failed"}),
+    "completed": frozenset(),
+    "failed": frozenset(),
+    "handoff": frozenset(),
+}
 
 
 def make_state() -> tuple[CurrentTask, ProjectState]:
@@ -24,6 +49,17 @@ def make_state() -> tuple[CurrentTask, ProjectState]:
         current_phase=task.phase,
     )
     return task, project
+
+
+def test_transition_matrix_is_complete_and_exact() -> None:
+    assert set(EXPECTED_TRANSITIONS) == set(TaskPhase.__args__)
+
+    for phase, expected_targets in EXPECTED_TRANSITIONS.items():
+        assert allowed_transitions(phase) == expected_targets
+        for target in TaskPhase.__args__:
+            if target == phase:
+                continue
+            assert can_transition(phase, target) is (target in expected_targets)
 
 
 def test_selection_can_enter_precheck() -> None:
