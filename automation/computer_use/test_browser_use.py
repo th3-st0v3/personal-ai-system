@@ -9,12 +9,27 @@ from automation.computer_use.browser_challenge import (
     mark_cleared,
     mark_waiting_human,
 )
+from automation.computer_use.browser_recovery import BrowserRecoveryResult
 from automation.computer_use.browser_use_adapter import (
     BrowserRunResult,
     BrowserUseAdapterError,
     BrowserUseTaskAdapter,
 )
 from automation.computer_use.contracts import ActionProposal
+
+
+class FakeFallbackResolver:
+    def __init__(self, result: BrowserRecoveryResult | None) -> None:
+        self.result = result
+        self.calls: list[tuple[str, BrowserChallenge]] = []
+
+    async def resolve(
+        self,
+        task: str,
+        challenge: BrowserChallenge,
+    ) -> BrowserRecoveryResult | None:
+        self.calls.append((task, challenge))
+        return self.result
 
 
 class BrowserChallengeTests(unittest.TestCase):
@@ -150,6 +165,56 @@ class BrowserUseAdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             asyncio.run(self.adapter.execute_authorized(other, approval_granted=True))
 
+    def test_challenge_uses_independent_fallback_before_human_handoff(self) -> None:
+        challenge = BrowserChallenge(
+            challenge_id="c1",
+            session_id="s1",
+            kind="cloudflare",
+            state="detected",
+            url="https://blocked.example/article",
+            title="Just a moment...",
+        )
+        resolver = FakeFallbackResolver(
+            BrowserRecoveryResult(
+                status="fallback_succeeded",
+                provider="research",
+                result_text="independent source content",
+                source_url="https://public.example/article",
+                source_title="Public copy",
+            )
+        )
+        adapter = BrowserUseTaskAdapter(
+            session_id="s1",
+            llm_factory=lambda: object(),
+            fallback_resolver=resolver,
+        )
+        result = asyncio.run(adapter._challenge_result("find the article details", challenge))
+        self.assertEqual(result.status, "fallback_succeeded")
+        self.assertEqual(result.recovery, resolver.result)
+        self.assertIsNotNone(result.challenge)
+        assert result.challenge is not None
+        self.assertEqual(result.challenge.state, "detected")
+        self.assertEqual(len(resolver.calls), 1)
+        observation = result.observation()
+        self.assertEqual(observation.data["status"], "fallback_succeeded")
+        self.assertEqual(observation.data["recovery"]["provider"], "research")
+        self.assertEqual(observation.data["challenge"]["kind"], "cloudflare")
+
+    def test_challenge_without_fallback_enters_human_handoff(self) -> None:
+        challenge = BrowserChallenge(
+            challenge_id="c2",
+            session_id="s1",
+            kind="captcha",
+            state="detected",
+            url="https://blocked.example",
+            title="CAPTCHA",
+        )
+        result = asyncio.run(self.adapter._challenge_result("inspect", challenge))
+        self.assertEqual(result.status, "challenge_required")
+        self.assertIsNotNone(result.challenge)
+        assert result.challenge is not None
+        self.assertEqual(result.challenge.state, "waiting_human")
+
     def test_result_observation_never_hides_challenge_status(self) -> None:
         result = BrowserRunResult(
             session_id="s1",
@@ -166,6 +231,15 @@ class BrowserUseAdapterTests(unittest.TestCase):
         observation = result.observation()
         self.assertEqual(observation.data["status"], "challenge_required")
         self.assertIn("challenge", observation.data)
+
+
+class BrowserRecoveryResultTests(unittest.TestCase):
+    def test_recovery_status_and_provider_are_validated(self) -> None:
+        BrowserRecoveryResult(status="fallback_succeeded", provider="research")
+        with self.assertRaises(ValueError):
+            BrowserRecoveryResult(status="succeeded", provider="research")
+        with self.assertRaises(ValueError):
+            BrowserRecoveryResult(status="fallback_succeeded", provider="")
 
 
 if __name__ == "__main__":
