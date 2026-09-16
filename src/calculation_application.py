@@ -1,8 +1,11 @@
 """Application boundary for deterministic engineering calculations."""
 
+import hashlib
 import inspect
+import json
 import math
 from collections.abc import Mapping
+from datetime import datetime, timezone
 
 import calculations
 import db
@@ -12,6 +15,7 @@ from calculation_library import CALCULATION_REGISTRY, CalculationTrace
 from calculation_models import CalculationModel, CalculationParameter, MethodVersion
 from calculation_records import CalculationRecord
 from calculation_trace_detail import expand_trace
+from engineering_runtime import ExecutionPolicy, RunManifest, WorkloadSpec
 
 
 class CalculationApplication:
@@ -105,6 +109,56 @@ class CalculationApplication:
         method = self.get_method(model_key)
         parameters = self.get_parameters(model_key)
         return CalculationRecord(calculation_type=trace.key, inputs=trace.inputs, units={parameter.name: parameter.default_unit or "" for parameter in parameters}, assumptions=trace.assumptions, method=trace.equation, result=trace.result, result_unit=trace.result_unit, source="deterministic calculation library", method_version=method.version)
+
+    def workload_spec(self, model_key: str, inputs: Mapping[str, object]) -> WorkloadSpec:
+        """Build a reproducible workload definition for one deterministic calculation."""
+        method, _, validated = self._validated_inputs(model_key, inputs)
+        return WorkloadSpec(
+            name=model_key,
+            kind="calculation",
+            inputs=validated,
+            tags=("deterministic", "calculation"),
+            software_version=method.version,
+            policy=ExecutionPolicy(
+                deterministic=True,
+                checkpoint_required=True,
+                allow_remote=False,
+                allow_network=False,
+                approval_required=False,
+            ),
+        )
+
+    @staticmethod
+    def _result_fingerprint(record: CalculationRecord) -> str:
+        payload = {
+            "calculation_type": record.calculation_type,
+            "inputs": dict(record.inputs),
+            "units": dict(record.units),
+            "assumptions": record.assumptions,
+            "method": record.method,
+            "result": record.result,
+            "result_unit": record.result_unit,
+            "source": record.source,
+            "method_version": record.method_version,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def run_with_manifest(self, model_key: str, inputs: Mapping[str, object]) -> tuple[CalculationRecord, RunManifest]:
+        """Run a deterministic calculation and return its reproducibility manifest."""
+        started_at = datetime.now(timezone.utc).isoformat()
+        spec = self.workload_spec(model_key, inputs)
+        record = self.run(model_key, inputs)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        manifest = RunManifest(
+            workload_fingerprint=spec.fingerprint(),
+            backend="deterministic-calculation-library",
+            status="succeeded",
+            started_at=started_at,
+            finished_at=finished_at,
+            result_fingerprint=self._result_fingerprint(record),
+        )
+        return record, manifest
 
     def run_and_save(self, model_key: str, inputs: Mapping[str, object]) -> tuple[int, CalculationRecord]:
         record = self.run(model_key, inputs)
