@@ -9,7 +9,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .adapters import AIAdapter
-from .contracts import AIResponse, CompletionState
+from .contracts import AIResponse
 from .completion import completion_from_operation
 
 
@@ -181,7 +181,7 @@ class ChatGPTAdapter(AIAdapter):
 
     def _response_from_operation(self, operation: Mapping[str, Any]) -> AIResponse:
         operation_id = self._operation_id(operation)
-        completion, text = completion_from_operation(operation)
+        completion, text, response_available = completion_from_operation(operation)
         return AIResponse(
             response_id=f"{operation_id}:response",
             session_id=self.session_id,
@@ -189,6 +189,7 @@ class ChatGPTAdapter(AIAdapter):
             operation_id=operation_id,
             text=text,
             completion=completion,
+            response_available=response_available,
             chat_url=_optional_string(operation.get("chat_url")),
         )
 
