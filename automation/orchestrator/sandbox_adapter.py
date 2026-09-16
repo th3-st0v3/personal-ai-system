@@ -141,10 +141,10 @@ class LocalBubblewrapSandbox:
                     )
 
                 for key, _ in selector.select(min(0.1, remaining)):
-                    chunk = os.read(key.fileobj.fileno(), 4096)
+                    fd = key.fd
+                    chunk = os.read(fd, 4096)
                     if not chunk:
-                        selector.unregister(key.fileobj)
-                        key.fileobj.close()
+                        selector.unregister(fd)
                         continue
 
                     stream = key.data
