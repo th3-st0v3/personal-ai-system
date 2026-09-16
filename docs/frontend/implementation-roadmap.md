@@ -2,7 +2,7 @@
 
 ## Phase 1 — Consolidate and modernize CSS
 
-**Status: in progress**
+> Status: in progress
 
 - [x] Establish canonical design tokens.
 - [x] Create `web/app.css` as the single application stylesheet entrypoint.
@@ -14,7 +14,7 @@
 
 ## Phase 2 — Refactor JavaScript architecture
 
-**Status: next**
+> Status: next
 
 - [ ] Inventory every global function and event listener.
 - [ ] Define shell/runtime ownership.
@@ -25,7 +25,7 @@
 
 ## Phase 3 — Feature UX
 
-**Status: partially complete**
+> Status: partially complete
 
 ### Chat
 
