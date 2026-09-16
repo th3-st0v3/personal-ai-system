@@ -71,7 +71,6 @@ def detect_browser_challenge(
                 "cdn-cgi/challenge-platform",
                 "checking your browser before accessing",
                 "verify you are human",
-                "just a moment...",
             ),
         ),
         (
@@ -115,6 +114,26 @@ def detect_browser_challenge(
                 title=title,
                 evidence=text[:2000],
             )
+
+    # A Cloudflare-branded title is only considered a challenge when paired with
+    # an explicit challenge indicator; ordinary pages/docs mentioning Cloudflare
+    # should not be blocked.
+    if (
+        "cloudflare" in normalized_title
+        and any(marker in normalized_text for marker in ("challenge", "checking your browser", "verify you are human"))
+    ):
+        challenge_id = sha256(
+            f"{session_id}|cloudflare|{url}|{title}".encode("utf-8")
+        ).hexdigest()[:24]
+        return BrowserChallenge(
+            challenge_id=challenge_id,
+            session_id=session_id,
+            kind="cloudflare",
+            state="detected",
+            url=url,
+            title=title,
+            evidence=text[:2000],
+        )
 
     return None
 
