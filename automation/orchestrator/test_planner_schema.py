@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from automation.orchestrator.planner_schema import (
+    HumanApprovalStatus,
     PlannerResult,
     ProposedStep,
 )
@@ -78,7 +79,7 @@ def test_planner_result_defaults_are_safe() -> None:
     ],
 )
 def test_human_approval_status_accepts_supported_values(
-    status: str,
+    status: HumanApprovalStatus,
 ) -> None:
     result = PlannerResult(
         human_approval_status=status,
@@ -89,8 +90,10 @@ def test_human_approval_status_accepts_supported_values(
 
 def test_human_approval_status_rejects_unknown_value() -> None:
     with pytest.raises(ValidationError):
-        PlannerResult(
-            human_approval_status="maybe",
+        PlannerResult.model_validate(
+            {
+                "human_approval_status": "maybe",
+            }
         )
 
 
@@ -110,9 +113,11 @@ def test_proposed_step_requires_nonempty_identity_and_description() -> None:
 
 def test_planner_result_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError):
-        PlannerResult(
-            proposed_steps=[],
-            unexpected_field="not allowed",
+        PlannerResult.model_validate(
+            {
+                "proposed_steps": [],
+                "unexpected_field": "not allowed",
+            }
         )
 
 
