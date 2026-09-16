@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -150,8 +151,15 @@ def test_context_package_preserves_structured_research_provenance() -> None:
     assert package.research.findings[0].requires_verification is True
 
     payload = package.to_context_dict()
-    observation_payload = payload["research"]["observations"][0]
-    finding_payload = payload["research"]["findings"][0]
+    research_payload = cast(dict[str, Any], payload["research"])
+    observation_payload = cast(
+        dict[str, Any],
+        research_payload["observations"][0],
+    )
+    finding_payload = cast(
+        dict[str, Any],
+        research_payload["findings"][0],
+    )
 
     assert observation_payload["source_ref"] == "repo://src/auth.py"
     assert observation_payload["source_locator"] == "src/auth.py:41"

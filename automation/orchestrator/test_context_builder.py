@@ -8,6 +8,10 @@ from automation.orchestrator.context_schema import (
     ObjectiveContext,
     ResearchContext,
 )
+from automation.orchestrator.research_schema import (
+    ResearchFinding,
+    ResearchObservation,
+)
 from automation.orchestrator.git_manager import GitManager
 from automation.orchestrator.state import StateManager
 
@@ -50,8 +54,26 @@ def test_builder_accepts_research_context(
 
     research = ResearchContext(
         objective="Make the login button work.",
-        observations=["The login route exists."],
-        findings=["Authentication uses the existing session layer."],
+        observations=[
+            ResearchObservation(
+                observation_id="obs-login-route",
+                subject="login",
+                aspect="route",
+                statement="The login route exists.",
+                source_ref="repo://src/auth.py",
+                kind="documented_behavior",
+                confidence="high",
+            )
+        ],
+        findings=[
+            ResearchFinding(
+                finding_id="finding-session-layer",
+                statement="Authentication uses the existing session layer.",
+                supporting_observations=["obs-login-route"],
+                confidence="medium",
+                requires_verification=False,
+            )
+        ],
         sources_considered=["repo://src/auth.py"],
         unanswered_questions=["Browser behavior still needs verification."],
         evidence_quality="good",
@@ -76,8 +98,26 @@ def test_builder_serializes_research_context(
 
     research = ResearchContext(
         objective="Make the login button work.",
-        observations=["The login route exists."],
-        findings=["Authentication uses the existing session layer."],
+        observations=[
+            ResearchObservation(
+                observation_id="obs-login-route",
+                subject="login",
+                aspect="route",
+                statement="The login route exists.",
+                source_ref="repo://src/auth.py",
+                kind="documented_behavior",
+                confidence="high",
+            )
+        ],
+        findings=[
+            ResearchFinding(
+                finding_id="finding-session-layer",
+                statement="Authentication uses the existing session layer.",
+                supporting_observations=["obs-login-route"],
+                confidence="medium",
+                requires_verification=False,
+            )
+        ],
         sources_considered=["repo://src/auth.py"],
         unanswered_questions=["Browser behavior still needs verification."],
         evidence_quality="good",
@@ -94,8 +134,28 @@ def test_builder_serializes_research_context(
 
     assert payload["research"] == {
         "objective": "Make the login button work.",
-        "observations": ["The login route exists."],
-        "findings": ["Authentication uses the existing session layer."],
+        "observations": [
+            {
+                "observation_id": "obs-login-route",
+                "subject": "login",
+                "aspect": "route",
+                "statement": "The login route exists.",
+                "source_ref": "repo://src/auth.py",
+                "source_locator": None,
+                "kind": "documented_behavior",
+                "confidence": "high",
+            }
+        ],
+        "findings": [
+            {
+                "finding_id": "finding-session-layer",
+                "statement": "Authentication uses the existing session layer.",
+                "supporting_observations": ["obs-login-route"],
+                "design_implications": [],
+                "confidence": "medium",
+                "requires_verification": False,
+            }
+        ],
         "sources_considered": ["repo://src/auth.py"],
         "unanswered_questions": [
             "Browser behavior still needs verification."
