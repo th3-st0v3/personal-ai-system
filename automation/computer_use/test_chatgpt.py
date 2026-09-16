@@ -34,23 +34,25 @@ class CompletionTests(unittest.TestCase):
             "cancelled": "interrupted",
         }
         for status, expected in cases.items():
-            state, _ = completion_from_operation({"status": status})
+            state, _, _ = completion_from_operation({"status": status})
             self.assertEqual(state, expected)
 
-    def test_completed_without_explicit_response_is_unknown(self) -> None:
-        state, text = completion_from_operation({"status": "completed", "response_text": "answer"})
-        self.assertEqual(state, "unknown")
-        self.assertEqual(text, "answer")
+    def test_completed_without_response_is_complete_but_not_response_available(self) -> None:
+        state, text, available = completion_from_operation({"status": "completed"})
+        self.assertEqual(state, "complete")
+        self.assertEqual(text, "")
+        self.assertFalse(available)
 
-    def test_completed_with_verified_response_is_complete(self) -> None:
-        state, text = completion_from_operation(
+    def test_completed_with_verified_response_is_complete_and_available(self) -> None:
+        state, text, available = completion_from_operation(
             {"status": "completed", "response_text": "answer", "response_text_available": True}
         )
         self.assertEqual(state, "complete")
         self.assertEqual(text, "answer")
+        self.assertTrue(available)
 
     def test_unknown_status_is_unknown(self) -> None:
-        state, _ = completion_from_operation({"status": "something-new"})
+        state, _, _ = completion_from_operation({"status": "something-new"})
         self.assertEqual(state, "unknown")
 
     def test_detector_prefers_operation_error_over_browser_quiet(self) -> None:
@@ -68,7 +70,7 @@ class CompletionTests(unittest.TestCase):
 
     def test_detector_never_treats_ambiguous_evidence_as_success(self) -> None:
         detector = ChatGPTCompletionDetector()
-        for observation in ({}, {"operation": {"status": "completed"}}, {"browser": {}}):
+        for observation in ({}, {"operation": {}}, {"browser": {}}):
             self.assertEqual(detector.detect([observation]), "unknown")
 
 
@@ -79,11 +81,11 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(adapter.submit_prompt("inspect this"), "op-1")
         self.assertEqual(transport.requests[0], ("POST", "/queue", {"operation_type": "prompt", "prompt": "inspect this"}))
 
-    def test_new_session_queues_new_chat_and_requires_completion(self) -> None:
+    def test_new_session_queues_new_chat_and_requires_verified_completion(self) -> None:
         transport = FakeTransport(
             [
                 {"operation": {"operation_id": "op-new"}},
-                {"operation": {"operation_id": "op-new", "status": "completed", "response_text": "ready", "response_text_available": True}},
+                {"operation": {"operation_id": "op-new", "status": "completed"}},
             ]
         )
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
@@ -106,6 +108,18 @@ class ChatGPTAdapterTests(unittest.TestCase):
         response = adapter.read_operation("op/a")
         self.assertEqual(response.completion, "generating")
         self.assertIn("operation_id=op%2Fa", transport.requests[0][1])
+
+    def test_completed_response_can_be_text_available(self) -> None:
+        transport = FakeTransport(
+            [
+                {"operation": {"operation_id": "op-1", "status": "completed", "response_text": "answer", "response_text_available": True}},
+            ]
+        )
+        adapter = ChatGPTAdapter(transport, session_id="session-1")
+        response = adapter.read_operation("op-1")
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "answer")
 
     def test_wait_timeout_is_explicit_timeout(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1", "status": "generating"}}])
