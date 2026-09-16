@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from uuid import uuid4
 
+from .authorized_executor import AuthorizedExecutor
 from .config import CONFIG, ensure_runtime_directories
 from .context_builder import ContextBuilder
 from .context_schema import (
@@ -10,10 +12,17 @@ from .context_schema import (
     ObjectiveContext,
     ResearchContext,
 )
+from .execution_adapter import ExecutionAdapter
 from .fake_planner_adapter import FakePlannerAdapter
 from .fake_research_collector import FakeResearchCollector
 from .git_manager import GitManager
 from .models import CurrentTask, ProjectState
+from .orchestration_loop import (
+    BrowserVerifier,
+    ExecutionLoopResult,
+    Replanner,
+    run_supervised_execution,
+)
 from .orchestration_state import transition
 from .planner import Planner
 from .planner_schema import PlannerResult
@@ -27,8 +36,26 @@ DEFAULT_OBJECTIVE = "Inspect the current project state."
 DEFAULT_FEATURE = "orchestrator"
 
 
-def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
+def main(
+    objective: str = DEFAULT_OBJECTIVE,
+    *,
+    connection: sqlite3.Connection | None = None,
+    execution_adapter: ExecutionAdapter | None = None,
+    actor_id: str | None = None,
+    human_approval_granted: bool = False,
+    browser_verifier: BrowserVerifier | None = None,
+    replanner: Replanner | None = None,
+) -> PlannerResult:
     ensure_runtime_directories()
+
+    if (connection is None) != (execution_adapter is None):
+        raise ValueError(
+            "connection and execution_adapter must be supplied together."
+        )
+    if execution_adapter is not None and not actor_id:
+        raise ValueError(
+            "actor_id is required when supervised execution is enabled."
+        )
 
     state = StateManager(CONFIG.ai_dir)
     git = GitManager(CONFIG.project_root)
@@ -205,12 +232,6 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
         ).model_dump()
     )
 
-    task.status = "ready"
-    project_state.status = "idle"
-
-    state.save_current_task(task)
-    state.save_project_state(project_state)
-
     print()
     print("=== RESEARCH RESULT ===")
     print(f"Objective: {research_result.objective}")
@@ -258,8 +279,42 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
     )
     print(f"Blockers: {planner_result.blockers}")
 
-    print()
-    print("Orchestrator context preparation and planning complete.")
+    if execution_adapter is not None:
+        supervised_result: ExecutionLoopResult = run_supervised_execution(
+            connection,
+            actor_id=actor_id or "",
+            task=task,
+            project_state=project_state,
+            plan=planner_result,
+            context=context_package,
+            state=state,
+            executor=AuthorizedExecutor(connection, execution_adapter),
+            test_runner=tests,
+            human_approval_granted=human_approval_granted,
+            browser_verifier=browser_verifier,
+            replanner=replanner,
+        )
+
+        print()
+        print("=== SUPERVISED EXECUTION ===")
+        print(f"Status:   {supervised_result.status}")
+        print(f"Replans:  {supervised_result.replans}")
+        print(
+            f"Execution results: "
+            f"{len(supervised_result.execution_results)}"
+        )
+        print(
+            f"Diagnosis: "
+            f"{supervised_result.diagnosis.reason if supervised_result.diagnosis else 'none'}"
+        )
+    else:
+        task.status = "ready"
+        project_state.status = "idle"
+        state.save_current_task(task)
+        state.save_project_state(project_state)
+
+        print()
+        print("Orchestrator context preparation and planning complete.")
 
     return planner_result
 
