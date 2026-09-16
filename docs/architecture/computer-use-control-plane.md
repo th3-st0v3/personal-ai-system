@@ -161,18 +161,18 @@ Try configured independent fallback resolver
   ├── usable independent source found → return fallback evidence
   └── no usable fallback → waiting_human
        ↓
-  Human clears challenge in a headed/user-visible session
+  User-visible handoff may clear the challenge
        ↓
-  Resume with the same authorized task/session
+  A future persistent worker can resume the same authorized task/session
        ↓
   Re-observe and verify before continuing
 ```
 
 `ResearchFallbackResolver` implements the first recovery path with the existing read-only research layer. It searches for independent sources and never re-requests the challenged URL or treats a security token/cookie as evidence of authorization. A successful fallback is reported as `fallback_succeeded` and still carries the original challenge as provenance so the orchestrator cannot mistake the fallback for successful access to the protected page.
 
-A background/headless browser can detect and report the blocker, while human completion requires a headed browser session or an equivalent user-visible handoff mechanism. This keeps the rest of the workload resumable instead of requiring the whole program to terminate merely because one source is protected.
+The current adapter reports the handoff rather than waiting indefinitely inside the browser call. This keeps the worker from being pinned to a blocked source and leaves persistent pause/resume orchestration to the dedicated background-worker layer.
 
-The challenge layer deliberately avoids treating a challenge page as successful navigation. Unknown or ambiguous page evidence remains non-success and is surfaced for diagnosis or human review.
+A background/headless browser can detect and report the blocker, while human completion requires a headed browser session or an equivalent user-visible handoff mechanism. Unknown or ambiguous page evidence remains non-success and is surfaced for diagnosis or human review.
 
 ## Independent AI review
 
