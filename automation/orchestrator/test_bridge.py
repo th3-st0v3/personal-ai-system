@@ -18,7 +18,9 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
         prompt="PASI lifecycle test",
     )
 
-    assert bridge.get_operation(operation.operation_id)["status"] == "queued"
+    initial = bridge.get_operation(operation.operation_id)
+    assert initial is not None
+    assert initial["status"] == "queued"
 
     status = bridge.get_status()
     assert status["queue_size"] == 1
@@ -57,7 +59,9 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
         completed["chat_url"]
         == "https://chatgpt.com/c/test"
     )
-    assert bridge.get_operation(operation.operation_id)["status"] == "completed"
+    final = bridge.get_operation(operation.operation_id)
+    assert final is not None
+    assert final["status"] == "completed"
 
     status = bridge.get_status()
     assert status["queue_size"] == 0
