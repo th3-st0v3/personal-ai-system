@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .browser_challenge import BrowserChallenge
-from .research import HTTPSResearchAdapter
+from .research import HTTPSResearchAdapter, ResearchAdapterError
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,11 @@ class ResearchFallbackResolver:
         challenge: BrowserChallenge,
     ) -> BrowserRecoveryResult | None:
         del challenge
-        observation = self.research.search(task)
+        try:
+            observation = self.research.search(task)
+        except ResearchAdapterError:
+            return None
+
         sources = observation.data.get("sources", [])
         if not isinstance(sources, list):
             return None
