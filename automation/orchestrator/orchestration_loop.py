@@ -214,7 +214,6 @@ def run_supervised_execution(
         transition(task, project_state, "executing")
         _save_state(state, task, project_state)
 
-        execution_results.clear()
         step_failure: Diagnosis | None = None
 
         for step in plan.proposed_steps:
