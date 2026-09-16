@@ -27,6 +27,7 @@ class AuthorizationDecision:
     denied_actions: tuple[str, ...]
     unknown_capabilities: tuple[str, ...]
     human_approval_status: HumanApprovalStatus
+    human_approval_required: bool
     reason: str
 
 
@@ -35,8 +36,14 @@ def authorize_plan(
     *,
     actor_id: str,
     plan: PlannerResult,
+    human_approval_granted: bool = False,
 ) -> AuthorizationDecision:
-    """Evaluate a plan against explicit policy without executing any action."""
+    """Evaluate a plan without executing actions or trusting model approval claims.
+
+    Human approval is an external control-plane input. The planner's
+    ``human_approval_status`` is retained as metadata but cannot authorize
+    execution by itself.
+    """
     required_actions: list[str] = []
     denied_actions: list[str] = []
     unknown_capabilities: list[str] = []
@@ -50,6 +57,11 @@ def authorize_plan(
         if not policy.allowed(connection, actor_id, action):
             denied_actions.append(action)
 
+    human_approval_required = any(
+        action not in policy.DEFAULT_SAFE_ACTIONS
+        for action in required_actions
+    )
+
     if unknown_capabilities:
         reason = (
             "Plan contains capabilities with no defined policy mapping: "
@@ -61,6 +73,7 @@ def authorize_plan(
             denied_actions=tuple(denied_actions),
             unknown_capabilities=tuple(unknown_capabilities),
             human_approval_status=plan.human_approval_status,
+            human_approval_required=human_approval_required,
             reason=reason,
         )
 
@@ -71,7 +84,19 @@ def authorize_plan(
             denied_actions=tuple(denied_actions),
             unknown_capabilities=(),
             human_approval_status=plan.human_approval_status,
+            human_approval_required=human_approval_required,
             reason="One or more required actions are not authorized.",
+        )
+
+    if human_approval_required and not human_approval_granted:
+        return AuthorizationDecision(
+            allowed=False,
+            required_actions=tuple(required_actions),
+            denied_actions=(),
+            unknown_capabilities=(),
+            human_approval_status=plan.human_approval_status,
+            human_approval_required=True,
+            reason="Human approval is required before consequential execution.",
         )
 
     return AuthorizationDecision(
@@ -80,5 +105,6 @@ def authorize_plan(
         denied_actions=(),
         unknown_capabilities=(),
         human_approval_status=plan.human_approval_status,
-        reason="All required capabilities map to currently authorized actions.",
+        human_approval_required=human_approval_required,
+        reason="All required actions are authorized and required human approval is granted.",
     )
