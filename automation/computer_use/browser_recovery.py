@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
+from urllib.parse import urlparse
 
 from .browser_challenge import BrowserChallenge
 from .research import HTTPSResearchAdapter, ResearchAdapterError
@@ -44,8 +45,9 @@ class ResearchFallbackResolver:
     """Use the existing read-only research layer as an alternate-source fallback.
 
     The resolver deliberately searches for independent sources instead of
-    re-requesting the challenged URL. This keeps scraping resilience useful while
-    preserving the site's challenge boundary.
+    re-requesting the challenged URL. It also rejects search results hosted on
+    the challenged hostname so a protected site cannot be silently re-entered
+    through a different route.
     """
 
     research: HTTPSResearchAdapter
@@ -60,7 +62,7 @@ class ResearchFallbackResolver:
         task: str,
         challenge: BrowserChallenge,
     ) -> BrowserRecoveryResult | None:
-        del challenge
+        challenged_host = urlparse(challenge.url).netloc.lower()
         try:
             observation = self.research.search(task)
         except ResearchAdapterError:
@@ -76,6 +78,8 @@ class ResearchFallbackResolver:
             title = source.get("title")
             content = source.get("content") or source.get("snippet")
             if not isinstance(url, str) or not isinstance(title, str):
+                continue
+            if urlparse(url).netloc.lower() == challenged_host:
                 continue
             if not isinstance(content, str) or not content.strip():
                 continue
