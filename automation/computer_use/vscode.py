@@ -13,18 +13,8 @@ from .contracts import Observation
 _ALLOWED_SEVERITIES = frozenset({"error", "warning", "information", "hint", "unknown"})
 _DEFAULT_IGNORED_DIRECTORIES = frozenset(
     {
-        ".git",
-        ".venv",
-        "venv",
-        "env",
-        ".tox",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        "node_modules",
-        "dist",
-        "build",
-        "__pycache__",
+        ".git", ".venv", "venv", "env", ".tox", ".pytest_cache", ".mypy_cache",
+        ".ruff_cache", "node_modules", "dist", "build", "__pycache__",
     }
 )
 
@@ -77,6 +67,7 @@ class VSCodeEvidenceAdapter:
     """
 
     workspace_root: str
+    session_id: str = "unspecified"
     diagnostics_path: str | None = None
     state_path: str | None = None
     max_file_bytes: int = 256 * 1024
@@ -87,22 +78,21 @@ class VSCodeEvidenceAdapter:
         root = self._root()
         if not root.exists() or not root.is_dir():
             raise VSCodeEvidenceError("workspace_root must be an existing directory")
+        if not self.session_id.strip():
+            raise VSCodeEvidenceError("session_id is required")
         if self.max_file_bytes <= 0 or self.max_search_results <= 0:
             raise VSCodeEvidenceError("adapter bounds must be positive")
         if self.max_search_query_length <= 0:
             raise VSCodeEvidenceError("max_search_query_length must be positive")
 
     def observe(self) -> Observation:
-        state: dict[str, Any] = {
-            "workspace_root": str(self._root()),
-            "files": self._file_inventory(),
-        }
+        state: dict[str, Any] = {"workspace_root": str(self._root()), "files": self._file_inventory()}
         if self.state_path is not None:
             state.update(self._load_state())
         state["inventory_fingerprint"] = self._stable_fingerprint(state)
         return Observation(
             observation_id="vscode-workspace",
-            session_id="unspecified",
+            session_id=self.session_id,
             source="vscode",
             kind="workspace",
             data=state,
@@ -112,16 +102,14 @@ class VSCodeEvidenceAdapter:
         resolved, relative = self._resolve_relative_file(path)
         size = resolved.stat().st_size
         if size > self.max_file_bytes:
-            raise VSCodeEvidenceError(
-                f"file exceeds max_file_bytes ({self.max_file_bytes})"
-            )
+            raise VSCodeEvidenceError(f"file exceeds max_file_bytes ({self.max_file_bytes})")
         try:
             text = resolved.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise VSCodeEvidenceError("file is not valid UTF-8 text") from exc
         return Observation(
             observation_id=f"vscode-file:{relative}",
-            session_id="unspecified",
+            session_id=self.session_id,
             source="vscode",
             kind="file",
             data={
@@ -137,7 +125,6 @@ class VSCodeEvidenceAdapter:
             raise VSCodeEvidenceError("search query must not be empty")
         if len(query) > self.max_search_query_length:
             raise VSCodeEvidenceError("search query exceeds configured bound")
-
         matches: list[dict[str, Any]] = []
         for path in self._iter_text_files():
             try:
@@ -146,21 +133,14 @@ class VSCodeEvidenceAdapter:
                 continue
             for line_number, line in enumerate(text.splitlines(), start=1):
                 if query.casefold() in line.casefold():
-                    matches.append(
-                        {
-                            "path": path.relative_to(self._root()).as_posix(),
-                            "line": line_number,
-                            "text": line[:2000],
-                        }
-                    )
+                    matches.append({"path": path.relative_to(self._root()).as_posix(), "line": line_number, "text": line[:2000]})
                     if len(matches) >= self.max_search_results:
                         break
             if len(matches) >= self.max_search_results:
                 break
-
         return Observation(
             observation_id=f"vscode-search:{sha256(query.encode('utf-8')).hexdigest()[:16]}",
-            session_id="unspecified",
+            session_id=self.session_id,
             source="vscode",
             kind="search",
             data={
@@ -176,7 +156,7 @@ class VSCodeEvidenceAdapter:
         normalized = [item.canonical() for item in diagnostics]
         return Observation(
             observation_id="vscode-diagnostics",
-            session_id="unspecified",
+            session_id=self.session_id,
             source="vscode",
             kind="diagnostics",
             data={
@@ -210,9 +190,7 @@ class VSCodeEvidenceAdapter:
     def _iter_text_files(self):
         root = self._root()
         for current, directories, filenames in os.walk(root):
-            directories[:] = sorted(
-                name for name in directories if name not in _DEFAULT_IGNORED_DIRECTORIES
-            )
+            directories[:] = sorted(name for name in directories if name not in _DEFAULT_IGNORED_DIRECTORIES)
             for filename in sorted(filenames):
                 path = Path(current) / filename
                 try:
@@ -238,7 +216,17 @@ class VSCodeEvidenceAdapter:
         assert self.state_path is not None
         raw = self._load_json(self.state_path)
         allowed = {"active_file", "open_files", "workspace_name"}
-        return {key: raw[key] for key in sorted(raw) if key in allowed}
+        state = {key: raw[key] for key in sorted(raw) if key in allowed}
+        if "active_file" in state:
+            self._resolve_relative_file(str(state["active_file"]))
+        if "open_files" in state:
+            open_files = state["open_files"]
+            if not isinstance(open_files, list):
+                raise VSCodeEvidenceError("open_files must be a list")
+            for path in open_files:
+                self._resolve_relative_file(str(path))
+            state["open_files"] = sorted(str(path) for path in open_files)
+        return state
 
     def _load_diagnostics(self) -> list[Diagnostic]:
         if self.diagnostics_path is None:
@@ -259,24 +247,15 @@ class VSCodeEvidenceAdapter:
                 message=str(item.get("message", "")),
                 source=None if item.get("source") is None else str(item["source"]),
                 end_line=None if item.get("end_line") is None else int(item["end_line"]),
-                end_column=None
-                if item.get("end_column") is None
-                else int(item["end_column"]),
+                end_column=None if item.get("end_column") is None else int(item["end_column"]),
                 code=item.get("code"),
             )
             self._resolve_relative_file(diagnostic.path)
             diagnostics.append(diagnostic)
-        diagnostics.sort(
-            key=lambda item: (
-                item.path,
-                item.line,
-                item.column,
-                item.severity,
-                item.message,
-                item.source or "",
-                str(item.code) if item.code is not None else "",
-            )
-        )
+        diagnostics.sort(key=lambda item: (
+            item.path, item.line, item.column, item.severity, item.message,
+            item.source or "", str(item.code) if item.code is not None else "",
+        ))
         return diagnostics
 
     @staticmethod
