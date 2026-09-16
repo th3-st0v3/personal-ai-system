@@ -136,6 +136,11 @@ def test_claim_only_returns_queued_operations(
     assert status["counts"] == {"claimed": 2}
 
 
+def test_missing_operation_returns_none(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    assert bridge.get_operation("op-does-not-exist") is None
+
+
 def test_new_chat_operation_can_have_empty_prompt(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("new_chat", "")
