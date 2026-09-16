@@ -21,7 +21,22 @@ class AuthorizedExecutor:
 
     def execute(self, request: ExecutionRequest) -> ExecutionResult:
         """Authorize and execute one request, never bypassing policy.require()."""
-        if request.action not in policy.DEFAULT_SAFE_ACTIONS and not request.human_approval_granted:
+        try:
+            policy.validate_action(request.action)
+        except ValueError as exc:
+            return ExecutionResult(
+                request_id=request.request_id,
+                task_id=request.task_id,
+                step_id=request.step_id,
+                action=request.action,
+                status="rejected",
+                error=str(exc),
+            )
+
+        if (
+            request.action not in policy.DEFAULT_SAFE_ACTIONS
+            and not request.human_approval_granted
+        ):
             return ExecutionResult(
                 request_id=request.request_id,
                 task_id=request.task_id,
@@ -37,7 +52,7 @@ class AuthorizedExecutor:
                 request.actor_id,
                 request.action,
             )
-        except (PermissionError, ValueError) as exc:
+        except PermissionError as exc:
             return ExecutionResult(
                 request_id=request.request_id,
                 task_id=request.task_id,
