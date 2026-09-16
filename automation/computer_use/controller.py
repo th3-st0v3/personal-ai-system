@@ -7,7 +7,7 @@ from .contracts import ActionProposal, ActionRisk, ControlEvent, ControlPhase, S
 
 
 _ALLOWED_TRANSITIONS: dict[ControlPhase, frozenset[ControlPhase]] = {
-    "idle": frozenset({"observing", "planning", "paused", "failed"}),
+    "idle": frozenset({"observing", "planning", "awaiting_authorization", "paused", "failed"}),
     "observing": frozenset({"planning", "executing", "verifying", "failed", "paused"}),
     "planning": frozenset({"awaiting_authorization", "executing", "failed", "paused"}),
     "awaiting_authorization": frozenset({"executing", "paused", "failed"}),
