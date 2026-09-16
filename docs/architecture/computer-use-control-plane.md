@@ -148,9 +148,9 @@ Browser Use is responsible for dynamic page interaction through its browser sess
 
 The adapter detects common challenge/interstitial evidence such as CAPTCHA, Cloudflare challenge pages, Turnstile, login walls, and consent gates. A detected security challenge is never converted into a success result.
 
-PASI does **not** solve or bypass CAPTCHA, Cloudflare, Turnstile, challenge tokens, fingerprint protections, access controls, or rate limits. Browser automation libraries such as Selenium explicitly discourage automating CAPTCHA. Cloudflare documents these mechanisms as checks intended to distinguish human visitors from automated traffic. citeturn174975search1turn174975search3
+PASI does **not** solve or bypass CAPTCHA, Cloudflare, Turnstile, challenge tokens, fingerprint protections, access controls, or rate limits. Browser automation libraries explicitly discourage automating CAPTCHA, and Cloudflare documents these mechanisms as checks intended to distinguish human visitors from automated traffic.
 
-Instead, Browser Use now supports a safe recovery boundary:
+Instead, Browser Use supports a safe recovery boundary:
 
 ```text
 Browser task
