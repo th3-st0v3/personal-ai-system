@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from .context_schema import PASIModel
+from .schema_base import PASIModel
 
 
 ObservationKind = Literal[
