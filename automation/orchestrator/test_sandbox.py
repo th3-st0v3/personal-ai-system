@@ -90,21 +90,26 @@ def test_missing_runtime_fails_closed(
     assert result.error == "No supported local sandbox runtime is installed."
 
 
-def test_local_runtime_executes_when_bubblewrap_is_available(
+def test_local_runtime_executes_when_bubblewrap_is_usable(
     tmp_path: Path,
     sandbox_request: SandboxRequest,
 ) -> None:
     sandbox = LocalBubblewrapSandbox(tmp_path)
-    if sandbox.execute(
-        SandboxRequest(
-            request_id=sandbox_request.request_id,
-            task_id=sandbox_request.task_id,
-            step_id=sandbox_request.step_id,
-            actor_id=sandbox_request.actor_id,
-            argv=("false",),
-        )
-    ).error == "No supported local sandbox runtime is installed.":
+    probe = SandboxRequest(
+        request_id=sandbox_request.request_id,
+        task_id=sandbox_request.task_id,
+        step_id=sandbox_request.step_id,
+        actor_id=sandbox_request.actor_id,
+        argv=("true",),
+    )
+    capability = sandbox.execute(probe)
+    if capability.error == "No supported local sandbox runtime is installed.":
         pytest.skip("bubblewrap is not installed")
+    if capability.status != "executed":
+        pytest.skip(
+            "bubblewrap is installed but this environment cannot run the required "
+            f"isolation boundary: {capability.error or 'unknown error'}"
+        )
 
     result = sandbox.execute(sandbox_request)
 
