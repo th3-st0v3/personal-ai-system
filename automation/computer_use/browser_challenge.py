@@ -50,14 +50,55 @@ def detect_browser_challenge(
     text: str = "",
     session_id: str = "unknown-session",
 ) -> BrowserChallenge | None:
-    haystack = " ".join((url, title, text)).lower()
+    normalized_url = url.lower()
+    normalized_title = title.lower()
+    normalized_text = text.lower()
+    haystack = " ".join((normalized_url, normalized_title, normalized_text))
 
     rules: tuple[tuple[ChallengeKind, tuple[str, ...]], ...] = (
-        ("turnstile", ("turnstile", "challenges.cloudflare.com")),
-        ("cloudflare", ("cloudflare", "cf-chl-", "verify you are human", "checking your browser")),
-        ("captcha", ("captcha", "hcaptcha", "recaptcha", "i'm not a robot")),
-        ("login_required", ("sign in to continue", "log in to continue", "login required")),
-        ("consent_required", ("cookie consent", "accept cookies", "consent required")),
+        (
+            "turnstile",
+            (
+                "challenges.cloudflare.com/turnstile",
+                "turnstile-widget",
+                "cf-turnstile",
+            ),
+        ),
+        (
+            "cloudflare",
+            (
+                "cf-chl-",
+                "cdn-cgi/challenge-platform",
+                "checking your browser before accessing",
+                "verify you are human",
+                "just a moment...",
+            ),
+        ),
+        (
+            "captcha",
+            (
+                "captcha",
+                "hcaptcha",
+                "recaptcha",
+                "i'm not a robot",
+            ),
+        ),
+        (
+            "login_required",
+            (
+                "sign in to continue",
+                "log in to continue",
+                "login required",
+            ),
+        ),
+        (
+            "consent_required",
+            (
+                "cookie consent",
+                "accept cookies",
+                "consent required",
+            ),
+        ),
     )
 
     for kind, markers in rules:
