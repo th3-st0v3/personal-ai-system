@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 from automation.orchestrator.authorized_executor import AuthorizedExecutor
-from automation.orchestrator.context_schema import ContextPackage
-from automation.orchestrator.execution_schema import ExecutionRequest, ExecutionResult
+from automation.orchestrator.context_schema import (
+    AgentRequest,
+    BrowserContext,
+    ContextPackage,
+    EvidenceQuality,
+    ExecutionPolicy,
+    FilesContext,
+    GitWslContext,
+    MemoryContext,
+    ObjectiveContext,
+    ProjectContext,
+    RepositoryContext,
+    TestContext as PASITestContext,
+    TestSummary as PASITestSummary,
+    WorkingTreeContext,
+)
 from automation.orchestrator.execution_adapter import ExecutionAdapter
+from automation.orchestrator.execution_schema import ExecutionRequest, ExecutionResult
 from automation.orchestrator.models import CurrentTask, ProjectState
 from automation.orchestrator.orchestration_loop import (
     BrowserVerificationResult,
@@ -37,7 +53,7 @@ class RecordingAdapter:
 
 
 class FakeTests:
-    def __init__(self, results):
+    def __init__(self, results) -> None:
         self.results = list(results)
 
     def run_project_tests(self):
@@ -87,8 +103,52 @@ def make_task() -> tuple[CurrentTask, ProjectState]:
 def make_context() -> ContextPackage:
     return ContextPackage.create(
         context_id="ctx-1",
-        objective={"primary": "Run a simulation."},
-        agent_request={"task": "Run a simulation."},
+        objective=ObjectiveContext(
+            primary="Run a simulation.",
+        ),
+        project=ProjectContext(
+            project_id="project-1",
+            name="Simulation Project",
+            repository=RepositoryContext(
+                provider="local",
+                repository="project",
+                branch="main",
+            ),
+        ),
+        memory=MemoryContext(
+            query="Run a simulation.",
+        ),
+        git_wsl=GitWslContext(
+            branch="main",
+            head="abc123",
+            sync_state="SYNCED",
+            working_tree=WorkingTreeContext(
+                clean=True,
+            ),
+            ahead=0,
+            behind=0,
+        ),
+        tests=PASITestContext(
+            status="passed",
+            summary=PASITestSummary(
+                passed=0,
+                failed=0,
+                skipped=0,
+                errors=0,
+            ),
+        ),
+        browser=BrowserContext(
+            available=False,
+        ),
+        files=FilesContext(),
+        execution_policy=ExecutionPolicy(),
+        evidence_quality=EvidenceQuality(
+            overall="good",
+        ),
+        agent_request=AgentRequest(
+            task="Run a simulation.",
+            expected_output=[],
+        ),
     )
 
 
@@ -114,7 +174,7 @@ def make_plan(*, browser: bool = False) -> PlannerResult:
     )
 
 
-def test_safe_execution_runs_tests_and_completes(tmp_path) -> None:
+def test_safe_execution_runs_tests_and_completes(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -136,9 +196,10 @@ def test_safe_execution_runs_tests_and_completes(tmp_path) -> None:
     assert task.phase == "completed"
     assert len(adapter.requests) == 1
     assert state.load_execution_result()["status"] == "executed"
+    assert state.load_retry_state()["replans"] == 0
 
 
-def test_consequential_plan_waits_for_external_approval(tmp_path) -> None:
+def test_consequential_plan_waits_for_external_approval(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -169,9 +230,10 @@ def test_consequential_plan_waits_for_external_approval(tmp_path) -> None:
     assert result.status == "awaiting_approval"
     assert task.phase == "awaiting_approval"
     assert adapter.requests == []
+    assert state.load_retry_state()["source"] == "authorization"
 
 
-def test_execution_failure_routes_to_diagnosis_and_replan(tmp_path) -> None:
+def test_execution_failure_routes_to_diagnosis_and_replan(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter(should_fail=True)
     connection, executor = make_executor(adapter)
@@ -199,9 +261,11 @@ def test_execution_failure_routes_to_diagnosis_and_replan(tmp_path) -> None:
     assert len(replanner.calls) == 1
     assert replanner.calls[0].source == "execution"
     assert task.phase == "completed"
+    assert state.load_retry_state()["replans"] == 1
+    assert len(result.execution_results) == 1
 
 
-def test_failed_tests_route_to_diagnosis_and_handoff_when_retry_budget_is_exhausted(tmp_path) -> None:
+def test_failed_tests_route_to_diagnosis_and_handoff_when_retry_budget_is_exhausted(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -236,9 +300,10 @@ def test_failed_tests_route_to_diagnosis_and_handoff_when_retry_budget_is_exhaus
     assert result.diagnosis is not None
     assert result.diagnosis.source == "testing"
     assert task.phase == "handoff"
+    assert state.load_retry_state()["source"] == "testing"
 
 
-def test_browser_failure_routes_to_diagnosis(tmp_path) -> None:
+def test_browser_failure_routes_to_diagnosis(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)
@@ -269,9 +334,10 @@ def test_browser_failure_routes_to_diagnosis(tmp_path) -> None:
     assert result.diagnosis.source == "browser_verification"
     assert task.phase == "handoff"
     assert state.load_browser_results()["success"] is False
+    assert state.load_retry_state()["source"] == "browser_verification"
 
 
-def test_missing_browser_verifier_is_not_treated_as_success(tmp_path) -> None:
+def test_missing_browser_verifier_is_not_treated_as_success(tmp_path: Path) -> None:
     task, project_state = make_task()
     adapter = RecordingAdapter()
     connection, executor = make_executor(adapter)

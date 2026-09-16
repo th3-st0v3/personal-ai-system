@@ -15,7 +15,7 @@ _ALLOWED_TRANSITIONS: Mapping[TaskPhase, frozenset[TaskPhase]] = {
     "precheck": frozenset({"research", "context_ready", "handoff", "failed"}),
     "research": frozenset({"context_ready", "diagnosis", "handoff", "failed"}),
     "context_ready": frozenset({"planning", "handoff", "failed"}),
-    "planning": frozenset({"awaiting_approval", "executing", "handoff", "failed"}),
+    "planning": frozenset({"awaiting_approval", "executing", "testing", "handoff", "failed"}),
     "awaiting_approval": frozenset({"executing", "handoff", "failed"}),
     "executing": frozenset({"testing", "diagnosis", "handoff", "failed"}),
     "testing": frozenset({

@@ -257,72 +257,8 @@ def run_supervised_execution(
             )
 
         if not plan.proposed_steps:
-            transition(task, project_state, "completed")
-            _save_state(state, task, project_state)
-            _save_retry_state(
-                state,
-                task=task,
-                replans=replans,
-                max_replans=max_replans,
-                diagnosis=None,
-            )
-            return ExecutionLoopResult(
-                status="completed",
-                plan=plan,
-                execution_results=tuple(execution_results),
-                test_results=tuple(test_results),
-                browser_result=browser_result,
-                diagnosis=None,
-                replans=replans,
-            )
-
-        transition(task, project_state, "executing")
-        _save_state(state, task, project_state)
-
-        step_failure: Diagnosis | None = None
-
-        for step in plan.proposed_steps:
-            action = _step_action(step)
-            if action is None:
-                step_failure = Diagnosis(
-                    source="planning",
-                    reason="A proposed step does not resolve to exactly one known policy action.",
-                    details=f"step_id={step.step_id}; capabilities={step.required_capabilities}",
-                )
-                break
-
-            result = executor.execute(
-                ExecutionRequest(
-                    request_id=f"req_{uuid4().hex}",
-                    task_id=task.task_id,
-                    step_id=step.step_id,
-                    actor_id=actor_id,
-                    action=action,
-                    human_approval_granted=human_approval_granted,
-                )
-            )
-            execution_results.append(result)
-            state.save_execution_result(result)
-
-            if result.status != "executed":
-                step_failure = _diagnose_execution_failure(result)
-                break
-
-        if step_failure is not None:
-            diagnosis = step_failure
-            _save_retry_state(
-                state,
-                task=task,
-                replans=replans,
-                max_replans=max_replans,
-                diagnosis=diagnosis,
-            )
-            transition(task, project_state, "diagnosis")
-            _save_state(state, task, project_state)
-        else:
             transition(task, project_state, "testing")
             _save_state(state, task, project_state)
-
             test_results = list(test_runner.run_project_tests())
             for result in test_results:
                 state.save_test_results(
@@ -335,7 +271,6 @@ def run_supervised_execution(
                         "duration_seconds": result.duration_seconds,
                     }
                 )
-
             if any(not result.success for result in test_results):
                 diagnosis = _diagnose_test_failure(test_results)
                 _save_retry_state(
@@ -348,44 +283,114 @@ def run_supervised_execution(
                 transition(task, project_state, "diagnosis")
                 _save_state(state, task, project_state)
             else:
-                needs_browser = any(
-                    "browser" in requirement.lower()
-                    for requirement in plan.verification_requirements
-                    + [
-                        requirement
-                        for step in plan.proposed_steps
-                        for requirement in step.verification_requirements
-                    ]
+                transition(task, project_state, "completed")
+                _save_state(state, task, project_state)
+                _save_retry_state(
+                    state,
+                    task=task,
+                    replans=replans,
+                    max_replans=max_replans,
+                    diagnosis=None,
+                )
+                return ExecutionLoopResult(
+                    status="completed",
+                    plan=plan,
+                    execution_results=tuple(execution_results),
+                    test_results=tuple(test_results),
+                    browser_result=browser_result,
+                    diagnosis=None,
+                    replans=replans,
                 )
 
-                if needs_browser:
-                    if browser_verifier is None:
-                        diagnosis = Diagnosis(
-                            source="browser_verification",
-                            reason="Browser verification was required but no verifier was provided.",
-                        )
-                        _save_retry_state(
-                            state,
-                            task=task,
-                            replans=replans,
-                            max_replans=max_replans,
-                            diagnosis=diagnosis,
-                        )
-                        transition(task, project_state, "diagnosis")
-                        _save_state(state, task, project_state)
-                    else:
-                        transition(task, project_state, "browser_verification")
-                        _save_state(state, task, project_state)
-                        browser_result = browser_verifier.verify()
-                        state.save_browser_results(
-                            {
-                                "success": browser_result.success,
-                                "details": browser_result.details,
-                            }
-                        )
+        else:
+            transition(task, project_state, "executing")
+            _save_state(state, task, project_state)
 
-                        if not browser_result.success:
-                            diagnosis = _diagnose_browser_failure(browser_result)
+            step_failure: Diagnosis | None = None
+
+            for step in plan.proposed_steps:
+                action = _step_action(step)
+                if action is None:
+                    step_failure = Diagnosis(
+                        source="planning",
+                        reason="A proposed step does not resolve to exactly one known policy action.",
+                        details=f"step_id={step.step_id}; capabilities={step.required_capabilities}",
+                    )
+                    break
+
+                result = executor.execute(
+                    ExecutionRequest(
+                        request_id=f"req_{uuid4().hex}",
+                        task_id=task.task_id,
+                        step_id=step.step_id,
+                        actor_id=actor_id,
+                        action=action,
+                        human_approval_granted=human_approval_granted,
+                    )
+                )
+                execution_results.append(result)
+                state.save_execution_result(result)
+
+                if result.status != "executed":
+                    step_failure = _diagnose_execution_failure(result)
+                    break
+
+            if step_failure is not None:
+                diagnosis = step_failure
+                _save_retry_state(
+                    state,
+                    task=task,
+                    replans=replans,
+                    max_replans=max_replans,
+                    diagnosis=diagnosis,
+                )
+                transition(task, project_state, "diagnosis")
+                _save_state(state, task, project_state)
+            else:
+                transition(task, project_state, "testing")
+                _save_state(state, task, project_state)
+
+                test_results = list(test_runner.run_project_tests())
+                for result in test_results:
+                    state.save_test_results(
+                        {
+                            "success": result.success,
+                            "command": result.command,
+                            "return_code": result.return_code,
+                            "stdout": result.stdout,
+                            "stderr": result.stderr,
+                            "duration_seconds": result.duration_seconds,
+                        }
+                    )
+
+                if any(not result.success for result in test_results):
+                    diagnosis = _diagnose_test_failure(test_results)
+                    _save_retry_state(
+                        state,
+                        task=task,
+                        replans=replans,
+                        max_replans=max_replans,
+                        diagnosis=diagnosis,
+                    )
+                    transition(task, project_state, "diagnosis")
+                    _save_state(state, task, project_state)
+                else:
+                    needs_browser = any(
+                        "browser" in requirement.lower()
+                        for requirement in plan.verification_requirements
+                        + [
+                            requirement
+                            for step in plan.proposed_steps
+                            for requirement in step.verification_requirements
+                        ]
+                    )
+
+                    if needs_browser:
+                        if browser_verifier is None:
+                            diagnosis = Diagnosis(
+                                source="browser_verification",
+                                reason="Browser verification was required but no verifier was provided.",
+                            )
                             _save_retry_state(
                                 state,
                                 task=task,
@@ -396,43 +401,65 @@ def run_supervised_execution(
                             transition(task, project_state, "diagnosis")
                             _save_state(state, task, project_state)
                         else:
-                            transition(task, project_state, "completed")
+                            transition(task, project_state, "browser_verification")
                             _save_state(state, task, project_state)
-                            _save_retry_state(
-                                state,
-                                task=task,
-                                replans=replans,
-                                max_replans=max_replans,
-                                diagnosis=None,
+                            browser_result = browser_verifier.verify()
+                            state.save_browser_results(
+                                {
+                                    "success": browser_result.success,
+                                    "details": browser_result.details,
+                                }
                             )
-                            return ExecutionLoopResult(
-                                status="completed",
-                                plan=plan,
-                                execution_results=tuple(execution_results),
-                                test_results=tuple(test_results),
-                                browser_result=browser_result,
-                                diagnosis=None,
-                                replans=replans,
-                            )
-                else:
-                    transition(task, project_state, "completed")
-                    _save_state(state, task, project_state)
-                    _save_retry_state(
-                        state,
-                        task=task,
-                        replans=replans,
-                        max_replans=max_replans,
-                        diagnosis=None,
-                    )
-                    return ExecutionLoopResult(
-                        status="completed",
-                        plan=plan,
-                        execution_results=tuple(execution_results),
-                        test_results=tuple(test_results),
-                        browser_result=browser_result,
-                        diagnosis=None,
-                        replans=replans,
-                    )
+
+                            if not browser_result.success:
+                                diagnosis = _diagnose_browser_failure(browser_result)
+                                _save_retry_state(
+                                    state,
+                                    task=task,
+                                    replans=replans,
+                                    max_replans=max_replans,
+                                    diagnosis=diagnosis,
+                                )
+                                transition(task, project_state, "diagnosis")
+                                _save_state(state, task, project_state)
+                            else:
+                                transition(task, project_state, "completed")
+                                _save_state(state, task, project_state)
+                                _save_retry_state(
+                                    state,
+                                    task=task,
+                                    replans=replans,
+                                    max_replans=max_replans,
+                                    diagnosis=None,
+                                )
+                                return ExecutionLoopResult(
+                                    status="completed",
+                                    plan=plan,
+                                    execution_results=tuple(execution_results),
+                                    test_results=tuple(test_results),
+                                    browser_result=browser_result,
+                                    diagnosis=None,
+                                    replans=replans,
+                                )
+                    else:
+                        transition(task, project_state, "completed")
+                        _save_state(state, task, project_state)
+                        _save_retry_state(
+                            state,
+                            task=task,
+                            replans=replans,
+                            max_replans=max_replans,
+                            diagnosis=None,
+                        )
+                        return ExecutionLoopResult(
+                            status="completed",
+                            plan=plan,
+                            execution_results=tuple(execution_results),
+                            test_results=tuple(test_results),
+                            browser_result=browser_result,
+                            diagnosis=None,
+                            replans=replans,
+                        )
 
         if diagnosis is None:
             raise RuntimeError("Execution loop reached an unexpected state without a diagnosis.")
