@@ -30,10 +30,10 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s src -p 'test_*.py' -v
-      - name: Run orchestrator tests
-        run: python -m pytest -q automation/orchestrator
+      - name: Run orchestrator and computer-use tests
+        run: python -m pytest -q automation/orchestrator automation/computer_use
       - name: Static type check
-        run: npx --yes pyright@latest src scripts automation/orchestrator
+        run: npx --yes pyright@latest src scripts automation/orchestrator automation/computer_use
       - name: Markdown lint
         run: npx --yes markdownlint-cli2@latest "**/*.md" "#node_modules" "#**/.venv/**" "#**/venv/**" "#**/env/**"
       - name: Validate web client syntax

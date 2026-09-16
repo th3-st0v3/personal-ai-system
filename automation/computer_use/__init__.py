@@ -12,6 +12,7 @@ from .contracts import (
     Observation,
     Session,
 )
+from .vscode import Diagnostic, VSCodeEvidenceAdapter, VSCodeEvidenceError
 
 __all__ = [
     "ActionKind",
@@ -24,4 +25,7 @@ __all__ = [
     "ContextPackage",
     "Observation",
     "Session",
+    "Diagnostic",
+    "VSCodeEvidenceAdapter",
+    "VSCodeEvidenceError",
 ]

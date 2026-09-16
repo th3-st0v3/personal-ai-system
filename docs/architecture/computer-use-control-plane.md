@@ -4,7 +4,7 @@ The Computer-Use Control Plane (CUCP) is the provider-independent boundary betwe
 
 ## Design goal
 
-The CUCP enables PASI to operate tools in a human-like workflow without putting UI automation or provider-specific behavior into the core orchestrator. The initial implementation is contract-first: it defines sessions, semantic actions, observations, AI responses, completion states, context packages, events, and replaceable adapters. Concrete automation is added only behind these contracts.
+The CUCP enables PASI to operate tools in a human-like workflow without putting UI automation or provider-specific behavior into the core orchestrator. The implementation is contract-first: it defines sessions, semantic actions, observations, AI responses, completion states, context packages, events, and replaceable adapters. Concrete automation is added only behind these contracts.
 
 ## Control loop
 
@@ -41,7 +41,7 @@ ComputerAdapter
   └── future isolated sessions
 
 IDEAdapter
-  └── VS Code / language-server diagnostics / bounded terminal
+  └── VS Code / language-server diagnostics / bounded evidence
 
 GitHubAdapter
   ├── GitHub connector/API
@@ -52,6 +52,37 @@ ResearchAdapter
 ```
 
 Core contracts must not contain provider-specific selectors, coordinates, DOM structure, or browser implementation details.
+
+## VS Code observation and diagnostics
+
+`VSCodeEvidenceAdapter` is the first concrete IDE implementation. It is intentionally read-only and can be used without driving the VS Code UI directly. It provides four semantic operations through the `IDEAdapter` contract:
+
+- workspace observation, including a bounded file inventory and optional editor-state snapshot;
+- workspace-relative file reads with a configurable byte limit;
+- case-insensitive bounded text search over non-generated workspace files;
+- normalized diagnostics loaded from a structured JSON snapshot produced by VS Code/LSP tooling.
+
+Diagnostics are normalized into stable fields for path, position, severity, source, message, range, and code. They are sorted deterministically and carry a content fingerprint so the same evidence can be compared across observations.
+
+State and diagnostics snapshots are evidence inputs, not execution instructions. Paths must resolve inside the workspace root, absolute paths are rejected, common generated/environment directories are skipped during inventory/search, and no write/delete/command API exists on the adapter.
+
+The adapter therefore fits the future context loop as:
+
+```text
+VS Code / LSP evidence
+  ↓
+VSCodeEvidenceAdapter
+  ↓
+Observation (workspace / file / search / diagnostics)
+  ↓
+ContextCollector
+  ↓
+ContextPackage
+  ↓
+AI provider / conditional follow-up
+```
+
+A later VS Code integration can publish the same state/diagnostics schema from an extension or accessibility/API layer without changing the core CUCP contracts.
 
 ## ChatGPT workflow
 
@@ -120,8 +151,8 @@ Verification
 
 ## Implementation sequence
 
-1. Contract and state-machine foundation (this slice).
-2. Read-only VS Code observation and diagnostics adapter.
+1. Contract and state-machine foundation.
+2. Read-only VS Code observation and diagnostics adapter (this slice).
 3. ChatGPT adapter integration with robust completion detection.
 4. Conditional prompt/context engine.
 5. Web research adapter.
