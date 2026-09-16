@@ -20,6 +20,7 @@ ActionKind: TypeAlias = Literal[
     "github_ui",
     "web_search",
     "web_read",
+    "browser_task",
     "desktop_ui",
 ]
 ActionRisk: TypeAlias = Literal["safe", "approval_required", "denied"]
@@ -60,7 +61,7 @@ SAFE_ACTIONS: frozenset[ActionKind] = frozenset(
     }
 )
 APPROVAL_ACTIONS: frozenset[ActionKind] = frozenset(
-    {"ide_command", "github_ui", "desktop_ui"}
+    {"ide_command", "github_ui", "browser_task", "desktop_ui"}
 )
 
 
