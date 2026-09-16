@@ -2,6 +2,7 @@ import unittest
 from typing import cast
 from unittest.mock import patch
 from collections.abc import Mapping
+from dataclasses import replace
 
 from calculation_application import CalculationApplication
 from calculation_definitions import CALCULATION_DEFINITIONS
@@ -43,6 +44,43 @@ class TestCalculationApplication(unittest.TestCase):
         self.assertEqual(trace.result, 98100.0)
         self.assertGreaterEqual(len(trace.steps), 5)
         self.assertEqual(trace.to_dict()["result_unit"], "Pa")
+
+    def test_workload_spec_is_deterministic_and_sensitive_to_inputs(self):
+        first = self.app.workload_spec("hydrostatic_pressure", {"density": 1000, "gravity": 9.81, "depth": 10})
+        second = self.app.workload_spec("hydrostatic_pressure", {"depth": 10, "gravity": 9.81, "density": 1000})
+        changed = self.app.workload_spec("hydrostatic_pressure", {"density": 1000, "gravity": 9.81, "depth": 11})
+
+        self.assertEqual(first.fingerprint(), second.fingerprint())
+        self.assertNotEqual(first.fingerprint(), changed.fingerprint())
+        self.assertEqual(first.kind, "calculation")
+        self.assertTrue(first.policy.deterministic)
+        self.assertFalse(first.policy.allow_remote)
+        self.assertFalse(first.policy.allow_network)
+
+    def test_workload_fingerprint_changes_with_method_version(self):
+        spec = self.app.workload_spec("hydrostatic_pressure", {"density": 1000, "gravity": 9.81, "depth": 10})
+        changed = replace(spec, software_version="2.0")
+
+        self.assertNotEqual(spec.fingerprint(), changed.fingerprint())
+
+    def test_run_with_manifest_returns_reproducible_success_manifest(self):
+        first_record, first_manifest = self.app.run_with_manifest(
+            "hydrostatic_pressure",
+            {"density": 1000, "gravity": 9.81, "depth": 10},
+        )
+        second_record, second_manifest = self.app.run_with_manifest(
+            "hydrostatic_pressure",
+            {"density": 1000, "gravity": 9.81, "depth": 10},
+        )
+
+        self.assertEqual(first_record.result, 98100.0)
+        self.assertEqual(first_manifest.status, "succeeded")
+        self.assertEqual(first_manifest.backend, "deterministic-calculation-library")
+        self.assertIsNotNone(first_manifest.started_at)
+        self.assertIsNotNone(first_manifest.finished_at)
+        self.assertEqual(first_manifest.workload_fingerprint, second_manifest.workload_fingerprint)
+        self.assertEqual(first_manifest.result_fingerprint, second_manifest.result_fingerprint)
+        self.assertEqual(first_record.result, second_record.result)
 
     def test_runs_and_saves_through_application_boundary(self):
         with patch("calculation_application.db.save_calculation_record", return_value=42) as save:
