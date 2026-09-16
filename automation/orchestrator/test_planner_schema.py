@@ -59,6 +59,20 @@ def test_planner_result_covers_required_contract() -> None:
     assert result.human_approval_status == "pending"
 
 
+def test_proposed_step_supports_per_step_intent() -> None:
+    step = ProposedStep(
+        step_id="simulate-login",
+        description="Run the login simulation.",
+        required_capabilities=["run_simulation"],
+        verification_requirements=["Inspect the simulation trace."],
+    )
+
+    assert step.required_capabilities == ["run_simulation"]
+    assert step.verification_requirements == [
+        "Inspect the simulation trace."
+    ]
+
+
 def test_planner_result_defaults_are_safe() -> None:
     result = PlannerResult()
 
