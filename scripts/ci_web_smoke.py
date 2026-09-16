@@ -59,10 +59,15 @@ def main() -> int:
             wait_for_server(process)
 
             page = fetch("/")
-            if "chat-form" not in page:
-                raise AssertionError("web page does not contain chat-form")
-            if "production-ui.js" not in page:
-                raise AssertionError("web page does not contain production-ui.js")
+            required_page_markers = (
+                'id="chat-form"',
+                'src="/ui-completion.js"',
+                'src="/app.js"',
+                'href="/styles.css"',
+            )
+            for marker in required_page_markers:
+                if marker not in page:
+                    raise AssertionError(f"web page does not contain {marker}")
 
             health = fetch("/api/health")
             if '"status":"ok"' not in health:
