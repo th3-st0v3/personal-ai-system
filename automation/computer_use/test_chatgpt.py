@@ -25,6 +25,21 @@ class FakeTransport:
         return self.responses.pop(0)
 
 
+class RepeatingTransport(FakeTransport):
+    def __init__(self, response: Mapping[str, Any]) -> None:
+        super().__init__([response])
+        self.response = response
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        return self.response
+
+
 def observation(data: Mapping[str, Any]) -> Observation:
     return Observation(
         observation_id="test-observation",
@@ -133,10 +148,11 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.text, "answer")
 
     def test_wait_timeout_is_explicit_timeout(self) -> None:
-        transport = FakeTransport([{"operation": {"operation_id": "op-1", "status": "generating"}}])
+        transport = RepeatingTransport({"operation": {"operation_id": "op-1", "status": "generating"}})
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, max_wait_seconds=0.001)
         response = adapter.wait_for_completion("op-1")
         self.assertEqual(response.completion, "timeout")
+        self.assertGreaterEqual(len(transport.requests), 1)
 
 
 if __name__ == "__main__":
