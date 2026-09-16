@@ -21,6 +21,7 @@ from .contracts import (
     Observation,
     Session,
 )
+from .research import HTTPSResearchAdapter, ResearchAdapterError, ResearchSource
 from .vscode import Diagnostic, VSCodeEvidenceAdapter, VSCodeEvidenceError
 
 __all__ = [
@@ -46,4 +47,7 @@ __all__ = [
     "EvidenceContextCollector",
     "FollowUpDecision",
     "TaskState",
+    "HTTPSResearchAdapter",
+    "ResearchAdapterError",
+    "ResearchSource",
 ]
