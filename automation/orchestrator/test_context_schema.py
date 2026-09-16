@@ -23,6 +23,10 @@ from automation.orchestrator.context_schema import (
     TestContext as PASITestContext,
     TestSummary as PASITestSummary,
 )
+from automation.orchestrator.research_schema import (
+    ResearchFinding,
+    ResearchObservation,
+)
 
 
 def make_package() -> ContextPackage:
@@ -100,13 +104,32 @@ def test_context_package_can_be_created() -> None:
     assert package.tests.summary.passed == 10
 
 
-def test_context_package_accepts_research_context() -> None:
+def test_context_package_preserves_structured_research_provenance() -> None:
     package = make_package()
+
+    observation = ResearchObservation(
+        observation_id="obs-1",
+        subject="login",
+        aspect="route",
+        statement="The login route exists.",
+        source_ref="repo://src/auth.py",
+        source_locator="src/auth.py:41",
+        kind="direct_observation",
+        confidence="high",
+    )
+    finding = ResearchFinding(
+        finding_id="finding-1",
+        statement="The existing authentication route can be reused.",
+        supporting_observations=["obs-1"],
+        design_implications=["Preserve the existing session layer."],
+        confidence="medium",
+        requires_verification=True,
+    )
 
     package.research = ResearchContext(
         objective="Make the login button work.",
-        observations=["The login route exists."],
-        findings=["Authentication uses the existing session layer."],
+        observations=[observation],
+        findings=[finding],
         sources_considered=["repo://src/auth.py"],
         unanswered_questions=["Browser behavior still needs verification."],
         evidence_quality="good",
@@ -114,10 +137,29 @@ def test_context_package_accepts_research_context() -> None:
 
     assert package.research is not None
     assert package.research.objective == "Make the login button work."
-    assert package.research.evidence_quality == "good"
-    assert package.research.findings == [
-        "Authentication uses the existing session layer."
-    ]
+    assert package.research.observations[0].source_ref == (
+        "repo://src/auth.py"
+    )
+    assert package.research.observations[0].source_locator == (
+        "src/auth.py:41"
+    )
+    assert package.research.observations[0].kind == "direct_observation"
+    assert package.research.observations[0].confidence == "high"
+    assert package.research.findings[0].supporting_observations == ["obs-1"]
+    assert package.research.findings[0].confidence == "medium"
+    assert package.research.findings[0].requires_verification is True
+
+    payload = package.to_context_dict()
+    observation_payload = payload["research"]["observations"][0]
+    finding_payload = payload["research"]["findings"][0]
+
+    assert observation_payload["source_ref"] == "repo://src/auth.py"
+    assert observation_payload["source_locator"] == "src/auth.py:41"
+    assert observation_payload["kind"] == "direct_observation"
+    assert observation_payload["confidence"] == "high"
+    assert finding_payload["supporting_observations"] == ["obs-1"]
+    assert finding_payload["confidence"] == "medium"
+    assert finding_payload["requires_verification"] is True
 
 
 def test_created_context_has_timezone_aware_timestamp() -> None:
@@ -143,9 +185,7 @@ def test_created_at_must_be_timezone_aware() -> None:
             {
                 "context_id": "ctx_test_002",
                 "created_at": datetime(2026, 1, 1),
-                "objective": {
-                    "primary": "test",
-                },
+                "objective": {"primary": "test"},
                 "project": {
                     "project_id": "demo",
                     "name": "Demo",
@@ -155,16 +195,12 @@ def test_created_at_must_be_timezone_aware() -> None:
                         "branch": "main",
                     },
                 },
-                "memory": {
-                    "query": "test",
-                },
+                "memory": {"query": "test"},
                 "git_wsl": {
                     "branch": "main",
                     "head": "abc",
                     "sync_state": "SYNCED",
-                    "working_tree": {
-                        "clean": True,
-                    },
+                    "working_tree": {"clean": True},
                     "ahead": 0,
                     "behind": 0,
                 },
@@ -177,17 +213,14 @@ def test_created_at_must_be_timezone_aware() -> None:
                         "errors": 0,
                     },
                 },
-                "browser": {
-                    "available": False,
-                },
+                "browser": {"available": False},
                 "files": {},
                 "execution_policy": {},
                 "evidence_quality": {},
-                "agent_request": {
-                    "task": "test",
-                },
+                "agent_request": {"task": "test"},
             }
         )
+
 
 def test_unknown_fields_are_rejected() -> None:
     with pytest.raises(ValidationError):
@@ -197,6 +230,7 @@ def test_unknown_fields_are_rejected() -> None:
                 "unexpected": "should fail",
             }
         )
+
 
 def test_relevance_scores_are_bounded() -> None:
     with pytest.raises(ValidationError):
@@ -208,6 +242,7 @@ def test_relevance_scores_are_bounded() -> None:
             }
         )
 
+
 def test_sync_state_is_constrained() -> None:
     with pytest.raises(ValidationError):
         GitWslContext.model_validate(
@@ -215,13 +250,12 @@ def test_sync_state_is_constrained() -> None:
                 "branch": "main",
                 "head": "abc",
                 "sync_state": "MAKE_SOMETHING_UP",
-                "working_tree": {
-                    "clean": True,
-                },
+                "working_tree": {"clean": True},
                 "ahead": 0,
                 "behind": 0,
             }
         )
+
 
 def test_checked_in_json_schema_matches_context_package() -> None:
     import json
