@@ -20,6 +20,8 @@ TaskPhase: TypeAlias = Literal[
     "handoff",
 ]
 
+ProjectPhase: TypeAlias = Literal["idle"] | TaskPhase
+
 
 TERMINAL_PHASES: frozenset[TaskPhase] = frozenset(
     {
