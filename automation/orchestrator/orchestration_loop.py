@@ -81,6 +81,27 @@ def _save_state(
     state.save_project_state(project_state)
 
 
+def _save_retry_state(
+    state: StateManager,
+    *,
+    task: CurrentTask,
+    replans: int,
+    max_replans: int,
+    diagnosis: Diagnosis | None,
+) -> None:
+    state.save_retry_state(
+        {
+            "task_id": task.task_id,
+            "attempt": task.attempt,
+            "replans": replans,
+            "max_replans": max_replans,
+            "source": diagnosis.source if diagnosis else None,
+            "reason": diagnosis.reason if diagnosis else None,
+            "details": diagnosis.details if diagnosis else None,
+        }
+    )
+
+
 def _diagnose_execution_failure(result: ExecutionResult) -> Diagnosis:
     return Diagnosis(
         source="execution",
@@ -138,9 +159,28 @@ def run_supervised_execution(
     browser_result: BrowserVerificationResult | None = None
     diagnosis: Diagnosis | None = None
     replans = 0
+    _save_retry_state(
+        state,
+        task=task,
+        replans=replans,
+        max_replans=max_replans,
+        diagnosis=None,
+    )
 
     while True:
         if plan.blockers:
+            diagnosis = Diagnosis(
+                source="planning",
+                reason="Planner returned blockers.",
+                details="; ".join(plan.blockers),
+            )
+            _save_retry_state(
+                state,
+                task=task,
+                replans=replans,
+                max_replans=max_replans,
+                diagnosis=diagnosis,
+            )
             transition(task, project_state, "handoff")
             _save_state(state, task, project_state)
             return ExecutionLoopResult(
@@ -149,11 +189,7 @@ def run_supervised_execution(
                 execution_results=tuple(execution_results),
                 test_results=tuple(test_results),
                 browser_result=browser_result,
-                diagnosis=Diagnosis(
-                    source="planning",
-                    reason="Planner returned blockers.",
-                    details="; ".join(plan.blockers),
-                ),
+                diagnosis=diagnosis,
                 replans=replans,
             )
 
@@ -166,6 +202,18 @@ def run_supervised_execution(
 
         if not decision.allowed:
             if decision.human_approval_required and not human_approval_granted:
+                diagnosis = Diagnosis(
+                    source="authorization",
+                    reason=decision.reason,
+                    details="; ".join(decision.required_actions),
+                )
+                _save_retry_state(
+                    state,
+                    task=task,
+                    replans=replans,
+                    max_replans=max_replans,
+                    diagnosis=diagnosis,
+                )
                 transition(task, project_state, "awaiting_approval")
                 _save_state(state, task, project_state)
                 return ExecutionLoopResult(
@@ -174,14 +222,22 @@ def run_supervised_execution(
                     execution_results=tuple(execution_results),
                     test_results=tuple(test_results),
                     browser_result=browser_result,
-                    diagnosis=Diagnosis(
-                        source="authorization",
-                        reason=decision.reason,
-                        details="; ".join(decision.required_actions),
-                    ),
+                    diagnosis=diagnosis,
                     replans=replans,
                 )
 
+            diagnosis = Diagnosis(
+                source="authorization",
+                reason=decision.reason,
+                details="; ".join(decision.denied_actions or decision.unknown_capabilities),
+            )
+            _save_retry_state(
+                state,
+                task=task,
+                replans=replans,
+                max_replans=max_replans,
+                diagnosis=diagnosis,
+            )
             transition(task, project_state, "handoff")
             _save_state(state, task, project_state)
             return ExecutionLoopResult(
@@ -190,17 +246,20 @@ def run_supervised_execution(
                 execution_results=tuple(execution_results),
                 test_results=tuple(test_results),
                 browser_result=browser_result,
-                diagnosis=Diagnosis(
-                    source="authorization",
-                    reason=decision.reason,
-                    details="; ".join(decision.denied_actions or decision.unknown_capabilities),
-                ),
+                diagnosis=diagnosis,
                 replans=replans,
             )
 
         if not plan.proposed_steps:
             transition(task, project_state, "completed")
             _save_state(state, task, project_state)
+            _save_retry_state(
+                state,
+                task=task,
+                replans=replans,
+                max_replans=max_replans,
+                diagnosis=None,
+            )
             return ExecutionLoopResult(
                 status="completed",
                 plan=plan,
@@ -245,6 +304,13 @@ def run_supervised_execution(
 
         if step_failure is not None:
             diagnosis = step_failure
+            _save_retry_state(
+                state,
+                task=task,
+                replans=replans,
+                max_replans=max_replans,
+                diagnosis=diagnosis,
+            )
             transition(task, project_state, "diagnosis")
             _save_state(state, task, project_state)
         else:
@@ -266,6 +332,13 @@ def run_supervised_execution(
 
             if any(not result.success for result in test_results):
                 diagnosis = _diagnose_test_failure(test_results)
+                _save_retry_state(
+                    state,
+                    task=task,
+                    replans=replans,
+                    max_replans=max_replans,
+                    diagnosis=diagnosis,
+                )
                 transition(task, project_state, "diagnosis")
                 _save_state(state, task, project_state)
             else:
@@ -285,6 +358,13 @@ def run_supervised_execution(
                             source="browser_verification",
                             reason="Browser verification was required but no verifier was provided.",
                         )
+                        _save_retry_state(
+                            state,
+                            task=task,
+                            replans=replans,
+                            max_replans=max_replans,
+                            diagnosis=diagnosis,
+                        )
                         transition(task, project_state, "diagnosis")
                         _save_state(state, task, project_state)
                     else:
@@ -300,11 +380,25 @@ def run_supervised_execution(
 
                         if not browser_result.success:
                             diagnosis = _diagnose_browser_failure(browser_result)
+                            _save_retry_state(
+                                state,
+                                task=task,
+                                replans=replans,
+                                max_replans=max_replans,
+                                diagnosis=diagnosis,
+                            )
                             transition(task, project_state, "diagnosis")
                             _save_state(state, task, project_state)
                         else:
                             transition(task, project_state, "completed")
                             _save_state(state, task, project_state)
+                            _save_retry_state(
+                                state,
+                                task=task,
+                                replans=replans,
+                                max_replans=max_replans,
+                                diagnosis=None,
+                            )
                             return ExecutionLoopResult(
                                 status="completed",
                                 plan=plan,
@@ -317,6 +411,13 @@ def run_supervised_execution(
                 else:
                     transition(task, project_state, "completed")
                     _save_state(state, task, project_state)
+                    _save_retry_state(
+                        state,
+                        task=task,
+                        replans=replans,
+                        max_replans=max_replans,
+                        diagnosis=None,
+                    )
                     return ExecutionLoopResult(
                         status="completed",
                         plan=plan,
@@ -331,6 +432,13 @@ def run_supervised_execution(
             raise RuntimeError("Execution loop reached an unexpected state without a diagnosis.")
 
         if replanner is None or replans >= max_replans:
+            _save_retry_state(
+                state,
+                task=task,
+                replans=replans,
+                max_replans=max_replans,
+                diagnosis=diagnosis,
+            )
             transition(task, project_state, "handoff")
             _save_state(state, task, project_state)
             return ExecutionLoopResult(
@@ -347,6 +455,13 @@ def run_supervised_execution(
         task.attempt += 1
         task.implementation_attempts += 1
         replans += 1
+        _save_retry_state(
+            state,
+            task=task,
+            replans=replans,
+            max_replans=max_replans,
+            diagnosis=diagnosis,
+        )
         _save_state(state, task, project_state)
 
         plan = replanner.replan(plan, context, diagnosis)
