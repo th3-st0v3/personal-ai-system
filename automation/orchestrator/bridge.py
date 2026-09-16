@@ -5,7 +5,7 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .config import CONFIG, ensure_runtime_directories
 from .models import ChatOperation
@@ -60,6 +60,19 @@ class BridgeState:
                 self.state_manager.save_queue(queue)
 
                 return item
+
+        return None
+
+    def get_operation(
+        self,
+        operation_id: str,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self.state_manager.load_queue()
+
+            for item in queue:
+                if item.get("operation_id") == operation_id:
+                    return dict(item)
 
         return None
 
@@ -332,9 +345,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         )
 
     def do_GET(self) -> None:
-        path = urlparse(
-            self.path
-        ).path
+        parsed = urlparse(self.path)
+        path = parsed.path
 
         if path == "/health":
             self._send_json(
@@ -361,6 +373,27 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     "observation": observation
                 }
             )
+            return
+
+        if path == "/operation":
+            operation_ids = parse_qs(parsed.query).get("operation_id", [])
+            operation_id = operation_ids[0] if operation_ids else ""
+            if not operation_id or len(operation_id) > 200:
+                self._send_json(
+                    {"error": "operation_id is required."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+
+            operation = self.bridge_state.get_operation(operation_id)
+            if operation is None:
+                self._send_json(
+                    {"error": "Operation not found."},
+                    HTTPStatus.NOT_FOUND,
+                )
+                return
+
+            self._send_json({"operation": operation})
             return
 
         if path == "/next-operation":
@@ -525,11 +558,21 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(
             prompt,
             str,
-        ) or not prompt.strip():
+        ):
             self._send_json(
                 {
                     "error":
-                        "prompt is required."
+                        "prompt must be a string."
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        if operation_type != "new_chat" and not prompt.strip():
+            self._send_json(
+                {
+                    "error":
+                        "prompt is required for this operation type."
                 },
                 HTTPStatus.BAD_REQUEST,
             )
@@ -750,6 +793,7 @@ class ChatGPTBridge:
         )
 
         self.server.bridge_state = self.bridge_state
+
     def run(self) -> None:
         print()
         print(
@@ -771,6 +815,9 @@ class ChatGPTBridge:
         )
         print(
             "  GET  /next-operation"
+        )
+        print(
+            "  GET  /operation?operation_id=<id>"
         )
         print(
             "  POST /queue"
