@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Validate this script before doing any work it controls.
+bash -n "$SCRIPT_DIR/check_all.sh"
+
 if [[ -f "$REPO_ROOT/.venv/bin/activate" ]]; then
     # Use the repository's virtual environment automatically when available.
     # shellcheck disable=SC1091
@@ -31,6 +34,7 @@ pruned_dirs=(
     ./venv
     ./env
     ./.tox
+    ./.nox
     ./nox
     ./node_modules
     ./__pycache__
@@ -95,10 +99,10 @@ assert Browser is not None
 print(f"browser-use {version}: import compatibility OK")
 '
 
-run_check "Static type check" npx --yes pyright@1.1.405 "${PYTHON_FILES[@]}"
+run_check "Static type check" npx --yes pyright@1.1.411 "${PYTHON_FILES[@]}"
 run_check "Markdown lint" npx --yes markdownlint-cli2@0.23.2 '**/*.md' \
     '#node_modules' '#**/.venv/**' '#**/venv/**' '#**/env/**' '#**/.git/**' \
-    '#**/.tox/**' '#**/nox/**' '#**/.pytest_cache/**' '#**/.mypy_cache/**' \
+    '#**/.tox/**' '#**/.nox/**' '#**/nox/**' '#**/.pytest_cache/**' '#**/.mypy_cache/**' \
     '#**/.ruff_cache/**' '#**/.pyright/**' '#**/.cache/**' '#**/.next/**' \
     '#**/.turbo/**' '#**/.parcel-cache/**' '#**/.runtime/**' '#**/runtime/**' \
     '#**/dist/**' '#**/build/**' '#**/coverage/**' '#**/htmlcov/**' \
