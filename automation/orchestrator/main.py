@@ -14,6 +14,7 @@ from .fake_planner_adapter import FakePlannerAdapter
 from .fake_research_collector import FakeResearchCollector
 from .git_manager import GitManager
 from .models import CurrentTask, ProjectState
+from .orchestration_state import transition
 from .planner import Planner
 from .planner_schema import PlannerResult
 from .research_collector_schema import ResearchRequest
@@ -46,13 +47,13 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
         task_id=f"task_{uuid4().hex}",
         feature=DEFAULT_FEATURE,
         objective=objective,
-        status="running",
-        phase="precheck",
+        status="queued",
+        phase="selection",
     )
 
     project_state = ProjectState(
         project="personal-ai-system",
-        status="running",
+        status="idle",
         current_feature=task.feature,
         current_phase=task.phase,
         current_task_id=task.task_id,
@@ -60,6 +61,10 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
         last_successful_commit=head,
     )
 
+    state.save_current_task(task)
+    state.save_project_state(project_state)
+
+    transition(task, project_state, "precheck")
     state.save_current_task(task)
     state.save_project_state(project_state)
 
@@ -128,6 +133,10 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
                 }
             )
 
+    transition(task, project_state, "research")
+    state.save_current_task(task)
+    state.save_project_state(project_state)
+
     execution_policy = ExecutionPolicy()
 
     research_request = ResearchRequest(
@@ -164,6 +173,10 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
         evidence_quality=research_result.evidence_quality,
     )
 
+    transition(task, project_state, "context_ready")
+    state.save_current_task(task)
+    state.save_project_state(project_state)
+
     agent_request = planner.build_request(
         task=task,
         execution_policy=execution_policy,
@@ -179,6 +192,10 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
     )
     state.save_context_package(context_package)
 
+    transition(task, project_state, "planning")
+    state.save_current_task(task)
+    state.save_project_state(project_state)
+
     planner_adapter = FakePlannerAdapter()
 
     planner_result = PlannerResult.model_validate(
@@ -189,10 +206,7 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
     )
 
     task.status = "ready"
-    task.phase = "context_ready"
-
     project_state.status = "idle"
-    project_state.current_phase = "context_ready"
 
     state.save_current_task(task)
     state.save_project_state(project_state)
