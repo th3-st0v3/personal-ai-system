@@ -22,6 +22,14 @@ from .contracts import (
     Session,
 )
 from .research import HTTPSResearchAdapter, ResearchAdapterError, ResearchSource
+from .review import (
+    IndependentReviewer,
+    ReviewError,
+    ReviewRequest,
+    ReviewResult,
+    ReviewTransport,
+    TransportBackedReviewer,
+)
 from .vscode import Diagnostic, VSCodeEvidenceAdapter, VSCodeEvidenceError
 
 __all__ = [
@@ -50,4 +58,10 @@ __all__ = [
     "HTTPSResearchAdapter",
     "ResearchAdapterError",
     "ResearchSource",
+    "IndependentReviewer",
+    "ReviewError",
+    "ReviewRequest",
+    "ReviewResult",
+    "ReviewTransport",
+    "TransportBackedReviewer",
 ]
