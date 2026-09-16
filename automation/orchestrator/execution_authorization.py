@@ -44,16 +44,21 @@ def authorize_plan(
     ``human_approval_status`` is retained as metadata but cannot authorize
     execution by itself.
     """
+    capabilities = list(plan.required_capabilities)
+    for step in plan.proposed_steps:
+        capabilities.extend(step.required_capabilities)
+
     required_actions: list[str] = []
     denied_actions: list[str] = []
     unknown_capabilities: list[str] = []
 
-    for capability in dict.fromkeys(plan.required_capabilities):
+    for capability in dict.fromkeys(capabilities):
         action = CAPABILITY_TO_ACTION.get(capability)
         if action is None:
             unknown_capabilities.append(capability)
             continue
-        required_actions.append(action)
+        if action not in required_actions:
+            required_actions.append(action)
         if not policy.allowed(connection, actor_id, action):
             denied_actions.append(action)
 
@@ -70,7 +75,7 @@ def authorize_plan(
         return AuthorizationDecision(
             allowed=False,
             required_actions=tuple(required_actions),
-            denied_actions=tuple(denied_actions),
+            denied_actions=tuple(dict.fromkeys(denied_actions)),
             unknown_capabilities=tuple(unknown_capabilities),
             human_approval_status=plan.human_approval_status,
             human_approval_required=human_approval_required,
@@ -81,7 +86,7 @@ def authorize_plan(
         return AuthorizationDecision(
             allowed=False,
             required_actions=tuple(required_actions),
-            denied_actions=tuple(denied_actions),
+            denied_actions=tuple(dict.fromkeys(denied_actions)),
             unknown_capabilities=(),
             human_approval_status=plan.human_approval_status,
             human_approval_required=human_approval_required,

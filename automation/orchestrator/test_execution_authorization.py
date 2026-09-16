@@ -146,3 +146,25 @@ def test_duplicate_capabilities_are_evaluated_once() -> None:
 
     assert decision.allowed is True
     assert decision.required_actions == ("run_simulation",)
+
+
+def test_per_step_capability_is_authorized() -> None:
+    connection = make_connection()
+
+    decision = authorize_plan(
+        connection,
+        actor_id="user-1",
+        plan=PlannerResult(
+            proposed_steps=[
+                ProposedStep(
+                    step_id="simulate",
+                    description="Run the simulation.",
+                    required_capabilities=["run_simulation"],
+                    verification_requirements=["Inspect the simulation trace."],
+                )
+            ],
+        ),
+    )
+
+    assert decision.allowed is True
+    assert decision.required_actions == ("run_simulation",)
