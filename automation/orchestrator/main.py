@@ -72,7 +72,7 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
     print(f"Branch:    {branch}")
     print(f"HEAD:      {head}")
     print(f"Task:      {task.task_id}")
-    print(f"Objective: {objective}")
+    print(f"Objective: {task.objective}")
     print()
 
     print("=== GIT STATUS ===")
@@ -130,13 +130,8 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
 
     execution_policy = ExecutionPolicy()
 
-    agent_request = planner.build_request(
-        task=task,
-        execution_policy=execution_policy,
-    )
-
     research_request = ResearchRequest(
-        objective=objective,
+        objective=task.objective,
     )
 
     research_collector = FakeResearchCollector()
@@ -158,14 +153,8 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
 
     research_context = ResearchContext(
         objective=research_result.objective,
-        observations=[
-            observation.statement
-            for observation in research_result.observations
-        ],
-        findings=[
-            finding.statement
-            for finding in research_result.findings
-        ],
+        observations=list(research_result.observations),
+        findings=list(research_result.findings),
         sources_considered=list(
             research_result.sources_considered
         ),
@@ -175,9 +164,14 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
         evidence_quality=research_result.evidence_quality,
     )
 
+    agent_request = planner.build_request(
+        task=task,
+        execution_policy=execution_policy,
+    )
+
     context_package = context_builder.build(
         objective=ObjectiveContext(
-            primary=objective,
+            primary=task.objective,
         ),
         execution_policy=execution_policy,
         research=research_context,
