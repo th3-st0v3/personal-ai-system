@@ -3,10 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, TypeVar
-
-
-T = TypeVar("T")
+from typing import Any
 
 
 class StateManager:
@@ -21,6 +18,7 @@ class StateManager:
         self.browser_results_path = ai_dir / "browser-results.json"
         self.context_package_path = ai_dir / "context-package.json"
         self.research_state_path = ai_dir / "research-state.json"
+        self.execution_results_path = ai_dir / "execution-results.json"
         self.handoff_path = ai_dir / "handoff.json"
         self.queue_path = ai_dir / "queue.json"
         self.lock_path = ai_dir / "lock.json"
@@ -159,6 +157,28 @@ class StateManager:
 
         return value
 
+    def save_execution_result(
+        self,
+        execution_result: Any,
+    ) -> None:
+        self.write_json(
+            self.execution_results_path,
+            execution_result.model_dump(mode="json"),
+        )
+
+    def load_execution_result(
+        self,
+    ) -> dict[str, Any]:
+        value = self.read_json(
+            self.execution_results_path,
+            {},
+        )
+
+        if not isinstance(value, dict):
+            return {}
+
+        return value
+
     def load_browser_results(
         self,
     ) -> dict[str, Any]:
@@ -190,7 +210,9 @@ class StateManager:
             queue,
         )
 
-    def load_queue(self) -> list[dict[str, Any]]:
+    def load_queue(
+        self,
+    ) -> list[dict[str, Any]]:
         value = self.read_json(
             self.queue_path,
             [],
