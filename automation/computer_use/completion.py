@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
-from .contracts import CompletionState
+from .contracts import CompletionState, Observation
 
 
 _KNOWN_OPERATION_STATUSES = frozenset(
@@ -25,7 +25,10 @@ def completion_from_operation(
     status = status.strip().lower()
     text = operation.get("response_text")
     response_text = text if isinstance(text, str) else ""
-    response_available = operation.get("response_text_available") is True and bool(response_text.strip())
+    response_available = (
+        operation.get("response_text_available") is True
+        and bool(response_text.strip())
+    )
 
     if status == "failed":
         return "error", response_text, response_available
@@ -43,18 +46,18 @@ def completion_from_operation(
 class ChatGPTCompletionDetector:
     """Fail-closed completion detector for normalized bridge/browser evidence."""
 
-    def detect(self, observations: list[Mapping[str, Any]]) -> CompletionState:
+    def detect(self, observations: Sequence[Observation]) -> CompletionState:
         if not observations:
             return "unknown"
 
         latest = observations[-1]
-        operation = latest.get("operation")
+        operation = latest.data.get("operation")
         if isinstance(operation, Mapping):
             state, _, _ = completion_from_operation(operation)
             if state in {"complete", "error", "interrupted", "generating"}:
                 return state
 
-        browser = latest.get("browser")
+        browser = latest.data.get("browser")
         if isinstance(browser, Mapping):
             if browser.get("generation_error"):
                 return "error"
