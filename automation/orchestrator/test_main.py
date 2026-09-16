@@ -4,9 +4,13 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from automation.orchestrator.context_schema import ContextPackage
+from automation.orchestrator.context_schema import (
+    AgentRequest,
+    ContextPackage,
+)
 from automation.orchestrator.main import main
 from automation.orchestrator.state import StateManager
+from automation.orchestrator.planner_schema import PlannerResult
 
 
 def make_fake_config(
@@ -38,7 +42,7 @@ def run_main(
     project_root: Path,
     ai_dir: Path,
     objective: str | None = None,
-) -> None:
+) -> PlannerResult:
     fake_config = make_fake_config(project_root, ai_dir)
     fake_tests = make_fake_test_runner()
 
@@ -52,9 +56,9 @@ def run_main(
         "automation.orchestrator.main.ensure_runtime_directories",
     ):
         if objective is None:
-            main()
+            return main()
         else:
-            main(objective)
+            return main(objective)
 
 
 def test_main_builds_and_persists_context_package(
@@ -173,7 +177,6 @@ def test_main_marks_precheck_complete(
     )
 
 
-
 def test_main_creates_and_advances_current_task(
     tmp_path: Path,
 ) -> None:
@@ -227,3 +230,82 @@ def test_main_uses_same_task_for_context_objective(
 
     assert task["objective"] == objective
     assert context["objective"]["primary"] == task["objective"]
+
+
+def test_main_converts_context_package_into_planner_result(
+    tmp_path: Path,
+) -> None:
+    ai_dir = tmp_path / ".ai"
+    ai_dir.mkdir()
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    result = run_main(
+        project_root,
+        ai_dir,
+        "Make the login button work.",
+    )
+
+    assert isinstance(result, PlannerResult)
+    assert result.proposed_steps == []
+    assert result.required_capabilities == []
+    assert result.verification_requirements == []
+    assert result.blockers == []
+
+
+def test_main_plans_with_the_same_agent_request_and_context_package(
+    tmp_path: Path,
+) -> None:
+    ai_dir = tmp_path / ".ai"
+    ai_dir.mkdir()
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+
+    captured_request: AgentRequest | None = None
+    captured_context: ContextPackage | None = None
+
+    class CapturingAdapter:
+        def plan(
+            self,
+            request: AgentRequest,
+            context: ContextPackage,
+        ) -> PlannerResult:
+            nonlocal captured_request, captured_context
+            captured_request = request
+            captured_context = context
+
+            return PlannerResult(
+                proposed_steps=[],
+                required_capabilities=[],
+                verification_requirements=["Run the relevant tests."],
+                blockers=[],
+            )
+
+    with patch(
+        "automation.orchestrator.main.FakePlannerAdapter",
+        return_value=CapturingAdapter(),
+    ):
+        result = run_main(
+            project_root,
+            ai_dir,
+            "Verify the authentication flow.",
+        )
+
+    assert isinstance(result, PlannerResult)
+    assert result.verification_requirements == [
+        "Run the relevant tests."
+    ]
+
+    state = StateManager(ai_dir)
+    persisted_context = ContextPackage.model_validate(
+        state.load_context_package()
+    )
+
+    assert captured_request is not None
+    assert captured_context is not None
+
+    assert captured_request.task == "Verify the authentication flow."
+    assert captured_context.objective.primary == "Verify the authentication flow."
+    assert captured_context == persisted_context

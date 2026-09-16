@@ -9,6 +9,8 @@ from .context_schema import ExecutionPolicy, ObjectiveContext
 from .git_manager import GitManager
 from .models import CurrentTask, ProjectState
 from .planner import Planner
+from .planner_schema import PlannerResult
+from .fake_planner_adapter import FakePlannerAdapter
 from .state import StateManager
 from .test_runner import TestRunner
 
@@ -17,7 +19,7 @@ DEFAULT_OBJECTIVE = "Inspect the current project state."
 DEFAULT_FEATURE = "orchestrator"
 
 
-def main(objective: str = DEFAULT_OBJECTIVE) -> None:
+def main(objective: str = DEFAULT_OBJECTIVE) -> PlannerResult:
     ensure_runtime_directories()
 
     state = StateManager(CONFIG.ai_dir)
@@ -135,6 +137,15 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> None:
     )
     state.save_context_package(context_package)
 
+    planner_adapter = FakePlannerAdapter()
+
+    planner_result = PlannerResult.model_validate(
+        planner_adapter.plan(
+            agent_request,
+            context_package,
+        ).model_dump()
+    )
+
     task.status = "ready"
     task.phase = "context_ready"
 
@@ -163,9 +174,20 @@ def main(objective: str = DEFAULT_OBJECTIVE) -> None:
     print(f"Saved:     {state.context_package_path}")
     print(f"Task:      {task.task_id}")
     print(f"Task state: {task.status}/{task.phase}")
+    print()
+    print("=== PLANNER RESULT ===")
+    print(f"Proposed steps: {len(planner_result.proposed_steps)}")
+    print(f"Required capabilities: {planner_result.required_capabilities}")
+    print(
+        f"Verification requirements: "
+        f"{planner_result.verification_requirements}"
+    )
+    print(f"Blockers: {planner_result.blockers}")
 
     print()
-    print("Orchestrator context preparation complete.")
+    print("Orchestrator context preparation and planning complete.")
+
+    return planner_result
 
 
 if __name__ == "__main__":
