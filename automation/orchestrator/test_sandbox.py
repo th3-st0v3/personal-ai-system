@@ -10,7 +10,7 @@ from automation.orchestrator.sandbox_schema import SandboxRequest
 
 
 @pytest.fixture()
-def request() -> SandboxRequest:
+def sandbox_request() -> SandboxRequest:
     return SandboxRequest(
         request_id="req-1",
         task_id="task-1",
@@ -54,14 +54,14 @@ def test_request_rejects_invalid_limits() -> None:
         )
 
 
-def test_cwd_is_confined_to_root(tmp_path: Path, request: SandboxRequest) -> None:
+def test_cwd_is_confined_to_root(tmp_path: Path, sandbox_request: SandboxRequest) -> None:
     sandbox = LocalBubblewrapSandbox(tmp_path)
     escaped = SandboxRequest(
-        request_id=request.request_id,
-        task_id=request.task_id,
-        step_id=request.step_id,
-        actor_id=request.actor_id,
-        argv=request.argv,
+        request_id=sandbox_request.request_id,
+        task_id=sandbox_request.task_id,
+        step_id=sandbox_request.step_id,
+        actor_id=sandbox_request.actor_id,
+        argv=sandbox_request.argv,
         cwd="..",
     )
 
@@ -71,32 +71,42 @@ def test_cwd_is_confined_to_root(tmp_path: Path, request: SandboxRequest) -> Non
     assert result.error == "sandbox cwd escapes the configured root"
 
 
-def test_missing_runtime_fails_closed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request: SandboxRequest) -> None:
-    monkeypatch.setattr("automation.orchestrator.sandbox_adapter.shutil.which", lambda _: None)
+def test_missing_runtime_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sandbox_request: SandboxRequest,
+) -> None:
+    monkeypatch.setattr(
+        "automation.orchestrator.sandbox_adapter.shutil.which",
+        lambda _: None,
+    )
 
-    result = LocalBubblewrapSandbox(tmp_path).execute(request)
+    result = LocalBubblewrapSandbox(tmp_path).execute(sandbox_request)
 
     assert result.status == "rejected"
-    assert result.request_id == request.request_id
-    assert result.task_id == request.task_id
-    assert result.step_id == request.step_id
+    assert result.request_id == sandbox_request.request_id
+    assert result.task_id == sandbox_request.task_id
+    assert result.step_id == sandbox_request.step_id
     assert result.error == "No supported local sandbox runtime is installed."
 
 
-def test_local_runtime_executes_when_bubblewrap_is_available(tmp_path: Path, request: SandboxRequest) -> None:
+def test_local_runtime_executes_when_bubblewrap_is_available(
+    tmp_path: Path,
+    sandbox_request: SandboxRequest,
+) -> None:
     sandbox = LocalBubblewrapSandbox(tmp_path)
     if sandbox.execute(
         SandboxRequest(
-            request_id=request.request_id,
-            task_id=request.task_id,
-            step_id=request.step_id,
-            actor_id=request.actor_id,
+            request_id=sandbox_request.request_id,
+            task_id=sandbox_request.task_id,
+            step_id=sandbox_request.step_id,
+            actor_id=sandbox_request.actor_id,
             argv=("false",),
         )
     ).error == "No supported local sandbox runtime is installed.":
         pytest.skip("bubblewrap is not installed")
 
-    result = sandbox.execute(request)
+    result = sandbox.execute(sandbox_request)
 
     assert result.status == "executed"
     assert result.return_code == 0
