@@ -13,7 +13,7 @@ from .models import CurrentTask, ProjectState
 from .orchestration_state import transition
 from .planner_schema import PlannerResult, ProposedStep
 from .state import StateManager
-from .test_runner import TestResult, TestRunner
+from .test_runner import TestResult
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,12 @@ class Replanner(Protocol):
         diagnosis: Diagnosis,
     ) -> PlannerResult:
         """Produce a replacement plan using the new failure evidence."""
+        ...
+
+
+class ProjectTestRunner(Protocol):
+    def run_project_tests(self) -> list[TestResult]:
+        """Run the project test suite and return structured results."""
         ...
 
 
@@ -147,7 +153,7 @@ def run_supervised_execution(
     context: ContextPackage,
     state: StateManager,
     executor: AuthorizedExecutor,
-    test_runner: TestRunner,
+    test_runner: ProjectTestRunner,
     human_approval_granted: bool = False,
     browser_verifier: BrowserVerifier | None = None,
     replanner: Replanner | None = None,
