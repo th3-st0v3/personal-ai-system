@@ -1,30 +1,28 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller Loader
 // @namespace    https://github.com/th3-st0v3/personal-ai-system
-// @version      1.2.0
-// @description  Conditionally loads a verified PASI ChatGPT controller release from the trusted main branch.
+// @version      1.3.0
+// @description  Loads a verified PASI ChatGPT controller from the local PASI runtime for private-repository-safe automation.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @connect      raw.githubusercontent.com
-// @connect      api.github.com
+// @connect      127.0.0.1
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    var MANIFEST_RAW_URL = 'https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/tampermonkey/controller-sync.json';
-    var GITHUB_API_FILE_PREFIX = 'https://api.github.com/repos/th3-st0v3/personal-ai-system/contents/';
-    var TRUSTED_SOURCE_PREFIX = 'https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/';
-    var TRUSTED_SOURCE_REF = '/refs/heads/main/';
+    var LOCAL_MANIFEST_URL = 'http://127.0.0.1:8766/controller/manifest';
+    var LOCAL_SOURCE_URL = 'http://127.0.0.1:8766/controller/source';
     var POLL_INTERVAL_MS = 5 * 60 * 1000;
     var CHECK_TIMEOUT_MS = 10000;
-    var LAST_VERSION_KEY = 'pasi_controller_synced_version';
-    var LAST_HASH_KEY = 'pasi_controller_synced_git_blob_sha';
+    var LAST_VERSION_KEY = 'pasi_controller_verified_version';
+    var LAST_HASH_KEY = 'pasi_controller_verified_git_blob_sha';
+    var ACTIVE_HASH_PROPERTY = '__PASI_CHATGPT_CONTROLLER_ACTIVE_HASH__';
 
-    console.log('[PASI Loader] Conditional controller loader active.');
-    checkForPublishedController();
+    console.log('[PASI Loader] Local private-repository controller loader active.');
+    activateOrScheduleReload();
     setInterval(checkForPublishedController, POLL_INTERVAL_MS);
 
     function requestText(url, headers) {
@@ -50,122 +48,90 @@
         });
     }
 
-    async function requestWithFallback(primaryUrl, fallbackUrl, headers) {
+    async function activateOrScheduleReload() {
         try {
-            return await requestText(primaryUrl, headers);
-        } catch (error) {
-            if (error && error.status === 404 && fallbackUrl) {
-                console.warn('[PASI Loader] Primary GitHub file URL returned 404; using GitHub API fallback.');
-                return await requestText(fallbackUrl, {
-                    'Accept': 'application/vnd.github+json',
-                    'X-GitHub-Api-Version': '2026-03-10'
-                });
-            }
-            throw error;
-        }
-    }
-
-    async function requestGitHubApiFile(path) {
-        var url = GITHUB_API_FILE_PREFIX + path.split('/').map(encodeURIComponent).join('/') + '?ref=main';
-        var raw = await requestText(url, {
-            'Accept': 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2026-03-10'
-        });
-        var payload = JSON.parse(raw);
-        if (!payload || payload.encoding !== 'base64' || typeof payload.content !== 'string') {
-            throw new Error('GitHub API did not return base64 file content.');
-        }
-        return decodeBase64Utf8(payload.content);
-    }
-
-    async function loadManifest() {
-        var apiUrl = GITHUB_API_FILE_PREFIX + 'automation/tampermonkey/controller-sync.json?ref=main';
-        try {
-            var rawManifest = await requestText(MANIFEST_RAW_URL, {
-                'Accept': 'application/json, text/plain, */*'
-            });
-            return JSON.parse(rawManifest);
-        } catch (error) {
-            if (!(error && error.status === 404)) throw error;
-            console.warn('[PASI Loader] Manifest raw URL returned 404; using GitHub API fallback.');
-            var apiManifest = await requestText(apiUrl, {
-                'Accept': 'application/vnd.github+json',
-                'X-GitHub-Api-Version': '2026-03-10'
-            });
-            var payload = JSON.parse(apiManifest);
-            if (!payload || payload.encoding !== 'base64' || typeof payload.content !== 'string') {
-                throw new Error('GitHub API did not return the controller sync manifest.');
-            }
-            return JSON.parse(decodeBase64Utf8(payload.content));
-        }
-    }
-
-    async function checkForPublishedController() {
-        try {
-            var manifest = await loadManifest();
+            var manifest = await loadLocalManifest();
             if (!manifest || manifest.enabled !== true) return;
-            if (!isValidManifest(manifest)) {
-                console.error('[PASI Loader] Invalid controller sync manifest.');
-                return;
-            }
+            validateManifest(manifest);
 
-            var installedVersion = GM_getValue(LAST_VERSION_KEY, '');
-            var installedHash = GM_getValue(LAST_HASH_KEY, '');
-            if (installedVersion === manifest.version && installedHash === manifest.git_blob_sha) return;
+            var activeHash = window[ACTIVE_HASH_PROPERTY] || '';
+            if (activeHash && activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()) return;
 
-            var source = await loadControllerSource(manifest.source_url);
+            var source = await requestText(LOCAL_SOURCE_URL, { 'Accept': 'text/plain, */*' });
             var blobSha = await gitBlobSha1(source);
             if (blobSha !== manifest.git_blob_sha.toLowerCase()) {
-                console.error('[PASI Loader] Controller Git blob mismatch; refusing to execute update.', {
+                console.error('[PASI Loader] Local controller Git blob mismatch; refusing to execute.', {
                     expected: manifest.git_blob_sha,
                     actual: blobSha
                 });
                 return;
             }
 
+            var storedVersion = GM_getValue(LAST_VERSION_KEY, '');
+            var storedHash = GM_getValue(LAST_HASH_KEY, '');
+            if (activeHash && storedHash && storedHash !== manifest.git_blob_sha) {
+                console.log('[PASI Loader] Verified controller update detected; refreshing the page before activation.');
+                GM_setValue(LAST_VERSION_KEY, manifest.version);
+                GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
+                window.location.reload();
+                return;
+            }
+
+            if (!activeHash && storedVersion === manifest.version && storedHash === manifest.git_blob_sha) {
+                console.log('[PASI Loader] Verified controller release ' + manifest.version + ' is ready; activating after page load.');
+            } else {
+                GM_setValue(LAST_VERSION_KEY, manifest.version);
+                GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
+            }
+
+            window[ACTIVE_HASH_PROPERTY] = manifest.git_blob_sha.toLowerCase();
             console.log('[PASI Loader] Verified controller release ' + manifest.version + '; activating.');
-            GM_setValue(LAST_VERSION_KEY, manifest.version);
-            GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
             eval(source);
         } catch (error) {
             console.warn('[PASI Loader] Controller synchronization check failed:', error);
         }
     }
 
-    async function loadControllerSource(sourceUrl) {
-        if (typeof sourceUrl !== 'string' || sourceUrl.indexOf(TRUSTED_SOURCE_PREFIX) !== 0) {
-            throw new Error('Controller source URL is outside the trusted PASI namespace.');
-        }
+    async function checkForPublishedController() {
         try {
-            return await requestText(sourceUrl, {
-                'Accept': 'text/plain, */*'
-            });
-        } catch (error) {
-            if (!(error && error.status === 404)) throw error;
-            var relativePath = sourceUrl.slice((TRUSTED_SOURCE_PREFIX + 'refs/heads/main/').length);
-            if (!relativePath || sourceUrl.indexOf(TRUSTED_SOURCE_REF) === -1) {
-                throw error;
+            var manifest = await loadLocalManifest();
+            if (!manifest || manifest.enabled !== true) return;
+            validateManifest(manifest);
+
+            var activeHash = window[ACTIVE_HASH_PROPERTY] || '';
+            if (!activeHash || activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()) return;
+
+            var source = await requestText(LOCAL_SOURCE_URL, { 'Accept': 'text/plain, */*' });
+            var blobSha = await gitBlobSha1(source);
+            if (blobSha !== manifest.git_blob_sha.toLowerCase()) {
+                console.error('[PASI Loader] Local controller Git blob mismatch; refusing to reload.', {
+                    expected: manifest.git_blob_sha,
+                    actual: blobSha
+                });
+                return;
             }
-            console.warn('[PASI Loader] Controller raw URL returned 404; using GitHub API fallback.');
-            return await requestGitHubApiFile(relativePath);
+
+            console.log('[PASI Loader] New verified controller release detected; reloading page for clean activation.');
+            GM_setValue(LAST_VERSION_KEY, manifest.version);
+            GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
+            window.location.reload();
+        } catch (error) {
+            console.warn('[PASI Loader] Controller update check failed:', error);
         }
     }
 
-    function isValidManifest(manifest) {
-        return typeof manifest.version === 'string' &&
-            /^\d+\.\d+\.\d+$/.test(manifest.version) &&
-            typeof manifest.source_url === 'string' &&
-            manifest.source_url.indexOf(TRUSTED_SOURCE_PREFIX) === 0 &&
-            manifest.source_url.indexOf(TRUSTED_SOURCE_REF) !== -1 &&
-            typeof manifest.git_blob_sha === 'string' &&
-            /^[a-f0-9]{40}$/i.test(manifest.git_blob_sha);
+    async function loadLocalManifest() {
+        var raw = await requestText(LOCAL_MANIFEST_URL, { 'Accept': 'application/json, text/plain, */*' });
+        return JSON.parse(raw);
     }
 
-    function decodeBase64Utf8(value) {
-        var binary = atob(String(value || '').replace(/\s+/g, ''));
-        var bytes = new Uint8Array(binary.length);
-        for (var i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-        return new TextDecoder().decode(bytes);
+    function validateManifest(manifest) {
+        if (typeof manifest.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+            throw new Error('Invalid controller manifest version.');
+        }
+        if (typeof manifest.git_blob_sha !== 'string' || !/^[a-f0-9]{40}$/i.test(manifest.git_blob_sha)) {
+            throw new Error('Invalid controller manifest Git blob SHA.');
+        }
     }
 
     async function gitBlobSha1(text) {
