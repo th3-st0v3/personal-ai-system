@@ -29,12 +29,19 @@ source .venv/bin/activate
 bash scripts/start_pasi_12h.sh
 ```
 
-That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher routes through `scripts/pasi_automation_entrypoint.py`, which enforces the 25-minute response budget, captures new setup requirements, optionally injects explicitly supplied web research, and records verified self-improvement surfaces.
+That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher routes through `scripts/pasi_automation_entrypoint.py`, which enforces the 25-minute response budget, captures new setup requirements, supports bounded public-web research, and records verified self-improvement surfaces.
 
 To supply specific public web pages as research context without editing the repository prompt, set a bounded comma-separated list first:
 
 ```bash
 export PASI_WEB_CONTEXT_URLS="https://example.com/docs,https://example.org/spec"
+bash scripts/start_pasi_12h.sh
+```
+
+To let PASI discover sources itself through the free non-JavaScript research path, provide one or two bounded queries:
+
+```bash
+export PASI_RESEARCH_QUERY="browser automation recovery patterns"
 bash scripts/start_pasi_12h.sh
 ```
 
@@ -59,11 +66,17 @@ cat .runtime/automation/setup-requirements.json
 
 The setup catalog covers both machine-side resources and websites that need an authenticated browser session. When the agent discovers a genuinely necessary download or interactive-login prerequisite, it adds a bounded metadata entry automatically. PASI does not store passwords, cookies, session tokens, or API keys, and acquisition remains subject to explicit preapproval.
 
-## What the long-running loop can improve
+## Self-improvement and live controller updates
 
-Each task is sent through the existing completion contract and deterministic patch verification. The task prompt explicitly encourages improvements to the WSL/scripts, VS Code integration, Chromium/Tampermonkey controller, research/evidence handling, and recovery layers when a verified gap materially affects unattended reliability. A successful task is only accepted after the configured repository validation suite passes and the resulting change is committed to the dedicated automation branch.
+Each task is sent through the existing completion contract and deterministic patch verification. The task prompt explicitly encourages improvements to the WSL/scripts, VS Code integration, Chromium/Tampermonkey controller, research/evidence handling, and recovery layers when a verified gap materially affects unattended reliability. A successful task is accepted only after the configured repository validation suite passes and the resulting change is committed to the dedicated automation branch.
 
-Browser-controller changes are therefore developed and verified as part of the automation run. Active controller publication still uses the repository's hashed release path rather than silently executing arbitrary browser code. This keeps self-improvement connected to the live system without removing the release boundary.
+Controller and recovery changes are then eligible for the normal GitHub PR/merge path. Tampermonkey does **not** execute the overnight branch directly. The local controller distribution service refreshes `origin/main`, loads controller and recovery source from the same merged commit, calculates Git blob hashes from the served bytes, and exposes them through its verified local manifest. The Tampermonkey loader reloads when either hash changes.
+
+This provides the desired self-improvement loop while preserving a clear promotion boundary:
+
+`model proposal -> patch validation -> deterministic verification -> commit/push -> PR/merge -> origin/main refresh -> hash verification -> browser reload`
+
+See `docs/architecture/verified-live-self-update.md` for the trust model.
 
 ## Recovery behavior
 
