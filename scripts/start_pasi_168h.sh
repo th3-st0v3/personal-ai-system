@@ -56,7 +56,7 @@ if [[ -n "${PASI_OVERNIGHT_WORKTREE:-}" ]]; then
 else
     WORKTREE="$HOME/.pasi-worktrees/personal-ai-system-overnight-$(date -u +%Y%m%d-%H%M%S-%N)"
 fi
-BRANCH="${PASI_OVERNIGHT_BRANCH:-pasi/overnight-$(date -u +%Y%m%d-%H%M%S)}"
+BRANCH="${PASI_OVERNIGHT_BRANCH:-pasi/overnight-$(date -u +%Y%m%d-%H%M%S-%N)}"
 
 if [[ -e "$WORKTREE" ]]; then
     printf 'error: selected fresh-run worktree path already exists: %s\n' "$WORKTREE" >&2
