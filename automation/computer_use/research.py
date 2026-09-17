@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
+from html.parser import HTMLParser
 from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote_plus, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .contracts import Observation
@@ -113,6 +115,124 @@ class _HTTPSRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+class _DuckDuckGoResultParser(HTMLParser):
+    """Small parser for the non-JavaScript DuckDuckGo HTML result page."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.results: list[dict[str, str]] = []
+        self._anchor: dict[str, str] | None = None
+        self._snippet_depth = 0
+        self._snippet_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        attributes = {key: value or "" for key, value in attrs}
+        classes = attributes.get("class", "").split()
+        if any(item == "result__a" for item in classes):
+            self._anchor = {"url": attributes.get("href", ""), "title": ""}
+        elif any(item == "result__snippet" for item in classes) and self.results:
+            self._snippet_depth = 1
+            self._snippet_parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "a" and self._anchor is not None:
+            title = re.sub(r"\s+", " ", self._anchor["title"]).strip()
+            if title:
+                self.results.append({**self._anchor, "title": title, "snippet": ""})
+            self._anchor = None
+        if tag.lower() == "a" and self._snippet_depth:
+            self._snippet_depth = 0
+            if self.results:
+                self.results[-1]["snippet"] = re.sub(r"\s+", " ", " ".join(self._snippet_parts)).strip()
+
+    def handle_data(self, data: str) -> None:
+        if self._anchor is not None:
+            self._anchor["title"] += data
+        if self._snippet_depth:
+            self._snippet_parts.append(data)
+
+
+def _result_target(href: str) -> str | None:
+    value = href.strip()
+    if value.startswith("//"):
+        value = "https:" + value
+    parsed = urlparse(value)
+    if parsed.path.startswith("/l/") and parsed.hostname and parsed.hostname.endswith("duckduckgo.com"):
+        value = parse_qs(parsed.query).get("uddg", [""])[0]
+        parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    try:
+        if parsed.port not in {None, 443}:
+            return None
+    except ValueError:
+        return None
+    host = parsed.hostname or ""
+    if host.casefold().endswith("duckduckgo.com"):
+        return None
+    return value
+
+
+@dataclass(frozen=True)
+class DuckDuckGoHTMLSearchProvider:
+    """Free, non-JavaScript DuckDuckGo search facade."""
+
+    base_url: str = "https://html.duckduckgo.com/html/"
+    timeout_seconds: float = 12.0
+    max_query_chars: int = 500
+    max_results: int = 10
+
+    def __post_init__(self) -> None:
+        _validate_public_https_url(self.base_url)
+        if self.timeout_seconds <= 0 or self.max_query_chars <= 0 or self.max_results <= 0:
+            raise ResearchAdapterError("DuckDuckGo search bounds must be positive")
+
+    def search(self, query: str, *, limit: int) -> Sequence[ResearchSource]:
+        query = query.strip()
+        if not query or len(query) > self.max_query_chars:
+            raise ResearchAdapterError("search query is empty or exceeds the configured bound")
+        if not 1 <= limit <= min(self.max_results, 10):
+            raise ResearchAdapterError("search result limit is outside the configured bound")
+
+        url = f"{self.base_url}?q={quote_plus(query)}&kp=-2"
+        _validate_public_https_url(url)
+        request = Request(url, headers={"Accept": "text/html", "User-Agent": "PASI-research/1.0"}, method="GET")
+        opener = build_opener(_HTTPSRedirectHandler)
+        try:
+            with opener.open(request, timeout=self.timeout_seconds) as response:
+                if response.headers.get_content_type().lower() != "text/html":
+                    raise ResearchAdapterError("DuckDuckGo search returned a non-HTML response")
+                raw = response.read(1_000_001)
+        except HTTPError as exc:
+            raise ResearchAdapterError(f"DuckDuckGo search HTTP {exc.code}") from exc
+        except URLError as exc:
+            raise ResearchAdapterError(f"DuckDuckGo search failed: {exc.reason}") from exc
+        if len(raw) > 1_000_000:
+            raise ResearchAdapterError("DuckDuckGo search response exceeded the configured byte limit")
+
+        parser = _DuckDuckGoResultParser()
+        parser.feed(raw.decode("utf-8", errors="replace"))
+        parser.close()
+        sources: list[ResearchSource] = []
+        for index, item in enumerate(parser.results[:limit]):
+            target = _result_target(item.get("url", ""))
+            if target is None:
+                continue
+            sources.append(
+                ResearchSource(
+                    url=target,
+                    title=item.get("title", "Untitled result")[:500],
+                    snippet=item.get("snippet", "")[:1_500],
+                    source_quality=max(1, 100 - index * 5),
+                )
+            )
+        return sources
+
+
 @dataclass(frozen=True)
 class HTTPSResearchAdapter:
     """Bounded HTTPS retrieval/search facade for untrusted web evidence."""
@@ -150,6 +270,7 @@ class HTTPSResearchAdapter:
                 "query": query,
                 "sources": normalized,
                 "fingerprint": self._fingerprint(normalized),
+                "untrusted": True,
             },
         )
 
