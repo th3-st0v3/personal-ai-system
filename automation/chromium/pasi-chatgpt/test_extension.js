@@ -8,12 +8,15 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'u
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
-test('native extension is Manifest V3 with required host permissions', () => {
+test('native extension is Manifest V3 with least-privilege required permissions', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.ok(manifest.permissions.includes('alarms'));
-  assert.ok(manifest.permissions.includes('tabs'));
+  assert.ok(manifest.permissions.includes('storage'));
+  assert.ok(!manifest.permissions.includes('tabs'));
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
+  assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
+  assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
 });
 
 test('native content controller uses standard fetch instead of GM APIs', () => {
