@@ -30,6 +30,14 @@ class RepeatingTransport(FakeTransport):
         return self.response
 
 
+class ObservationFailingTransport(FakeTransport):
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        if path == "/browser/observation":
+            self.requests.append((method, path, payload))
+            raise ChatGPTAdapterError("injected observation failure")
+        return super().request(method, path, payload)
+
+
 def observation(data: Mapping[str, Any]) -> Observation:
     return Observation(
         observation_id="test-observation",
@@ -182,6 +190,18 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.text, "live answer")
         self.assertEqual(response.chat_url, "https://chatgpt.com/c/abc")
         self.assertFalse(response.chat_exhausted)
+
+    def test_completed_prompt_rechecks_after_observation_failure(self) -> None:
+        transport = ObservationFailingTransport([
+            {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed"}},
+            {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed", "response_text": "late answer", "response_text_available": True}},
+        ])
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "late answer")
+        self.assertEqual([path for _, path, _ in transport.requests], ["/operation?operation_id=op-1", "/browser/observation", "/operation?operation_id=op-1"])
 
     def test_failed_prompt_recovers_verified_browser_response_after_completion_ack_loss(self) -> None:
         transport = FakeTransport([
