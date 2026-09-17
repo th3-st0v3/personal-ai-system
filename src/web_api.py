@@ -429,94 +429,11 @@ class WebApplication:
             return 200, {
                 "id": file["id"],
                 "name": file["name"],
-                "size_bytes": file["size_bytes"],
                 "mime_type": file["mime_type"],
+                "folder_id": file["folder_id"],
+                "size_bytes": file["size_bytes"],
             }
-        if method == "POST" and resource in {"copy", "paste"}:
-            selection = [
-                (self._kind(item["kind"]), int(item["id"]))
-                for item in data.get("selection", [])
-            ]
-            if not selection:
-                raise ValueError("Selection is required." if resource == "copy" else "Clipboard selection is required.")
-            if resource == "copy":
-                self.workspace.copy_selection(project_id, selection)
-                return 200, {"copied": [{"kind": kind, "id": item_id} for kind, item_id in selection]}
-            created = self.workspace.paste_selection(
-                project_id,
-                data.get("target_folder_id"),
-                self.workspace.copy_selection(project_id, selection),
-            )
-            return 201, {"created": created}
-        if method == "POST" and resource == "duplicate":
-            kind = self._kind(data["kind"])
-            item_id = int(data["id"])
-            self.workspace._require_project_item(kind, item_id, project_id)
-            return 201, {"id": self.workspace.duplicate_item(project_id, kind, item_id)}
-        if method == "POST" and resource == "move":
-            kind = self._kind(data["kind"])
-            item_id = int(data["id"])
-            self.workspace._require_project_item(kind, item_id, project_id)
-            self.workspace.move_item(
-                kind, item_id, data.get("target_folder_id"), project_id=project_id
-            )
-            return 200, {"moved": True}
-        if method == "POST" and resource == "lifecycle":
-            kind = self._kind(data["kind"])
-            item_id = int(data["id"])
-            self.workspace._require_project_item(kind, item_id, project_id)
-            status = data["status"]
-            if kind == "folder":
-                self.workspace.set_folder_lifecycle(item_id, status, project_id=project_id)
-            elif kind == "file":
-                self.workspace.set_file_lifecycle(item_id, status, project_id=project_id)
-            else:
-                note = self.workspace.get_note(item_id)
-                metadata = dict(note.metadata if note else {})
-                metadata["lifecycle_status"] = status
-                self.workspace.update_note(item_id, metadata=metadata)
-            return 200, {"updated": True}
-        if method == "POST" and resource == "rename":
-            kind = self._kind(data["kind"])
-            item_id = int(data["id"])
-            self.workspace._require_project_item(kind, item_id, project_id)
-            self.workspace.rename_item(kind, item_id, data["name"], project_id=project_id)
-            return 200, {"renamed": True}
-        if method == "POST" and resource == "delete":
-            selection = [
-                (self._kind(item["kind"]), int(item["id"]))
-                for item in data.get("selection", [])
-            ]
-            if not selection:
-                selection = [(self._kind(data["kind"]), int(data["id"]))]
-            return 200, {"deleted": self.workspace.delete_selection(project_id, selection)}
-        if method == "GET" and resource == "properties":
-            kind = self._kind(query["kind"])
-            item_id = int(query["id"])
-            properties = self.workspace.get_item_properties(kind, item_id)
-            if properties["project_id"] != project_id:
-                raise ValueError("Item belongs to another project.")
-            properties.pop("sha256", None)
-            return 200, properties
         return None
-
-    @staticmethod
-    def _split_response_body(body: object) -> tuple[object, list[tuple[str, str]] | None]:
-        if isinstance(body, dict) and "_headers" in body:
-            payload = dict(body)
-            raw_headers = payload.pop("_headers")
-            if not isinstance(raw_headers, list):
-                raise TypeError("Response headers must be a list.")
-            headers: list[tuple[str, str]] = []
-            for header in raw_headers:
-                if not isinstance(header, tuple) or len(header) != 2:
-                    raise TypeError("Response headers must contain (name, value) tuples.")
-                name, value = header
-                if not isinstance(name, str) or not isinstance(value, str):
-                    raise TypeError("Response header names and values must be strings.")
-                headers.append((name, value))
-            return payload, headers
-        return body, None
 
     def request(
         self,
@@ -553,8 +470,8 @@ class WebApplication:
             return self._json(403, {"error": str(exc) or "Permission denied"})
         except (KeyError, ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError, binascii.Error) as exc:
             return self._json(400, {"error": str(exc) or "Invalid request"})
-        except Exception as exc:
-            return self._json(500, {"error": str(exc) or "Internal server error"})
+        except Exception:
+            return self._json(500, {"error": "Internal server error."})
 
     @classmethod
     def _kind(cls, value: str) -> str:
