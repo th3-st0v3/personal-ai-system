@@ -1,6 +1,7 @@
-"""Explicit trust boundary for untrusted AI context, source content, and tool execution."""
+"""Explicit trust boundaries for AI context, source content, and tool execution."""
 from __future__ import annotations
 
+import html
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -11,6 +12,7 @@ MAX_SOURCE_CHARS = 2_000_000
 MAX_QUERY_CHARS = 2_000
 MAX_TOOL_ARGUMENTS_CHARS = 8_000
 ALLOWED_TOOLS = frozenset({"run_calculation", "run_simulation", "get_project_items", "search_project_sources"})
+_ALLOWED_ROLES = frozenset({"system", "developer", "user", "assistant", "tool"})
 
 # These markers do not prove that content is malicious. They flag content that
 # deserves explicit treatment as untrusted context and prevent callers from
@@ -73,20 +75,33 @@ def untrusted_context(value: object, *, label: str = "external data", limit: int
     text = text[:limit]
     metadata = inspect_untrusted_text(text, label=label, max_chars=limit)
     wrapper = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
-    return f"<untrusted-data trust=untrusted metadata={wrapper}>{text}</untrusted-data>"
+    # Escape delimiter syntax so external content cannot terminate the wrapper
+    # and manufacture a new instruction-like XML section.
+    safe_text = html.escape(text, quote=False)
+    return f"<untrusted-data trust=untrusted metadata={wrapper}>{safe_text}</untrusted-data>"
 
 
 def bound_context(messages: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    """Keep context bounded and mark every non-system external result as untrusted."""
+    """Keep context bounded and preserve explicit trust channels.
+
+    User messages remain in the user instruction channel. They are not treated
+    as trusted application policy: tool authorization and other security
+    decisions are enforced independently of model instructions.
+    """
     bounded: list[dict[str, object]] = []
     total = 0
     for message in messages:
-        role = str(message.get("role", ""))
-        content = str(message.get("content", ""))
+        role = message.get("role")
+        if not isinstance(role, str) or role not in _ALLOWED_ROLES:
+            raise ValueError("Context contains an unsupported message role.")
+        raw_content = message.get("content", "")
+        if not isinstance(raw_content, str):
+            raise ValueError("Context message content must be a string.")
+        content = raw_content
         if role == "tool":
             content = untrusted_context(content, label="tool output")
-        elif role not in {"system", "developer", "user"}:
-            content = untrusted_context(content, label=f"message:{role or 'unknown'}")
+        elif role not in {"system", "developer", "user", "assistant"}:
+            content = untrusted_context(content, label=f"message:{role}")
         remaining = MAX_CONTEXT_CHARS - total
         if remaining <= 0:
             break

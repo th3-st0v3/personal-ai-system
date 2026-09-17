@@ -26,8 +26,10 @@ class GitHubFile(TypedDict):
 
 def _parse(url: str) -> tuple[str, str, str, str]:
     parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme != "https" or parsed.netloc != ALLOWED_HOST:
+    if parsed.scheme != "https" or parsed.hostname != ALLOWED_HOST or parsed.port not in {None, 443}:
         raise ValueError("Only https://api.github.com URLs are allowed.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("GitHub URLs must not contain credentials.")
     parts = [p for p in parsed.path.split("/") if p]
     if len(parts) < 5 or parts[0] != "repos" or parts[3] != "contents":
         raise ValueError("Expected a GitHub repository contents URL.")
@@ -70,9 +72,10 @@ def fetch_public_file(url: str) -> GitHubFile:
     if not isinstance(encoded_content, str):
         raise ValueError("GitHub file did not contain encoded content.")
     try:
-        content = base64.b64decode(encoded_content, validate=False).decode("utf-8")
+        normalized_base64 = "".join(encoded_content.split())
+        content = base64.b64decode(normalized_base64, validate=True).decode("utf-8")
     except (ValueError, UnicodeDecodeError) as exc:
-        raise ValueError("GitHub file is not UTF-8 text.") from exc
+        raise ValueError("GitHub file is not valid UTF-8 base64 text.") from exc
     version_value = data.get("sha")
     if version_value is not None and not isinstance(version_value, str):
         raise ValueError("GitHub file version is invalid.")
@@ -87,11 +90,7 @@ def fetch_public_file(url: str) -> GitHubFile:
     }
 
 
-def ingest_public_file(
-    connection,
-    project_id: int,
-    url: str,
-) -> dict[str, object]:
+def ingest_public_file(connection, project_id: int, url: str) -> dict[str, object]:
     fetched = fetch_public_file(url)
     return ingestion_service.ingest_text(
         connection,

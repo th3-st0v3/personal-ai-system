@@ -88,45 +88,36 @@ class TaskRunnerState:
         runner_id = data.get("runner_id")
         if not isinstance(runner_id, str) or not runner_id.strip():
             raise StateCorruptionError("Invalid task runner state: runner_id is required")
-
         phase_value = data.get("phase", "stopped")
         valid_phases = {"stopped", "running", "waiting_human", "paused", "completed", "failed"}
         if phase_value not in valid_phases:
             raise StateCorruptionError("Invalid task runner state: unknown phase")
         phase = cast(RunnerPhase, phase_value)
-
         steps = data.get("steps", 0)
         if not isinstance(steps, int) or steps < 0:
             raise StateCorruptionError("Invalid task runner state: steps must be a non-negative integer")
-
         observations = data.get("observations", ())
         if isinstance(observations, list):
             observations = tuple(observations)
         if not isinstance(observations, tuple) or any(not isinstance(item, str) for item in observations):
             raise StateCorruptionError("Invalid task runner state: observations must be string fingerprints")
-
         last_action_id = data.get("last_action_id")
         if last_action_id is not None and not isinstance(last_action_id, str):
             raise StateCorruptionError("Invalid task runner state: last_action_id must be a string or null")
-
         pending_action = data.get("pending_action")
         if pending_action is not None and not isinstance(pending_action, dict):
             raise StateCorruptionError("Invalid task runner state: pending_action must be an object or null")
         if pending_action is not None:
             _action_from_dict(pending_action)
-
         last_error = data.get("last_error")
         if last_error is not None and not isinstance(last_error, str):
             raise StateCorruptionError("Invalid task runner state: last_error must be a string or null")
-
         recovery_required = data.get("recovery_required", False)
         if not isinstance(recovery_required, bool):
             raise StateCorruptionError("Invalid task runner state: recovery_required must be boolean")
-
         updated_at = data.get("updated_at", "")
         if not isinstance(updated_at, str):
             raise StateCorruptionError("Invalid task runner state: updated_at must be a string")
-
         return cls(
             runner_id=runner_id,
             phase=phase,
@@ -173,7 +164,6 @@ class BoundedTaskRunner:
             raise ValueError("max_observations must be positive")
         if max_repeated_observation <= 0:
             raise ValueError("max_repeated_observation must be positive")
-
         self.state_manager = state_manager
         self.runner_id = runner_id
         self.worker = worker
@@ -196,21 +186,17 @@ class BoundedTaskRunner:
                 return self._result("runner requires observation rehydration before it can safely resume")
             if self.state.phase in {"failed", "waiting_human", "paused"}:
                 return self._result(self.state.last_error or f"runner is {self.state.phase}")
-
             worker_phase = self.worker.status().phase
             if worker_phase == "stopped":
                 self.worker.start()
             elif worker_phase != "running":
                 return self._sync_worker_state()
-
             self.state = self._replace(phase="running", last_error=None)
             self._persist()
-
             while self.state.steps < self.max_steps:
                 worker_state = self.worker.status()
                 if worker_state.phase != "running":
                     return self._sync_worker_state()
-
                 try:
                     if self.state.pending_action is not None:
                         action = _action_from_dict(self.state.pending_action)
@@ -218,17 +204,14 @@ class BoundedTaskRunner:
                         action = self.planner.plan(tuple(self._observation_objects))
                 except Exception as exc:
                     return self._fail(f"planner failed: {exc}")
-
                 if action is None:
                     return self._fail("planner did not provide a next action and completion was not proven")
-
                 pending_action = asdict(action)
                 self.state = self._replace(
                     last_action_id=action.action_id,
                     pending_action=pending_action if action.effective_risk() == "approval_required" else None,
                 )
                 self._persist()
-
                 try:
                     observation = self.worker.step(action, self.executor, external_human_approval=False)
                 except WorkerExecutionError as exc:
@@ -239,26 +222,18 @@ class BoundedTaskRunner:
                     return self._fail(f"worker execution failed: {exc}")
                 except Exception as exc:
                     return self._fail(f"worker step failed: {exc}")
-
                 if observation is None:
                     return self._sync_worker_state()
-
                 try:
                     self._record_observation(observation)
                 except WorkerExecutionError as exc:
                     return self._fail(str(exc))
-
-                self.state = self._replace(
-                    steps=self.state.steps + 1,
-                    pending_action=None,
-                )
+                self.state = self._replace(steps=self.state.steps + 1, pending_action=None)
                 self._persist()
-
                 try:
                     decision = self.completion_checker.check(tuple(self._observation_objects))
                 except Exception as exc:
                     return self._fail(f"completion checker failed: {exc}")
-
                 if decision.status == "complete":
                     try:
                         self.worker.complete()
@@ -267,10 +242,8 @@ class BoundedTaskRunner:
                     self.state = self._replace(phase="completed", last_error=None)
                     self._persist()
                     return self._result(decision.reason)
-
                 if decision.status == "failed":
                     return self._fail(decision.reason)
-
             self.state = self._replace(phase="running", last_error="maximum task-runner step budget reached")
             self._persist()
             return self._result("maximum task-runner step budget reached", step_limit_reached=True)
@@ -282,11 +255,7 @@ class BoundedTaskRunner:
                 raise WorkerExecutionError("runner has no action waiting for human approval")
             action = _action_from_dict(self.state.pending_action)
             worker_state = self.worker.status()
-            pending_worker_action = (
-                worker_state.current_action.get("action_id")
-                if worker_state.current_action is not None
-                else None
-            )
+            pending_worker_action = worker_state.current_action.get("action_id") if worker_state.current_action is not None else None
             if pending_worker_action != action.action_id:
                 raise WorkerExecutionError("runner approval target does not match the pending action")
             self.worker.resume(human_approval=True)
@@ -301,7 +270,7 @@ class BoundedTaskRunner:
                 raise ValueError("observation history exceeds configured bound")
             self._observation_objects = list(observations)
             fingerprints = tuple(item.fingerprint() for item in self._observation_objects)
-            if self.state.observations and fingerprints != self.state.observations:
+            if fingerprints != self.state.observations:
                 raise WorkerExecutionError("rehydrated observations do not match persisted fingerprints")
             phase: RunnerPhase = "running" if self.worker.status().phase == "running" else "paused"
             self.state = self._replace(
@@ -332,7 +301,6 @@ class BoundedTaskRunner:
                 repetitions += 1
             if repetitions >= self.max_repeated_observation:
                 raise WorkerExecutionError("task runner detected repeated identical observations")
-
         self._observation_objects.append(observation)
         if len(self._observation_objects) > self.max_observations:
             del self._observation_objects[:-self.max_observations]
@@ -351,16 +319,9 @@ class BoundedTaskRunner:
         }
         runner_phase = mapping[phase]
         pending_action = self.state.pending_action if phase == "waiting_human" else None
-        self.state = self._replace(
-            phase=runner_phase,
-            pending_action=pending_action,
-            last_error=self.worker.status().last_error,
-        )
+        self.state = self._replace(phase=runner_phase, pending_action=pending_action, last_error=self.worker.status().last_error)
         self._persist()
-        return self._result(
-            self.state.last_error or f"worker is {phase}",
-            waiting_for_human=phase == "waiting_human",
-        )
+        return self._result(self.state.last_error or f"worker is {phase}", waiting_for_human=phase == "waiting_human")
 
     def _fail(self, reason: str) -> TaskRunResult:
         if self.worker.status().phase == "running":
@@ -369,20 +330,8 @@ class BoundedTaskRunner:
         self._persist()
         return self._result(reason)
 
-    def _result(
-        self,
-        reason: str,
-        *,
-        step_limit_reached: bool = False,
-        waiting_for_human: bool = False,
-    ) -> TaskRunResult:
-        return TaskRunResult(
-            phase=self.state.phase,
-            steps=self.state.steps,
-            reason=reason,
-            step_limit_reached=step_limit_reached,
-            waiting_for_human=waiting_for_human or self.state.phase == "waiting_human",
-        )
+    def _result(self, reason: str, *, step_limit_reached: bool = False, waiting_for_human: bool = False) -> TaskRunResult:
+        return TaskRunResult(phase=self.state.phase, steps=self.state.steps, reason=reason, step_limit_reached=step_limit_reached, waiting_for_human=waiting_for_human or self.state.phase == "waiting_human")
 
     def _load_or_initialize(self) -> TaskRunnerState:
         if not self.state_path.exists():
@@ -422,7 +371,6 @@ def _action_from_dict(data: dict[str, Any]) -> ActionProposal:
     parameters = data.get("parameters", {})
     reason = data.get("reason", "")
     risk = data.get("risk")
-
     if not isinstance(action_id, str) or not action_id.strip():
         raise StateCorruptionError("Invalid task runner state: pending action_id is required")
     if not isinstance(session_id, str) or not session_id.strip():
@@ -437,16 +385,7 @@ def _action_from_dict(data: dict[str, Any]) -> ActionProposal:
         raise StateCorruptionError("Invalid task runner state: pending reason must be a string")
     if risk is not None and risk not in _ACTION_RISKS:
         raise StateCorruptionError("Invalid task runner state: pending risk is invalid")
-
-    action = ActionProposal(
-        action_id=action_id,
-        session_id=session_id,
-        target=target,
-        action=cast(ActionKind, action_name),
-        parameters=parameters,
-        reason=reason,
-        risk=risk,
-    )
+    action = ActionProposal(action_id=action_id, session_id=session_id, target=target, action=cast(ActionKind, action_name), parameters=parameters, reason=reason, risk=risk)
     try:
         action.effective_risk()
     except ValueError as exc:

@@ -1,19 +1,52 @@
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .contracts import Observation
 
 
 class ResearchAdapterError(RuntimeError):
     """Raised when a research operation violates the evidence boundary."""
+
+
+def _validate_public_https_url(value: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ResearchAdapterError("research retrieval requires an HTTPS URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ResearchAdapterError("research URLs must not contain credentials")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ResearchAdapterError("research URL has an invalid port") from exc
+    if port not in {None, 443}:
+        raise ResearchAdapterError("research retrieval only permits HTTPS port 443")
+
+    hostname = parsed.hostname
+    if hostname.casefold() in {"localhost", "localhost.localdomain", "metadata.google.internal"} or hostname.endswith(".local"):
+        raise ResearchAdapterError("research retrieval cannot target local or metadata hosts")
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)}
+    except OSError as exc:
+        raise ResearchAdapterError("research host could not be resolved") from exc
+    if not addresses:
+        raise ResearchAdapterError("research host has no resolved addresses")
+    for address in addresses:
+        try:
+            parsed_address = ipaddress.ip_address(address)
+        except ValueError as exc:
+            raise ResearchAdapterError("research host resolved to an invalid IP address") from exc
+        if not parsed_address.is_global:
+            raise ResearchAdapterError("research retrieval cannot target private, loopback, link-local, or reserved addresses")
 
 
 @dataclass(frozen=True)
@@ -76,9 +109,7 @@ class SearchProvider(Protocol):
 
 class _HTTPSRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req: Request, fp: Any, code: int, msg: str, headers: Any, newurl: str):
-        parsed = urlparse(newurl)
-        if parsed.scheme != "https":
-            raise ResearchAdapterError("redirect target must remain HTTPS")
+        _validate_public_https_url(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -123,9 +154,7 @@ class HTTPSResearchAdapter:
         )
 
     def read(self, source: str) -> Observation:
-        parsed = urlparse(source)
-        if parsed.scheme != "https" or not parsed.netloc:
-            raise ResearchAdapterError("research retrieval requires an HTTPS URL")
+        _validate_public_https_url(source)
         request = Request(
             source,
             headers={"Accept": "text/html, text/plain, application/json"},

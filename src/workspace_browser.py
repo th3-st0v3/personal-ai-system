@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, cast
 
@@ -170,9 +171,9 @@ def list_children(project_id: int, folder_id: int | None = None, *, sort: str = 
 
 def list_project_items(project_id: int, *, recursive: bool = True, sort: str = "a_z") -> list[BrowserItem]:
     result: list[BrowserItem] = []
-    queue: list[int | None] = [None]
+    queue: deque[int | None] = deque([None])
     while queue:
-        folder_id = queue.pop(0)
+        folder_id = queue.popleft()
         children = list_children(project_id, folder_id, sort=sort)
         result.extend(children)
         if recursive:
