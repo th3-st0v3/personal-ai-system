@@ -43,6 +43,10 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
             ("Python 3.14 task scheduling", "async subprocess patterns"),
         )
 
+    def test_collect_web_context_without_urls_or_queries_is_empty(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(entrypoint.collect_web_context("ordinary coding task"), "")
+
     def test_research_queries_feed_search_and_read_as_untrusted_context(self) -> None:
         class FakeAdapter:
             def __init__(self, *args: object, **kwargs: object) -> None:
