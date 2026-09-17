@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
+// @version      2.1.0
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -14,6 +14,7 @@
     var BRIDGE_URL = 'http://127.0.0.1:8765';
     var POLL_INTERVAL_MS = 1000;
     var COMPOSER_TIMEOUT_MS = 15000;
+    var PROMPT_VERIFY_TIMEOUT_MS = 5000;
     var SEND_BUTTON_TIMEOUT_MS = 10000;
     var NEW_CHAT_TIMEOUT_MS = 15000;
     var GENERATION_POLL_MS = 500;
@@ -22,7 +23,7 @@
     var activeOperationId = null;
     var processing = false;
 
-    console.log('[PASI] ChatGPT Controller v2.0.0 loaded.');
+    console.log('[PASI] ChatGPT Controller v2.1.0 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -182,16 +183,18 @@
         if (!composer) throw new Error('Could not find ChatGPT composer.');
         clearComposer(composer);
         insertText(composer, operation.prompt);
-        await sleep(400);
-        if (!composerContains(composer, operation.prompt)) {
+
+        var verifiedComposer = await waitForPromptInsertion(operation.prompt);
+        if (!verifiedComposer) {
             throw new Error('Prompt insertion could not be verified.');
         }
+
         var sendButton = await waitForSendButton();
         if (!sendButton) throw new Error('Could not find ChatGPT send button.');
         if (sendButton.disabled || sendButton.getAttribute('aria-disabled') === 'true') {
             throw new Error('ChatGPT send button is disabled.');
         }
-        console.log('[PASI] Sending operation:', operation.operation_id);
+        console.log('[PASI] Prompt inserted; sending operation:', operation.operation_id);
         sendButton.click();
         await waitUntilGenerationFinishes(operation.operation_id);
         await reportFinished(operation.operation_id, true);
@@ -225,6 +228,44 @@
                 if (isVisible(elements[j])) return elements[j];
             }
         }
+        return null;
+    }
+
+    function findComposerContaining(expected) {
+        var selectors = [
+            '#prompt-textarea',
+            'textarea[data-id="root"]',
+            'textarea',
+            '[contenteditable="true"][role="textbox"]',
+            '[contenteditable="true"]'
+        ];
+        var i;
+        var j;
+        var elements;
+        var actual;
+        for (i = 0; i < selectors.length; i += 1) {
+            elements = document.querySelectorAll(selectors[i]);
+            for (j = 0; j < elements.length; j += 1) {
+                if (!isVisible(elements[j])) continue;
+                actual = readComposerText(elements[j]);
+                if (actual.indexOf(expected) !== -1) return elements[j];
+            }
+        }
+        return null;
+    }
+
+    async function waitForPromptInsertion(expected) {
+        var startTime = Date.now();
+        var composer;
+        while (Date.now() - startTime < PROMPT_VERIFY_TIMEOUT_MS) {
+            composer = findComposerContaining(expected);
+            if (composer) {
+                console.log('[PASI] Prompt insertion verified.');
+                return composer;
+            }
+            await sleep(200);
+        }
+        console.warn('[PASI] Prompt text was not observed in the current composer after insertion.');
         return null;
     }
 
@@ -307,6 +348,7 @@
         if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
             setNativeValue(element, text);
             element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
             return;
         }
         var selection = window.getSelection();
@@ -328,11 +370,18 @@
         else element.value = value;
     }
 
+    function readComposerText(element) {
+        var actual = '';
+        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+            actual = element.value || element.getAttribute('value') || '';
+        } else {
+            actual = element.innerText || element.textContent || '';
+        }
+        return String(actual);
+    }
+
     function composerContains(element, expected) {
-        var actual = element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement
-            ? element.value || ''
-            : element.innerText || element.textContent || '';
-        return actual.indexOf(expected) !== -1;
+        return readComposerText(element).indexOf(expected) !== -1;
     }
 
     function getLabel(element) {
