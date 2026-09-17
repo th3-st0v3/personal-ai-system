@@ -6,8 +6,9 @@ const test = require('node:test');
 const controllerPath = path.join(__dirname, 'chatgpt-controller.user.js');
 const source = fs.readFileSync(controllerPath, 'utf8');
 
-test('controller declares the expected current version', () => {
-    assert.match(source, /@version\s+2\.4\.3/);
+test('controller declares the current hardened version', () => {
+    assert.match(source, /@version\s+2\.4\.6/);
+    assert.match(source, /CONTROLLER_VERSION = ['"]2\.4\.6['"]/);
 });
 
 test('controller supports conditional reasoning selection', () => {
@@ -31,32 +32,53 @@ test('controller extracts live assistant responses and reports them', () => {
     assert.match(source, /response_text_available: true/);
 });
 
-test('controller treats only conversation/context exhaustion as new-chat exhaustion', () => {
+test('controller distinguishes context exhaustion from provider usage exhaustion', () => {
     assert.match(source, /function isConversationContextExhaustedVisible\(/);
+    assert.match(source, /function isUsageLimitedVisible\(/);
     assert.match(source, /CHAT_EXHAUSTED:/);
+    assert.match(source, /CHAT_USAGE_LIMITED:/);
     assert.match(source, /context limit reached/);
     assert.match(source, /start a new chat to continue/);
-    assert.doesNotMatch(source, /'current usage limit'/);
-    assert.doesNotMatch(source, /'usage limit reached'/);
-    assert.doesNotMatch(source, /'free tier limit'/);
 });
 
-test('controller avoids state overwrite while an operation is active', () => {
-    assert.match(source, /if \(!force && \(processing \|\| activeOperationId !== null\)\) return;/);
-    assert.match(source, /await reportChatState\(true\)/);
+test('controller recognizes chat identity changes instead of silently reusing stale state', () => {
+    assert.match(source, /lastKnownChatUrl/);
+    assert.match(source, /kind: 'chatgpt_chat_changed'/);
+    assert.match(source, /previous_chat_url/);
+    assert.match(source, /new_chat_url/);
+    assert.match(source, /conversationSignature/);
 });
 
-test('controller retains guarded prompt submission and generation checks', () => {
-    assert.match(source, /Submit attempt ' \+ attempt/);
-    assert.match(source, /ChatGPT prompt submission did not leave the composer/);
+test('controller retains guarded prompt submission with bounded explicit acknowledgement', () => {
+    assert.match(source, /SUBMISSION_ACK_MS = 2500/);
+    assert.match(source, /SUBMISSION_ATTEMPTS = 3/);
+    assert.match(source, /function newestUserMatches\(/);
+    assert.match(source, /function waitForSubmissionAck\(/);
+    assert.match(source, /prompt submission could not be verified after bounded attempts/);
     assert.match(source, /function waitForAssistantResponse\(/);
     assert.match(source, /function isGenerating\(/);
 });
 
-test('controller continuously reports state without creating chats', () => {
+test('controller requires verified new-chat identity before considering new_chat complete', () => {
+    assert.match(source, /var previousChat = chatUrl\(\)/);
+    assert.match(source, /var differentChat = Boolean\(previousChat && currentChat && currentChat !== previousChat\)/);
+    assert.match(source, /var emptyConversation = userMessages\(\)\.length === 0/);
+    assert.match(source, /previousChat && currentChat && currentChat === previousChat/);
+});
+
+test('controller preserves interrupted operations until the bridge acknowledges recovery', () => {
+    assert.match(source, /browser page reloaded during operation/);
+    assert.match(source, /if \(ok\) localStorage\.removeItem\(ACTIVE_KEY\)/);
+    assert.match(source, /var finalized = false/);
+    assert.match(source, /if \(finalized\) localStorage\.removeItem\(ACTIVE_KEY\)/);
+});
+
+test('controller continuously reports state and active operation without creating chats', () => {
     assert.match(source, /setInterval\(reportChatState/);
     assert.match(source, /kind: ['"]chatgpt_state['"]/);
     assert.match(source, /conversation_context_exhausted/);
+    assert.match(source, /provider_usage_limited/);
     assert.match(source, /chat_exhausted/);
     assert.match(source, /github_attached/);
+    assert.match(source, /active_operation_id/);
 });
