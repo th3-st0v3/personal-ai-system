@@ -243,6 +243,24 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     if code != 0:
         raise RuntimeError(f"could not select overnight branch: {output}")
 
+    code, counts = command(["git", "rev-list", "--left-right", "--count", f"{branch}...origin/main"], path, 30.0)
+    if code != 0:
+        raise RuntimeError(f"could not compare overnight branch with origin/main: {counts}")
+    parts = counts.split()
+    if len(parts) != 2:
+        raise RuntimeError(f"could not parse overnight branch ancestry: {counts}")
+    try:
+        ahead, behind = int(parts[0]), int(parts[1])
+    except ValueError as exc:
+        raise RuntimeError(f"could not parse overnight branch ancestry: {counts}") from exc
+    if behind > 0 and ahead == 0:
+        merge_code, merge_output = command(["git", "merge", "--ff-only", "origin/main"], path, 60.0)
+        if merge_code != 0:
+            raise RuntimeError(f"could not fast-forward overnight branch to origin/main: {merge_output}")
+        log_event("resume_branch_fast_forwarded", branch=branch, commits=behind)
+    elif behind > 0 and ahead > 0:
+        log_event("resume_branch_diverged", branch=branch, ahead=ahead, behind=behind)
+
 
 def browser_observation() -> dict[str, Any] | None:
     try:
@@ -593,6 +611,7 @@ def main() -> int:
         saved = load_state() if args.resume else None
         if saved is not None and now_utc() < datetime.fromisoformat(saved.deadline_at):
             state = saved
+            state.stop_reason = ""
             resume = True
             log_event("run_resumed", **state.to_dict())
         else:
