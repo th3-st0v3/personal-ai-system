@@ -52,8 +52,8 @@ class IntegrationWebApplication:
             return self._finish(start_response,*self._json(200,result))
         except (KeyError,ValueError,TypeError,json.JSONDecodeError) as exc:
             return self._finish(start_response,*self._json(400,{"error":str(exc)}))
-        except Exception as exc:
-            return self._finish(start_response,*self._json(500,{"error":str(exc)}))
+        except Exception:
+            return self._finish(start_response,*self._json(500,{"error":"Internal server error."}))
 
     @staticmethod
     def _finish(start_response,status,headers,payload):
