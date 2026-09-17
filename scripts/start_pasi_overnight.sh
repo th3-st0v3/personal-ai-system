@@ -30,10 +30,11 @@ fi
 hours="${PASI_OVERNIGHT_HOURS:-12}"
 log_file="$REPO_ROOT/.runtime/overnight/runner.log"
 
-nohup "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_overnight.py" --hours "$hours" "$@" >>"$log_file" 2>&1 < /dev/null &
+nohup "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_automation_entrypoint.py" --hours "$hours" "$@" >>"$log_file" 2>&1 < /dev/null &
 pid=$!
 
 printf 'Started PASI overnight runner (launcher PID %s, %s hours).\n' "$pid" "$hours"
 printf 'Log: %s\n' "$log_file"
 printf 'State: %s\n' "$REPO_ROOT/.runtime/overnight/state.json"
 printf 'Action list: %s\n' "$REPO_ROOT/.runtime/automation/action-list.md"
+printf 'Setup checklist: %s\n' "$REPO_ROOT/.runtime/automation/setup-requirements.md"
