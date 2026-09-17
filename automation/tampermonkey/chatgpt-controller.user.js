@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.7
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -337,7 +337,6 @@
         if (
             typeof previousUrl !== 'string' ||
             typeof currentUrl !== 'string' ||
-            currentUrl === previousUrl ||
             !observation ||
             !observation.page ||
             !Array.isArray(observation.interactive_elements)
@@ -352,7 +351,19 @@
             return false;
         }
 
-        return Boolean(findComposer(observation));
+        const composer = findComposer(observation);
+        if (!composer) {
+            return false;
+        }
+
+        if (currentUrl !== previousUrl) {
+            return true;
+        }
+
+        const pageText = String(observation.page.title || '') +
+            ' ' + String(observation.page.url || '');
+
+        return /new chat|chatgpt/i.test(pageText);
     }
 
     async function waitUntilReady(observation) {
@@ -519,7 +530,24 @@
             return semanticNewChat;
         }
 
-        return findNewChatWithSelectors();
+        const selectors = [
+            'a[aria-label="New chat"]',
+            'button[aria-label="New chat"]',
+            '[data-testid="new-chat-button"]'
+        ];
+
+        for (const selector of selectors) {
+            const elements =
+                document.querySelectorAll(selector);
+
+            for (const element of elements) {
+                if (isVisible(element)) {
+                    return element;
+                }
+            }
+        }
+
+        return null;
     }
 
     function findNewChatFromObservation(observation) {
@@ -535,8 +563,6 @@
                 (element) =>
                     element &&
                     element.control === 'new_chat' &&
-                    (element.role === 'link' ||
-                        element.role === 'button') &&
                     typeof element.id === 'string' &&
                     element.id.length > 0
             );
@@ -561,11 +587,38 @@
         return null;
     }
 
-    function findNewChatWithSelectors() {
+    function waitForSendButton() {
+        const start = Date.now();
+
+        return new Promise((resolve) => {
+            const check = () => {
+                const button = findSendButton();
+
+                if (button) {
+                    resolve(button);
+                    return;
+                }
+
+                if (
+                    Date.now() - start >=
+                    SEND_BUTTON_TIMEOUT_MS
+                ) {
+                    resolve(null);
+                    return;
+                }
+
+                setTimeout(check, 250);
+            };
+
+            check();
+        });
+    }
+
+    function findSendButton() {
         const selectors = [
-            'a[aria-label="New chat"]',
-            'button[aria-label="New chat"]',
-            '[data-testid="new-chat-button"]'
+            'button[aria-label="Send prompt"]',
+            'button[data-testid="send-button"]',
+            'button[type="submit"]'
         ];
 
         for (const selector of selectors) {
@@ -579,291 +632,83 @@
             }
         }
 
-        const elements =
-            document.querySelectorAll('a, button');
-
-        for (const element of elements) {
-            if (!isVisible(element)) {
-                continue;
-            }
-
-            if (
-                getLabel(element)
-                    .trim()
-                    .toLowerCase() === 'new chat'
-            ) {
-                return element;
-            }
-        }
-
         return null;
     }
 
-    function clearComposer(element) {
-        element.focus();
+    function clearComposer(composer) {
+        composer.focus();
 
-        if (
-            element instanceof HTMLTextAreaElement ||
-            element instanceof HTMLInputElement
-        ) {
-            setNativeValue(element, '');
-
-            element.dispatchEvent(
-                new Event('input', {
-                    bubbles: true,
-                    composed: true
-                })
-            );
-
+        if (composer instanceof HTMLTextAreaElement) {
+            composer.value = '';
+            composer.dispatchEvent(new Event('input', { bubbles: true }));
             return;
         }
 
-        const selection =
-            window.getSelection();
-
-        if (selection) {
-            selection.removeAllRanges();
-
-            const range =
-                document.createRange();
-
-            range.selectNodeContents(element);
-            selection.addRange(range);
-        }
-
-        document.execCommand(
-            'delete',
-            false
-        );
+        composer.textContent = '';
+        composer.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'deleteContentBackward'
+        }));
     }
 
-    function insertText(element, text) {
-        element.focus();
+    function insertText(composer, text) {
+        composer.focus();
 
-        if (
-            element instanceof HTMLTextAreaElement ||
-            element instanceof HTMLInputElement
-        ) {
-            setNativeValue(
-                element,
-                text
+        if (composer instanceof HTMLTextAreaElement) {
+            const descriptor = Object.getOwnPropertyDescriptor(
+                HTMLTextAreaElement.prototype,
+                'value'
             );
 
-            element.dispatchEvent(
-                new Event('input', {
-                    bubbles: true,
-                    composed: true
-                })
-            );
+            if (descriptor && descriptor.set) {
+                descriptor.set.call(composer, text);
+            } else {
+                composer.value = text;
+            }
 
-            element.dispatchEvent(
-                new Event('change', {
-                    bubbles: true
-                })
-            );
-
+            composer.dispatchEvent(new Event('input', { bubbles: true }));
             return;
         }
 
-        const selection =
-            window.getSelection();
+        document.execCommand('insertText', false, text);
+        composer.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: text
+        }));
+    }
 
-        if (selection) {
-            selection.removeAllRanges();
+    function composerContains(composer, expectedText) {
+        const value =
+            composer instanceof HTMLTextAreaElement
+                ? composer.value
+                : composer.textContent || '';
 
-            const range =
-                document.createRange();
+        return value.includes(expectedText);
+    }
 
-            range.selectNodeContents(element);
-            range.collapse(false);
-
-            selection.addRange(range);
-        }
-
-        document.execCommand(
-            'insertText',
-            false,
-            text
-        );
-
-        element.dispatchEvent(
-            new InputEvent(
-                'input',
-                {
-                    bubbles: true,
-                    composed: true,
-                    inputType: 'insertText',
-                    data: text
-                }
+    function isGenerating() {
+        return Boolean(
+            document.querySelector(
+                '[aria-label="Stop generating"], [data-testid="stop-button"]'
             )
         );
     }
 
-    function composerContains(
-        element,
-        expected
-    ) {
-        let actual = '';
-
-        if (
-            element instanceof HTMLTextAreaElement ||
-            element instanceof HTMLInputElement
-        ) {
-            actual = element.value || '';
-        } else {
-            actual =
-                element.innerText ||
-                element.textContent ||
-                '';
+    function isVisible(element) {
+        if (!element) {
+            return false;
         }
 
-        return actual.includes(
-            expected.slice(0, 100)
-        );
+        const style = window.getComputedStyle(element);
+
+        return style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            element.getBoundingClientRect().width > 0 &&
+            element.getBoundingClientRect().height > 0;
     }
 
-    function setNativeValue(
-        element,
-        value
-    ) {
-        const prototype =
-            Object.getPrototypeOf(element);
-
-        const descriptor =
-            Object.getOwnPropertyDescriptor(
-                prototype,
-                'value'
-            );
-
-        if (
-            descriptor &&
-            descriptor.set
-        ) {
-            descriptor.set.call(
-                element,
-                value
-            );
-        } else {
-            element.value = value;
-        }
-    }
-
-    function findSendButton() {
-        const selectors = [
-            'button[data-testid="send-button"]',
-            'button[aria-label="Send prompt"]',
-            'button[aria-label="Send message"]'
-        ];
-
-        for (const selector of selectors) {
-            const button =
-                document.querySelector(
-                    selector
-                );
-
-            if (
-                button &&
-                isVisible(button)
-            ) {
-                return button;
-            }
-        }
-
-        const buttons =
-            document.querySelectorAll(
-                'button'
-            );
-
-        for (const button of buttons) {
-            if (!isVisible(button)) {
-                continue;
-            }
-
-            const label =
-                getLabel(button)
-                    .toLowerCase();
-
-            if (
-                label.includes('send prompt') ||
-                label.includes('send message')
-            ) {
-                return button;
-            }
-        }
-
-        return null;
-    }
-
-    async function waitForSendButton() {
-        const start = Date.now();
-
-        while (
-            Date.now() - start <
-            SEND_BUTTON_TIMEOUT_MS
-        ) {
-            const button =
-                findSendButton();
-
-            if (button) {
-                return button;
-            }
-
-            await sleep(250);
-        }
-
-        return null;
-    }
-
-    function isGenerating() {
-        const selectors = [
-            'button[data-testid="stop-button"]',
-            'button[aria-label="Stop generating"]',
-            'button[aria-label*="Stop"]'
-        ];
-
-        for (const selector of selectors) {
-            const element =
-                document.querySelector(
-                    selector
-                );
-
-            if (
-                element &&
-                isVisible(element)
-            ) {
-                return true;
-            }
-        }
-
-        const buttons =
-            document.querySelectorAll(
-                'button'
-            );
-
-        for (const button of buttons) {
-            if (!isVisible(button)) {
-                continue;
-            }
-
-            const label =
-                getLabel(button)
-                    .toLowerCase();
-
-            if (
-                label.includes('stop generating') ||
-                label === 'stop' ||
-                label.includes('stop response')
-            ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    async function sendHeartbeat(
-        operationId
-    ) {
+    async function sendHeartbeat(operationId) {
         try {
             await bridgeRequest('/chat/heartbeat', {
                 method: 'POST',
@@ -879,30 +724,23 @@
         }
     }
 
-    async function reportFinished(
-        operationId,
-        responseObserved
-    ) {
-        const response = await bridgeRequest('/chat/finished', {
-            method: 'POST',
-            body: {
-                operation_id: operationId,
-                chat_url: window.location.href,
-                response_text_available: Boolean(responseObserved)
-            }
-        });
-
-        if (!response.ok) {
+    async function reportFinished(operationId, isNewChat) {
+        try {
+            await bridgeRequest('/chat/finished', {
+                method: 'POST',
+                body: {
+                    operation_id: operationId,
+                    chat_url: isNewChat ? window.location.href : undefined
+                }
+            });
+        } catch (error) {
             throw new Error(
-                `Bridge completion failed: HTTP ${response.status}`
+                `Could not report operation completion: ${error.message}`
             );
         }
     }
 
-    async function reportFailure(
-        operationId,
-        error
-    ) {
+    async function reportFailure(operationId, error) {
         try {
             await bridgeRequest('/chat/failed', {
                 method: 'POST',
@@ -915,54 +753,15 @@
             });
         } catch (reportError) {
             console.error(
-                '[PASI] Failed to report failure:',
+                '[PASI] Failed to report operation failure:',
                 reportError
             );
         }
     }
 
-    function getLabel(element) {
-        return [
-            element.getAttribute(
-                'aria-label'
-            ),
-            element.getAttribute(
-                'title'
-            ),
-            element.textContent
-        ]
-            .filter(Boolean)
-            .join(' ')
-            .trim();
+    function sleep(milliseconds) {
+        return new Promise((resolve) => {
+            setTimeout(resolve, milliseconds);
+        });
     }
-
-    function isVisible(element) {
-        if (!element) {
-            return false;
-        }
-
-        const style =
-            window.getComputedStyle(
-                element
-            );
-
-        return (
-            style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            style.opacity !== '0' &&
-            element.getClientRects()
-                .length > 0
-        );
-    }
-
-    function sleep(ms) {
-        return new Promise(
-            resolve =>
-                setTimeout(
-                    resolve,
-                    ms
-                )
-        );
-    }
-
 })();
