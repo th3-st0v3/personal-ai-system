@@ -250,6 +250,24 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
             raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
 
 
+def normalize_patch(patch: str) -> str:
+    """Convert common Markdown-wrapped model diffs into a plain unified diff."""
+    normalized = patch.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return ""
+    lines = normalized.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line.startswith("diff --git "))
+    except StopIteration:
+        return normalized
+    lines = lines[start:]
+    for index, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            lines = lines[:index]
+            break
+    return "\n".join(lines).strip() + "\n"
+
+
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
     values: dict[str, str] = {}
     for key, pattern in MARKERS.items():
@@ -257,7 +275,8 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
         if match:
             values[key] = match.group(1).strip()
     allow_delete = bool(re.search(r"^PASI_RESULT_ALLOW_DELETE:\s*true$", response, re.MULTILINE | re.IGNORECASE))
-    patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0].strip() if PATCH_BEGIN in response and PATCH_END in response else ""
+    raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0] if PATCH_BEGIN in response and PATCH_END in response else ""
+    patch = normalize_patch(raw_patch)
     return values.get("status", "blocked").lower(), values.get("summary", ""), values.get("next_task", ""), patch, allow_delete, values
 
 
@@ -303,7 +322,7 @@ PASI_RESULT_BACKEND: verified|not_applicable
 PASI_RESULT_EVIDENCE: concise tests/verification evidence
 PASI_RESULT_ALLOW_DELETE: true|false
 PASI_RESULT_PATCH_BEGIN
-<one unified git diff>
+<one unified git diff, plain text only; do not wrap the diff in Markdown code fences or add prose inside the patch markers>
 PASI_RESULT_PATCH_END
 
 The patch must apply with git apply, modify only repository files, and contain no symlink or submodule additions. Do not use shell commands as the change mechanism.
@@ -330,7 +349,8 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
 
 
 def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
-    validate_patch_paths(patch, allow_delete)
+    normalized_patch = normalize_patch(patch)
+    validate_patch_paths(normalized_patch, allow_delete)
     code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, timeout=60.0)
     if code != 0:
         raise OvernightError(f"git apply --check failed:\n{output}")
