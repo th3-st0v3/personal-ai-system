@@ -14,7 +14,6 @@ PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 LOCK_FILE="$RUNTIME_DIR/start.lock"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
-WORKTREE="${PASI_OVERNIGHT_WORKTREE:-$HOME/.pasi-worktrees/personal-ai-system-overnight}"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
 CONTROLLER_LOG="$RUNTIME_DIR/controller-distribution.log"
 
@@ -49,35 +48,22 @@ if [[ -f "$RUNNER_PID_FILE" ]]; then
     rm -f "$RUNNER_PID_FILE"
 fi
 
-# A fresh run gets a fresh branch. The dedicated overnight worktree can still
-# be attached to the previous run's branch, so remove only that dedicated
-# worktree before starting a non-resume run. The old Git branch is preserved.
-resume_requested=0
-for arg in "$@"; do
-    if [[ "$arg" == "--resume" ]]; then
-        resume_requested=1
-        break
-    fi
-done
+# Each fresh run gets an isolated worktree and explicit branch. This prevents a
+# stale dedicated worktree from being attached to a previous run's branch.
+# Existing worktrees are never deleted by the launcher.
+if [[ -n "${PASI_OVERNIGHT_WORKTREE:-}" ]]; then
+    WORKTREE="$PASI_OVERNIGHT_WORKTREE"
+else
+    WORKTREE="$HOME/.pasi-worktrees/personal-ai-system-overnight-$(date -u +%Y%m%d-%H%M%S-%N)"
+fi
+BRANCH="${PASI_OVERNIGHT_BRANCH:-pasi/overnight-$(date -u +%Y%m%d-%H%M%S)}"
 
-if (( resume_requested == 0 )); then
-    if git worktree list --porcelain | awk -v wanted="$WORKTREE" '
-        $1 == "worktree" && $2 == wanted { found = 1 }
-        END { exit(found ? 0 : 1) }
-    '; then
-        printf 'Preparing dedicated overnight worktree for a fresh run: %s\n' "$WORKTREE"
-        git worktree remove --force "$WORKTREE"
-        git worktree prune
-    elif [[ -e "$WORKTREE" ]]; then
-        printf 'error: overnight worktree path exists but is not a registered Git worktree: %s\n' "$WORKTREE" >&2
-        printf 'Move that unrelated directory aside, then retry. It was not removed automatically.\n' >&2
-        exit 3
-    fi
+if [[ -e "$WORKTREE" ]]; then
+    printf 'error: selected fresh-run worktree path already exists: %s\n' "$WORKTREE" >&2
+    printf 'Choose another PASI_OVERNIGHT_WORKTREE or remove/move that unrelated path manually.\n' >&2
+    exit 3
 fi
 
-# The direct PASI ChatGPT Controller 2.4.3 talks to the localhost bridge on
-# 8765. Start required local services before the background runner so a dead
-# bridge cannot produce a misleading "runner started" state.
 start_service() {
     local name="$1"
     local url="$2"
@@ -93,6 +79,8 @@ start_service() {
     nohup env PYTHONPATH="$PYTHONPATH" "$@" >>"$log_file" 2>&1 < /dev/null &
 }
 
+# The direct PASI ChatGPT Controller 2.4.3 talks to this localhost bridge.
+# The Loader is not required when the direct controller is installed.
 start_service \
     'PASI bridge' \
     'http://127.0.0.1:8765/health' \
@@ -131,10 +119,16 @@ if ! curl -fsS --max-time 2 'http://127.0.0.1:8766/health' >/dev/null 2>&1; then
 fi
 
 log_file="$RUNTIME_DIR/runner.log"
-nohup env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" --hours 168 "$@" >>"$log_file" 2>&1 < /dev/null &
+nohup env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" \
+    --hours 168 \
+    --worktree "$WORKTREE" \
+    --branch "$BRANCH" \
+    "$@" >>"$log_file" 2>&1 < /dev/null &
 pid=$!
 
 printf 'Started PASI extended runner (launcher PID %s, 168 hours).\n' "$pid"
+printf 'Worktree: %s\n' "$WORKTREE"
+printf 'Branch: %s\n' "$BRANCH"
 printf 'Log: %s\n' "$log_file"
 printf 'State: %s\n' "$RUNTIME_DIR/state.json"
 printf 'Action list: %s\n' "$REPO_ROOT/.runtime/automation/action-list.md"
