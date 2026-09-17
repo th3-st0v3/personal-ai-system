@@ -8,6 +8,61 @@ cd "$REPO_ROOT"
 # Validate this script before doing any work it controls.
 bash -n "$SCRIPT_DIR/check_all.sh"
 
+pull_origin_main() {
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local branch
+    branch="$(git symbolic-ref --quiet --short HEAD || true)"
+    if [[ "$branch" != "main" ]]; then
+        printf '\n==> Git sync\n'
+        printf 'Current branch is %s; skipping automatic origin/main sync.\n' "${branch:-detached HEAD}"
+        return 0
+    fi
+
+    if ! git remote get-url origin >/dev/null 2>&1; then
+        printf '\n==> Git sync\n'
+        printf 'No git remote named origin; skipping origin/main sync.\n'
+        return 0
+    fi
+
+    printf '\n==> Git sync\n'
+
+    if ! git diff --quiet --ignore-submodules -- || ! git diff --cached --quiet --ignore-submodules --; then
+        printf 'Working tree is dirty; skipping origin/main sync so local edits are preserved.\n'
+        return 0
+    fi
+
+    git fetch --prune --tags origin main
+
+    if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
+        printf 'Remote branch origin/main not found; skipping sync.\n'
+        return 0
+    fi
+
+    local head remote
+    head="$(git rev-parse --verify HEAD)"
+    remote="$(git rev-parse --verify origin/main)"
+
+    if [[ "$head" == "$remote" ]]; then
+        printf 'Already synchronized with origin/main.\n'
+        return 0
+    fi
+
+    if git merge-base --is-ancestor "$head" "$remote"; then
+        git pull --ff-only --tags origin main
+        return 0
+    fi
+
+    if git merge-base --is-ancestor "$remote" "$head"; then
+        printf 'Local main is ahead of origin/main; skipping automatic pull.\n'
+        return 0
+    fi
+
+    printf 'Local main has diverged from origin/main; skipping automatic merge.\n'
+}
+
 if [[ -f "$REPO_ROOT/.venv/bin/activate" ]]; then
     # Use the repository's virtual environment automatically when available.
     # shellcheck disable=SC1091
@@ -78,6 +133,8 @@ mapfile -d '' JAVASCRIPT_FILES < <(
 
 printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript files\n' \
     "${#PYTHON_FILES[@]}" "${#PYTHON_TEST_FILES[@]}" "${#JAVASCRIPT_FILES[@]}"
+
+pull_origin_main
 
 run_check "Beta smoke test" python scripts/smoke_test_beta.py
 run_check "All discovered Python tests" python -m pytest -q "${PYTHON_TEST_FILES[@]}"
