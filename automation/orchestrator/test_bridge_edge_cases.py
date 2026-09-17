@@ -13,7 +13,11 @@ def make_bridge(tmp_path: Path) -> BridgeState:
     return BridgeState(StateManager(tmp_path / ".ai"))
 
 
-def post_json(server: BridgeHTTPServer, path: str, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
+def post_json(
+    server: BridgeHTTPServer,
+    path: str,
+    payload: dict[str, object],
+) -> tuple[int, dict[str, object]]:
     connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
     try:
         connection.request(
@@ -29,7 +33,9 @@ def post_json(server: BridgeHTTPServer, path: str, payload: dict[str, object]) -
         connection.close()
 
 
-def start_server(bridge: BridgeState) -> tuple[BridgeHTTPServer, threading.Thread]:
+def start_server(
+    bridge: BridgeState,
+) -> tuple[BridgeHTTPServer, threading.Thread]:
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
     server.bridge_state = bridge
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -44,7 +50,9 @@ def stop_server(server: BridgeHTTPServer, thread: threading.Thread) -> None:
     assert not thread.is_alive()
 
 
-def test_http_finished_forces_whitespace_response_unavailable(tmp_path: Path) -> None:
+def test_http_finished_forces_whitespace_response_unavailable(
+    tmp_path: Path,
+) -> None:
     bridge = make_bridge(tmp_path)
     server, thread = start_server(bridge)
 
@@ -74,7 +82,9 @@ def test_http_finished_forces_whitespace_response_unavailable(tmp_path: Path) ->
         stop_server(server, thread)
 
 
-def test_http_finished_rejects_terminal_operation_transition(tmp_path: Path) -> None:
+def test_http_finished_rejects_terminal_operation_transition(
+    tmp_path: Path,
+) -> None:
     bridge = make_bridge(tmp_path)
     server, thread = start_server(bridge)
 
