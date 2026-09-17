@@ -1,7 +1,8 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller Loader
 // @namespace    https://github.com/th3-st0v3/personal-ai-system
-// @version      1.6.0
+// @version      1.6.3
+// @sandbox      DOM
 // @description  Loads verified PASI ChatGPT controller and recovery releases from the local PASI runtime.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -25,21 +26,26 @@
     var ACTIVE_HASH_PROPERTY = '__PASI_CHATGPT_CONTROLLER_ACTIVE_HASH__';
     var ACTIVE_RECOVERY_HASH_PROPERTY = '__PASI_CHATGPT_RECOVERY_ACTIVE_HASH__';
 
-    console.log('[PASI Loader] Verified PASI ChatGPT controller loader v1.6.0 active.');
+    console.log('[PASI Loader] Verified PASI ChatGPT controller loader v1.6.3 active.');
     activateOrScheduleReload();
     setInterval(checkForPublishedController, POLL_INTERVAL_MS);
 
-    function requestText(url, headers) {
+    function requestBytes(url, headers) {
         headers = headers || {};
         return new Promise(function (resolve, reject) {
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: url,
                 timeout: CHECK_TIMEOUT_MS,
+                responseType: 'arraybuffer',
                 headers: headers,
                 onload: function (response) {
                     if (response.status >= 200 && response.status < 300) {
-                        resolve(response.responseText);
+                        if (!(response.response instanceof ArrayBuffer)) {
+                            reject(new Error('Expected ArrayBuffer response.'));
+                            return;
+                        }
+                        resolve(new Uint8Array(response.response));
                         return;
                     }
                     var error = new Error('HTTP ' + response.status);
@@ -52,6 +58,14 @@
         });
     }
 
+    function decodeUtf8(bytes) {
+        return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    }
+
+    async function requestText(url, headers) {
+        return decodeUtf8(await requestBytes(url, headers));
+    }
+
     async function activateOrScheduleReload() {
         try {
             var manifest = await loadLocalManifest();
@@ -60,13 +74,17 @@
 
             var activeHash = window[ACTIVE_HASH_PROPERTY] || '';
             var activeRecoveryHash = window[ACTIVE_RECOVERY_HASH_PROPERTY] || '';
-            if (activeHash && activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()
-                && activeRecoveryHash && activeRecoveryHash.toLowerCase() === manifest.recovery_git_blob_sha.toLowerCase()) {
-                return;
-            }
+            if (
+                activeHash &&
+                activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase() &&
+                activeRecoveryHash &&
+                activeRecoveryHash.toLowerCase() === manifest.recovery_git_blob_sha.toLowerCase()
+            ) return;
 
-            var source = await requestText(LOCAL_SOURCE_URL, { 'Accept': 'text/plain, */*' });
-            var blobSha = await gitBlobSha1(source);
+            var sourceBytes = await requestBytes(LOCAL_SOURCE_URL, { 'Accept': 'application/octet-stream, text/plain, */*' });
+            var blobSha = await gitBlobSha1Bytes(sourceBytes);
+            console.log('[PASI Loader] Controller received bytes: ' + sourceBytes.byteLength);
+            console.log('[PASI Loader] Controller received Git blob SHA: ' + blobSha);
             if (blobSha !== manifest.git_blob_sha.toLowerCase()) {
                 console.error('[PASI Loader] Local controller Git blob mismatch; refusing to execute.', {
                     expected: manifest.git_blob_sha,
@@ -75,8 +93,10 @@
                 return;
             }
 
-            var recoverySource = await requestText(LOCAL_RECOVERY_SOURCE_URL, { 'Accept': 'text/plain, */*' });
-            var recoverySha = await gitBlobSha1(recoverySource);
+            var recoveryBytes = await requestBytes(LOCAL_RECOVERY_SOURCE_URL, { 'Accept': 'application/octet-stream, text/plain, */*' });
+            var recoverySha = await gitBlobSha1Bytes(recoveryBytes);
+            console.log('[PASI Loader] Recovery received bytes: ' + recoveryBytes.byteLength);
+            console.log('[PASI Loader] Recovery received Git blob SHA: ' + recoverySha);
             if (recoverySha !== manifest.recovery_git_blob_sha.toLowerCase()) {
                 console.error('[PASI Loader] Local recovery Git blob mismatch; refusing to execute.', {
                     expected: manifest.recovery_git_blob_sha,
@@ -85,12 +105,15 @@
                 return;
             }
 
+            var source = decodeUtf8(sourceBytes);
+            var recoverySource = decodeUtf8(recoveryBytes);
             var storedVersion = GM_getValue(LAST_VERSION_KEY, '');
             var storedHash = GM_getValue(LAST_HASH_KEY, '');
             var storedRecoveryVersion = GM_getValue(LAST_RECOVERY_VERSION_KEY, '');
             var storedRecoveryHash = GM_getValue(LAST_RECOVERY_HASH_KEY, '');
             var releaseChanged = activeHash && storedHash && storedHash !== manifest.git_blob_sha;
             var recoveryChanged = activeRecoveryHash && storedRecoveryHash && storedRecoveryHash !== manifest.recovery_git_blob_sha;
+
             if (releaseChanged || recoveryChanged) {
                 console.log('[PASI Loader] Verified PASI release change detected; refreshing the page before activation.', {
                     controller_changed: Boolean(releaseChanged),
@@ -107,8 +130,13 @@
             eval(injectActiveOperationGetter(source));
             eval(recoverySource);
             window[ACTIVE_RECOVERY_HASH_PROPERTY] = manifest.recovery_git_blob_sha.toLowerCase();
-            if (storedVersion === manifest.version && storedHash === manifest.git_blob_sha
-                && storedRecoveryVersion === manifest.recovery_version && storedRecoveryHash === manifest.recovery_git_blob_sha) {
+
+            if (
+                storedVersion === manifest.version &&
+                storedHash === manifest.git_blob_sha &&
+                storedRecoveryVersion === manifest.recovery_version &&
+                storedRecoveryHash === manifest.recovery_git_blob_sha
+            ) {
                 console.log('[PASI Loader] Verified controller and recovery releases are current.');
             }
         } catch (error) {
@@ -124,11 +152,16 @@
 
             var activeHash = window[ACTIVE_HASH_PROPERTY] || '';
             var activeRecoveryHash = window[ACTIVE_RECOVERY_HASH_PROPERTY] || '';
-            if (activeHash && activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()
-                && activeRecoveryHash && activeRecoveryHash.toLowerCase() === manifest.recovery_git_blob_sha.toLowerCase()) return;
+            if (
+                activeHash &&
+                activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase() &&
+                activeRecoveryHash &&
+                activeRecoveryHash.toLowerCase() === manifest.recovery_git_blob_sha.toLowerCase()
+            ) return;
 
-            var source = await requestText(LOCAL_SOURCE_URL, { 'Accept': 'text/plain, */*' });
-            var blobSha = await gitBlobSha1(source);
+            var sourceBytes = await requestBytes(LOCAL_SOURCE_URL, { 'Accept': 'application/octet-stream, text/plain, */*' });
+            var blobSha = await gitBlobSha1Bytes(sourceBytes);
+            console.log('[PASI Loader] Published controller received Git blob SHA: ' + blobSha);
             if (blobSha !== manifest.git_blob_sha.toLowerCase()) {
                 console.error('[PASI Loader] Local controller Git blob mismatch; refusing to reload.', {
                     expected: manifest.git_blob_sha,
@@ -137,8 +170,9 @@
                 return;
             }
 
-            var recoverySource = await requestText(LOCAL_RECOVERY_SOURCE_URL, { 'Accept': 'text/plain, */*' });
-            var recoverySha = await gitBlobSha1(recoverySource);
+            var recoveryBytes = await requestBytes(LOCAL_RECOVERY_SOURCE_URL, { 'Accept': 'application/octet-stream, text/plain, */*' });
+            var recoverySha = await gitBlobSha1Bytes(recoveryBytes);
+            console.log('[PASI Loader] Published recovery received Git blob SHA: ' + recoverySha);
             if (recoverySha !== manifest.recovery_git_blob_sha.toLowerCase()) {
                 console.error('[PASI Loader] Local recovery Git blob mismatch; refusing to reload.', {
                     expected: manifest.recovery_git_blob_sha,
@@ -185,21 +219,23 @@
     function injectActiveOperationGetter(source) {
         var needle = 'var activeOperationId = null;';
         var replacement = needle + "\n    try { window.__PASI_CHATGPT_ACTIVE_OPERATION__ = function () { return activeOperationId; }; } catch (_) {}";
-        if (source.indexOf(needle) === -1) throw new Error('Controller source did not expose the expected active-operation binding.');
+        if (source.indexOf(needle) === -1) {
+            throw new Error('Controller source did not expose the expected active-operation binding.');
+        }
         return source.replace(needle, replacement);
     }
 
-    async function gitBlobSha1(text) {
-        var data = new TextEncoder().encode(text);
-        var header = new TextEncoder().encode('blob ' + data.byteLength + '\0');
-        var combined = new Uint8Array(header.byteLength + data.byteLength);
+    async function gitBlobSha1Bytes(bytes) {
+        var header = new TextEncoder().encode('blob ' + bytes.byteLength + '\0');
+        var combined = new Uint8Array(header.byteLength + bytes.byteLength);
         combined.set(header, 0);
-        combined.set(data, header.byteLength);
+        combined.set(bytes, header.byteLength);
+
         var digest = await crypto.subtle.digest('SHA-1', combined);
-        var bytes = new Uint8Array(digest);
+        var digestBytes = new Uint8Array(digest);
         var output = '';
-        for (var i = 0; i < bytes.length; i += 1) {
-            output += bytes[i].toString(16).padStart(2, '0');
+        for (var i = 0; i < digestBytes.length; i += 1) {
+            output += digestBytes[i].toString(16).padStart(2, '0');
         }
         return output;
     }
