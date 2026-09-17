@@ -67,9 +67,17 @@ class ResearchAdapterTests(unittest.TestCase):
         with self.assertRaises(ResearchAdapterError):
             adapter.search("x" * 501)
 
-    def test_read_rejects_non_https(self) -> None:
+    def test_read_rejects_non_https_and_private_targets(self) -> None:
         adapter = HTTPSResearchAdapter()
-        for url in ("http://example.com", "file:///tmp/a", "ftp://example.com/a"):
+        for url in (
+            "http://example.com",
+            "file:///tmp/a",
+            "ftp://example.com/a",
+            "https://127.0.0.1/",
+            "https://10.0.0.1/",
+            "https://169.254.169.254/",
+            "https://localhost/",
+        ):
             with self.assertRaises(ResearchAdapterError):
                 adapter.read(url)
 
@@ -91,7 +99,7 @@ class ResearchAdapterTests(unittest.TestCase):
                 return b"data"
 
         adapter = HTTPSResearchAdapter()
-        with patch("automation.computer_use.research.HTTPSResearchAdapter._fingerprint", return_value="unused"):
+        with patch("automation.computer_use.research.socket.getaddrinfo", return_value=[(None, None, None, None, ("93.184.216.34", 443))]):
             with patch("automation.computer_use.research.build_opener") as opener:
                 opener.return_value.open.return_value = Response()
                 with self.assertRaises(ResearchAdapterError):
@@ -117,9 +125,10 @@ class ResearchAdapterTests(unittest.TestCase):
 
         response = Response()
         adapter = HTTPSResearchAdapter(max_content_chars=3)
-        with patch("automation.computer_use.research.build_opener") as opener:
-            opener.return_value.open.return_value = response
-            observation = adapter.read("https://example.com/file")
+        with patch("automation.computer_use.research.socket.getaddrinfo", return_value=[(None, None, None, None, ("93.184.216.34", 443))]):
+            with patch("automation.computer_use.research.build_opener") as opener:
+                opener.return_value.open.return_value = response
+                observation = adapter.read("https://example.com/file")
         self.assertEqual(observation.data["content"], "hel\n[content truncated]")
         self.assertTrue(observation.data["untrusted"])
         self.assertEqual(observation.data["content_type"], "text/plain")
