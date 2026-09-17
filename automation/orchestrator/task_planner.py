@@ -1,16 +1,64 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
 
-from automation.computer_use.contracts import ActionProposal, ActionKind, ActionRisk, Observation, Session
+from automation.computer_use.adapters import AIAdapter
+from automation.computer_use.contracts import ActionProposal, Observation, Session
+
+
+DEFAULT_MAX_PROMPT_CHARS = 64_000
+DEFAULT_MAX_MODEL_OUTPUT_CHARS = 32_000
+DEFAULT_MAX_PARAMETERS_CHARS = 16_000
+DEFAULT_MAX_FIELD_CHARS = 2_000
 
 
 class StructuredModelClient(Protocol):
     """Minimal provider-neutral model seam for strict structured planning."""
 
     def complete(self, prompt: str) -> str: ...
+
+
+class AIAdapterModelClient:
+    """Adapt an existing AIAdapter to the strict planner model seam."""
+
+    def __init__(
+        self,
+        adapter: AIAdapter,
+        *,
+        poll_interval_seconds: float = 0.5,
+        max_wait_seconds: float = 300.0,
+        create_session: bool = True,
+    ) -> None:
+        if poll_interval_seconds <= 0 or max_wait_seconds <= 0:
+            raise ValueError("model polling bounds must be positive")
+        self.adapter = adapter
+        self.poll_interval_seconds = poll_interval_seconds
+        self.max_wait_seconds = max_wait_seconds
+        self._session_created = not create_session
+
+    def complete(self, prompt: str) -> str:
+        if not prompt.strip():
+            raise ValueError("prompt is required")
+        if not self._session_created:
+            self.adapter.new_session()
+            self._session_created = True
+
+        self.adapter.submit_prompt(prompt)
+        started = time.monotonic()
+        while True:
+            response = self.adapter.read_response()
+            if response.completion in {"complete", "error", "interrupted", "timeout"}:
+                if response.completion != "complete":
+                    raise RuntimeError(f"model completion state was {response.completion!r}")
+                if not response.response_available:
+                    raise RuntimeError("model completed without a response payload")
+                return response.text
+            if time.monotonic() - started >= self.max_wait_seconds:
+                raise TimeoutError("structured planner model response exceeded configured timeout")
+            time.sleep(self.poll_interval_seconds)
 
 
 @dataclass(frozen=True)
@@ -21,15 +69,24 @@ class PlannerDecision:
 
 
 class StructuredTaskPlanner:
-    """Parse and validate a model proposal without granting execution authority.
+    """Parse and validate model proposals without granting execution authority."""
 
-    The model can suggest an action or request a stop, but the worker/control plane
-    remains responsible for authorization, execution, and completion verification.
-    """
-
-    def __init__(self, session: Session, model: StructuredModelClient) -> None:
+    def __init__(
+        self,
+        session: Session,
+        model: StructuredModelClient,
+        *,
+        max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+        max_model_output_chars: int = DEFAULT_MAX_MODEL_OUTPUT_CHARS,
+        max_parameters_chars: int = DEFAULT_MAX_PARAMETERS_CHARS,
+    ) -> None:
+        if max_prompt_chars <= 0 or max_model_output_chars <= 0 or max_parameters_chars <= 0:
+            raise ValueError("planner bounds must be positive")
         self.session = session
         self.model = model
+        self.max_prompt_chars = max_prompt_chars
+        self.max_model_output_chars = max_model_output_chars
+        self.max_parameters_chars = max_parameters_chars
 
     def plan(self, observations: Sequence[Observation]) -> ActionProposal | None:
         decision = self.decide(observations)
@@ -39,7 +96,12 @@ class StructuredTaskPlanner:
 
     def decide(self, observations: Sequence[Observation]) -> PlannerDecision:
         prompt = self._build_prompt(observations)
+        if len(prompt) > self.max_prompt_chars:
+            raise ValueError("planner prompt exceeded configured bound")
+
         raw = self.model.complete(prompt)
+        if len(raw) > self.max_model_output_chars:
+            raise ValueError("planner model output exceeded configured bound")
         payload = self._parse_json(raw)
         if payload.get("stop") is True:
             return PlannerDecision(action=None, stop_requested=True, reason="model requested stop")
@@ -56,8 +118,11 @@ class StructuredTaskPlanner:
     def _parse_action(self, value: dict[str, Any]) -> ActionProposal:
         required = ("action_id", "session_id", "target", "action")
         for key in required:
-            if not isinstance(value.get(key), str) or not value[key].strip():
+            item = value.get(key)
+            if not isinstance(item, str) or not item.strip():
                 raise ValueError(f"planner action field {key!r} is required")
+            if len(item) > DEFAULT_MAX_FIELD_CHARS:
+                raise ValueError(f"planner action field {key!r} exceeds configured bound")
 
         if value["session_id"] != self.session.session_id:
             raise ValueError("planner action belongs to a different control session")
@@ -69,10 +134,20 @@ class StructuredTaskPlanner:
         parameters = value.get("parameters", {})
         if not isinstance(parameters, dict):
             raise ValueError("planner action parameters must be an object")
+        encoded_parameters = json.dumps(
+            parameters,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        if len(encoded_parameters) > self.max_parameters_chars:
+            raise ValueError("planner action parameters exceeded configured bound")
 
         reason = value.get("reason", "")
         if reason is not None and not isinstance(reason, str):
             raise ValueError("planner action reason must be a string")
+        if isinstance(reason, str) and len(reason) > DEFAULT_MAX_FIELD_CHARS:
+            raise ValueError("planner action reason exceeds configured bound")
 
         risk = value.get("risk")
         if risk is not None and risk not in _ACTION_RISKS:
@@ -109,7 +184,7 @@ class StructuredTaskPlanner:
                 "session_id": observation.session_id,
                 "source": observation.source,
                 "kind": observation.kind,
-                "data": dict(observation.data),
+                "data": _bounded_data(observation.data),
                 "captured_at": observation.captured_at,
             }
             for observation in observations[-16:]
@@ -146,6 +221,16 @@ class StructuredTaskPlanner:
         )
 
 
+def _bounded_data(data: Any) -> Any:
+    try:
+        encoded = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        encoded = repr(data)
+    if len(encoded) <= DEFAULT_MAX_FIELD_CHARS:
+        return data
+    return encoded[:DEFAULT_MAX_FIELD_CHARS] + "...<truncated>"
+
+
 _ACTION_KINDS: frozenset[str] = frozenset(
     {
         "observe",
@@ -168,4 +253,13 @@ _ACTION_KINDS: frozenset[str] = frozenset(
 _ACTION_RISKS: frozenset[str] = frozenset({"safe", "approval_required", "denied"})
 
 
-__all__ = ["PlannerDecision", "StructuredModelClient", "StructuredTaskPlanner"]
+__all__ = [
+    "AIAdapterModelClient",
+    "DEFAULT_MAX_FIELD_CHARS",
+    "DEFAULT_MAX_MODEL_OUTPUT_CHARS",
+    "DEFAULT_MAX_PARAMETERS_CHARS",
+    "DEFAULT_MAX_PROMPT_CHARS",
+    "PlannerDecision",
+    "StructuredModelClient",
+    "StructuredTaskPlanner",
+]
