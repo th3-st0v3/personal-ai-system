@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.7
+// @version      2.4.8
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,7 +12,7 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var CONTROLLER_VERSION = '2.4.7';
+    var CONTROLLER_VERSION = '2.4.8';
     var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
     var DOM_POLL_INTERVAL_MS = 100;
@@ -257,7 +257,7 @@
         await submitPrompt(operation.prompt, baselineUsers);
         var response = await waitForAssistantResponse(baseline);
         if (!response) throw new Error('ChatGPT response could not be extracted from the page.');
-        await reportResponseObservation(response);
+        void reportResponseObservation(response);
         await reportFinished(operation.operation_id, response);
     }
 
@@ -363,11 +363,15 @@
     }
 
     async function reportResponseObservation(responseText) {
-        await bridgeRequest('/browser/observation', { method: 'POST', body: { observation: {
-            schema_version: 'chatgpt-controller-v2',
-            captured_at: new Date().toISOString(),
-            data: { kind: 'chatgpt_response', controller_version: CONTROLLER_VERSION, chat_url: chatUrl(), response_text: responseText.slice(0, 50000), response_text_available: true, conversation_context_exhausted: isConversationContextExhaustedVisible(), chat_exhausted: isConversationContextExhaustedVisible(), provider_usage_limited: isUsageLimitedVisible(), active_operation_id: activeOperationId }
-        } } });
+        try {
+            await bridgeRequest('/browser/observation', { method: 'POST', body: { observation: {
+                schema_version: 'chatgpt-controller-v2',
+                captured_at: new Date().toISOString(),
+                data: { kind: 'chatgpt_response', controller_version: CONTROLLER_VERSION, chat_url: chatUrl(), response_text: responseText.slice(0, 50000), response_text_available: true, conversation_context_exhausted: isConversationContextExhaustedVisible(), chat_exhausted: isConversationContextExhaustedVisible(), provider_usage_limited: isUsageLimitedVisible(), active_operation_id: activeOperationId }
+            } } });
+        } catch (error) {
+            console.warn('[PASI] Could not persist ChatGPT response observation; completion path remains authoritative.', error);
+        }
     }
 
     async function reportChatState(force) {
