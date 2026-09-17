@@ -148,6 +148,31 @@ def test_runner_halts_for_human_approval(tmp_path) -> None:
     assert worker.status().phase == "waiting_human"
 
 
+def test_runner_approval_resume_is_bound_to_pending_action(tmp_path) -> None:
+    worker, state_manager = make_worker(tmp_path)
+    executor = RecordingExecutor()
+    approval_action = ActionProposal("a2", "session-1", "test", "desktop_ui")
+    runner = BoundedTaskRunner(
+        state_manager,
+        "runner-1",
+        worker,
+        SequencePlanner([approval_action]),
+        executor,
+        CountChecker(1),
+    )
+
+    result = runner.run()
+    assert result.phase == "waiting_human"
+
+    resumed = runner.approve_pending_action()
+    assert resumed.phase == "running"
+    assert worker.status().approved_action_id == "a2"
+
+    completed = runner.run()
+    assert completed.phase == "completed"
+    assert executor.actions == ["a2"]
+
+
 def test_runner_restart_with_running_state_requires_rehydration(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
     executor = RecordingExecutor()
