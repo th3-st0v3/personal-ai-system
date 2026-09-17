@@ -156,22 +156,25 @@ def main() -> int:
     original_invoke = supervisor.invoke_chat
     original_log = supervisor.log_event
     original_gate = supervisor.automation_gate_is_satisfied
+    original_parse = supervisor.parse_response
     automation_continue_requested = False
+
+    def parse_response(response: str):
+        nonlocal automation_continue_requested
+        parsed = original_parse(response)
+        if _AUTOMATION_CONTINUE_RE.search(response):
+            automation_continue_requested = True
+            status, summary, next_task, patch, allow_delete, values = parsed
+            values = dict(values)
+            values["automation_continue"] = "true"
+            summary = (summary + " PASI_AUTOMATION_CONTINUE: true").strip()
+            return status, summary, next_task, patch, allow_delete, values
+        return parsed
 
     def log_event(kind: str, **data: Any) -> None:
         nonlocal automation_continue_requested
         original_log(kind, **data)
         _record_event_obstacle(ledger, kind, data)
-        if kind == "task_completed" and str(data.get("summary", "")):
-            if _AUTOMATION_CONTINUE_RE.search(str(data["summary"])):
-                automation_continue_requested = True
-                ledger.record(
-                    "automation_continuation_requested",
-                    "Completed task identified a materially necessary additional automation capability.",
-                    "Keep the automation phase active for another task before considering the Engineering OS phase.",
-                    task_id=_task_id(data),
-                    status="pending",
-                )
         if kind == "task_failed":
             ledger.record(
                 "task_failed",
@@ -184,24 +187,8 @@ def main() -> int:
 
     def gate(evidence: dict[str, object]) -> bool:
         nonlocal automation_continue_requested
-        pending = ledger.pending()
         if automation_continue_requested:
             automation_continue_requested = False
-            ledger.record(
-                "automation_gate_extended",
-                "Automation phase was extended by evidence from the previous task.",
-                "Continue autonomous automation work and reassess after the next verified task.",
-                status="pending",
-            )
-            return False
-        if pending:
-            ledger.record(
-                "automation_gate_extended",
-                "Unresolved automation obstacles remain in the action ledger.",
-                "Continue automation and alternate approaches; do not wait for a human response during the run.",
-                status="pending",
-                details={"pending_count": len(pending)},
-            )
             return False
         return original_gate(evidence)
 
@@ -212,6 +199,7 @@ def main() -> int:
     supervisor.sleep_until_retry = lambda state, seconds: nonblocking_sleep(state, seconds, ledger=ledger)
     supervisor.invoke_chat = lambda task, state, failure: resilient_invoke_chat(task, state, failure, ledger=ledger)
     supervisor.automation_gate_is_satisfied = gate
+    supervisor.parse_response = parse_response
     try:
         return supervisor.main()
     finally:
@@ -221,3 +209,4 @@ def main() -> int:
         supervisor.invoke_chat = original_invoke
         supervisor.log_event = original_log
         supervisor.automation_gate_is_satisfied = original_gate
+        supervisor.parse_response = original_parse
