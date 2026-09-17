@@ -26,7 +26,7 @@ CONTROLLER_UPDATE_REQUEST_PATH = RUNTIME_DIR / "controller-update-request.json"
 CONTROLLER_SYNC_STATE_PATH = RUNTIME_DIR / "controller-sync-state.json"
 MAX_HANDOFF_CHARS = 12_000
 GITHUB_TASK_SIGNALS = re.compile(
-    r"(?:github|repository|repo\b|pull request|\bpr\b|commit|branch|tampermonkey|vs code|source code|codebase|file\b|tests?\b|src/|automation/|scripts/|\.py\b|\.js\b|\.json\b)",
+    r"(?:\brepository\b|\brepo\b|\bcodebase\b|\bsource\s+code\b|\bpull\s+request\b|\bbranch\b|\bcommit\b|\btampermonkey\b|\bvs\s+code\b|\bconnected\s+github\b|\bgithub\s+(?:repo|repository|branch|commit|pr)\b|(?:src|automation|scripts)/|\.(?:py|js|ts|json)\b)",
     re.IGNORECASE,
 )
 CHAT_URL_PATTERN = re.compile(r"^https://chatgpt\.com/c/")
@@ -34,10 +34,7 @@ CHAT_URL_PATTERN = re.compile(r"^https://chatgpt\.com/c/")
 
 def run(command: Sequence[str], root: Path, *, timeout: float = 5.0) -> str:
     try:
-        result = subprocess.run(
-            list(command), cwd=root, capture_output=True, text=True,
-            timeout=timeout, check=False,
-        )
+        result = subprocess.run(list(command), cwd=root, capture_output=True, text=True, timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired):
         return ""
     if result.returncode != 0:
@@ -94,7 +91,7 @@ REPOSITORY STATE:
 {repo_state}
 
 GITHUB CONTEXT:
-The Personal AI System GitHub repository is connected separately through the ChatGPT GitHub app when this task requires repository context.
+The Personal AI System GitHub repository is connected separately through the ChatGPT GitHub app only when repository context is required.
 Use the connected GitHub repository for source-of-truth code, history, issues, and pull requests when available.
 Do not rely on a pasted repository dump when the connected app can retrieve the needed files.
 
@@ -133,20 +130,12 @@ def browser_state(adapter: ChatGPTAdapter) -> dict[str, object]:
     if not isinstance(observation, Mapping):
         return {}
     data = observation.get("data")
-    if not isinstance(data, Mapping):
-        return {}
-    if data.get("kind") != "chatgpt_state":
+    if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
         return {}
     return dict(data)
 
 
-def route_chat(
-    adapter: ChatGPTAdapter,
-    handoff: dict[str, object],
-    task: str,
-    repository: str,
-    github_mode: str,
-) -> tuple[dict[str, object], str | None]:
+def route_chat(adapter: ChatGPTAdapter, handoff: dict[str, object], task: str, repository: str, github_mode: str) -> tuple[dict[str, object], str | None]:
     state = browser_state(adapter)
     current_url = state.get("chat_url") if isinstance(state.get("chat_url"), str) else None
     if current_url and not CHAT_URL_PATTERN.match(current_url):
@@ -165,12 +154,7 @@ def route_chat(
         print("Creating a new ChatGPT conversation because no usable conversation is available.")
         operation_id = adapter.new_session()
         print(f"New chat operation: {operation_id}")
-        handoff.update({
-            "chat_url": None,
-            "chat_exhausted": False,
-            "github_attached": False,
-            "reasoning_mode": None,
-        })
+        handoff.update({"chat_url": None, "chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
     else:
         print(f"Reusing ChatGPT conversation: {chat_url}")
 
@@ -211,11 +195,7 @@ def process_controller_update_signal(response_text: str, root: Path) -> dict[str
     )
     result = decision.to_dict()
     if decision.eligible:
-        write_update_request(
-            root / ".runtime" / "chatgpt" / "controller-update-request.json",
-            decision,
-            source="chatgpt-response",
-        )
+        write_update_request(root / " .runtime".strip() / "chatgpt" / "controller-update-request.json", decision, source="chatgpt-response")
     return result
 
 
@@ -238,12 +218,7 @@ def main() -> int:
 
     task = " ".join(args.task).strip()
     handoff = load_handoff()
-    adapter = ChatGPTAdapter(
-        UrllibBridgeTransport(),
-        session_id=f"launcher-{uuid.uuid4().hex}",
-        poll_interval_seconds=1.0,
-        max_wait_seconds=args.timeout,
-    )
+    adapter = ChatGPTAdapter(UrllibBridgeTransport(), session_id=f"launcher-{uuid.uuid4().hex}", poll_interval_seconds=1.0, max_wait_seconds=args.timeout)
 
     try:
         handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
@@ -254,11 +229,7 @@ def main() -> int:
 
         if response.completion == "error" and response.chat_exhausted:
             print("Current ChatGPT conversation is exhausted; creating one replacement chat and retrying once.")
-            handoff.update({
-                "chat_exhausted": True,
-                "github_attached": False,
-                "reasoning_mode": None,
-            })
+            handoff.update({"chat_exhausted": True, "github_attached": False, "reasoning_mode": None})
             handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
             prompt = build_prompt(task, compact_repo_state(root), handoff)
             prompt_operation = adapter.submit_prompt(prompt)
@@ -270,7 +241,6 @@ def main() -> int:
 
     print(f"Completion: {response.completion}")
     print(f"Chat URL: {response.chat_url or 'not reported'}")
-
     update_signal: dict[str, object] = {"state": "no_response"}
     summary = ""
     if response.text:
