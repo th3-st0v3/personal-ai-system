@@ -93,15 +93,18 @@ class ControlPlane:
         risk = action.effective_risk()
 
         if risk == "approval_required" and not external_human_approval:
-            if self.phase != "awaiting_authorization":
+            if not self.session.background and self.phase != "awaiting_authorization":
                 self.transition("awaiting_authorization")
+                reason = "external human approval is required"
+            else:
+                reason = "external human approval is required; background automation deferred the action without pausing"
             selected_gateway.authorize(action, external_human_approval=False)
             return AuthorizationResult(
                 action_id=action.action_id,
                 risk=risk,
                 allowed=False,
                 requires_human_approval=True,
-                reason="external human approval is required",
+                reason=reason,
             )
 
         allowed = selected_gateway.authorize(

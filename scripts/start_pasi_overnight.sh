@@ -27,7 +27,7 @@ if [[ -f "$REPO_ROOT/.runtime/overnight/runner.pid" ]]; then
     rm -f "$REPO_ROOT/.runtime/overnight/runner.pid"
 fi
 
-hours="${PASI_OVERNIGHT_HOURS:-10}"
+hours="${PASI_OVERNIGHT_HOURS:-12}"
 log_file="$REPO_ROOT/.runtime/overnight/runner.log"
 
 nohup "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_overnight.py" --hours "$hours" "$@" >>"$log_file" 2>&1 < /dev/null &
@@ -36,3 +36,4 @@ pid=$!
 printf 'Started PASI overnight runner (launcher PID %s, %s hours).\n' "$pid" "$hours"
 printf 'Log: %s\n' "$log_file"
 printf 'State: %s\n' "$REPO_ROOT/.runtime/overnight/state.json"
+printf 'Action list: %s\n' "$REPO_ROOT/.runtime/automation/action-list.md"

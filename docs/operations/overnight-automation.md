@@ -1,8 +1,8 @@
 # PASI Overnight Automation
 
-PASI can run a bounded unattended engineering loop for 8-12 hours. The selected duration is a scheduler ceiling, not a guarantee of 8-12 hours of useful ChatGPT work: the effective unattended runtime is limited by the selected deadline, ChatGPT/provider availability, conversation context limits, browser/controller availability, authentication/security challenges, and Windows/WSL power availability.
+PASI can run a bounded unattended engineering loop for **8-12 hours**. The launcher now defaults to **12 hours**. The duration is a scheduler ceiling: useful progress still depends on the machine remaining powered, browser/controller availability, provider availability, and the ability to find verified work.
 
-The runner uses an isolated Git worktree, persistent state, bounded retries, repository validation, and a dedicated Git branch so it does not write directly to `main`.
+The runner uses an isolated Git worktree, persistent state, bounded retries, deterministic repository validation, and a dedicated Git branch. It does not write directly to `main`.
 
 ## Routing policy
 
@@ -13,19 +13,104 @@ The public PASI repository is the default repository context source:
 - Repository: `https://github.com/th3-st0v3/personal-ai-system`
 - Default branch: `https://github.com/th3-st0v3/personal-ai-system/tree/main`
 
-The ChatGPT GitHub app is never attached merely because a task mentions GitHub, a repository, code, a branch, or a file. It is an explicit fallback only when the caller selects `--github fallback`.
+PASI starts with public GitHub retrieval. In `--github auto` mode, when the model provides evidence that public repository retrieval is unavailable or insufficient, PASI automatically attaches the ChatGPT GitHub app and retries in the **same conversation**. This preserves conversational context while retaining the connector as a precision fallback. Explicit `--github fallback` and `--github always` remain available.
+
+Thinking stays enabled when the GitHub app is used.
 
 ## Browser automation components
 
-Keep the recovered legacy direct ChatGPT controller installed but **disabled**. Keep the current `Personal AI System - ChatGPT Controller Loader` enabled. Also install the `Personal AI System - ChatGPT Runtime Watchdog` userscript from `automation/tampermonkey/chatgpt-runtime-watchdog.user.js` and leave it enabled while unattended automation is running.
+The native Chromium controller is the preferred path. During the transition, the existing PASI ChatGPT Controller Loader in Tampermonkey can remain enabled as a fallback. Keep the legacy direct controller disabled when the loader/native controller is installed.
 
-The loader reads the verified controller release from the local PASI controller-distribution service on `127.0.0.1:8766`, verifies the controller against the Git blob identity, and activates it inside Tampermonkey. The loader polls the local service every 30 seconds.
+The controller-distribution service runs on `127.0.0.1:8766`; the ChatGPT bridge runs on `127.0.0.1:8765`. The browser controller reports bounded health/state/response observations. It does not grant PASI arbitrary OS access.
 
-The runtime watchdog is read-only browser telemetry. It does not click controls or submit messages. It samples the ChatGPT page every five seconds and reports provider/account/model usage-limit markers, authentication/security challenges, conversation-context exhaustion, Thinking-state observations, page visibility, and composer readiness to the local bridge.
+The controller update mechanism is evidence-gated. A model response cannot directly install a controller update; it can only request one through the validated PASI controller-update signal.
 
-The loader intentionally uses `eval(source)` after verification because the controller must execute inside the Tampermonkey userscript environment. A Tampermonkey `no-eval` warning is therefore expected.
+## Computer-use capability boundary
 
-## One-time local verification
+PASI exposes computer access through named capabilities rather than raw desktop control. The default local gateway can provide bounded system metadata, approved workspace listings/reads/searches, IDE state, and the explicitly gated resource-acquisition capability.
+
+Credentials and secret material are never exposed through the computer-use gateway. Arbitrary command execution, arbitrary file writes, application launch, and unrestricted desktop control remain outside the unattended capability set.
+
+### Preapproved resource acquisition
+
+The unattended system can acquire a resource when the request matches a narrowly scoped local preapproval. Unapproved requests are **not** an approval pause. PASI writes an obstacle record and continues with other work.
+
+The optional policy file is `.runtime/policy/preapprovals.json` or the path specified by `PASI_PREAPPROVALS_PATH`. It is local runtime configuration and should not be committed with credentials or other secrets.
+
+The policy uses schema version 1. Example:
+
+```json
+{
+  "schema_version": 1,
+  "approvals": [
+    {
+      "id": "python-build-downloads",
+      "action": "public_download",
+      "hosts": ["example.com"],
+      "max_bytes": 5000000,
+      "expires_at": "2026-12-31T23:59:59Z"
+    },
+    {
+      "id": "approved-test-package",
+      "action": "package_install",
+      "manager": "pip",
+      "packages": ["requests==2.33.0"],
+      "expires_at": "2026-12-31T23:59:59Z"
+    }
+  ]
+}
+```
+
+Public downloads are HTTPS-only, bounded by the preapproved byte limit, placed in `.runtime/acquired`, and can require an expected SHA-256 digest. Python package acquisition requires an exact version pin and an exact package entry in the policy. Package installation is therefore an explicit, locally preapproved execution boundary rather than a general-purpose command runner.
+
+## Obstacle handling
+
+Every obstacle is designed to become **work state, not a stop state** when safe continuation is possible.
+
+PASI records recoverable or externally blocked conditions in `.runtime/automation/obstacles.jsonl` and maintains `.runtime/automation/action-list.md`. Sensitive values in obstacle details are redacted and entries are size-bounded.
+
+Typical obstacle records include stale browser/controller state, provider limits, authentication/security challenges, verification failures, failed task attempts, unavailable preapproved resources, and deferred retry backoffs.
+
+A background authorization request that needs human approval is returned as deferred/denied without moving an unattended control session into an approval-waiting phase. Interactive sessions keep the ordinary approval workflow.
+
+The scheduler can therefore continue with fallback providers, another task, another research source, or a recovery task. Human-required items remain visible in the action list for later resolution.
+
+## Automation continuation
+
+The overnight supervisor starts in an **automation** phase. Its initial tasks improve controller reliability, state continuity, browser recovery, provider fallback, task continuation, and reduction of repeated human input.
+
+After two verified automation tasks, the supervisor normally evaluates whether to enter Engineering OS work. A task can explicitly emit:
+
+`PASI_AUTOMATION_CONTINUE: true`
+
+when its evidence or research establishes that another automation/computer-use/recovery/integration/security capability is materially necessary to satisfy the current objective. That signal keeps the automation phase active for another verified task. It is not intended for optional polish.
+
+The scheduler never treats “approval is required” as a reason to sit idle. When an action cannot be performed safely under the active preapproval/authorization policy, it is recorded and the runner continues where it can.
+
+## One-command overnight run
+
+The detached launcher defaults to 12 hours:
+
+```bash
+cd ~/workspace/personal-ai-system
+bash scripts/start_pasi_overnight.sh
+```
+
+Choose another duration inside the supported range when needed:
+
+```bash
+PASI_OVERNIGHT_HOURS=8 bash scripts/start_pasi_overnight.sh
+```
+
+or:
+
+```bash
+PASI_OVERNIGHT_HOURS=12 bash scripts/start_pasi_overnight.sh
+```
+
+The launcher prints the runner log, persistent state file, and action-list paths. Structured events are stored in `.runtime/overnight/events.jsonl`.
+
+## First-time local verification
 
 From WSL:
 
@@ -44,63 +129,21 @@ curl -fsS http://127.0.0.1:8766/health
 curl -fsS http://127.0.0.1:8765/health
 ```
 
-Refresh `https://chatgpt.com/`. The browser console should show the loader/controller and runtime watchdog starting successfully.
+Refresh `https://chatgpt.com/`. The browser console should show the native controller or PASI loader starting successfully.
 
-The unattended runner starts the local PASI bridge and controller-distribution service automatically. The manual server command is mainly useful for first-time validation and troubleshooting.
+The unattended runner starts the PASI bridge and controller-distribution service automatically. The manual server command is primarily for first-time validation and troubleshooting.
 
-## Chat limitations and recovery
+## Provider and browser recovery
 
-PASI distinguishes a **conversation context limit** from a **provider/account/model usage limit**.
+A conversation-context limit is treated differently from an account/model/provider usage limit.
 
-A conversation-context limit is recoverable: `scripts/pasi_chat.py` creates one replacement conversation and retries the task once. Opening another conversation is intentionally not treated as a way to bypass account/model usage limits.
+When the current conversation itself is exhausted, PASI creates one replacement conversation and retries the current task once. It does **not** treat opening another conversation as a way to bypass account/model usage restrictions.
 
-Provider-wide or account/model usage limits are an external runtime ceiling. `scripts/pasi_chat_guard.py` monitors browser observations while a task runs. When it detects a provider usage limit it returns a dedicated exit status to the overnight supervisor. The supervisor performs only bounded backoff attempts and then stops with a human-required state rather than repeatedly opening chats that cannot reset the limit.
+Provider usage limits, authentication challenges, stale browser state, and other transient provider failures are routed through bounded fallback/recovery logic. The final overnight hardening wrapper deliberately converts long retry backoffs into immediate continuation and uses configured fallback providers when possible.
 
-Authentication and security challenges also stop unattended execution because they require interactive human intervention.
+The runner cannot recover an interactive security challenge without a user eventually completing that challenge, but it no longer needs to make that the reason for idling the entire automation run.
 
-Transient controller/browser failures receive bounded retries and backoff. A task that repeatedly fails the completion contract or deterministic verification is not allowed to loop forever; it transitions to a recovery task and records the failure evidence.
-
-## Automation-first phase gate
-
-The overnight supervisor starts in an **automation** phase. Its first work is to improve PASI itself: controller reliability, state continuity, response detection, provider-limit handling, recovery, and reduction of repeated human input.
-
-After two completed automation tasks, PASI runs an evidence gate. The gate must explicitly report one of these consistent states:
-
-- `proceed_engineering` + `none`: no concrete, useful automation improvement remains, so PASI may enter the Engineering OS phase.
-- `continue_automation` + `concrete`: a concrete automation improvement remains, so PASI stays in the automation phase and works on another automation task before the next gate.
-
-The gate must include evidence. Contradictory or missing gate markers are rejected. This prevents PASI from switching to ordinary Engineering OS work just because the automation backlog is inconvenient; the transition is tied to a documented diminishing-returns decision.
-
-Once the gate allows the transition, PASI enters the **Engineering OS** phase and works through engineering tasks such as verification, task planning, UX/state visibility, and provider-neutral control-plane improvements. A user-supplied `--task` becomes the first Engineering OS task after a successful transition.
-
-## One-command overnight run
-
-The detached launcher defaults to 10 hours, which is inside the supported 8-12 hour range:
-
-```bash
-cd ~/workspace/personal-ai-system
-bash scripts/start_pasi_overnight.sh
-```
-
-The process is detached from the terminal. Logs are written to `.runtime/overnight/runner.log`; structured events are in `.runtime/overnight/events.jsonl`; persistent run state is in `.runtime/overnight/state.json`.
-
-To choose a duration explicitly:
-
-```bash
-PASI_OVERNIGHT_HOURS=12 bash scripts/start_pasi_overnight.sh
-```
-
-To reserve a specific Engineering OS task for after the automation gate:
-
-```bash
-bash scripts/start_pasi_overnight.sh --task "Improve the Engineering OS task planner using verified repository gaps and reproducible evidence."
-```
-
-The overnight runner uses the public repository as its normal context source and keeps Thinking enabled on every task. The GitHub app is not automatically added by repository detection.
-
-## Monitor and stop
-
-Check the current phase, task, counters, deadline, provider-limit pauses, branch, and local service health:
+## Monitoring and stop
 
 ```bash
 bash scripts/status_pasi_overnight.sh
@@ -112,27 +155,36 @@ Request a graceful stop:
 bash scripts/stop_pasi_overnight.sh
 ```
 
-## Resume after an interruption
+The most useful unattended diagnostics are:
 
-When the runner is interrupted, successful task commits already made to its dedicated branch remain intact. Start it again with:
+```text
+.runtime/overnight/state.json
+.runtime/overnight/events.jsonl
+.runtime/automation/obstacles.jsonl
+.runtime/automation/action-list.md
+```
+
+## Resume after interruption
+
+Successful task commits already made to the dedicated overnight branch remain intact. Resume with:
 
 ```bash
 cd ~/workspace/personal-ai-system
 bash scripts/pasi_overnight.py --resume
 ```
 
-The supervisor restores only schema-v2 state. An older v1 state file is treated as non-resumable so stale runtime semantics cannot silently bypass the automation phase gate.
+Interrupted uncommitted task changes in the dedicated overnight worktree are cleaned before resume. Runtime state is schema-validated so stale incompatible state cannot silently alter the safety model.
 
-## Task completion and continuation
+## Verification and completion
 
-A task is not accepted as complete from model prose alone. The implementation response must provide the explicit completion-contract markers, a unified patch, and evidence. PASI then applies the patch only after path checks, rejects symlink/submodule additions, runs `scripts/check_all.sh`, confirms that repository changes remain, commits the verified result, and optionally pushes the dedicated branch.
+A task is not accepted from model prose alone. The response must provide the PASI completion markers and a unified patch. PASI then checks patch paths, forbids symlink/submodule additions, applies the patch, runs `scripts/check_all.sh`, confirms that changes remain, and commits the verified result to the dedicated branch.
 
-After a verified completion, the next task comes from the model's explicit `PASI_RESULT_NEXT_TASK` marker when it is new. Otherwise PASI chooses a deterministic non-repeating backlog item. A task that fails its completion contract or verification receives bounded repair attempts; after the retry budget is exhausted, PASI creates a recovery task instead of repeating the same failed approach indefinitely.
+A task that fails deterministic verification receives bounded repair attempts. When those attempts are exhausted, PASI records the failure and advances to a different task/recovery path instead of repeating forever.
 
 ## Safety boundary
 
-The overnight runner changes only the isolated repository worktree and its dedicated Git branch. It does not automatically merge into `main`, publish a release, execute arbitrary model-provided shell commands as the change mechanism, or grant the ChatGPT GitHub app repository write access.
+The overnight runner does not automatically merge into `main`, publish releases, expose credentials, perform autonomous financial execution, or grant the AI arbitrary OS-wide command/desktop control.
 
-Browser automation remains scoped to the ChatGPT controller. The runtime watchdog is telemetry-only; it does not alter the page. The browser automation does not require OS-wide mouse or keyboard takeover, so the user can continue using other applications normally. The ChatGPT controller should not be used in the same browser tab for unrelated manual ChatGPT work while a queued PASI operation is actively running.
+Preapproval is capability-specific and should be narrow, time-bounded, and explicit. Unapproved actions are recorded for later human review rather than silently broadened into permission.
 
-For true unattended operation, Windows/WSL must remain powered and available for the full selected duration. The PASI runner cannot continue through a powered-off machine or a fully suspended WSL environment.
+Windows/WSL must remain powered and available for the selected duration. No local automation architecture can continue operating on a machine that is fully powered off or suspended.

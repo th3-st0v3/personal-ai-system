@@ -1,9 +1,13 @@
+from datetime import datetime as _DateTime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-MAX_ATTEMPTS: int
+datetime: type[_DateTime]
+REPO_ROOT: Path
 RUNTIME_DIR: Path
 STATE_PATH: Path
+STOP: bool
+MAX_ATTEMPTS: int
 TASK_TIMEOUT_SECONDS: float
 DEFAULT_HOURS: float
 MIN_HOURS: float
@@ -61,6 +65,7 @@ class OvernightState:
 
     def to_dict(self) -> dict[str, Any]: ...
 
+def log_event(kind: str, **data: Any) -> None: ...
 def now_utc() -> Any: ...
 def save_state(state: OvernightState) -> None: ...
 def load_state() -> OvernightState | None: ...
