@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import threading
 import time
 import unittest
 from types import SimpleNamespace
+from typing import cast
 
-from automation.orchestrator.task_service import TaskService
-from automation.orchestrator.task_runner import TaskRunResult
+from automation.orchestrator.task_service import TaskRunFactory, TaskService
+from automation.orchestrator.task_runner import BoundedTaskRunner, TaskRunResult
 
 
 class FakeRunner:
@@ -40,16 +43,20 @@ class FakeFactory:
     def __init__(self):
         self.runners: dict[str, FakeRunner] = {}
 
-    def create(self, *, runner_id: str, prompt: str):
+    def create(self, *, runner_id: str, prompt: str) -> FakeRunner:
         runner = FakeRunner(runner_id, prompt)
         self.runners[runner_id] = runner
         return runner
 
 
+def make_service(factory: FakeFactory) -> TaskService:
+    return TaskService(cast(TaskRunFactory, factory))
+
+
 class TestTaskService(unittest.TestCase):
     def test_submit_constructs_and_starts_one_runner(self):
         factory = FakeFactory()
-        service = TaskService(factory)
+        service = make_service(factory)
         submission = service.submit("Review the repository", runner_id="task-1")
 
         self.assertEqual(submission.runner_id, "task-1")
@@ -65,13 +72,13 @@ class TestTaskService(unittest.TestCase):
 
     def test_rejects_duplicate_runner_ids(self):
         factory = FakeFactory()
-        service = TaskService(factory)
+        service = make_service(factory)
         service.submit("first", runner_id="task-1")
         with self.assertRaises(ValueError):
             service.submit("second", runner_id="task-1")
 
     def test_rejects_empty_prompts_and_unsafe_ids(self):
-        service = TaskService(FakeFactory())
+        service = make_service(FakeFactory())
         with self.assertRaises(ValueError):
             service.submit("   ")
         with self.assertRaises(ValueError):
@@ -79,7 +86,7 @@ class TestTaskService(unittest.TestCase):
 
     def test_reset_clears_cached_result(self):
         factory = FakeFactory()
-        service = TaskService(factory)
+        service = make_service(factory)
         service.submit("work", runner_id="task-1")
         factory.runners["task-1"].started.wait(timeout=1)
         for _ in range(100):
