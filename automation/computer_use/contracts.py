@@ -146,6 +146,8 @@ class AIResponse:
     chat_url: str | None = None
     model: str | None = None
     reasoning_mode: str | None = None
+    error: str | None = None
+    chat_exhausted: bool = False
 
     def __post_init__(self) -> None:
         if not self.provider.strip():
