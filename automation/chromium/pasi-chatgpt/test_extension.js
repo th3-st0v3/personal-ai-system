@@ -36,6 +36,10 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /localStorage/);
   assert.match(content, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
+  assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
+  assert.match(content, /location\.href !== previous && chatUrl\(\)/);
+  assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
+  assert.match(content, /const POLL_MS = 250/);
 });
 
 test('activity indicator is isolated, non-interactive, and reduced-motion aware', () => {
@@ -49,12 +53,14 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
-test('native recovery companion enforces bounded response recovery', () => {
+test('native recovery companion enforces bounded response recovery and exhaustion-gated replacement', () => {
   assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
-  assert.match(recovery, /RECOVERY_TRIGGER_MS = 24 \* 60 \* 1000/);
+  assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
   assert.match(recovery, /location\.reload\(\)/);
   assert.match(recovery, /CHAT_RECOVERED_RETRY/);
   assert.match(recovery, /operation_type: 'new_chat'/);
+  assert.match(recovery, /function replacementAllowed\(\)/);
+  assert.match(recovery, /CHAT_RECOVERY_WAITING/);
 });
 
 test('background service worker performs bounded stale-tab recovery', () => {
