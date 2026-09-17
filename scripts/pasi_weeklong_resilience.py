@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -132,7 +132,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run PASI unattended with resilient response recovery for weeklong operation.")
     parser.add_argument("--hours", type=float, required=True)
     args, passthrough = parser.parse_known_args()
-    if not args.hours == args.hours or args.hours < legacy.MIN_HOURS:
+    if not math.isfinite(args.hours) or args.hours < legacy.MIN_HOURS:
         parser.error(f"--hours must be a finite value >= {legacy.MIN_HOURS:g}")
 
     supervisor.MAX_HOURS = float("inf")
@@ -169,8 +169,6 @@ def main() -> int:
                 return 0, response
             repair_failure = parsed[1] or response[-8_000:] or repair_failure
 
-        # One bounded alternate-provider attempt prevents a provider-specific
-        # formatting failure from consuming the whole task retry budget.
         fallback = supervisor.command(
             [
                 sys.executable,
