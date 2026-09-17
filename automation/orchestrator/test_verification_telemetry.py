@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import cast
 
 from automation.orchestrator.state import StateCorruptionError, StateManager
-from automation.orchestrator.verification_telemetry import VerificationTelemetry
+from automation.orchestrator.verification_telemetry import (
+    VerificationRecord,
+    VerificationTelemetry,
+)
 from simulation_library import run_simulation
 from simulation_verification import verify_simulation_result
 
@@ -43,7 +46,7 @@ class VerificationTelemetryTests(unittest.TestCase):
         self.assertEqual(records[1].record_hash, second.record_hash)
 
     def test_retention_keeps_bounded_chain_and_anchor(self) -> None:
-        records: list = []
+        records: list[VerificationRecord] = []
         for value in ("a", "b", "c", "d"):
             records.append(
                 self.telemetry.append(
@@ -66,7 +69,10 @@ class VerificationTelemetryTests(unittest.TestCase):
             status="verified",
             evidence_fingerprint="a" * 64,
         )
-        payload = cast(list[dict[str, object]], json.loads(self.telemetry.path.read_text(encoding="utf-8")))
+        payload = cast(
+            list[dict[str, object]],
+            json.loads(self.telemetry.path.read_text(encoding="utf-8")),
+        )
         payload[0]["status"] = "tampered"
         self.telemetry.path.write_text(json.dumps(payload), encoding="utf-8")
 
