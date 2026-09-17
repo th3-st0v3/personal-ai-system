@@ -5,8 +5,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol
 
-from .controller import AuthorizationGateway, ControlPlane
-from .contracts import ActionProposal, Observation, Session
+from automation.computer_use.controller import AuthorizationGateway, ControlPlane
+from automation.computer_use.contracts import ActionProposal, Observation, Session
 from .state import StateCorruptionError, StateManager
 
 
