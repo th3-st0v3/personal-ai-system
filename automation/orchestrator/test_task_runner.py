@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
 import pytest
 
@@ -33,7 +34,7 @@ class RecordingExecutor:
 class SequencePlanner:
     actions: list[ActionProposal]
 
-    def plan(self, observations: tuple[Observation, ...]) -> ActionProposal | None:
+    def plan(self, observations: Sequence[Observation]) -> ActionProposal | None:
         if not self.actions:
             return None
         return self.actions.pop(0)
@@ -43,7 +44,7 @@ class CountChecker:
     def __init__(self, required: int) -> None:
         self.required = required
 
-    def check(self, observations: tuple[Observation, ...]) -> CompletionDecision:
+    def check(self, observations: Sequence[Observation]) -> CompletionDecision:
         if len(observations) >= self.required:
             return CompletionDecision("complete", "required evidence observed")
         return CompletionDecision("incomplete", "more evidence required")
