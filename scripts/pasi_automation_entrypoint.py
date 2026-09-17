@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from automation.computer_use.research import HTTPSResearchAdapter, ResearchAdapterError
 from automation.computer_use.setup_requirements import capture_response_requirements
+from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine_v2 as supervisor
 from scripts import pasi_overnight_hardening as hardening
 
@@ -176,13 +177,14 @@ def _record_self_improvement_surfaces(worktree: Path, commit: str) -> None:
 
 def main() -> int:
     supervisor.TASK_TIMEOUT_SECONDS = float(RESPONSE_TIMEOUT_SECONDS)
+    ledger = ObstacleLedger(supervisor.REPO_ROOT)
 
     original_invoke = hardening.resilient_invoke_chat
     original_verify = supervisor.verify_and_commit
 
-    def resilient_invoke_chat(task: str, state: Any, failure: str):
+    def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: ObstacleLedger) -> tuple[int, str]:
         enriched = enrich_task(task)
-        code, response = original_invoke(enriched, state, failure)
+        code, response = original_invoke(enriched, state, failure, ledger=ledger)
         if response:
             _record_setup_requirements(response)
         return code, response
@@ -202,3 +204,7 @@ def main() -> int:
     finally:
         hardening.resilient_invoke_chat = original_invoke
         supervisor.verify_and_commit = original_verify
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
