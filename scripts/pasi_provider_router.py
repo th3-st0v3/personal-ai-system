@@ -119,8 +119,7 @@ def extract_chat_text(payload: dict[str, Any]) -> str:
 
 def call_ollama(prompt: str, timeout: float) -> str:
     base_url = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL).rstrip("/")
-    configured_model = os.environ.get("OLLAMA_MODEL", "").strip()
-    model: str = configured_model
+    model: str = os.environ.get("OLLAMA_MODEL", "").strip()
     if not model:
         try:
             tags = get_json(base_url + "/api/tags", min(timeout, OLLAMA_DISCOVERY_TIMEOUT))
@@ -129,8 +128,13 @@ def call_ollama(prompt: str, timeout: float) -> str:
         models = tags.get("models")
         if not isinstance(models, list):
             raise RuntimeError("Ollama returned no installed models")
-        names = [item.get("name") for item in models if isinstance(item, dict) and isinstance(item.get("name"), str)]
-        model = names[0].strip() if names else ""
+        names: list[str] = []
+        for item in models:
+            if isinstance(item, dict):
+                name = item.get("name")
+                if isinstance(name, str) and name.strip():
+                    names.append(name.strip())
+        model = names[0] if names else ""
     if not model:
         raise RuntimeError("no Ollama model is installed; set OLLAMA_MODEL or install a local model")
     data = post_json(
