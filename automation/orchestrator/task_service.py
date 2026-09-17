@@ -21,13 +21,7 @@ class TaskSubmission:
 
 
 class TaskService:
-    """Application-level lifecycle service around the bounded task runner.
-
-    The service owns concurrency and submission/status plumbing, while the
-    factory owns provider/adapters/goals. This keeps the runner testable and
-    prevents the HTTP/UI/GitHub ingress layers from constructing execution
-    components ad hoc.
-    """
+    """Application-level lifecycle service around the bounded task runner."""
 
     def __init__(self, factory: TaskRunFactory) -> None:
         self.factory = factory
@@ -43,28 +37,17 @@ class TaskService:
         selected_id = runner_id or f"task-{uuid.uuid4().hex}"
         if not selected_id.strip() or any(char in selected_id for char in "/\\"):
             raise ValueError("runner_id must be a path-safe identifier")
-
         with self._lock:
             if selected_id in self._runners:
                 raise ValueError(f"task runner {selected_id!r} is already registered")
             runner = self.factory.create(runner_id=selected_id, prompt=prompt)
             self._runners[selected_id] = runner
-            thread = threading.Thread(
-                target=self._run,
-                args=(selected_id, runner),
-                name=f"pasi-task-{selected_id}",
-                daemon=True,
-            )
-            self._threads[selected_id] = thread
-            thread.start()
+            self._start_thread_if_needed(selected_id, runner)
         return TaskSubmission(runner_id=selected_id, prompt=prompt)
 
     def status(self, runner_id: str) -> object:
         with self._lock:
-            runner = self._runners.get(runner_id)
-            if runner is None:
-                raise KeyError(runner_id)
-            return runner.state
+            return self._require_runner(runner_id).state
 
     def result(self, runner_id: str) -> TaskRunResult | None:
         with self._lock:
@@ -77,9 +60,17 @@ class TaskService:
             self._start_thread_if_needed(runner_id, runner)
             return state
 
+    def stop(self, runner_id: str) -> object:
+        """Request a safe stop at the worker execution boundary."""
+        with self._lock:
+            return self._require_runner(runner_id).worker.stop("task service stop requested")
+
     def reset(self, runner_id: str) -> object:
         with self._lock:
             runner = self._require_runner(runner_id)
+            thread = self._threads.get(runner_id)
+            if thread is not None and thread.is_alive():
+                raise RuntimeError("cannot reset a task while its execution thread is active; stop it first")
             self._results.pop(runner_id, None)
             return runner.reset()
 
@@ -87,14 +78,7 @@ class TaskService:
         try:
             result = runner.run()
         except Exception as exc:
-            # The runner itself is fail-closed; retain the exception for the
-            # application boundary rather than allowing a daemon thread to die
-            # without an observable outcome.
-            result = TaskRunResult(
-                phase="failed",
-                steps=runner.state.steps,
-                reason=f"task service worker crashed: {exc}",
-            )
+            result = TaskRunResult(phase="failed", steps=runner.state.steps, reason=f"task service worker crashed: {exc}")
         with self._lock:
             self._results[runner_id] = result
             self._threads.pop(runner_id, None)
@@ -103,12 +87,7 @@ class TaskService:
         existing = self._threads.get(runner_id)
         if existing is not None and existing.is_alive():
             return
-        thread = threading.Thread(
-            target=self._run,
-            args=(runner_id, runner),
-            name=f"pasi-task-{runner_id}",
-            daemon=True,
-        )
+        thread = threading.Thread(target=self._run, args=(runner_id, runner), name=f"pasi-task-{runner_id}", daemon=True)
         self._threads[runner_id] = thread
         thread.start()
 
