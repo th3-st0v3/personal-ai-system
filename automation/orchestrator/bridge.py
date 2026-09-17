@@ -27,6 +27,15 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT plus control",
     "ChatGPT Thinking control was not found.",
     "GitHub app was not found in the ChatGPT menu.",
+    "PASI browser page reloaded during operation",
+    "PASI_NATIVE: browser page reloaded during operation",
+    "PASI: browser page reloaded during operation",
+    "PASI_NATIVE: new chat did not reach a verified ready state",
+    "PASI_NATIVE: new chat control did not change conversation identity",
+    "PASI_NATIVE: prompt submission could not be verified after bounded attempts",
+    "PASI_NATIVE: send control unavailable",
+    "PASI_NATIVE: composer unavailable",
+    "PASI_NATIVE: composer disappeared",
 )
 
 
