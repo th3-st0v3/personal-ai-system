@@ -36,6 +36,12 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         ):
             self.assertIn(required, script)
 
+    def test_launchers_do_not_leak_start_lock_to_detached_children(self) -> None:
+        for name in ("start_pasi_overnight.sh", "start_pasi_168h.sh"):
+            script = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+            self.assertIn("exec 9>&-", script)
+            self.assertIn("nohup bash -c", script)
+
 
 if __name__ == "__main__":
     unittest.main()
