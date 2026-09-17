@@ -21,16 +21,18 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_168h_launcher_contains_fresh_worktree_and_service_guards(self) -> None:
+    def test_168h_launcher_contains_isolation_and_service_guards(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
             'export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"',
-            'git worktree remove --force "$WORKTREE"',
-            "--resume",
-            "http://127.0.0.1:8765/health",
-            "http://127.0.0.1:8766/health",
-            "automation.orchestrator.bridge",
-            "pasi_controller_server.py",
+            'WORKTREE="$HOME/.pasi-worktrees/personal-ai-system-overnight-',
+            'BRANCH="${PASI_OVERNIGHT_BRANCH:-pasi/overnight-',
+            '--worktree "$WORKTREE"',
+            '--branch "$BRANCH"',
+            'http://127.0.0.1:8765/health',
+            'http://127.0.0.1:8766/health',
+            'automation.orchestrator.bridge',
+            'pasi_controller_server.py',
         ):
             self.assertIn(required, script)
 
