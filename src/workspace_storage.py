@@ -16,6 +16,8 @@ def _initialize_schema(connection):
     row = connection.execute("SELECT version FROM workspace_storage_schema LIMIT 1").fetchone()
     if row is not None and row[0] > STORAGE_SCHEMA_VERSION:
         raise RuntimeError("Workspace storage schema is newer than this application supports.")
+    if row is not None and row[0] == STORAGE_SCHEMA_VERSION:
+        return
     connection.executescript("""
     CREATE TABLE IF NOT EXISTS folders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,9 +83,8 @@ def _initialize_schema(connection):
     );
     CREATE INDEX IF NOT EXISTS idx_tag_assignments_target ON tag_assignments(target_type, target_id);
     """)
-    if row is None or row[0] < STORAGE_SCHEMA_VERSION:
-        connection.execute("DELETE FROM workspace_storage_schema")
-        connection.execute("INSERT INTO workspace_storage_schema(version) VALUES (?)", (STORAGE_SCHEMA_VERSION,))
+    connection.execute("DELETE FROM workspace_storage_schema")
+    connection.execute("INSERT INTO workspace_storage_schema(version) VALUES (?)", (STORAGE_SCHEMA_VERSION,))
     connection.commit()
 
 
