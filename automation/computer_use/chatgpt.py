@@ -174,7 +174,7 @@ class ChatGPTAdapter(AIAdapter):
         error = _optional_string(operation.get("error"))
         chat_exhausted = bool(error and error.startswith("CHAT_EXHAUSTED:"))
 
-        if operation.get("operation_type") == "prompt" and completion == "complete" and not response_available:
+        if operation.get("operation_type") == "prompt" and not response_available:
             try:
                 observation = self.read_browser_observation()
             except ChatGPTAdapterError:
@@ -184,9 +184,15 @@ class ChatGPTAdapter(AIAdapter):
                 kind = data.get("kind")
                 if kind == "chatgpt_response":
                     observed_text = data.get("response_text")
+                    observed_available = data.get("response_text_available") is True
                     if isinstance(observed_text, str) and observed_text.strip():
                         text = observed_text
-                        response_available = data.get("response_text_available") is True
+                        response_available = observed_available or bool(observed_text.strip())
+                        # If browser evidence proves the assistant answered but the
+                        # completion acknowledgement was lost, do not let the runner
+                        # replay the prompt and create a duplicate user message.
+                        if completion == "error" and isinstance(error, str) and error.startswith("PASI_NATIVE: bridge completion failed"):
+                            completion = "complete"
                     observed_url = data.get("chat_url")
                     if chat_url is None and isinstance(observed_url, str):
                         chat_url = observed_url
