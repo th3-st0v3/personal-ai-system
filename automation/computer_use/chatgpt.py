@@ -20,12 +20,7 @@ class ChatGPTAdapterError(RuntimeError):
 class BridgeTransport(Protocol):
     """Small HTTP transport seam for testing the ChatGPT adapter."""
 
-    def request(
-        self,
-        method: str,
-        path: str,
-        payload: Mapping[str, Any] | None = None,
-    ) -> Mapping[str, Any]: ...
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -42,34 +37,18 @@ class UrllibBridgeTransport:
             port = parsed.port
         except ValueError as exc:
             raise ValueError("ChatGPT bridge transport must target localhost HTTP") from exc
-        if (
-            parsed.scheme != "http"
-            or parsed.hostname != "127.0.0.1"
-            or parsed.username is not None
-            or parsed.password is not None
-            or port is None
-        ):
+        if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username is not None or parsed.password is not None or port is None:
             raise ValueError("ChatGPT bridge transport must target localhost HTTP")
         if self.timeout_seconds <= 0 or self.max_response_bytes <= 0:
             raise ValueError("transport bounds must be positive")
 
-    def request(
-        self,
-        method: str,
-        path: str,
-        payload: Mapping[str, Any] | None = None,
-    ) -> Mapping[str, Any]:
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         body = None
         headers: dict[str, str] = {}
         if payload is not None:
             body = json.dumps(dict(payload)).encode("utf-8")
             headers["Content-Type"] = "application/json"
-        request = Request(
-            f"{self.base_url.rstrip('/')}/{path.lstrip('/')}",
-            data=body,
-            headers=headers,
-            method=method,
-        )
+        request = Request(f"{self.base_url.rstrip('/')}/{path.lstrip('/')}", data=body, headers=headers, method=method)
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
                 raw = response.read(self.max_response_bytes + 1)
@@ -112,38 +91,34 @@ class ChatGPTAdapter(AIAdapter):
         self.current_operation_id = self._operation_id(operation)
         result = self.wait_for_completion(self.current_operation_id)
         if result.completion != "complete":
-            raise ChatGPTAdapterError(
-                f"new ChatGPT session did not complete: {result.completion}"
-            )
+            raise ChatGPTAdapterError(f"new ChatGPT session did not complete: {result.completion}")
         return self.current_operation_id
 
     def attach_github_repository(self, repository: str) -> str:
-        """Ask the browser controller to activate the connected GitHub app for a repository."""
         repository = repository.strip()
         if not repository or "/" not in repository:
             raise ValueError("repository must be in owner/name form")
-        operation = self._queue("attach_github", repository)
-        operation_id = self._operation_id(operation)
+        operation_id = self._operation_id(self._queue("attach_github", repository))
         self.current_operation_id = operation_id
         result = self.wait_for_completion(operation_id)
         if result.completion != "complete":
-            raise ChatGPTAdapterError(
-                f"GitHub context attachment did not complete: {result.completion}"
-            )
+            raise ChatGPTAdapterError(f"GitHub context attachment did not complete: {result.completion}")
         return operation_id
 
     def select_reasoning_mode(self, mode: str) -> None:
-        if not mode.strip():
+        mode = mode.strip()
+        if not mode:
             raise ValueError("reasoning mode is required")
-        raise ChatGPTAdapterError(
-            "ChatGPT reasoning-mode UI control is not exposed by the current bridge"
-        )
+        operation_id = self._operation_id(self._queue("select_reasoning", mode))
+        self.current_operation_id = operation_id
+        result = self.wait_for_completion(operation_id)
+        if result.completion != "complete":
+            raise ChatGPTAdapterError(f"ChatGPT reasoning-mode selection did not complete: {result.completion}")
 
     def submit_prompt(self, prompt: str) -> str:
         if not prompt.strip():
             raise ValueError("prompt is required")
-        operation = self._queue("prompt", prompt)
-        operation_id = self._operation_id(operation)
+        operation_id = self._operation_id(self._queue("prompt", prompt))
         self.current_operation_id = operation_id
         return operation_id
 
@@ -155,20 +130,18 @@ class ChatGPTAdapter(AIAdapter):
     def read_operation(self, operation_id: str) -> AIResponse:
         if not operation_id.strip():
             raise ValueError("operation_id is required")
-        payload = self.transport.request(
-            "GET",
-            f"/operation?operation_id={quote(operation_id, safe='')}",
-        )
+        payload = self.transport.request("GET", f"/operation?operation_id={quote(operation_id, safe='')}")
         operation = payload.get("operation")
         if not isinstance(operation, Mapping):
             raise ChatGPTAdapterError("bridge response did not contain an operation")
         return self._response_from_operation(operation)
 
-    def wait_for_completion(
-        self,
-        operation_id: str,
-        timeout_seconds: float | None = None,
-    ) -> AIResponse:
+    def read_browser_observation(self) -> Mapping[str, Any] | None:
+        payload = self.transport.request("GET", "/browser/observation")
+        observation = payload.get("observation")
+        return observation if isinstance(observation, Mapping) else None
+
+    def wait_for_completion(self, operation_id: str, timeout_seconds: float | None = None) -> AIResponse:
         limit = self.max_wait_seconds if timeout_seconds is None else timeout_seconds
         if limit <= 0:
             raise ValueError("timeout_seconds must be positive")
@@ -178,22 +151,11 @@ class ChatGPTAdapter(AIAdapter):
             if response.completion in {"complete", "error", "interrupted"}:
                 return response
             if time.monotonic() - started >= limit:
-                return AIResponse(
-                    response_id=f"{operation_id}:timeout",
-                    session_id=self.session_id,
-                    provider=self.provider,
-                    operation_id=operation_id,
-                    text="",
-                    completion="timeout",
-                )
+                return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
             time.sleep(self.poll_interval_seconds)
 
     def _queue(self, operation_type: str, prompt: str) -> Mapping[str, Any]:
-        payload = self.transport.request(
-            "POST",
-            "/queue",
-            {"operation_type": operation_type, "prompt": prompt},
-        )
+        payload = self.transport.request("POST", "/queue", {"operation_type": operation_type, "prompt": prompt})
         operation = payload.get("operation")
         if not isinstance(operation, Mapping):
             raise ChatGPTAdapterError("bridge response did not contain an operation")
@@ -208,6 +170,33 @@ class ChatGPTAdapter(AIAdapter):
     def _response_from_operation(self, operation: Mapping[str, Any]) -> AIResponse:
         operation_id = self._operation_id(operation)
         completion, text, response_available = completion_from_operation(operation)
+        chat_url = _optional_string(operation.get("chat_url"))
+        error = _optional_string(operation.get("error"))
+        chat_exhausted = bool(error and error.startswith("CHAT_EXHAUSTED:"))
+
+        if operation.get("operation_type") == "prompt" and completion == "complete" and not response_available:
+            try:
+                observation = self.read_browser_observation()
+            except ChatGPTAdapterError:
+                observation = None
+            data = observation.get("data") if isinstance(observation, Mapping) else None
+            if isinstance(data, Mapping):
+                kind = data.get("kind")
+                if kind == "chatgpt_response":
+                    observed_text = data.get("response_text")
+                    if isinstance(observed_text, str) and observed_text.strip():
+                        text = observed_text
+                        response_available = data.get("response_text_available") is True
+                    observed_url = data.get("chat_url")
+                    if chat_url is None and isinstance(observed_url, str):
+                        chat_url = observed_url
+                    chat_exhausted = chat_exhausted or data.get("chat_exhausted") is True
+                elif kind == "chatgpt_state":
+                    state_url = data.get("chat_url")
+                    if chat_url is None and isinstance(state_url, str):
+                        chat_url = state_url
+                    chat_exhausted = chat_exhausted or data.get("chat_exhausted") is True
+
         return AIResponse(
             response_id=f"{operation_id}:response",
             session_id=self.session_id,
@@ -216,7 +205,9 @@ class ChatGPTAdapter(AIAdapter):
             text=text,
             completion=completion,
             response_available=response_available,
-            chat_url=_optional_string(operation.get("chat_url")),
+            chat_url=chat_url,
+            error=error,
+            chat_exhausted=chat_exhausted,
         )
 
 
