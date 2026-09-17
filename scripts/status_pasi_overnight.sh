@@ -21,7 +21,7 @@ fi
 if [[ -f "$STATE_FILE" ]]; then
     printf '\nState:\n'
     if command -v jq >/dev/null 2>&1; then
-        jq '{run_id, started_at, deadline_at, branch, current_task, task_number, completed_tasks, failed_tasks, current_attempt, last_result, next_task}' "$STATE_FILE"
+        jq '{schema_version, phase, run_id, started_at, deadline_at, branch, current_task, task_number, completed_tasks, failed_tasks, current_attempt, automation_tasks_since_gate, automation_gates, provider_limit_pauses, stop_reason, last_result, next_task}' "$STATE_FILE"
     else
         cat "$STATE_FILE"
     fi
@@ -31,3 +31,7 @@ printf '\nServices:\n'
 curl -fsS http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
 printf '\n'
 curl -fsS http://127.0.0.1:8766/health 2>/dev/null || printf 'controller distribution: unavailable\n'
+printf '\n'
+if command -v curl >/dev/null 2>&1; then
+    curl -fsS http://127.0.0.1:8765/browser/observation 2>/dev/null || printf 'browser observation: unavailable\n'
+fi
