@@ -5,8 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from automation.computer_use.contracts import ActionProposal, Observation, Session
-from automation.orchestrator.background_worker import WorkerExecutionError
-from automation.orchestrator.controller import ControlPlane
+from automation.computer_use.controller import ControlPlane
 from automation.orchestrator.background_worker import BackgroundWorker
 from automation.orchestrator.state import StateManager
 from automation.orchestrator.task_runner import BoundedTaskRunner, CompletionDecision
@@ -30,7 +29,6 @@ class RecordingExecutor:
 @dataclass
 class SequencePlanner:
     actions: list[ActionProposal]
-    executor: RecordingExecutor | None = None
 
     def plan(self, observations: tuple[Observation, ...]) -> ActionProposal | None:
         if not self.actions:
@@ -68,12 +66,11 @@ def action(action_id: str = "a1") -> ActionProposal:
 def test_runner_executes_until_deterministic_completion(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
     executor = RecordingExecutor()
-    planner = SequencePlanner([action("a1"), action("a2")])
     runner = BoundedTaskRunner(
         state_manager,
         "runner-1",
         worker,
-        planner,
+        SequencePlanner([action("a1"), action("a2")]),
         executor,
         CountChecker(2),
         max_steps=4,
@@ -145,6 +142,53 @@ def test_runner_halts_for_human_approval(tmp_path) -> None:
     assert result.waiting_for_human is True
     assert executor.actions == []
     assert worker.status().phase == "waiting_human"
+
+
+def test_runner_rehydrates_persisted_history_before_resume(tmp_path) -> None:
+    worker, state_manager = make_worker(tmp_path)
+    executor = RecordingExecutor()
+    planner = SequencePlanner([action("a1"), action("a2")])
+    runner = BoundedTaskRunner(
+        state_manager,
+        "runner-1",
+        worker,
+        planner,
+        executor,
+        CountChecker(3),
+        max_steps=3,
+    )
+
+    first = runner.run()
+    assert first.steps == 3 or first.phase == "running"
+
+
+def test_runner_restart_with_running_state_requires_rehydration(tmp_path) -> None:
+    worker, state_manager = make_worker(tmp_path)
+    executor = RecordingExecutor()
+    runner = BoundedTaskRunner(
+        state_manager,
+        "runner-1",
+        worker,
+        SequencePlanner([action("a1"), action("a2")]),
+        executor,
+        CountChecker(3),
+        max_steps=2,
+    )
+    runner.run()
+
+    restarted = BoundedTaskRunner(
+        state_manager,
+        "runner-1",
+        worker,
+        SequencePlanner([action("a3")]),
+        RecordingExecutor(),
+        CountChecker(3),
+        max_steps=2,
+    )
+    assert restarted.state.recovery_required is True
+    result = restarted.run()
+    assert result.phase == "paused"
+    assert "rehydration" in result.reason
 
 
 def test_runner_persists_state_and_rejects_corrupt_state(tmp_path) -> None:
