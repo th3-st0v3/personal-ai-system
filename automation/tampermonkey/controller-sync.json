@@ -7,6 +7,6 @@
   "release_commit": "fbb470f78e80c31c180b7f8b4191a03dbae0c0d5",
   "recovery_version": "1.0.5",
   "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
-  "recovery_git_blob_sha": "98e863955fceaad85f30ed14a54fbb6d0a981eeb",
-  "reason": "Hardened prompt submission acknowledgement, direct bounded response delivery with completion acknowledgement, non-blocking response observation across Tampermonkey and native recovery paths, chat identity tracking, bounded reload recovery, response-text persistence through completion acknowledgement loss, and verified exhaustion-only chat replacement"
+  "recovery_git_blob_sha": "b9015f151691e50412e1a576ca27fb4fdf16b818",
+  "reason": "Hardened prompt submission acknowledgement, direct bounded response delivery with completion acknowledgement, non-blocking response observation across Tampermonkey and native controller/recovery paths, chat identity tracking, bounded reload recovery, response-text persistence through completion acknowledgement loss, and verified exhaustion-only chat replacement"
 }
