@@ -3,10 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from automation.computer_use.research import HTTPSResearchAdapter
 
@@ -68,7 +73,7 @@ def main() -> int:
         else:
             print(json.dumps(read_public_https(args.read), indent=2, ensure_ascii=False))
     except (RuntimeError, ValueError, urllib.error.HTTPError, OSError) as exc:
-        print(f"research failed: {exc}", file=os.sys.stderr)
+        print(f"research failed: {exc}", file=sys.stderr)
         return 1
     return 0
 
