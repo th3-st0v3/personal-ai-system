@@ -24,7 +24,7 @@ class GitHubTransport(Protocol):
         method: str,
         path: str,
         payload: Mapping[str, Any] | None = None,
-    ) -> Mapping[str, Any]: ...
+    ) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,11 @@ class UrllibGitHubTransport:
 
     def __post_init__(self) -> None:
         parsed = urlsplit(self.api_base_url)
-        if parsed.scheme != "https" or parsed.hostname != "api.github.com":
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("GitHub transport URL has an invalid port") from exc
+        if parsed.scheme != "https" or parsed.hostname != "api.github.com" or port is not None and port != 443:
             raise ValueError("GitHub transport must target https://api.github.com")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("GitHub transport URL must not contain credentials")
@@ -50,7 +54,7 @@ class UrllibGitHubTransport:
         method: str,
         path: str,
         payload: Mapping[str, Any] | None = None,
-    ) -> Mapping[str, Any]:
+    ) -> Any:
         if not path.startswith("/") or ".." in path.split("/"):
             raise GitHubAdapterError("GitHub API path is invalid")
         body = None
@@ -82,12 +86,9 @@ class UrllibGitHubTransport:
         if len(raw) > self.max_response_bytes:
             raise GitHubAdapterError("GitHub response exceeded configured bound")
         try:
-            result = json.loads(raw.decode("utf-8"))
+            return json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise GitHubAdapterError("GitHub returned invalid JSON") from exc
-        if not isinstance(result, Mapping):
-            raise GitHubAdapterError("GitHub JSON response must be an object")
-        return result
 
 
 @dataclass
@@ -142,9 +143,14 @@ class GitHubControlAdapter(GitHubAdapter):
 
         raise GitHubAdapterError(f"unsupported GitHub action: {action.action}")
 
-    def _read(self, operation: str, parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _read(self, operation: str, parameters: Mapping[str, Any]) -> dict[str, Any]:
         path = self._path_for_operation(operation, parameters)
-        return self.transport.request("GET", path)
+        result = self.transport.request("GET", path)
+        if isinstance(result, Mapping):
+            return dict(result)
+        if isinstance(result, list):
+            return {"items": result}
+        raise GitHubAdapterError("GitHub API response must be an object or list")
 
     def _path_for_operation(self, operation: str, parameters: Mapping[str, Any]) -> str:
         root = f"/repos/{quote(self.owner, safe='')}/{quote(self.repository, safe='')}"
@@ -158,7 +164,7 @@ class GitHubControlAdapter(GitHubAdapter):
                 or raw_path.startswith("/")
                 or ".." in raw_path.split("/")
             ):
-                raise ValueError("GitHub file path must be workspace-relative")
+                raise ValueError("GitHub file path must be repository-relative")
             return f"{root}/contents/{quote(raw_path, safe='/')}"
         if operation == "pulls":
             state = parameters.get("state", "open")
