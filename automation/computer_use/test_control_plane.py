@@ -49,19 +49,40 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertTrue(result.allowed)
         self.assertFalse(result.requires_human_approval)
 
-    def test_consequential_action_requires_external_approval(self) -> None:
+    def test_background_consequential_action_is_deferred_without_pausing(self) -> None:
         action = ActionProposal(
-            action_id="a2",
+            action_id="a2-bg",
             session_id="session-1",
             target="github",
             action="github_ui",
         )
+        self.control.transition("planning")
         result = self.control.authorize(action)
         self.assertFalse(result.allowed)
         self.assertTrue(result.requires_human_approval)
-        self.assertEqual(self.control.phase, "awaiting_authorization")
+        self.assertEqual(self.control.phase, "planning")
+        self.assertIn("without pausing", result.reason)
 
-        approved = self.control.authorize(action, external_human_approval=True)
+    def test_interactive_consequential_action_requires_external_approval(self) -> None:
+        interactive = Session(
+            session_id="session-interactive",
+            task_id="task-interactive",
+            project="personal-ai-system",
+            background=False,
+        )
+        control = ControlPlane(interactive)
+        action = ActionProposal(
+            action_id="a2",
+            session_id="session-interactive",
+            target="github",
+            action="github_ui",
+        )
+        result = control.authorize(action)
+        self.assertFalse(result.allowed)
+        self.assertTrue(result.requires_human_approval)
+        self.assertEqual(control.phase, "awaiting_authorization")
+
+        approved = control.authorize(action, external_human_approval=True)
         self.assertTrue(approved.allowed)
 
     def test_unknown_or_denied_capability_does_not_execute(self) -> None:
