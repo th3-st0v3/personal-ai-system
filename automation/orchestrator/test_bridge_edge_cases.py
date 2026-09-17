@@ -4,6 +4,7 @@ import json
 import threading
 from http.client import HTTPConnection
 from pathlib import Path
+from typing import Any
 
 from automation.orchestrator.bridge import BridgeHTTPServer, BridgeRequestHandler, BridgeState
 from automation.orchestrator.state import StateManager
@@ -17,7 +18,7 @@ def post_json(
     server: BridgeHTTPServer,
     path: str,
     payload: dict[str, object],
-) -> tuple[int, dict[str, object]]:
+) -> tuple[int, dict[str, Any]]:
     connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
     try:
         connection.request(
