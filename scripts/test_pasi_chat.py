@@ -99,7 +99,7 @@ class TestPasiChat(unittest.TestCase):
             root = Path(temp)
             controller = root / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
             controller.parent.mkdir(parents=True)
-            controller.write_text("// @version      2.4.5\n", encoding="utf-8")
+            controller.write_text("// @version      2.4.6\n", encoding="utf-8")
             state_path = root / ".runtime" / "chatgpt" / "controller-sync-state.json"
             write_sync_state(state_path, version="2.4.5")
             result = process_controller_update_signal("PASI_CONTROLLER_UPDATE: true\nPASI_CONTROLLER_UPDATE_VERSION: 2.4.6\nPASI_CONTROLLER_UPDATE_REASON: test", root)
