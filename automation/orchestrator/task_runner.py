@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import threading
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Literal, Protocol, Sequence
 
 from automation.computer_use.contracts import ActionProposal, Observation
 
-from .background_worker import BackgroundWorker, WorkerExecutionError, WorkerPhase
+from .background_worker import BackgroundWorker, WorkerExecutionError, WorkerExecutor, WorkerPhase
 from .state import StateCorruptionError, StateManager
 
 
@@ -53,7 +54,7 @@ class TaskRunnerState:
     observations: tuple[str, ...] = ()
     last_action_id: str | None = None
     last_error: str | None = None
-    updated_at: str = ""
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -114,9 +115,9 @@ class TaskRunResult:
 class BoundedTaskRunner:
     """Run a task to a deterministic completion condition within a finite step budget.
 
-    The runner supplies orchestration only. The planner can propose actions, but
-    BackgroundWorker remains the authorization and execution boundary. Human approval
-    is never synthesized, and completion is never inferred from planner output.
+    The runner supplies orchestration only. The planner proposes actions, the worker
+    enforces authorization and verification, the executor performs one authorized
+    action, and the completion checker decides whether the objective is proven.
     """
 
     def __init__(
@@ -125,6 +126,7 @@ class BoundedTaskRunner:
         runner_id: str,
         worker: BackgroundWorker,
         planner: TaskPlanner,
+        executor: WorkerExecutor,
         completion_checker: CompletionChecker,
         *,
         max_steps: int = 32,
@@ -144,6 +146,7 @@ class BoundedTaskRunner:
         self.runner_id = runner_id
         self.worker = worker
         self.planner = planner
+        self.executor = executor
         self.completion_checker = completion_checker
         self.max_steps = max_steps
         self.max_observations = max_observations
@@ -160,9 +163,10 @@ class BoundedTaskRunner:
             if self.state.phase in {"failed", "waiting_human", "paused"}:
                 return self._result(self.state.last_error or f"runner is {self.state.phase}")
 
-            if self.worker.status().phase == "stopped":
+            worker_phase = self.worker.status().phase
+            if worker_phase == "stopped":
                 self.worker.start()
-            elif self.worker.status().phase != "running":
+            elif worker_phase != "running":
                 return self._sync_worker_state()
 
             self.state = self._replace(phase="running", last_error=None)
@@ -185,7 +189,7 @@ class BoundedTaskRunner:
                 self._persist()
 
                 try:
-                    observation = self.worker.step(action, _ExecutorAdapter(self.planner), external_human_approval=False)
+                    observation = self.worker.step(action, self.executor, external_human_approval=False)
                 except WorkerExecutionError as exc:
                     if self.worker.status().phase == "waiting_human":
                         self.state = self._replace(phase="waiting_human", last_error=str(exc))
@@ -198,7 +202,11 @@ class BoundedTaskRunner:
                 if observation is None:
                     return self._sync_worker_state()
 
-                self._record_observation(observation)
+                try:
+                    self._record_observation(observation)
+                except WorkerExecutionError as exc:
+                    return self._fail(str(exc))
+
                 self.state = self._replace(steps=self.state.steps + 1)
                 self._persist()
 
@@ -262,7 +270,10 @@ class BoundedTaskRunner:
         runner_phase = mapping[phase]
         self.state = self._replace(phase=runner_phase, last_error=self.worker.status().last_error)
         self._persist()
-        return self._result(self.state.last_error or f"worker is {phase}", waiting_for_human=phase == "waiting_human")
+        return self._result(
+            self.state.last_error or f"worker is {phase}",
+            waiting_for_human=phase == "waiting_human",
+        )
 
     def _fail(self, reason: str) -> TaskRunResult:
         if self.worker.status().phase == "running":
@@ -289,7 +300,10 @@ class BoundedTaskRunner:
     def _load_or_initialize(self) -> TaskRunnerState:
         if not self.state_path.exists():
             return TaskRunnerState(runner_id=self.runner_id)
-        return TaskRunnerState.from_dict(self.state_manager.read_json(self.state_path, {}))
+        data = self.state_manager.read_json(self.state_path, None)
+        if not isinstance(data, dict):
+            raise StateCorruptionError("Invalid task runner state")
+        return TaskRunnerState.from_dict(data)
 
     def _persist(self) -> None:
         self.state_manager.write_json(self.state_path, self.state.to_dict())
@@ -297,26 +311,8 @@ class BoundedTaskRunner:
     def _replace(self, **changes: object) -> TaskRunnerState:
         data = self.state.to_dict()
         data.update(changes)
-        from datetime import datetime, timezone
-
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
         return TaskRunnerState.from_dict(data)
-
-
-class _ExecutorAdapter:
-    """Bridge a planner supplied with an executor through the worker's provider-neutral seam."""
-
-    def __init__(self, planner: TaskPlanner) -> None:
-        self.planner = planner
-
-    def execute(self, action: ActionProposal) -> Observation:
-        executor = getattr(self.planner, "executor", None)
-        if executor is None or not hasattr(executor, "execute"):
-            raise WorkerExecutionError("planner must expose an executor.execute(action) implementation")
-        observation = executor.execute(action)
-        if not isinstance(observation, Observation):
-            raise WorkerExecutionError("executor returned an invalid observation")
-        return observation
 
 
 __all__ = [
