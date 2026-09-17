@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 
 from automation.orchestrator.state import StateCorruptionError, StateManager
 from automation.orchestrator.verification_telemetry import VerificationTelemetry
@@ -42,7 +43,7 @@ class VerificationTelemetryTests(unittest.TestCase):
         self.assertEqual(records[1].record_hash, second.record_hash)
 
     def test_retention_keeps_bounded_chain_and_anchor(self) -> None:
-        records = []
+        records: list = []
         for value in ("a", "b", "c", "d"):
             records.append(
                 self.telemetry.append(
@@ -65,7 +66,7 @@ class VerificationTelemetryTests(unittest.TestCase):
             status="verified",
             evidence_fingerprint="a" * 64,
         )
-        payload = json.loads(self.telemetry.path.read_text(encoding="utf-8"))
+        payload = cast(list[dict[str, object]], json.loads(self.telemetry.path.read_text(encoding="utf-8")))
         payload[0]["status"] = "tampered"
         self.telemetry.path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -84,6 +85,7 @@ class VerificationTelemetryTests(unittest.TestCase):
             },
         )
         verification = verify_simulation_result(result).to_dict()
+        provenance = cast(dict[str, object], result["provenance"])
 
         record = self.telemetry.record_simulation_verification(
             result,
@@ -95,7 +97,7 @@ class VerificationTelemetryTests(unittest.TestCase):
 
         self.assertEqual(record.event_type, "simulation_verification")
         self.assertEqual(record.status, "verified")
-        self.assertEqual(record.evidence_fingerprint, result["provenance"]["fingerprint"])
+        self.assertEqual(record.evidence_fingerprint, provenance["fingerprint"])
         self.assertEqual(self.telemetry.load()[0].action_id, "action-1")
 
 
