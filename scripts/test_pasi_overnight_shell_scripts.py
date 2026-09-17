@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = (
     ROOT / "scripts" / "start_pasi_overnight.sh",
+    ROOT / "scripts" / "start_pasi_168h.sh",
     ROOT / "scripts" / "stop_pasi_overnight.sh",
     ROOT / "scripts" / "status_pasi_overnight.sh",
 )
@@ -19,6 +20,19 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             self.assertTrue(script.is_file(), script)
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_168h_launcher_contains_fresh_worktree_and_service_guards(self) -> None:
+        script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        for required in (
+            'export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"',
+            'git worktree remove --force "$WORKTREE"',
+            "--resume",
+            "http://127.0.0.1:8765/health",
+            "http://127.0.0.1:8766/health",
+            "automation.orchestrator.bridge",
+            "pasi_controller_server.py",
+        ):
+            self.assertIn(required, script)
 
 
 if __name__ == "__main__":
