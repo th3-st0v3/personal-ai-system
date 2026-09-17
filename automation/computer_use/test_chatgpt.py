@@ -47,6 +47,19 @@ class CompletionTests(unittest.TestCase):
             state, _, _ = completion_from_operation({"status": status})
             self.assertEqual(state, expected)
 
+    def test_generating_with_persisted_verified_response_is_complete(self) -> None:
+        state, text, available = completion_from_operation(
+            {
+                "status": "generating",
+                "operation_type": "prompt",
+                "response_text": "the answer survived the lost acknowledgement",
+                "response_text_available": True,
+            }
+        )
+        self.assertEqual(state, "complete")
+        self.assertEqual(text, "the answer survived the lost acknowledgement")
+        self.assertTrue(available)
+
     def test_completed_without_response_is_complete_but_not_response_available(self) -> None:
         state, text, available = completion_from_operation({"status": "completed"})
         self.assertEqual(state, "complete")
@@ -140,6 +153,23 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.completion, "complete")
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "answer")
+
+    def test_read_operation_promotes_persisted_verified_response(self) -> None:
+        transport = FakeTransport([
+            {
+                "operation": {
+                    "operation_id": "op-1",
+                    "operation_type": "prompt",
+                    "status": "generating",
+                    "response_text": "persisted answer",
+                    "response_text_available": True,
+                }
+            }
+        ])
+        response = ChatGPTAdapter(transport, session_id="session-1").read_operation("op-1")
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "persisted answer")
 
     def test_completed_prompt_consumes_live_browser_response(self) -> None:
         transport = FakeTransport([
