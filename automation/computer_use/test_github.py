@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from typing import Any, Mapping
 
-from automation.computer_use.contracts import ActionProposal
+from automation.computer_use.contracts import ActionProposal, Observation
 from automation.computer_use.github import (
     GitHubAdapterError,
     GitHubControlAdapter,
@@ -12,8 +12,8 @@ from automation.computer_use.github import (
 
 
 class FakeGitHubTransport:
-    def __init__(self, response: Mapping[str, Any] | None = None) -> None:
-        self.response = response or {"id": 1, "full_name": "owner/repo"}
+    def __init__(self, response: Any = None) -> None:
+        self.response = {"id": 1, "full_name": "owner/repo"} if response is None else response
         self.requests: list[tuple[str, str, Mapping[str, Any] | None]] = []
 
     def request(
@@ -21,7 +21,7 @@ class FakeGitHubTransport:
         method: str,
         path: str,
         payload: Mapping[str, Any] | None = None,
-    ) -> Mapping[str, Any]:
+    ) -> Any:
         self.requests.append((method, path, payload))
         return self.response
 
@@ -30,12 +30,18 @@ class FakeComputerAdapter:
     def __init__(self) -> None:
         self.actions: list[ActionProposal] = []
 
-    def observe(self):
+    def observe(self) -> Observation:
         raise AssertionError("unexpected observe")
 
-    def execute(self, action: ActionProposal):
+    def execute(self, action: ActionProposal) -> Observation:
         self.actions.append(action)
-        return action  # type: ignore[return-value]
+        return Observation(
+            observation_id="ui-observation",
+            session_id=action.session_id,
+            source="github-ui",
+            kind="github.ui",
+            data={"action_id": action.action_id},
+        )
 
 
 class GitHubTransportTests(unittest.TestCase):
@@ -76,6 +82,13 @@ class GitHubControlAdapterTests(unittest.TestCase):
         self.assertEqual(result.kind, "github.file")
         self.assertEqual(transport.requests[0][1], "/repos/owner/repo/contents/src/main.py")
 
+    def test_list_response_is_normalized_to_items(self) -> None:
+        transport = FakeGitHubTransport([{"number": 1}, {"number": 2}])
+        adapter = GitHubControlAdapter("owner", "repo", transport, session_id="s1")
+        action = ActionProposal("a1", "s1", "github", "github_read", {"operation": "pulls"})
+        result = adapter.execute(action)
+        self.assertEqual(result.data["items"], [{"number": 1}, {"number": 2}])
+
     def test_pull_request_state_is_allowlisted(self) -> None:
         transport = FakeGitHubTransport()
         adapter = GitHubControlAdapter("owner", "repo", transport)
@@ -88,7 +101,7 @@ class GitHubControlAdapterTests(unittest.TestCase):
         adapter = GitHubControlAdapter("owner", "repo", FakeGitHubTransport(), ui_adapter=ui)
         action = ActionProposal("a1", "s1", "github.com", "github_ui", {"operation": "review"})
         result = adapter.execute(action)
-        self.assertIs(result, action)
+        self.assertEqual(result.source, "github-ui")
         self.assertEqual(ui.actions, [action])
 
     def test_ui_fallback_requires_configuration(self) -> None:
