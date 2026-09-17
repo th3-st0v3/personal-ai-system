@@ -144,54 +144,50 @@ def test_runner_halts_for_human_approval(tmp_path) -> None:
     assert worker.status().phase == "waiting_human"
 
 
-def test_runner_rehydrates_persisted_history_before_resume(tmp_path) -> None:
-    worker, state_manager = make_worker(tmp_path)
-    executor = RecordingExecutor()
-    planner = SequencePlanner([action("a1"), action("a2")])
-    runner = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        planner,
-        executor,
-        CountChecker(3),
-        max_steps=3,
-    )
-
-    first = runner.run()
-    assert first.steps == 3 or first.phase == "running"
-
-
 def test_runner_restart_with_running_state_requires_rehydration(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
-    executor = RecordingExecutor()
     runner = BoundedTaskRunner(
         state_manager,
         "runner-1",
         worker,
         SequencePlanner([action("a1"), action("a2")]),
-        executor,
+        RecordingExecutor(),
         CountChecker(3),
-        max_steps=2,
+        max_steps=1,
     )
-    runner.run()
+    result = runner.run()
+    assert result.step_limit_reached is True
 
     restarted = BoundedTaskRunner(
         state_manager,
         "runner-1",
         worker,
-        SequencePlanner([action("a3")]),
+        SequencePlanner([action("a2")]),
         RecordingExecutor(),
-        CountChecker(3),
+        CountChecker(2),
         max_steps=2,
     )
     assert restarted.state.recovery_required is True
-    result = restarted.run()
-    assert result.phase == "paused"
-    assert "rehydration" in result.reason
+    blocked = restarted.run()
+    assert blocked.phase == "paused"
+    assert "rehydration" in blocked.reason
+
+    observation = Observation(
+        observation_id="obs-1",
+        session_id="session-1",
+        source="test-executor",
+        kind="result",
+        data={"action_id": "a1"},
+    )
+    restarted.mark_rehydrated([observation])
+    assert restarted.state.recovery_required is False
+
+    resumed = restarted.run()
+    assert resumed.phase == "completed"
+    assert resumed.steps == 2
 
 
-def test_runner_persists_state_and_rejects_corrupt_state(tmp_path) -> None:
+def test_runner_persists_completed_state_and_rejects_corrupt_state(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
     runner = BoundedTaskRunner(
         state_manager,
