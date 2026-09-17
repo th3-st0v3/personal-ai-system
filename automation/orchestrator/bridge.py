@@ -235,11 +235,10 @@ class BridgeState:
                 continue
             if item.get("operation_type") != "prompt":
                 return
-            if (
-                item.get("response_text_available") is True
-                and isinstance(item.get("response_text"), str)
-                and item.get("response_text").strip()
-            ):
+            current_response = item.get("response_text")
+            if item.get("response_text_available") is True and isinstance(
+                current_response, str
+            ) and current_response.strip():
                 return
 
             item["response_text"] = response_text
