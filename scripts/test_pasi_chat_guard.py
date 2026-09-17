@@ -85,8 +85,11 @@ PASI_COMPUTER_REQUEST_END"""
     def test_computer_protocol_describes_only_safe_capabilities(self) -> None:
         prompt = guard.computer_protocol_prompt()
         self.assertIn("computer.files.read", prompt)
-        self.assertNotIn("computer.files.write\\n", prompt)
-        self.assertIn("computer.command.execute", prompt)
+        self.assertIn("computer.files.search", prompt)
+        self.assertNotIn("computer.files.write", prompt)
+        self.assertNotIn("computer.command.execute", prompt)
+        self.assertNotIn("computer.credentials.read", prompt)
+        self.assertNotIn("computer.financial.execute", prompt)
 
 
 if __name__ == "__main__":
