@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Mapping, Sequence
 
 from automation.computer_use.contracts import Observation
@@ -18,7 +18,7 @@ class TaskGoal:
     goal_id: str
     required_observation_kinds: tuple[str, ...] = ()
     required_sources: tuple[str, ...] = ()
-    required_predicates: Mapping[str, ObservationPredicate] = ()
+    required_predicates: Mapping[str, ObservationPredicate] = field(default_factory=dict)
     minimum_verified_observations: int = 0
 
     def __post_init__(self) -> None:
