@@ -31,7 +31,7 @@ def collect_context(root: Path, *, max_chars: int = DEFAULT_MAX_CHARS, max_file_
         files.append(path)
     for path in sorted(files):
         relative = path.relative_to(root).as_posix()
-        chunks.append(f"- {relative}")
+        chunks.append(f"FILE: {relative}")
     chunks.append("\nContent samples:")
     used = sum(len(chunk) + 1 for chunk in chunks)
     for path in sorted(files):
