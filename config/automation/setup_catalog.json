@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "description": "Human-facing baseline prerequisites for PASI unattended browser automation. Conditional entries are not installed or authenticated automatically.",
+  "downloads": [
+    {
+      "name": "Python runtime / virtual environment",
+      "version": "project .venv",
+      "source": "https://www.python.org/",
+      "reason": "PASI requires the repository virtual environment to run its Python services and automation supervisor.",
+      "required": true,
+      "kind": "runtime"
+    },
+    {
+      "name": "Git",
+      "version": "system package",
+      "source": "https://git-scm.com/",
+      "reason": "PASI uses Git worktrees, verification, commits, and branch recovery.",
+      "required": true,
+      "kind": "vcs"
+    },
+    {
+      "name": "Chromium or Google Chrome",
+      "version": "current supported release",
+      "source": "https://www.chromium.org/",
+      "reason": "The native PASI ChatGPT controller requires a Chromium-family browser session.",
+      "required": true,
+      "kind": "browser"
+    },
+    {
+      "name": "PASI native Chromium extension",
+      "version": "repository version",
+      "source": "https://github.com/th3-st0v3/personal-ai-system",
+      "reason": "Preferred browser-side controller and recovery path; install from automation/chromium/pasi-chatgpt.",
+      "required": true,
+      "kind": "pasi-controller"
+    },
+    {
+      "name": "PASI ChatGPT Controller Loader",
+      "version": "repository version",
+      "source": "https://github.com/th3-st0v3/personal-ai-system",
+      "reason": "Alternative browser bootstrap for users operating PASI through Tampermonkey; use instead of a duplicate directly-installed controller.",
+      "required": false,
+      "kind": "pasi-controller-alternative"
+    },
+    {
+      "name": "Node.js",
+      "version": "project-supported version",
+      "source": "https://nodejs.org/",
+      "reason": "Required to run the repository's JavaScript and browser-controller contract tests during development or CI mirroring.",
+      "required": false,
+      "kind": "development-runtime"
+    }
+  ],
+  "logins": [
+    {
+      "name": "ChatGPT",
+      "url": "https://chatgpt.com/",
+      "reason": "The primary browser execution surface must already be authenticated for unattended prompts.",
+      "required": true,
+      "verification": "login|captcha|cloudflare|mfa"
+    },
+    {
+      "name": "GitHub",
+      "url": "https://github.com/",
+      "reason": "Required only for account-scoped repository actions or when the connected ChatGPT GitHub app is used as a fallback context source.",
+      "required": false,
+      "verification": "login|mfa"
+    },
+    {
+      "name": "OpenRouter",
+      "url": "https://openrouter.ai/",
+      "reason": "Conditional provider fallback when configured; PASI can continue with another route when this is unavailable.",
+      "required": false,
+      "verification": "login|mfa"
+    },
+    {
+      "name": "Perplexity",
+      "url": "https://www.perplexity.ai/",
+      "reason": "Conditional web-research fallback when configured; not required for core repository automation.",
+      "required": false,
+      "verification": "login|captcha|cloudflare|mfa"
+    },
+    {
+      "name": "Claude",
+      "url": "https://claude.ai/",
+      "reason": "Conditional provider fallback when configured; not required for the core PASI runner.",
+      "required": false,
+      "verification": "login|captcha|cloudflare|mfa"
+    }
+  ]
+}
