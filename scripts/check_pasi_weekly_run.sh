@@ -7,6 +7,7 @@ RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 PID_FILE="$RUNTIME_DIR/runner.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
 EVENT_LOG="$RUNTIME_DIR/events.jsonl"
+PYTHON="$REPO_ROOT/.venv/bin/python"
 
 printf '=== PASI WEEKLY RUN CHECK ===\n'
 printf 'Repo: %s\n' "$REPO_ROOT"
@@ -58,10 +59,10 @@ printf '\n--- EVENT FRESHNESS ---\n'
 if [[ -f "$EVENT_LOG" ]]; then
     tail -n 5 "$EVENT_LOG"
     printf '\nLast event age (seconds): '
-    if command -v jq >/dev/null 2>&1; then
+    if command -v jq >/dev/null 2>&1 && [[ -x "$PYTHON" ]]; then
         last_timestamp="$(tail -n 1 "$EVENT_LOG" | jq -r '.timestamp // empty' 2>/dev/null || true)"
         if [[ -n "$last_timestamp" ]]; then
-            python - "$last_timestamp" <<'PY'
+            "$PYTHON" - "$last_timestamp" <<'PY'
 import sys
 from datetime import datetime, timezone
 value = sys.argv[1]
@@ -72,7 +73,7 @@ PY
             printf 'unknown\n'
         fi
     else
-        printf 'install jq for precise freshness\n'
+        printf 'jq or PASI virtualenv unavailable for precise freshness\n'
     fi
 else
     printf 'Event log: missing\n'
@@ -82,9 +83,9 @@ printf '\n--- RECOVERY DECISION ---\n'
 if (( runner_active == 1 )); then
     printf 'No restart needed: runner process is alive.\n'
 elif [[ -f "$STATE_FILE" ]]; then
-    printf 'Runner is not alive. Safe recovery path:\n'
+    printf 'Runner is not alive. Recovery path:\n'
     printf '  bash scripts/start_pasi_168h.sh --resume\n'
-    printf 'This reuses the persisted state when its deadline is still active; otherwise the engine starts a fresh bounded 168-hour run.\n'
+    printf 'This reuses the persisted state when its deadline is still active; otherwise the extended entrypoint starts a fresh 168-hour run.\n'
 else
     printf 'No persisted run state. Start a new run with:\n'
     printf '  bash scripts/start_pasi_168h.sh\n'
