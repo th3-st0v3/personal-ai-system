@@ -18,12 +18,6 @@
     var CHECK_TIMEOUT_MS = 10000;
     var LAST_VERSION_KEY = 'pasi_controller_synced_version';
     var LAST_HASH_KEY = 'pasi_controller_synced_sha256';
-    var ACTIVE_KEY = 'pasi_controller_loader_active';
-
-    if (GM_getValue(ACTIVE_KEY, false)) {
-        return;
-    }
-    GM_setValue(ACTIVE_KEY, true);
 
     console.log('[PASI Loader] Conditional controller loader active.');
     checkForPublishedController();
