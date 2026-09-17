@@ -1,0 +1,81 @@
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+MAX_ATTEMPTS: int
+TASK_TIMEOUT_SECONDS: float
+DEFAULT_HOURS: float
+MIN_HOURS: float
+MAX_HOURS: float
+AUTOMATION_TASKS_PER_GATE: int
+AUTOMATION_TASKS: tuple[str, ...]
+ENGINEERING_TASKS: tuple[str, ...]
+
+class OvernightState:
+    schema_version: int
+    run_id: str
+    started_at: str
+    deadline_at: str
+    worktree: str
+    branch: str
+    phase: str
+    current_task: str
+    requested_task: str
+    task_number: int
+    completed_tasks: int
+    failed_tasks: int
+    current_attempt: int
+    automation_tasks_since_gate: int
+    automation_gates: int
+    provider_limit_pauses: int
+    last_result: str
+    next_task: str
+    stop_reason: str
+    recent_tasks: list[str]
+
+    def __init__(
+        self,
+        *,
+        schema_version: int,
+        run_id: str,
+        started_at: str,
+        deadline_at: str,
+        worktree: str,
+        branch: str,
+        phase: str,
+        current_task: str,
+        requested_task: str = ...,
+        task_number: int = ...,
+        completed_tasks: int = ...,
+        failed_tasks: int = ...,
+        current_attempt: int = ...,
+        automation_tasks_since_gate: int = ...,
+        automation_gates: int = ...,
+        provider_limit_pauses: int = ...,
+        last_result: str = ...,
+        next_task: str = ...,
+        stop_reason: str = ...,
+        recent_tasks: list[str] = ...,
+    ) -> None: ...
+
+    def to_dict(self) -> dict[str, Any]: ...
+
+def now_utc() -> Any: ...
+def save_state(state: OvernightState) -> None: ...
+def load_state() -> OvernightState | None: ...
+def acquire_lock() -> None: ...
+def release_lock() -> None: ...
+def validate_patch_paths(patch: str, allow_delete: bool) -> None: ...
+def command(command: list[str], cwd: Path, timeout: float) -> tuple[int, str]: ...
+def healthy(url: str) -> bool: ...
+def ensure_services() -> list[Any]: ...
+def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None: ...
+def browser_observation() -> dict[str, Any] | None: ...
+def runtime_watchdog_is_live(*, max_age_seconds: float = ...) -> bool: ...
+def provider_condition(code: int, output: str) -> str | None: ...
+def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool: ...
+def choose_unique(candidates: Sequence[str], state: OvernightState) -> str: ...
+def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]: ...
+def completion_contract(status: str, values: dict[str, str]) -> bool: ...
+def build_prompt(task: str, state: OvernightState, failure: str = ...) -> str: ...
+def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]: ...
+def main() -> int: ...
