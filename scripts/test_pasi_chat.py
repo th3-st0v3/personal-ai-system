@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import tempfile
 import unittest
 from pathlib import Path
 
 from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
-from scripts.pasi_chat import build_prompt, needs_github_context, process_controller_update_signal, route_chat
+from scripts.pasi_chat import (
+    build_prompt,
+    controller_observation_is_live,
+    needs_github_context,
+    process_controller_update_signal,
+    route_chat,
+    wait_for_browser_controller,
+)
 
 
 class FakeChatAdapter:
@@ -48,6 +56,25 @@ class TestPasiChat(unittest.TestCase):
 
     def test_build_prompt_does_not_claim_execution(self) -> None:
         self.assertIn("Do not claim that files were changed", build_prompt("make a change", "clean working tree", {}))
+
+    def test_live_controller_observation_requires_fresh_state(self) -> None:
+        now = datetime(2026, 9, 17, 4, 50, tzinfo=timezone.utc)
+        fresh = {"data": {"kind": "chatgpt_state", "captured_at": "2026-09-17T04:49:59Z"}}
+        stale = {"data": {"kind": "chatgpt_state", "captured_at": "2026-09-17T04:49:30Z"}}
+        malformed = {"data": {"kind": "chatgpt_state", "captured_at": "not-a-timestamp"}}
+        self.assertTrue(controller_observation_is_live(fresh, now=now))
+        self.assertFalse(controller_observation_is_live(stale, now=now))
+        self.assertFalse(controller_observation_is_live(malformed, now=now))
+
+    def test_wait_for_browser_controller_accepts_live_state(self) -> None:
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "captured_at": now})
+        wait_for_browser_controller(adapter, timeout_seconds=0.5)
+
+    def test_wait_for_browser_controller_rejects_missing_controller(self) -> None:
+        adapter = FakeChatAdapter()
+        with self.assertRaisesRegex(RuntimeError, "browser controller is not reporting a live heartbeat"):
+            wait_for_browser_controller(adapter, timeout_seconds=0.2)
 
     def test_github_classifier_is_conditional_and_not_triggered_by_generic_mentions(self) -> None:
         self.assertTrue(needs_github_context("inspect the GitHub repository and fix the bridge"))

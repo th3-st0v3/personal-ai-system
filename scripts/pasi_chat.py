@@ -5,7 +5,9 @@ import json
 import re
 import subprocess
 import sys
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -25,6 +27,8 @@ SESSION_STATE_PATH = RUNTIME_DIR / "session.json"
 CONTROLLER_UPDATE_REQUEST_PATH = RUNTIME_DIR / "controller-update-request.json"
 CONTROLLER_SYNC_STATE_PATH = RUNTIME_DIR / "controller-sync-state.json"
 MAX_HANDOFF_CHARS = 12_000
+CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
+CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
 GITHUB_TASK_SIGNALS = re.compile(
     r"(?:\brepository\b|\brepo\b|\bcodebase\b|\bsource\s+code\b|\bpull\s+request\b|\bbranch\b|\bcommit\b|\btampermonkey\b|\bvs\s+code\b|\bconnected\s+github\b|\bgithub\s+(?:repo|repository|branch|commit|pr)\b|(?:src|automation|scripts)/|\.(?:py|js|ts|json)\b)",
     re.IGNORECASE,
@@ -142,6 +146,55 @@ def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
     return dict(data)
 
 
+def controller_observation_is_live(
+    observation: Mapping[str, Any] | None,
+    *,
+    max_age_seconds: float = CONTROLLER_MAX_OBSERVATION_AGE_SECONDS,
+    now: datetime | None = None,
+) -> bool:
+    if max_age_seconds <= 0 or not isinstance(observation, Mapping):
+        return False
+    data = observation.get("data")
+    if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
+        return False
+    captured_at = data.get("captured_at") or observation.get("captured_at")
+    if not isinstance(captured_at, str) or not captured_at.strip():
+        return False
+    try:
+        timestamp = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    age = (reference - timestamp).total_seconds()
+    return -5.0 <= age <= max_age_seconds
+
+
+def wait_for_browser_controller(
+    adapter: ChatGPTRoutingAdapter,
+    *,
+    timeout_seconds: float = CONTROLLER_LIVENESS_TIMEOUT_SECONDS,
+    max_age_seconds: float = CONTROLLER_MAX_OBSERVATION_AGE_SECONDS,
+) -> None:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_seconds:
+        try:
+            observation = adapter.read_browser_observation()
+        except Exception:
+            observation = None
+        if controller_observation_is_live(observation, max_age_seconds=max_age_seconds):
+            return
+        time.sleep(0.5)
+    raise RuntimeError(
+        "PASI ChatGPT browser controller is not reporting a live heartbeat. "
+        "Enable the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, "
+        "and refresh the page before running scripts/pasi_chat.py."
+    )
+
+
 def route_chat(adapter: ChatGPTRoutingAdapter, handoff: dict[str, object], task: str, repository: str, github_mode: str) -> tuple[dict[str, object], str | None]:
     state = browser_state(adapter)
     current_url_value = state.get("chat_url")
@@ -229,6 +282,11 @@ def main() -> int:
     adapter = ChatGPTAdapter(UrllibBridgeTransport(), session_id=f"launcher-{uuid.uuid4().hex}", poll_interval_seconds=1.0, max_wait_seconds=args.timeout)
 
     try:
+        print("Checking for a live PASI ChatGPT browser controller...")
+        wait_for_browser_controller(
+            adapter,
+            timeout_seconds=min(args.timeout, CONTROLLER_LIVENESS_TIMEOUT_SECONDS),
+        )
         handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
         prompt = build_prompt(task, compact_repo_state(root), handoff)
         prompt_operation = adapter.submit_prompt(prompt)
