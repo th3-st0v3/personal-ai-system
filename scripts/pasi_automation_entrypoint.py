@@ -178,7 +178,7 @@ def main() -> int:
     supervisor.TASK_TIMEOUT_SECONDS = float(RESPONSE_TIMEOUT_SECONDS)
 
     original_invoke = hardening.resilient_invoke_chat
-    original_verify = hardening.verify_and_commit
+    original_verify = supervisor.verify_and_commit
 
     def resilient_invoke_chat(task: str, state: Any, failure: str):
         enriched = enrich_task(task)
@@ -196,13 +196,9 @@ def main() -> int:
         return commit, verification
 
     hardening.resilient_invoke_chat = resilient_invoke_chat
-    hardening.verify_and_commit = verify_and_commit
+    supervisor.verify_and_commit = verify_and_commit
     try:
         return hardening.main()
     finally:
         hardening.resilient_invoke_chat = original_invoke
-        hardening.verify_and_commit = original_verify
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        supervisor.verify_and_commit = original_verify
