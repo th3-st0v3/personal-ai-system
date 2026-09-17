@@ -10,7 +10,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Mapping
 
 
 SIMULATION_SCHEMA_VERSION = "1"
@@ -26,7 +26,7 @@ class Simulation:
     run: Callable[[dict[str, float]], dict[str, object]]
 
 
-def _require(values: dict[str, float], *names: str) -> None:
+def _require(values: Mapping[str, float], *names: str) -> None:
     missing = [name for name in names if name not in values]
     if missing:
         raise ValueError(f"Missing simulation inputs: {', '.join(missing)}")
@@ -34,7 +34,7 @@ def _require(values: dict[str, float], *names: str) -> None:
         raise ValueError("Simulation inputs must be finite numbers.")
 
 
-def _require_positive(values: dict[str, float], *names: str) -> None:
+def _require_positive(values: Mapping[str, float], *names: str) -> None:
     _require(values, *names)
     invalid = [name for name in names if float(values[name]) <= 0]
     if invalid:
@@ -152,7 +152,7 @@ def get_simulation(key: str) -> Simulation:
         raise ValueError(f"Unknown simulation '{key}'.") from exc
 
 
-def _fingerprint(payload: dict[str, object]) -> str:
+def _fingerprint(payload: object) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -161,12 +161,14 @@ def run_simulation(key: str, inputs: dict[str, float]) -> dict[str, object]:
     simulation = get_simulation(key)
     values = {str(name): float(value) for name, value in inputs.items()}
     result = simulation.run(values)
+    outputs = result["outputs"]
     provenance = {
         "schema_version": SIMULATION_SCHEMA_VERSION,
         "simulation_key": simulation.key,
         "inputs": values,
         "assumptions": result["assumptions"],
         "limitations": result["limitations"],
+        "output_fingerprint": _fingerprint(outputs),
     }
     provenance["fingerprint"] = _fingerprint(provenance)
     return {
