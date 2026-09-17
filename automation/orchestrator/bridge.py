@@ -30,6 +30,7 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "PASI browser page reloaded during operation",
     "PASI_NATIVE: browser page reloaded during operation",
     "PASI: browser page reloaded during operation",
+    "PASI_NATIVE: bridge completion failed",
     "PASI_NATIVE: new chat did not reach a verified ready state",
     "PASI_NATIVE: new chat control did not change conversation identity",
     "PASI_NATIVE: prompt submission could not be verified after bounded attempts",
