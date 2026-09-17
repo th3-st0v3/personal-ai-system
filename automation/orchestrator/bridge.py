@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -16,6 +17,17 @@ from .state import StateManager
 HOST = "127.0.0.1"
 PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 50_000
+MAX_TRANSIENT_FAILURE_RETRIES = 3
+MAX_ERROR_CHARS = 2_000
+_TRANSIENT_BROWSER_ERROR_PREFIXES = (
+    "Could not find ChatGPT composer.",
+    "Composer disappeared before submission.",
+    "Could not find ChatGPT send button.",
+    "ChatGPT prompt submission did not leave the composer after repeated send attempts.",
+    "Could not find ChatGPT plus control",
+    "ChatGPT Thinking control was not found.",
+    "GitHub app was not found in the ChatGPT menu.",
+)
 
 
 class BridgeState:
@@ -44,7 +56,9 @@ class BridgeState:
 
         with self.lock:
             queue = self.state_manager.load_queue()
-            queue.append(operation.to_dict())
+            item = operation.to_dict()
+            item["retry_count"] = 0
+            queue.append(item)
             self.state_manager.save_queue(queue)
 
         return operation
@@ -59,6 +73,7 @@ class BridgeState:
 
                 validate_transition("queued", "claimed")
                 item["status"] = "claimed"
+                item["claimed_at"] = time.time()
 
                 self.state_manager.save_queue(queue)
 
@@ -99,6 +114,12 @@ class BridgeState:
         operation_id: str,
         error: str,
     ) -> dict[str, Any] | None:
+        if self._is_transient_browser_error(error):
+            return self._retry_operation(
+                operation_id=operation_id,
+                error=error,
+            )
+
         return self._update_operation(
             operation_id=operation_id,
             status="failed",
@@ -174,6 +195,46 @@ class BridgeState:
                 "counts": counts,
             }
 
+    def _retry_operation(
+        self,
+        operation_id: str,
+        error: str,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self.state_manager.load_queue()
+
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+
+                current_status = str(item.get("status", ""))
+                retry_count = int(item.get("retry_count", 0) or 0)
+
+                if retry_count >= MAX_TRANSIENT_FAILURE_RETRIES:
+                    validate_transition(current_status, "failed")
+                    item["status"] = "failed"
+                    item["error"] = error[:MAX_ERROR_CHARS]
+                    item["failure_reason"] = "transient_retry_exhausted"
+                    self.state_manager.save_queue(queue)
+                    return item
+
+                validate_transition(current_status, "queued")
+                item["status"] = "queued"
+                item["retry_count"] = retry_count + 1
+                item["last_retry_error"] = error[:MAX_ERROR_CHARS]
+                item["requeued_at"] = time.time()
+                self.state_manager.save_queue(queue)
+                return item
+
+        return None
+
+    @staticmethod
+    def _is_transient_browser_error(error: str) -> bool:
+        return any(
+            error.startswith(prefix)
+            for prefix in _TRANSIENT_BROWSER_ERROR_PREFIXES
+        )
+
     def _update_operation(
         self,
         operation_id: str,
@@ -198,7 +259,7 @@ class BridgeState:
                     item["chat_url"] = chat_url
 
                 if error is not None:
-                    item["error"] = error
+                    item["error"] = error[:MAX_ERROR_CHARS]
 
                 if response_text is not None:
                     bounded_response = response_text[:MAX_RESPONSE_TEXT_CHARS]
@@ -217,7 +278,6 @@ class BridgeState:
     @staticmethod
     def _new_operation_id() -> str:
         import secrets
-        import time
 
         return (
             f"op-{time.time_ns()}-"
@@ -546,7 +606,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             },
             HTTPStatus.CREATED,
         )
-
 
     def _queue(
         self,
