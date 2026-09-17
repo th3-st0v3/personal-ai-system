@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
+// @version      2.2.0
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -16,6 +16,8 @@
     var COMPOSER_TIMEOUT_MS = 15000;
     var PROMPT_VERIFY_TIMEOUT_MS = 5000;
     var SEND_BUTTON_TIMEOUT_MS = 10000;
+    var SUBMISSION_TIMEOUT_MS = 3000;
+    var SUBMISSION_RETRY_DELAY_MS = 350;
     var NEW_CHAT_TIMEOUT_MS = 15000;
     var GENERATION_POLL_MS = 500;
     var GENERATION_TIMEOUT_MS = 60 * 60 * 1000;
@@ -23,7 +25,7 @@
     var activeOperationId = null;
     var processing = false;
 
-    console.log('[PASI] ChatGPT Controller v2.1.0 loaded.');
+    console.log('[PASI] ChatGPT Controller v2.2.0 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -90,7 +92,7 @@
         }
         if (operation.operation_type === 'new_chat') {
             await startNewChat();
-            await reportFinished(operation.operation_id, true);
+            await reportFinished(operation.operation_id, false);
             console.log('[PASI] New ChatGPT conversation started.');
             return;
         }
@@ -113,7 +115,7 @@
         if (!button) {
             throw new Error('Could not find ChatGPT New chat control. ' + newChatDiagnostics());
         }
-        if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
+        if (isDisabled(button)) {
             throw new Error('ChatGPT New chat control is disabled.');
         }
         console.log('[PASI] Clicking New chat:', getLabel(button));
@@ -186,18 +188,17 @@
 
         var verifiedComposer = await waitForPromptInsertion(operation.prompt);
         if (!verifiedComposer) {
-            throw new Error('Prompt insertion could not be verified.');
+            console.warn('[PASI] Prompt verification did not observe the expected text; continuing to submission diagnostics.');
         }
 
         var sendButton = await waitForSendButton();
-        if (!sendButton) throw new Error('Could not find ChatGPT send button.');
-        if (sendButton.disabled || sendButton.getAttribute('aria-disabled') === 'true') {
-            throw new Error('ChatGPT send button is disabled.');
+        if (!sendButton) {
+            throw new Error('Could not find ChatGPT send button. ' + submissionDiagnostics(operation.prompt));
         }
-        console.log('[PASI] Prompt inserted; sending operation:', operation.operation_id);
-        sendButton.click();
-        await waitUntilGenerationFinishes(operation.operation_id);
-        await reportFinished(operation.operation_id, true);
+
+        await submitPromptWithRecovery(operation.prompt, sendButton);
+        await waitUntilGenerationOrSubmissionSettles(operation.operation_id, operation.prompt);
+        await reportFinished(operation.operation_id, false);
         console.log('[PASI] Operation completed:', operation.operation_id);
     }
 
@@ -265,7 +266,6 @@
             }
             await sleep(200);
         }
-        console.warn('[PASI] Prompt text was not observed in the current composer after insertion.');
         return null;
     }
 
@@ -289,32 +289,132 @@
         var i;
         var j;
         var elements;
+        var element;
         for (i = 0; i < selectors.length; i += 1) {
             elements = document.querySelectorAll(selectors[i]);
             for (j = 0; j < elements.length; j += 1) {
-                if (isVisible(elements[j])) return elements[j];
+                element = elements[j];
+                if (isVisible(element) && !isDisabled(element)) return element;
             }
         }
         elements = document.querySelectorAll('button, [role="button"]');
         for (i = 0; i < elements.length; i += 1) {
-            if (!isVisible(elements[i])) continue;
-            var label = normalize(getLabel(elements[i]));
-            if (label.indexOf('send prompt') !== -1 || label.indexOf('send message') !== -1 || label === 'send') return elements[i];
+            element = elements[i];
+            if (!isVisible(element) || isDisabled(element)) continue;
+            var label = normalize(getLabel(element));
+            if (label.indexOf('send prompt') !== -1 || label.indexOf('send message') !== -1 || label === 'send') return element;
         }
         return null;
     }
 
-    async function waitUntilGenerationFinishes(operationId) {
+    async function submitPromptWithRecovery(expected, initialButton) {
+        var attempt = 0;
+        var composer;
+        var button = initialButton;
+
+        while (attempt < 3) {
+            attempt += 1;
+            composer = findComposerContaining(expected) || findComposer();
+            if (!composer) throw new Error('Composer disappeared before submission.');
+
+            button = findSendButton() || button;
+            if (button && !isDisabled(button) && isVisible(button)) {
+                console.log('[PASI] Submit attempt ' + attempt + ': clicking Send.');
+                button.click();
+            } else {
+                console.log('[PASI] Submit attempt ' + attempt + ': falling back to form/keyboard submission.');
+                if (!requestComposerSubmit(composer)) {
+                    dispatchEnter(composer);
+                }
+            }
+
+            if (await waitForSubmissionTransition(expected, SUBMISSION_TIMEOUT_MS)) {
+                console.log('[PASI] ChatGPT accepted the prompt after submit attempt ' + attempt + '.');
+                return;
+            }
+
+            if (attempt < 3) {
+                await sleep(SUBMISSION_RETRY_DELAY_MS);
+                button = findSendButton();
+            }
+        }
+
+        console.warn('[PASI] Prompt submission did not transition the composer. ' + submissionDiagnostics(expected));
+        throw new Error('ChatGPT prompt submission did not leave the composer after repeated send attempts.');
+    }
+
+    function requestComposerSubmit(composer) {
+        var form = composer.closest('form');
+        if (!form) return false;
+        if (typeof form.requestSubmit === 'function') {
+            form.requestSubmit(findSendButton() || undefined);
+            return true;
+        }
+        return false;
+    }
+
+    async function waitForSubmissionTransition(expected, timeoutMs) {
         var startTime = Date.now();
+        while (Date.now() - startTime < timeoutMs) {
+            if (isGenerating()) return true;
+            if (!findComposerContaining(expected)) return true;
+            await sleep(150);
+        }
+        return false;
+    }
+
+    async function waitUntilGenerationOrSubmissionSettles(operationId, expected) {
+        var startTime = Date.now();
+        var sawGeneration = false;
+        var submissionDeadline = Date.now() + SUBMISSION_TIMEOUT_MS;
+
         while (Date.now() - startTime < GENERATION_TIMEOUT_MS) {
-            if (!isGenerating()) {
+            if (isGenerating()) {
+                sawGeneration = true;
+                submissionDeadline = Date.now() + GENERATION_TIMEOUT_MS;
+                await sendHeartbeat(operationId);
+                await sleep(GENERATION_POLL_MS);
+                continue;
+            }
+
+            if (sawGeneration) {
                 await sleep(750);
                 if (!isGenerating()) return;
+            } else if (!findComposerContaining(expected)) {
+                await sleep(750);
+                if (!isGenerating() && !findComposerContaining(expected)) return;
+            } else if (Date.now() >= submissionDeadline) {
+                throw new Error('ChatGPT prompt remained in the composer after submission.');
             }
-            await sendHeartbeat(operationId);
+
             await sleep(GENERATION_POLL_MS);
         }
+
         throw new Error('ChatGPT generation timed out.');
+    }
+
+    function submissionDiagnostics(expected) {
+        var composer = findComposerContaining(expected) || findComposer();
+        var buttons = document.querySelectorAll('button, [role="button"]');
+        var controls = [];
+        var i;
+        var label;
+        var element;
+        for (i = 0; i < Math.min(buttons.length, 80); i += 1) {
+            element = buttons[i];
+            if (!isVisible(element)) continue;
+            label = normalize(getLabel(element));
+            if (label) controls.push({ label: label.slice(0, 120), disabled: isDisabled(element) });
+        }
+        console.warn('[PASI] Submission diagnostics:', {
+            composer_found: Boolean(composer),
+            composer_text_length: composer ? readComposerText(composer).length : 0,
+            expected_length: String(expected || '').length,
+            is_generating: isGenerating(),
+            active_element: document.activeElement ? document.activeElement.tagName : null,
+            controls: controls
+        });
+        return 'Submission diagnostics logged to console.';
     }
 
     function isGenerating() {
@@ -334,9 +434,10 @@
 
     function clearComposer(element) {
         element.focus();
-        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+        if (isTextControl(element)) {
             setNativeValue(element, '');
             element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
             return;
         }
         element.textContent = '';
@@ -345,7 +446,7 @@
 
     function insertText(element, text) {
         element.focus();
-        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+        if (isTextControl(element)) {
             setNativeValue(element, text);
             element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
             element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
@@ -363,6 +464,21 @@
         element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
     }
 
+    function dispatchEnter(element) {
+        element.focus();
+        var eventInit = {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true
+        };
+        element.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+        element.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+        element.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+    }
+
     function setNativeValue(element, value) {
         var prototype = Object.getPrototypeOf(element);
         var descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
@@ -371,17 +487,23 @@
     }
 
     function readComposerText(element) {
-        var actual = '';
-        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
-            actual = element.value || element.getAttribute('value') || '';
-        } else {
-            actual = element.innerText || element.textContent || '';
+        if (!element) return '';
+        if (isTextControl(element)) {
+            return String(element.value || element.getAttribute('value') || '');
         }
-        return String(actual);
+        return String(element.innerText || element.textContent || '');
     }
 
-    function composerContains(element, expected) {
-        return readComposerText(element).indexOf(expected) !== -1;
+    function isTextControl(element) {
+        return Boolean(element) && (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT');
+    }
+
+    function isDisabled(element) {
+        return Boolean(element) && (
+            element.disabled === true ||
+            element.getAttribute('disabled') !== null ||
+            element.getAttribute('aria-disabled') === 'true'
+        );
     }
 
     function getLabel(element) {
