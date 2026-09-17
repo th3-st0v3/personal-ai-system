@@ -14,6 +14,7 @@ from typing import Any
 
 from engineering_context import collect_context
 
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENROUTER_MODEL = "openrouter/free"
 DEFAULT_PERPLEXITY_URL = "https://api.perplexity.ai/v1"
@@ -21,6 +22,7 @@ DEFAULT_PERPLEXITY_MODEL = "sonar-pro"
 MAX_CONTEXT_CHARS = 60_000
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_PROMPT_CHARS = 90_000
+OLLAMA_DISCOVERY_TIMEOUT = 2.0
 
 SYSTEM_PROMPT = """You are a provider-fallback engineering assistant for Personal AI System.
 You are operating only because the primary ChatGPT browser path is unavailable or needs a recovery path.
@@ -79,6 +81,18 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeou
     return decoded
 
 
+def get_json(url: str, timeout: float) -> dict[str, Any]:
+    request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(body) > MAX_RESPONSE_BYTES:
+        raise ValueError("provider response exceeded the configured size limit")
+    decoded = json.loads(body.decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("provider response must be a JSON object")
+    return decoded
+
+
 def extract_chat_text(payload: dict[str, Any]) -> str:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
@@ -101,6 +115,40 @@ def extract_chat_text(payload: dict[str, Any]) -> str:
         if text:
             return text
     raise ValueError("provider returned no usable text")
+
+
+def call_ollama(prompt: str, timeout: float) -> str:
+    base_url = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL).rstrip("/")
+    model = os.environ.get("OLLAMA_MODEL", "").strip()
+    if not model:
+        try:
+            tags = get_json(base_url + "/api/tags", min(timeout, OLLAMA_DISCOVERY_TIMEOUT))
+        except (OSError, TimeoutError, ValueError, urllib.error.URLError) as exc:
+            raise RuntimeError("Ollama is not reachable and OLLAMA_MODEL is not configured") from exc
+        models = tags.get("models")
+        if not isinstance(models, list):
+            raise RuntimeError("Ollama returned no installed models")
+        names = [item.get("name") for item in models if isinstance(item, dict) and isinstance(item.get("name"), str)]
+        model = names[0].strip() if names else ""
+    if not model:
+        raise RuntimeError("no Ollama model is installed; set OLLAMA_MODEL or install a local model")
+    data = post_json(
+        base_url + "/api/chat",
+        {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        },
+        {},
+        timeout,
+    )
+    message = data.get("message")
+    if not isinstance(message, dict) or not isinstance(message.get("content"), str) or not message["content"].strip():
+        raise ValueError("Ollama returned no usable message content")
+    return str(message["content"])
 
 
 def call_openrouter(prompt: str, timeout: float) -> str:
@@ -164,12 +212,14 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
 
 def providers_available() -> list[str]:
     values: list[str] = []
+    if os.environ.get("OLLAMA_MODEL", "").strip() or os.environ.get("OLLAMA_BASE_URL", "").strip() or shutil.which("ollama"):
+        values.append("ollama")
+    if shutil.which("opencode"):
+        values.append("opencode")
     if os.environ.get("OPENROUTER_API_KEY", "").strip():
         values.append("openrouter")
     if os.environ.get("PERPLEXITY_API_KEY", "").strip():
         values.append("perplexity")
-    if shutil.which("opencode"):
-        values.append("opencode")
     return values
 
 
@@ -181,7 +231,7 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
     errors: list[str] = []
     providers = providers_available()
     if not providers:
-        raise RuntimeError("no fallback provider configured; set OPENROUTER_API_KEY or PERPLEXITY_API_KEY, or install OpenCode")
+        raise RuntimeError("no fallback provider configured; free browser automation remains available through the primary ChatGPT session; optional fallbacks are Ollama/OpenCode locally or API providers")
     per_provider = max(15.0, timeout / max(1, len(providers)))
     for provider in providers:
         remaining = timeout - (time.monotonic() - started)
@@ -189,6 +239,8 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
             break
         limit = min(per_provider, remaining)
         try:
+            if provider == "ollama":
+                return provider, call_ollama(prompt, limit)
             if provider == "openrouter":
                 return provider, call_openrouter(prompt, limit)
             if provider == "perplexity":
@@ -196,7 +248,7 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
             return provider, call_opencode(prompt, repo, limit)
         except urllib.error.HTTPError as exc:
             errors.append(f"{provider}: HTTP {exc.code}")
-        except (OSError, TimeoutError, ValueError, RuntimeError) as exc:
+        except (OSError, TimeoutError, ValueError, RuntimeError, urllib.error.URLError) as exc:
             errors.append(f"{provider}: {bounded_text(str(exc), 500)}")
     raise RuntimeError("all configured fallback providers failed: " + "; ".join(errors))
 
