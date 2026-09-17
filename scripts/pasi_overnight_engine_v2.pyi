@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime as _DateTime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+datetime: type[_DateTime]
 REPO_ROOT: Path
 RUNTIME_DIR: Path
 STATE_PATH: Path
