@@ -195,7 +195,7 @@ def process_controller_update_signal(response_text: str, root: Path) -> dict[str
     )
     result = decision.to_dict()
     if decision.eligible:
-        write_update_request(root / " .runtime".strip() / "chatgpt" / "controller-update-request.json", decision, source="chatgpt-response")
+        write_update_request(root / ".runtime" / "chatgpt" / "controller-update-request.json", decision, source="chatgpt-response")
     return result
 
 
