@@ -50,7 +50,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn(PUBLIC_REPOSITORY_URL, prompt)
         self.assertIn(PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL, prompt)
         self.assertIn("public GitHub repository as the default source", prompt)
-        self.assertIn("ChatGPT GitHub app is NOT part of the default workflow", prompt)
+        self.assertIn("ChatGPT GitHub app is not part of the default workflow", prompt)
         self.assertIn("Thinking/reasoning mode is required for every PASI task", prompt)
         self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
@@ -60,7 +60,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("Previous PASI handoff:\nPrior verified handoff", prompt)
 
     def test_build_prompt_does_not_claim_execution(self) -> None:
-        self.assertIn("Do not claim that files were changed", build_prompt("make a change", "clean working tree", {}))
+        self.assertIn("Do not claim files were changed", build_prompt("make a change", "clean working tree", {}))
 
     def test_live_controller_observation_requires_fresh_state(self) -> None:
         now = datetime(2026, 9, 17, 4, 50, tzinfo=timezone.utc)
