@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from automation.orchestrator.state import StateCorruptionError, StateManager
 from automation.orchestrator.verification_telemetry import VerificationTelemetry
@@ -93,9 +94,12 @@ class VerificationTelemetryTests(unittest.TestCase):
             action_id="action-1",
         )
 
+        provenance = cast(dict[str, Any], result["provenance"])
+        fingerprint = provenance["fingerprint"]
+        self.assertIsInstance(fingerprint, str)
         self.assertEqual(record.event_type, "simulation_verification")
         self.assertEqual(record.status, "verified")
-        self.assertEqual(record.evidence_fingerprint, result["provenance"]["fingerprint"])
+        self.assertEqual(record.evidence_fingerprint, fingerprint)
         self.assertEqual(self.telemetry.load()[0].action_id, "action-1")
 
 
