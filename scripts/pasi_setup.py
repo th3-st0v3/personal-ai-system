@@ -136,15 +136,18 @@ def print_report(report: dict[str, Any]) -> None:
         print(f"  [{state}] {name}")
     print()
     print("Runtime")
-    bridge = report["runtime"]["bridge_health"].get("status", "unavailable")
-    distribution = report["runtime"]["controller_distribution_health"].get("status", "unavailable")
+    runtime = report["runtime"]
+    bridge_health = runtime.get("bridge_health")
+    controller_distribution = runtime.get("controller_distribution_health")
+    bridge = bridge_health.get("status", "unavailable") if isinstance(bridge_health, dict) else "unavailable"
+    distribution = controller_distribution.get("status", "unavailable") if isinstance(controller_distribution, dict) else "unavailable"
     print(f"  Bridge: {bridge}")
     print(f"  Controller distribution: {distribution}")
-    if report["runtime"]["chatgpt_login_required"]:
+    if runtime.get("chatgpt_login_required") is True:
         print("  ChatGPT: ACTION REQUIRED — authenticate / complete the interactive security check in the browser.")
-    elif report["runtime"]["chatgpt_usage_limited"]:
+    elif runtime.get("chatgpt_usage_limited") is True:
         print("  ChatGPT: provider/account usage limit detected; PASI will use configured fallbacks when possible.")
-    elif report["runtime"]["chatgpt_context_exhausted"]:
+    elif runtime.get("chatgpt_context_exhausted") is True:
         print("  ChatGPT: current conversation is exhausted; PASI recovery will use a fresh chat.")
     else:
         print("  ChatGPT: no authentication or usage-limit obstacle is currently reported.")
@@ -166,9 +169,10 @@ def main() -> int:
     else:
         print_report(report)
 
-    mandatory = report["local_prerequisites"]["venv_python"]
-    git = report["local_prerequisites"]["git"]
-    if args.check and (not mandatory.get("present") or not mandatory.get("executable") or not git.get("present")):
+    local_prerequisites = report["local_prerequisites"]
+    mandatory = local_prerequisites.get("venv_python", {})
+    git = local_prerequisites.get("git", {})
+    if args.check and (not isinstance(mandatory, dict) or not mandatory.get("present") or not mandatory.get("executable") or not isinstance(git, dict) or not git.get("present")):
         return 2
     return 0
 
