@@ -18,9 +18,9 @@ MAX_REPAIR_ATTEMPTS = 2
 RESPONSE_ARCHIVE_MAX_CHARS = 60_000
 PRIMARY_RECOVERY_WINDOW_SECONDS = 3 * 60 * 60
 PRIMARY_RECOVERY_POLL_SECONDS = 60.0
-NO_CHANGE_SENTINEL = "__PASI_NO_CHANGE__"
+MAX_RUNNER_RESTARTS = 8
+RUNNER_RESTART_BACKOFF_SECONDS = 30.0
 _DIFF_LINE_RE = re.compile(r"^diff --git .+$", re.MULTILINE)
-_NO_CHANGE_RE = re.compile(r"^PASI_RESULT_NO_CHANGE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 
 def _extract_diff_block(text: str) -> str:
@@ -43,22 +43,15 @@ def _extract_diff_block(text: str) -> str:
 
 def _parsed_response(response: str, original_parse: Any) -> tuple[str, str, str, str, bool, dict[str, str]]:
     status, summary, next_task, patch, allow_delete, values = original_parse(response)
-    values = dict(values)
-    if _NO_CHANGE_RE.search(response):
-        values["no_change"] = "true"
-        if status == "complete" and not patch:
-            return status, summary or "Task completed without a repository change; no safe change was necessary.", next_task, NO_CHANGE_SENTINEL, allow_delete, values
     if not patch:
         recovered = _extract_diff_block(response)
         if recovered:
             patch = legacy.normalize_patch(recovered)
-    return status, summary, next_task, patch, allow_delete, values
+    return status, summary, next_task, patch, allow_delete, dict(values)
 
 
 def _contract_valid(parsed: tuple[str, str, str, str, bool, dict[str, str]]) -> bool:
     status, _summary, _next_task, patch, _allow_delete, values = parsed
-    if values.get("no_change") == "true" and patch == NO_CHANGE_SENTINEL:
-        return legacy.completion_contract_is_satisfied(status, values)
     return legacy.completion_contract_is_satisfied(status, values) and bool(patch)
 
 
@@ -86,7 +79,7 @@ def _archive_response(
 def _contract_instruction() -> str:
     return """
 WEEKLONG RESPONSE CONTRACT:
-Return the PASI completion markers exactly as requested. Include PASI_RESULT_NO_CHANGE: true only when there is genuinely no safe or necessary repository change; otherwise provide the unified git diff. Never claim tests or evidence that were not actually produced.
+Return the PASI completion markers exactly as requested. The patch markers must contain one real unified git diff. Do not use a no-change shortcut. Never claim tests or evidence that were not actually produced.
 """
 
 
@@ -113,12 +106,9 @@ PASI_RESULT_UX: verified|not_applicable
 PASI_RESULT_BACKEND: verified|not_applicable
 PASI_RESULT_EVIDENCE: concise reproducible tests/verification evidence
 PASI_RESULT_ALLOW_DELETE: true|false
-PASI_RESULT_NO_CHANGE: true|false
 PASI_RESULT_PATCH_BEGIN
 <one unified git diff, plain text only; do not use Markdown fences>
 PASI_RESULT_PATCH_END
-
-Use PASI_RESULT_NO_CHANGE: true only when there is genuinely no safe, necessary repository change. In that case, keep the patch markers empty and provide concrete evidence explaining why no change is required.
 
 PREVIOUS RESPONSE EXCERPT:
 {evidence}
@@ -186,13 +176,11 @@ def _recover_primary_provider(
             remaining_seconds=int(max(0, remaining)),
             previous_failure=(failure or response)[-2000:],
         )
-        sleep_until = min(PRIMARY_RECOVERY_POLL_SECONDS, max(1.0, remaining))
-        end = supervisor.now_utc() + supervisor.timedelta(seconds=sleep_until)
+        end = supervisor.now_utc() + supervisor.timedelta(seconds=min(PRIMARY_RECOVERY_POLL_SECONDS, max(1.0, remaining)))
         while not supervisor.STOP and supervisor.now_utc() < min(deadline, end):
             time.sleep(1.0)
         if supervisor.STOP:
             break
-
         retry_code, retry_response = primary_invoke(task, state, failure, ledger=ledger)
         last_code, last_response = retry_code, retry_response
         if retry_code == 0:
@@ -202,12 +190,21 @@ def _recover_primary_provider(
             break
         response = retry_response or response
         failure = retry_response[-8_000:] or failure
-
     return last_code, last_response
 
 
+def _should_not_restart(exit_code: int, state: Any | None) -> bool:
+    if exit_code in {130, 143}:
+        return True
+    if state is None:
+        return False
+    if supervisor.now_utc() >= supervisor.datetime.fromisoformat(state.deadline_at):
+        return True
+    return state.stop_reason in {"stopped", "keyboard_interrupt", "deadline_reached"}
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run PASI unattended with resilient response recovery for weeklong operation.")
+    parser = argparse.ArgumentParser(description="Run PASI unattended with resilient response recovery and bounded process restart for weeklong operation.")
     parser.add_argument("--hours", type=float, required=True)
     args, passthrough = parser.parse_known_args()
     if not math.isfinite(args.hours) or args.hours < legacy.MIN_HOURS:
@@ -261,7 +258,7 @@ def main() -> int:
             _archive_response(
                 Path(state.worktree),
                 state.task_number,
-                state.current_attempt,
+                state.current_attempt * 10 + repair_attempt,
                 repair_response,
                 label=f"repair-{repair_attempt}",
             )
@@ -293,8 +290,6 @@ def main() -> int:
         return code, response
 
     def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool):
-        if patch == NO_CHANGE_SENTINEL:
-            return "NO_CHANGE", "PASI_RESULT_NO_CHANGE was explicitly verified; no repository change was necessary."
         return original_verify(worktree, branch, task, patch, allow_delete, push=push)
 
     def paced_sleep(state: Any, seconds: float, *, ledger: Any) -> bool:
@@ -317,9 +312,40 @@ def main() -> int:
     hardening.nonblocking_sleep = paced_sleep
     supervisor.parse_response = parse_response
     supervisor.verify_and_commit = verify_and_commit
+
+    restart_count = 0
+    resume_passthrough = list(passthrough)
     try:
-        sys.argv = ["pasi_automation_entrypoint.py", "--hours", str(args.hours), *passthrough]
-        return automation.main()
+        while True:
+            supervisor.STOP = False
+            sys.argv = ["pasi_automation_entrypoint.py", "--hours", str(args.hours), *resume_passthrough]
+            exit_code = automation.main()
+            state = supervisor.load_state()
+            if _should_not_restart(exit_code, state):
+                return exit_code
+            if supervisor.now_utc() >= supervisor.datetime.fromisoformat(state.deadline_at) if state is not None else True:
+                return exit_code
+            if restart_count >= MAX_RUNNER_RESTARTS:
+                supervisor.log_event(
+                    "runner_restart_budget_exhausted",
+                    restarts=restart_count,
+                    task_number=state.task_number if state is not None else None,
+                )
+                return exit_code or 1
+            restart_count += 1
+            if "--resume" not in resume_passthrough:
+                resume_passthrough.append("--resume")
+            supervisor.log_event(
+                "runner_restarting",
+                restart_count=restart_count,
+                exit_code=exit_code,
+                reason=state.stop_reason if state is not None else "no persisted state",
+                task_number=state.task_number if state is not None else None,
+            )
+            deadline = supervisor.datetime.fromisoformat(state.deadline_at) if state is not None else supervisor.now_utc()
+            end = min(deadline, supervisor.now_utc() + supervisor.timedelta(seconds=RUNNER_RESTART_BACKOFF_SECONDS))
+            while not supervisor.STOP and supervisor.now_utc() < end:
+                time.sleep(1.0)
     finally:
         supervisor.parse_response = original_parse
         supervisor.verify_and_commit = original_verify
