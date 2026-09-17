@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ _FORBIDDEN_PATH_PATTERNS = (
 _DIFF_PATH_RE = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]+\n\+\+\+ /dev/null$", re.MULTILINE)
 _AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
+_BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
+_CONTROLLER_HEALTH_URL = "http://127.0.0.1:8766/health"
 
 
 def validate_patch_paths(patch: str, allow_delete: bool) -> None:
@@ -81,6 +84,38 @@ def _record_event_obstacle(ledger: ObstacleLedger, kind: str, data: dict[str, An
     obstacle_kind, summary, next_action = selected
     details = {key: value for key, value in data.items() if key in {"error", "condition", "count", "phase", "task_number", "attempt"}}
     ledger.record(obstacle_kind, summary, next_action, task_id=_task_id(data), details=details)
+
+
+def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
+    """Start local PASI helpers opportunistically without making them a startup gate."""
+    children: list[Any] = []
+    services = (
+        (
+            "bridge",
+            supervisor.healthy(_BRIDGE_HEALTH_URL),
+            [sys.executable, "-m", "automation.orchestrator.bridge"],
+        ),
+        (
+            "controller_distribution",
+            supervisor.healthy(_CONTROLLER_HEALTH_URL),
+            [sys.executable, "scripts/pasi_controller_server.py"],
+        ),
+    )
+    for service_name, already_healthy, command in services:
+        if already_healthy:
+            continue
+        supervisor.log_event("service_start_nonblocking", service=service_name)
+        try:
+            children.append(subprocess.Popen(command, cwd=supervisor.REPO_ROOT))
+        except OSError as exc:
+            ledger.record(
+                "service_unavailable",
+                f"PASI local {service_name} service could not be started.",
+                "Continue using fallback work; repair or restart the local service later and retry automatically on a future task.",
+                status="waiting_external",
+                details={"service": service_name, "error": str(exc)},
+            )
+    return children
 
 
 def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
@@ -157,6 +192,7 @@ def main() -> int:
     original_log = supervisor.log_event
     original_gate = supervisor.automation_gate_is_satisfied
     original_parse = supervisor.parse_response
+    original_services = supervisor.ensure_services
     automation_continue_requested = False
 
     def parse_response(response: str):
@@ -195,6 +231,7 @@ def main() -> int:
     supervisor.validate_patch_paths = validate_patch_paths
     supervisor.log_event = log_event
     supervisor.runtime_watchdog_is_live = original_watchdog
+    supervisor.ensure_services = lambda: nonblocking_ensure_services(ledger=ledger)
     supervisor.standby_until_ready = lambda state: nonblocking_standby(state, ledger=ledger)
     supervisor.sleep_until_retry = lambda state, seconds: nonblocking_sleep(state, seconds, ledger=ledger)
     supervisor.invoke_chat = lambda task, state, failure: resilient_invoke_chat(task, state, failure, ledger=ledger)
@@ -205,6 +242,7 @@ def main() -> int:
     finally:
         supervisor.validate_patch_paths = original_validate
         supervisor.runtime_watchdog_is_live = original_watchdog
+        supervisor.ensure_services = original_services
         supervisor.sleep_until_retry = original_sleep
         supervisor.invoke_chat = original_invoke
         supervisor.log_event = original_log
