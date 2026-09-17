@@ -192,6 +192,10 @@ Background operation is modeled on the `Session` boundary. A session identifies 
 
 A production worker should prefer isolated browser/application sessions and semantic/accessibility/API interfaces over raw mouse coordinates. The user must be able to pause, resume, stop, inspect, and recover a session.
 
+Each authorized worker step can pass through a deterministic, provider-neutral post-execution verification seam before the worker clears its current action. Verification confirms structural properties of the returned observation and can later be replaced or extended with domain-specific verifiers. Verification remains downstream of authorization and cannot grant permission to execute.
+
+When configured, the worker records the verification result and observation fingerprint in the bounded, hash-linked verification telemetry ledger. A telemetry failure stops the worker rather than silently continuing without the configured evidence trail.
+
 Background operation does not imply unrestricted access to the user's computer. Credentials, password managers, banking/brokerage systems, arbitrary privileged administration, and unrelated personal data remain outside the capability boundary.
 
 ## Events and provenance
@@ -214,6 +218,8 @@ Result
 Verification
 ```
 
+The verification telemetry ledger is intentionally bounded. It stores hashes, identifiers, and bounded metadata rather than retaining full observation or simulation payloads indefinitely. Records are linked with SHA-256 predecessor hashes, and bounded retention preserves the predecessor anchor of the earliest retained record so continuity can still be checked across the retention boundary.
+
 ## Implementation sequence
 
 1. Contract and state-machine foundation.
@@ -225,6 +231,7 @@ Verification
 7. Browser Use integration with challenge detection and safe fallback recovery.
 8. GitHub API/connector plus UI fallback adapter.
 9. Persistent background worker with pause/resume/recovery.
-10. Integration with simulation provenance and verification telemetry.
+10. Simulation provenance, verification telemetry, and worker post-execution verification.
+11. Task-specific verifiers plus replay and diagnostic workflows.
 
-The system should not skip the contract and authorization layers in order to reach end-to-end UI automation faster; those layers are what make later autonomy replaceable, testable, and governable.
+The system should not skip the contract, authorization, and verification layers in order to reach end-to-end UI automation faster; those layers are what make later autonomy replaceable, testable, and governable.

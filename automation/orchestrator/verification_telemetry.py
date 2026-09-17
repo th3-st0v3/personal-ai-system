@@ -254,10 +254,30 @@ class VerificationTelemetry:
         task_id: str,
         worker_id: str,
     ) -> VerificationRecord:
-        """Record only bounded metadata and the observation fingerprint for a worker step."""
+        return self.record_worker_verification(
+            action,
+            observation,
+            {"status": "verified", "verified": True},
+            session_id=session_id,
+            task_id=task_id,
+            worker_id=worker_id,
+        )
+
+    def record_worker_verification(
+        self,
+        action: ActionProposal,
+        observation: Observation,
+        verification: Mapping[str, Any],
+        *,
+        session_id: str,
+        task_id: str,
+        worker_id: str,
+    ) -> VerificationRecord:
+        """Record bounded worker verification metadata and the observation fingerprint."""
+        status = verification.get("status")
         return self.append(
-            event_type="worker_execution",
-            status="completed",
+            event_type="worker_verification",
+            status=str(status) if isinstance(status, str) else "unknown",
             evidence_fingerprint=observation.fingerprint(),
             details={
                 "worker_id": worker_id,
@@ -265,6 +285,7 @@ class VerificationTelemetry:
                 "target": action.target,
                 "observation_kind": observation.kind,
                 "observation_source": observation.source,
+                "verification": dict(verification),
             },
             session_id=session_id,
             task_id=task_id,
