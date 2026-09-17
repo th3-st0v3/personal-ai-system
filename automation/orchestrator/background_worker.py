@@ -145,9 +145,11 @@ class BackgroundWorker:
             self._persist()
             return self.state
 
-    def resume(self) -> WorkerState:
+    def resume(self, *, human_approval: bool = False) -> WorkerState:
         with self.lock:
-            if self.state.phase != "paused":
+            if self.state.phase == "waiting_human" and not human_approval:
+                raise WorkerExecutionError("human approval is required before resuming")
+            if self.state.phase not in {"paused", "waiting_human"}:
                 raise WorkerExecutionError(f"worker cannot resume from phase {self.state.phase!r}")
             self._ensure_not_expired()
             self.state = self._replace(phase="running", pause_reason=None, recovery_required=False)
@@ -298,6 +300,8 @@ class BackgroundWorker:
             deadline = datetime.fromisoformat(self.state.deadline_at)
         except ValueError as exc:
             raise StateCorruptionError("Invalid worker state shape: deadline_at is invalid") from exc
+        if deadline.tzinfo is None:
+            raise StateCorruptionError("Invalid worker state shape: deadline_at must include timezone")
         return datetime.now(timezone.utc) >= deadline
 
     def _ensure_not_expired(self) -> None:
