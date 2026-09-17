@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.6
+// @version      2.4.7
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,7 +12,7 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var CONTROLLER_VERSION = '2.4.6';
+    var CONTROLLER_VERSION = '2.4.7';
     var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
     var DOM_POLL_INTERVAL_MS = 100;
@@ -258,7 +258,7 @@
         var response = await waitForAssistantResponse(baseline);
         if (!response) throw new Error('ChatGPT response could not be extracted from the page.');
         await reportResponseObservation(response);
-        await reportFinished(operation.operation_id, true);
+        await reportFinished(operation.operation_id, response);
     }
 
     async function waitForComposer() { return waitFor(function () { var c = findComposer(); return c && !isGenerating() ? c : null; }, COMPOSER_TIMEOUT_MS); }
@@ -394,9 +394,28 @@
         } catch (error) { console.warn('[PASI] Could not report ChatGPT state:', error); }
     }
 
-    async function reportFinished(operationId, responseObserved) {
-        var response = await bridgeRequest('/chat/finished', { method: 'POST', body: { operation_id: operationId, chat_url: chatUrl(), response_text_available: Boolean(responseObserved) } });
-        if (!response.ok) throw new Error('Bridge completion failed: HTTP ' + response.status);
+    async function reportFinished(operationId, responseText) {
+        var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: Boolean(responseText) };
+        if (typeof responseText === 'string') body.response_text = responseText.slice(0, 50000);
+        var lastError = null;
+        for (var attempt = 1; attempt <= 3; attempt += 1) {
+            try {
+                var response = await bridgeRequest('/chat/finished', { method: 'POST', body: body });
+                if (response.ok) return;
+                lastError = new Error('Bridge completion failed: HTTP ' + response.status);
+            } catch (error) {
+                lastError = error;
+            }
+            try {
+                var current = await bridgeRequest('/operation?operation_id=' + encodeURIComponent(operationId));
+                if (current.ok) {
+                    var payload = await current.json();
+                    if (payload && payload.operation && payload.operation.status === 'completed') return;
+                }
+            } catch (_) {}
+            if (attempt < 3) await sleep(150);
+        }
+        throw lastError || new Error('Bridge completion failed.');
     }
 
     async function reportFailure(operationId, error) {
