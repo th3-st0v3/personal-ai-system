@@ -7,31 +7,29 @@ const source = fs.readFileSync(
   'utf8',
 );
 
-test('loader conditionally activates published controller releases', () => {
-  assert.match(source, /controller-sync\.json/);
+test('loader activates only a verified local PASI controller release', () => {
+  assert.match(source, /controller\/manifest/);
+  assert.match(source, /controller\/source/);
   assert.match(source, /manifest\.enabled !== true/);
   assert.match(source, /gitBlobSha1/);
-  assert.match(source, /Controller Git blob mismatch/);
+  assert.match(source, /Local controller Git blob mismatch/);
   assert.match(source, /eval\(source\)/);
   assert.match(source, /GM_getValue\(LAST_VERSION_KEY/);
   assert.match(source, /GM_setValue\(LAST_HASH_KEY/);
 });
 
-test('loader uses a resilient GitHub source path and API fallback', () => {
-  assert.match(source, /raw\.githubusercontent\.com\/th3-st0v3\/personal-ai-system\/refs\/heads\/main/);
-  assert.match(source, /api\.github\.com\/repos\/th3-st0v3\/personal-ai-system\/contents/);
-  assert.match(source, /Primary GitHub file URL returned 404/);
-  assert.match(source, /using GitHub API fallback/);
-  assert.match(source, /decodeBase64Utf8/);
-  assert.match(source, /X-GitHub-Api-Version/);
+test('loader uses localhost only for private-repository distribution', () => {
+  assert.match(source, /http:\/\/127\.0\.0\.1:8766\/controller\/manifest/);
+  assert.match(source, /http:\/\/127\.0\.0\.1:8766\/controller\/source/);
+  assert.doesNotMatch(source, /raw\.githubusercontent\.com/);
+  assert.doesNotMatch(source, /api\.github\.com/);
 });
 
-test('loader restricts controller source to PASI main', () => {
-  assert.match(
-    source,
-    /TRUSTED_SOURCE_PREFIX = 'https:\/\/raw\.githubusercontent\.com\/th3-st0v3\/personal-ai-system\/'/,
-  );
-  assert.match(source, /TRUSTED_SOURCE_REF = '\/refs\/heads\/main\/'/);
+test('loader cleanly reloads after a verified controller update', () => {
+  assert.match(source, /ACTIVE_HASH_PROPERTY/);
+  assert.match(source, /Verified controller update detected; refreshing the page/);
+  assert.match(source, /New verified controller release detected; reloading page/);
+  assert.match(source, /window\.location\.reload\(\)/);
 });
 
 test('loader computes the Git blob identity from UTF-8 bytes', () => {
@@ -39,6 +37,6 @@ test('loader computes the Git blob identity from UTF-8 bytes', () => {
   assert.match(source, /crypto\.subtle\.digest\('SHA-1'/);
 });
 
-test('loader polls slowly enough to keep API fallback within unauthenticated rate limits', () => {
+test('loader polls slowly enough for unattended runtime operation', () => {
   assert.match(source, /POLL_INTERVAL_MS = 5 \* 60 \* 1000/);
 });
