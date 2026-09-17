@@ -28,15 +28,15 @@ class FakeAdapter:
 
 def state(url: str | None, *, exhausted: bool = False) -> dict[str, Any]:
     return {
-        "observation": {
-            "data": {
-                "kind": "chatgpt_state",
-                "chat_url": url,
-                "chat_exhausted": exhausted,
-                "conversation_context_exhausted": exhausted,
-                "github_attached": False,
-            }
-        }
+        "schema_version": "test",
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "data": {
+            "kind": "chatgpt_state",
+            "chat_url": url,
+            "chat_exhausted": exhausted,
+            "conversation_context_exhausted": exhausted,
+            "github_attached": False,
+        },
     }
 
 
