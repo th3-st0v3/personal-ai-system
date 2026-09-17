@@ -73,9 +73,12 @@ def test_route_chat_adopts_a_detected_new_chat_instead_of_creating_another() -> 
     assert updated["chat_url"] == "https://chatgpt.com/c/new"
     assert updated["github_attached"] is False
     assert updated["reasoning_mode"] == "thinking"
-    assert updated["chat_url_history"]
-    assert updated["chat_url_history"][-1]["previous_url"] == "https://chatgpt.com/c/old"
-    assert updated["chat_url_history"][-1]["new_url"] == "https://chatgpt.com/c/new"
+    history = updated["chat_url_history"]
+    assert isinstance(history, list) and history
+    entry = history[-1]
+    assert isinstance(entry, dict)
+    assert entry["previous_url"] == "https://chatgpt.com/c/old"
+    assert entry["new_url"] == "https://chatgpt.com/c/new"
 
 
 def test_route_chat_creates_replacement_only_for_verified_exhaustion() -> None:
