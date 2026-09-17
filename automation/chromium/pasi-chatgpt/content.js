@@ -250,13 +250,13 @@
       const currentChat = chatUrl();
       const navigated = location.href !== previousLocation;
       const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat);
-      const emptyConversation = userMessages().length === 0 && assistantMessages().length === 0 && composer() && !generating();
-      return composer() && !generating() && ((navigated && emptyConversation) || (differentChat && currentChat !== previousChat) || (!previousChat && emptyConversation && conversationSignature() !== previousSignature));
+      const initialChatReady = !previousChat && navigated && currentChat && composer() && !generating() && userMessages().length === 0 && assistantMessages().length === 0 && conversationSignature() !== previousSignature;
+      return composer() && !generating() && (differentChat || initialChatReady);
     }, TIMEOUTS.menu + 7000);
     if (!ready) throw new Error('PASI_NATIVE: new chat did not reach a verified ready state');
 
     const current = chatUrl();
-    if (previousChat && current && current === previousChat) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
+    if (previousChat && (!current || current === previousChat)) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
     reasoningMode = null;
     githubAttached = false;
     lastKnownChatUrl = current;
