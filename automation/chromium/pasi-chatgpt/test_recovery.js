@@ -11,13 +11,29 @@ test('recovery uses the requested 25-minute generation ceiling and starts recove
   assert.match(source, /generation_timeout_ms: GENERATION_TIMEOUT_MS/);
 });
 
-test('recovery can preserve a response, reload once, and prepare a fresh chat for retry', () => {
+test('recovery preserves a verified response and includes response text in completion persistence', () => {
   assert.match(source, /preserve_response/);
+  assert.match(source, /response_text: bounded/);
+  assert.match(source, /response_text_available: Boolean\(bounded\)/);
   assert.match(source, /location\.reload\(\)/);
   assert.match(source, /queueNewChat/);
   assert.match(source, /operation_type: 'new_chat'/);
   assert.match(source, /CHAT_RECOVERED_RETRY/);
   assert.match(source, /grace_wait/);
+});
+
+test('recovery never prepares a replacement chat without verified exhaustion', () => {
+  assert.match(source, /function replacementReason\(\)/);
+  assert.match(source, /const reason = replacementReason\(\)/);
+  assert.match(source, /if \(!reason\)/);
+  assert.match(source, /preserve_current_chat/);
+  assert.match(source, /no_verified_usage_or_context_exhaustion/);
+});
+
+test('recovery clears terminal operations and does not loop on the same failed operation', () => {
+  assert.match(source, /current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'/);
+  assert.match(source, /clearRecoveryState\(\)/);
+  assert.match(source, /status === 'failed' \|\| state\.status === 'cancelled'/);
 });
 
 test('recovery detects security challenges without attempting to bypass them', () => {
