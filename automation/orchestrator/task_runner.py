@@ -20,6 +20,28 @@ RunnerPhase = Literal[
     "failed",
 ]
 CompletionStatus = Literal["complete", "incomplete", "failed"]
+_ACTION_KINDS = frozenset[
+    ActionKind
+](
+    {
+        "observe",
+        "ai_new_session",
+        "ai_select_reasoning",
+        "ai_submit_prompt",
+        "ai_read_response",
+        "ide_read",
+        "ide_diagnostics",
+        "ide_search",
+        "ide_command",
+        "github_read",
+        "github_ui",
+        "web_search",
+        "web_read",
+        "browser_task",
+        "desktop_ui",
+    }
+)
+_ACTION_RISKS = frozenset({"safe", "approval_required", "denied"})
 
 
 @dataclass(frozen=True)
@@ -384,38 +406,42 @@ class BoundedTaskRunner:
 
 
 def _action_from_dict(data: dict[str, Any]) -> ActionProposal:
+    action_id = data.get("action_id")
+    session_id = data.get("session_id")
+    target = data.get("target")
     action_name = data.get("action")
-    if not isinstance(action_name, str) or action_name not in {
-        "observe",
-        "ai_new_session",
-        "ai_select_reasoning",
-        "ai_submit_prompt",
-        "ai_read_response",
-        "ide_read",
-        "ide_diagnostics",
-        "ide_search",
-        "ide_command",
-        "github_read",
-        "github_ui",
-        "web_search",
-        "web_read",
-        "browser_task",
-        "desktop_ui",
-    }:
+    parameters = data.get("parameters", {})
+    reason = data.get("reason", "")
+    risk = data.get("risk")
+
+    if not isinstance(action_id, str) or not action_id.strip():
+        raise StateCorruptionError("Invalid task runner state: pending action_id is required")
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise StateCorruptionError("Invalid task runner state: pending session_id is required")
+    if not isinstance(target, str) or not target.strip():
+        raise StateCorruptionError("Invalid task runner state: pending target is required")
+    if not isinstance(action_name, str) or action_name not in _ACTION_KINDS:
         raise StateCorruptionError("Invalid task runner state: pending action kind is invalid")
+    if not isinstance(parameters, dict):
+        raise StateCorruptionError("Invalid task runner state: pending parameters must be an object")
+    if not isinstance(reason, str):
+        raise StateCorruptionError("Invalid task runner state: pending reason must be a string")
+    if risk is not None and risk not in _ACTION_RISKS:
+        raise StateCorruptionError("Invalid task runner state: pending risk is invalid")
+
     action = ActionProposal(
-        action_id=data.get("action_id", ""),
-        session_id=data.get("session_id", ""),
-        target=data.get("target", ""),
+        action_id=action_id,
+        session_id=session_id,
+        target=target,
         action=cast(ActionKind, action_name),
-        parameters=data.get("parameters", {}),
-        reason=data.get("reason", ""),
-        risk=data.get("risk"),
+        parameters=parameters,
+        reason=reason,
+        risk=risk,
     )
     try:
         action.effective_risk()
-    except (TypeError, ValueError) as exc:
-        raise StateCorruptionError("Invalid task runner state: pending action is invalid") from exc
+    except ValueError as exc:
+        raise StateCorruptionError("Invalid task runner state: pending action risk is inconsistent") from exc
     return action
 
 
