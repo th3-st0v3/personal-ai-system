@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
+if [[ ! -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    printf 'error: expected executable Python at %s/.venv/bin/python\n' "$REPO_ROOT" >&2
+    exit 1
+fi
+
+hours="${PASI_OVERNIGHT_HOURS:-168}"
+if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
+    printf 'error: start_pasi_168h.sh is fixed to a 168-hour automation window; use start_pasi_overnight.sh for another duration.\n' >&2
+    exit 2
+fi
+
+printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
+"$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_setup.py" --check
+printf '\n=== STARTING 168-HOUR RUN ===\n'
+
+mkdir -p "$REPO_ROOT/.runtime/overnight"
+LOCK_FILE="$REPO_ROOT/.runtime/overnight/start.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    printf 'PASI overnight start is already in progress.\n' >&2
+    exit 1
+fi
+
+if [[ -f "$REPO_ROOT/.runtime/overnight/runner.pid" ]]; then
+    pid="$(cat "$REPO_ROOT/.runtime/overnight/runner.pid" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+        printf 'PASI overnight runner is already active (PID %s).\n' "$pid"
+        exit 0
+    fi
+    rm -f "$REPO_ROOT/.runtime/overnight/runner.pid"
+fi
+
+log_file="$REPO_ROOT/.runtime/overnight/runner.log"
+nohup "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" --hours 168 "$@" >>"$log_file" 2>&1 < /dev/null &
+pid=$!
+
+printf 'Started PASI extended runner (launcher PID %s, 168 hours).\n' "$pid"
+printf 'Log: %s\n' "$log_file"
+printf 'State: %s\n' "$REPO_ROOT/.runtime/overnight/state.json"
+printf 'Action list: %s\n' "$REPO_ROOT/.runtime/automation/action-list.md"
+printf 'Setup checklist: %s\n' "$REPO_ROOT/.runtime/automation/setup-requirements.md"
