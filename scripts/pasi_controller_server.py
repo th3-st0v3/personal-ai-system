@@ -43,7 +43,7 @@ def git_blob_sha1(path: Path) -> str:
     return hashlib.sha1(header + data).hexdigest()
 
 
-def _run_git(command: list[str], *, timeout: float = 5.0) -> tuple[int, str, str]:
+def _run_git(command: list[str], *, timeout: float = 5.0, strip_stdout: bool = True) -> tuple[int, str, str]:
     try:
         result = subprocess.run(
             command,
@@ -55,7 +55,10 @@ def _run_git(command: list[str], *, timeout: float = 5.0) -> tuple[int, str, str
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, "", str(exc)
-    return result.returncode, (result.stdout or "").strip(), (result.stderr or "").strip()
+    stdout = result.stdout or ""
+    if strip_stdout:
+        stdout = stdout.strip()
+    return result.returncode, stdout, (result.stderr or "").strip()
 
 
 def refresh_remote_main(*, force: bool = False) -> bool:
@@ -79,10 +82,25 @@ def refresh_remote_main(*, force: bool = False) -> bool:
 
 
 def _git_show(ref: str, path: str) -> bytes:
-    code, stdout, stderr = _run_git(["git", "show", f"{ref}:{path}"], timeout=5.0)
-    if code != 0:
-        raise ControllerDistributionError(f"Git could not read {ref}:{path}: {stderr or 'unknown error'}")
-    return stdout.encode("utf-8")
+    try:
+        result = subprocess.run(
+            ["git", "show", f"{ref}:{path}"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=False,
+            timeout=5.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ControllerDistributionError(f"Git could not read {ref}:{path}: {exc}") from exc
+
+    if result.returncode != 0:
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        raise ControllerDistributionError(
+            f"Git could not read {ref}:{path}: {stderr or 'unknown error'}"
+        )
+
+    return result.stdout or b""
 
 
 def _git_ref_sha(ref: str) -> str:
@@ -174,7 +192,7 @@ def load_verified_recovery() -> tuple[dict[str, Any], str, str]:
             f"recovery Git blob mismatch: expected {expected_sha}, actual {actual_sha}"
         )
     if f"RECOVERY_VERSION = '{version}'" not in source and f'RECOVERY_VERSION = "{version}"' not in source:
-        raise ControllerDistributionError("recovery source version does not match sync manifest")
+        raise ControllerDistributionError("recovery source version does not match manifest")
     return manifest, source, actual_sha
 
 
