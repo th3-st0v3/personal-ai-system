@@ -40,9 +40,9 @@ class SimulationVerificationTests(unittest.TestCase):
             },
         )
         tampered = dict(result)
-        original_outputs = cast(dict[str, object], result["outputs"])
-        tampered_outputs = dict(original_outputs)
-        tampered_outputs["bottom_pressure"] = float(tampered_outputs["bottom_pressure"]) + 1.0
+        original_outputs = cast(dict[str, float], result["outputs"])
+        tampered_outputs: dict[str, float] = dict(original_outputs)
+        tampered_outputs["bottom_pressure"] += 1.0
         tampered["outputs"] = tampered_outputs
 
         verification = verify_simulation_result(tampered)
@@ -66,8 +66,8 @@ class SimulationVerificationTests(unittest.TestCase):
             },
         )
         tampered = dict(result)
-        original_provenance = cast(dict[str, object], result["provenance"])
-        tampered_provenance = dict(original_provenance)
+        original_provenance = cast(dict[str, str], result["provenance"])
+        tampered_provenance: dict[str, str] = dict(original_provenance)
         tampered_provenance["simulation_key"] = "wellbore_hydraulics"
         tampered["provenance"] = tampered_provenance
 
