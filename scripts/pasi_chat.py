@@ -62,8 +62,30 @@ def load_handoff() -> dict[str, object]:
 
 def save_handoff(payload: Mapping[str, object]) -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(dict(payload), indent=2, ensure_ascii=False)
-    SESSION_STATE_PATH.write_text(text[:MAX_HANDOFF_CHARS], encoding="utf-8")
+    safe = dict(payload)
+    summary = safe.get("summary")
+    if isinstance(summary, str):
+        safe["summary"] = summary[-6_000:]
+    else:
+        safe.pop("summary", None)
+    controller_signal = safe.get("controller_update_signal")
+    if not isinstance(controller_signal, Mapping):
+        safe.pop("controller_update_signal", None)
+    chat_url = safe.get("chat_url")
+    if not isinstance(chat_url, str) or len(chat_url) > 500:
+        safe.pop("chat_url", None)
+    context_source = safe.get("context_source")
+    if not isinstance(context_source, str) or len(context_source) > 100:
+        safe.pop("context_source", None)
+    text = json.dumps(safe, indent=2, ensure_ascii=False)
+    if len(text) > MAX_HANDOFF_CHARS:
+        minimal = {key: safe[key] for key in ("chat_url", "chat_exhausted", "github_attached", "reasoning_mode", "context_source") if key in safe}
+        if "summary" in safe:
+            minimal["summary"] = str(safe["summary"])[-4_000:]
+        text = json.dumps(minimal, indent=2, ensure_ascii=False)
+    temporary = SESSION_STATE_PATH.with_suffix(".json.tmp")
+    temporary.write_text(text + "\n", encoding="utf-8")
+    temporary.replace(SESSION_STATE_PATH)
 
 
 def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> str:
@@ -172,7 +194,7 @@ def wait_for_browser_controller(
         if controller_observation_is_live(observation, max_age_seconds=max_age_seconds):
             return
         time.sleep(0.5)
-    raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
+    raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
 
 
 def route_chat(
