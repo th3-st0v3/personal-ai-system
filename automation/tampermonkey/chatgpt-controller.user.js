@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.3.0
 // @description  Connects ChatGPT to the local Personal AI System orchestrator.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -19,13 +19,15 @@
     var SUBMISSION_TIMEOUT_MS = 3000;
     var SUBMISSION_RETRY_DELAY_MS = 350;
     var NEW_CHAT_TIMEOUT_MS = 15000;
+    var GITHUB_MENU_TIMEOUT_MS = 8000;
+    var GITHUB_PICKER_TIMEOUT_MS = 8000;
     var GENERATION_POLL_MS = 500;
     var GENERATION_TIMEOUT_MS = 60 * 60 * 1000;
 
     var activeOperationId = null;
     var processing = false;
 
-    console.log('[PASI] ChatGPT Controller v2.2.0 loaded.');
+    console.log('[PASI] ChatGPT Controller v2.3.0 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -94,6 +96,12 @@
             await startNewChat();
             await reportFinished(operation.operation_id, false);
             console.log('[PASI] New ChatGPT conversation started.');
+            return;
+        }
+        if (operation.operation_type === 'attach_github') {
+            await attachGitHubContext(operation.prompt);
+            await reportFinished(operation.operation_id, false);
+            console.log('[PASI] GitHub context attached.');
             return;
         }
         if (operation.operation_type === 'select_reasoning') {
@@ -178,6 +186,251 @@
         if (!composer) return false;
         if (window.location.href !== previousUrl) return true;
         return !isGenerating();
+    }
+
+    async function attachGitHubContext(repository) {
+        repository = String(repository || '').trim();
+        if (!repository || repository.indexOf('/') === -1) {
+            throw new Error('GitHub repository must be in owner/name form.');
+        }
+
+        var plus = await waitForPlusControl();
+        if (!plus) {
+            throw new Error('Could not find ChatGPT add/plus control for GitHub context. ' + plusDiagnostics());
+        }
+        if (isDisabled(plus)) {
+            throw new Error('ChatGPT add/plus control is disabled.');
+        }
+
+        console.log('[PASI] Opening ChatGPT app/attachment menu.');
+        plus.click();
+
+        var githubControl = await waitForGitHubControl();
+        if (!githubControl) {
+            throw new Error('GitHub app was not found in the ChatGPT menu. ' + githubDiagnostics());
+        }
+        if (isDisabled(githubControl)) {
+            throw new Error('GitHub app control is disabled.');
+        }
+
+        console.log('[PASI] Selecting GitHub app:', getLabel(githubControl));
+        githubControl.click();
+        await sleep(500);
+
+        var picker = await waitForRepositoryPicker();
+        if (picker) {
+            console.log('[PASI] GitHub repository picker detected.');
+            await selectGitHubRepository(picker, repository);
+        } else {
+            console.log('[PASI] No repository picker detected; GitHub app selection will provide on-demand repository access.');
+        }
+
+        if (isGitHubConnectionFailureVisible()) {
+            throw new Error('ChatGPT GitHub app reported that repository access is unavailable.');
+        }
+
+        console.log('[PASI] GitHub app selected for repository:', repository);
+    }
+
+    async function waitForPlusControl() {
+        var startTime = Date.now();
+        while (Date.now() - startTime < GITHUB_MENU_TIMEOUT_MS) {
+            var control = findPlusControl();
+            if (control) return control;
+            await sleep(250);
+        }
+        return null;
+    }
+
+    function findPlusControl() {
+        var selectors = [
+            'button[aria-label="Add files and more"]',
+            'button[aria-label*="Add files"]',
+            'button[aria-label*="Attach"]',
+            'button[title*="Add files"]',
+            'button[title*="Attach"]',
+            '[role="button"][aria-label*="Add files"]',
+            '[role="button"][aria-label*="Attach"]'
+        ];
+        var i;
+        var j;
+        var elements;
+        var element;
+        var label;
+
+        for (i = 0; i < selectors.length; i += 1) {
+            elements = document.querySelectorAll(selectors[i]);
+            for (j = 0; j < elements.length; j += 1) {
+                element = elements[j];
+                if (isVisible(element)) return element;
+            }
+        }
+
+        elements = document.querySelectorAll('button, [role="button"]');
+        for (i = 0; i < elements.length; i += 1) {
+            element = elements[i];
+            if (!isVisible(element)) continue;
+            label = normalize(getLabel(element));
+            if (
+                label === 'add files and more' ||
+                label === 'add files' ||
+                label === 'attach' ||
+                label === 'more'
+            ) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    function plusDiagnostics() {
+        var labels = collectVisibleLabels(100);
+        console.warn('[PASI] Plus-control diagnostics:', labels);
+        return 'Visible controls logged to console.';
+    }
+
+    async function waitForGitHubControl() {
+        var startTime = Date.now();
+        while (Date.now() - startTime < GITHUB_MENU_TIMEOUT_MS) {
+            var control = findGitHubControl();
+            if (control) return control;
+            await sleep(250);
+        }
+        return null;
+    }
+
+    function findGitHubControl() {
+        var selectors = [
+            '[role="menuitem"]',
+            '[role="option"]',
+            'button',
+            'a',
+            '[role="button"]'
+        ];
+        var i;
+        var j;
+        var elements;
+        var element;
+        var label;
+
+        for (i = 0; i < selectors.length; i += 1) {
+            elements = document.querySelectorAll(selectors[i]);
+            for (j = 0; j < elements.length; j += 1) {
+                element = elements[j];
+                if (!isVisible(element)) continue;
+                label = normalize(getLabel(element));
+                if (label === 'github' || label.indexOf('github ') === 0 || label.indexOf(' github') !== -1) {
+                    return element;
+                }
+            }
+        }
+        return null;
+    }
+
+    function githubDiagnostics() {
+        var labels = collectVisibleLabels(120);
+        console.warn('[PASI] GitHub-menu diagnostics:', labels);
+        return 'Visible controls logged to console.';
+    }
+
+    async function waitForRepositoryPicker() {
+        var startTime = Date.now();
+        while (Date.now() - startTime < GITHUB_PICKER_TIMEOUT_MS) {
+            var picker = findRepositoryPicker();
+            if (picker) return picker;
+            await sleep(250);
+        }
+        return null;
+    }
+
+    function findRepositoryPicker() {
+        var selectors = [
+            'input[placeholder*="repository" i]',
+            'input[placeholder*="repo" i]',
+            'input[aria-label*="repository" i]',
+            'input[aria-label*="repo" i]',
+            '[role="dialog"] input[type="text"]',
+            '[role="dialog"] [role="textbox"]'
+        ];
+        var i;
+        var j;
+        var elements;
+        var element;
+        for (i = 0; i < selectors.length; i += 1) {
+            elements = document.querySelectorAll(selectors[i]);
+            for (j = 0; j < elements.length; j += 1) {
+                element = elements[j];
+                if (isVisible(element)) return element;
+            }
+        }
+        return null;
+    }
+
+    async function selectGitHubRepository(picker, repository) {
+        picker.focus();
+        clearInputControl(picker);
+        setInputValue(picker, repository);
+        picker.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        picker.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        await sleep(500);
+
+        var startTime = Date.now();
+        while (Date.now() - startTime < GITHUB_PICKER_TIMEOUT_MS) {
+            var result = findRepositoryResult(repository);
+            if (result) {
+                console.log('[PASI] Selecting GitHub repository:', getLabel(result));
+                result.click();
+                await sleep(500);
+                return;
+            }
+            await sleep(250);
+        }
+
+        console.warn('[PASI] Repository picker was present but no matching repository result was found; continuing with app selection.');
+    }
+
+    function findRepositoryResult(repository) {
+        var needle = normalize(repository);
+        var elements = document.querySelectorAll('[role="option"], [role="menuitem"], button, a, [role="button"]');
+        var i;
+        var label;
+        var element;
+        for (i = 0; i < elements.length; i += 1) {
+            element = elements[i];
+            if (!isVisible(element)) continue;
+            label = normalize(getLabel(element));
+            if (label === needle || label.indexOf(needle) !== -1) return element;
+        }
+        return null;
+    }
+
+    function isGitHubConnectionFailureVisible() {
+        var text = normalize(document.body ? document.body.innerText : '');
+        var markers = [
+            'github needs to be connected',
+            'connect github',
+            'github is unavailable',
+            'github connection failed',
+            'no github repositories'
+        ];
+        var i;
+        for (i = 0; i < markers.length; i += 1) {
+            if (text.indexOf(markers[i]) !== -1) return true;
+        }
+        return false;
+    }
+
+    function collectVisibleLabels(limit) {
+        var labels = [];
+        var elements = document.querySelectorAll('a, button, [role="button"], [role="menuitem"], [role="option"]');
+        var i;
+        var label;
+        for (i = 0; i < Math.min(elements.length, limit); i += 1) {
+            if (!isVisible(elements[i])) continue;
+            label = normalize(getLabel(elements[i]));
+            if (label) labels.push(label.slice(0, 120));
+        }
+        return labels;
     }
 
     async function startPrompt(operation) {
@@ -462,6 +715,23 @@
         }
         if (!document.execCommand('insertText', false, text)) element.textContent = text;
         element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+    }
+
+    function clearInputControl(element) {
+        if (isTextControl(element)) {
+            setNativeValue(element, '');
+            element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            return;
+        }
+        element.textContent = '';
+    }
+
+    function setInputValue(element, value) {
+        if (isTextControl(element)) {
+            setNativeValue(element, value);
+        } else {
+            element.textContent = value;
+        }
     }
 
     function dispatchEnter(element) {
