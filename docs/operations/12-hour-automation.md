@@ -2,6 +2,14 @@
 
 This is the supported WSL launch path for a long unattended engineering run. The runner uses a dedicated worktree, persistent state, bounded task retries, deterministic verification, provider fallback, dynamic setup discovery, web-evidence injection, and browser recovery. It is designed to make substantial repository progress without turning external web content or provider output into unrestricted execution authority.
 
+## Free-first operating premise
+
+The core PASI path does **not** require a paid model API. The primary execution surface is the authenticated ChatGPT browser session, so PASI can operate through the normal browser product rather than depending on an API subscription.
+
+When the browser path is unavailable, the provider router prefers local/free execution paths when they exist: Ollama first, then OpenCode. OpenRouter and Perplexity remain optional fallbacks only when explicitly configured. No API key is embedded in PASI, and the absence of paid providers does not prevent the primary browser path from operating.
+
+A local Ollama server may be selected with `OLLAMA_MODEL` (and optionally `OLLAMA_BASE_URL`). When no model name is supplied, PASI can use the first model reported by the local Ollama server. The local provider is still subject to the same patch contract and deterministic verification as every other model route.
+
 ## One-time browser preparation
 
 Use one Chromium/Chrome profile dedicated to PASI. Open `https://chatgpt.com/` and sign in manually. Complete any CAPTCHA, Cloudflare, MFA, security check, or other interactive verification yourself. Keep the browser profile/session available while PASI runs.
@@ -21,7 +29,7 @@ source .venv/bin/activate
 bash scripts/start_pasi_12h.sh
 ```
 
-That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher now routes through `scripts/pasi_automation_entrypoint.py`, which enforces the 25-minute response budget, captures new setup requirements, optionally injects explicitly supplied web research, and records verified self-improvement surfaces.
+That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher routes through `scripts/pasi_automation_entrypoint.py`, which enforces the 25-minute response budget, captures new setup requirements, optionally injects explicitly supplied web research, and records verified self-improvement surfaces.
 
 To supply specific public web pages as research context without editing the repository prompt, set a bounded comma-separated list first:
 
@@ -55,7 +63,7 @@ The setup catalog covers both machine-side resources and websites that need an a
 
 Each task is sent through the existing completion contract and deterministic patch verification. The task prompt explicitly encourages improvements to the WSL/scripts, VS Code integration, Chromium/Tampermonkey controller, research/evidence handling, and recovery layers when a verified gap materially affects unattended reliability. A successful task is only accepted after the configured repository validation suite passes and the resulting change is committed to the dedicated automation branch.
 
-Browser-controller changes are therefore developed and verified as part of the automation run, but active controller publication still uses the repository's signed/hashed release path rather than silently executing unreviewed browser code. This keeps self-improvement connected to the live system without removing the release boundary.
+Browser-controller changes are therefore developed and verified as part of the automation run. Active controller publication still uses the repository's hashed release path rather than silently executing arbitrary browser code. This keeps self-improvement connected to the live system without removing the release boundary.
 
 ## Recovery behavior
 
