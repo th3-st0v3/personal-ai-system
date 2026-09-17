@@ -67,8 +67,8 @@ class WeeklongResilienceTests(unittest.TestCase):
     def test_archives_response_without_failing_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             worktree = Path(directory)
-            resilience._archive_response(worktree, 3, 2, "response")
-            target = worktree / ".runtime" / "overnight" / "responses" / "task-0003-attempt-02.txt"
+            resilience._archive_response(worktree, 3, 2, "response", label="primary")
+            target = worktree / ".runtime" / "overnight" / "responses" / "task-0003-attempt-02-primary.txt"
             self.assertEqual(target.read_text(encoding="utf-8").strip(), "response")
 
 
