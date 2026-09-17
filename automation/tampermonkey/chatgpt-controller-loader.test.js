@@ -37,6 +37,6 @@ test('loader computes the Git blob identity from UTF-8 bytes', () => {
   assert.match(source, /crypto\.subtle\.digest\('SHA-1'/);
 });
 
-test('loader polls slowly enough for unattended runtime operation', () => {
-  assert.match(source, /POLL_INTERVAL_MS = 5 \* 60 \* 1000/);
+test('loader polls quickly enough to activate after local service startup', () => {
+  assert.match(source, /POLL_INTERVAL_MS = 30000/);
 });
