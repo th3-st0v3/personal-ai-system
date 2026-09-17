@@ -6,6 +6,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -406,6 +407,27 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
     commit = legacy.commit_and_push(worktree, branch, task, push)
+    if push:
+        promotion = command(
+            [
+                legacy.sys.executable,
+                "scripts/pasi_promote.py",
+                "--commit",
+                commit,
+                "--branch",
+                branch,
+                "--task",
+                task,
+                "--json",
+            ],
+            worktree,
+            90.0,
+        )
+        if promotion[0] == 0:
+            output = output + "\n\n[PASI PROMOTION]\n" + promotion[1]
+        else:
+            log_event("promotion_deferred", commit=commit, branch=branch, error=promotion[1][-4000:])
+            output = output + "\n\n[PASI PROMOTION DEFERRED]\n" + promotion[1][-4000:]
     return commit, output
 
 
