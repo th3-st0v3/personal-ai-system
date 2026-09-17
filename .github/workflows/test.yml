@@ -22,6 +22,14 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
+      - name: Validate unattended launcher shell scripts
+        run: |
+          bash -n scripts/start_pasi_168h.sh
+          bash -n scripts/stop_pasi_overnight.sh
+          bash -n scripts/status_pasi_overnight.sh
+          bash -n scripts/check_pasi_weekly_run.sh
+      - name: Validate extended runtime imports
+        run: python -c 'import scripts.pasi_extended_runtime_entrypoint, scripts.pasi_weeklong_resilience; print("extended runtime import contract OK")'
       - name: Run canonical validation suite
         run: bash scripts/check_all.sh
       - name: Run Tampermonkey controller contract tests
