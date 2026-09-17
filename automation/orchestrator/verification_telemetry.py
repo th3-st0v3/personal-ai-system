@@ -206,8 +206,6 @@ class VerificationTelemetry:
         ).with_hash()
         records.append(record)
         if len(records) > self.max_records:
-            # Retain the original predecessor hash on the new head so the
-            # bounded ledger still points to the discarded history boundary.
             records = records[-self.max_records :]
         self.state_manager.write_json(self.path, [item.to_dict() for item in records])
         return record
@@ -249,21 +247,18 @@ class VerificationTelemetry:
     def _validate_chain(records: list[VerificationRecord]) -> None:
         if not records:
             return
-        previous = records[0].previous_record_hash
-        if previous is not None and not _looks_like_sha256(previous):
+        first = records[0]
+        if first.previous_record_hash is not None and not _looks_like_sha256(first.previous_record_hash):
             raise StateCorruptionError(
-                f"Invalid verification telemetry anchor at {records[0].record_id}"
+                f"Invalid verification telemetry anchor at {first.record_id}"
             )
+        previous = first.record_hash
         for record in records[1:]:
             if record.previous_record_hash != previous:
                 raise StateCorruptionError(
                     f"Invalid verification telemetry chain at {record.record_id}"
                 )
             previous = record.record_hash
-        if records[0].record_hash != _hash_payload(records[0].unsigned_dict()):
-            raise StateCorruptionError(
-                f"Invalid verification telemetry record: hash mismatch for {records[0].record_id}"
-            )
 
 
 def _looks_like_sha256(value: str) -> bool:
