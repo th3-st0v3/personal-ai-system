@@ -1,9 +1,9 @@
 {
   "schema_version": "1",
-  "enabled": false,
+  "enabled": true,
   "version": "2.4.1",
   "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/chatgpt-controller.user.js",
-  "sha256": "",
-  "release_commit": "",
-  "reason": "Controller 2.4.1 staged; publish only after merge and explicit update request"
+  "git_blob_sha": "470e9b27ef5a4196c84f7e8839dcf76a73d9e087",
+  "release_commit": "9484a257e63e995ef0b9bf4782bfca436fda87ec",
+  "reason": "Validated controller release with live response extraction, conditional Thinking and GitHub routing, and conversation-context exhaustion handling"
 }
