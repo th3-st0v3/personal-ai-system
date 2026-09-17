@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 from .adapters import AIAdapter
@@ -37,7 +37,19 @@ class UrllibBridgeTransport:
     max_response_bytes: int = 2_000_000
 
     def __post_init__(self) -> None:
-        if not self.base_url.startswith("http://127.0.0.1:"):
+        parsed = urlsplit(self.base_url)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("ChatGPT bridge transport must target localhost HTTP") from exc
+
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname != "127.0.0.1"
+            or parsed.username is not None
+            or parsed.password is not None
+            or port is None
+        ):
             raise ValueError("ChatGPT bridge transport must target localhost HTTP")
         if self.timeout_seconds <= 0 or self.max_response_bytes <= 0:
             raise ValueError("transport bounds must be positive")
