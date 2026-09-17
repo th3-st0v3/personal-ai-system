@@ -54,6 +54,7 @@ class TaskRunnerState:
     observations: tuple[str, ...] = ()
     last_action_id: str | None = None
     last_error: str | None = None
+    recovery_required: bool = False
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> dict[str, object]:
@@ -88,6 +89,10 @@ class TaskRunnerState:
         if last_error is not None and not isinstance(last_error, str):
             raise StateCorruptionError("Invalid task runner state: last_error must be a string or null")
 
+        recovery_required = data.get("recovery_required", False)
+        if not isinstance(recovery_required, bool):
+            raise StateCorruptionError("Invalid task runner state: recovery_required must be boolean")
+
         updated_at = data.get("updated_at", "")
         if not isinstance(updated_at, str):
             raise StateCorruptionError("Invalid task runner state: updated_at must be a string")
@@ -99,6 +104,7 @@ class TaskRunnerState:
             observations=observations,
             last_action_id=last_action_id,
             last_error=last_error,
+            recovery_required=recovery_required,
             updated_at=updated_at,
         )
 
@@ -162,6 +168,8 @@ class BoundedTaskRunner:
                 return self._result("task already completed")
             if self.state.phase in {"failed", "waiting_human", "paused"}:
                 return self._result(self.state.last_error or f"runner is {self.state.phase}")
+            if self.state.recovery_required:
+                return self._result("runner requires observation rehydration before it can safely resume")
 
             worker_phase = self.worker.status().phase
             if worker_phase == "stopped":
@@ -230,6 +238,19 @@ class BoundedTaskRunner:
             self.state = self._replace(phase="running", last_error="maximum task-runner step budget reached")
             self._persist()
             return self._result("maximum task-runner step budget reached", step_limit_reached=True)
+
+    def mark_rehydrated(self, observations: Sequence[Observation]) -> TaskRunnerState:
+        """Restore the bounded observation context after an explicit trusted rehydration step."""
+        with self.lock:
+            if len(observations) > self.max_observations:
+                raise ValueError("observation history exceeds configured bound")
+            self._observation_objects = list(observations)
+            fingerprints = tuple(item.fingerprint() for item in self._observation_objects)
+            if self.state.observations and fingerprints != self.state.observations:
+                raise WorkerExecutionError("rehydrated observations do not match persisted fingerprints")
+            self.state = self._replace(recovery_required=False, observations=fingerprints)
+            self._persist()
+            return self.state
 
     def reset(self) -> TaskRunnerState:
         with self.lock:
@@ -303,7 +324,18 @@ class BoundedTaskRunner:
         data = self.state_manager.read_json(self.state_path, None)
         if not isinstance(data, dict):
             raise StateCorruptionError("Invalid task runner state")
-        return TaskRunnerState.from_dict(data)
+        state = TaskRunnerState.from_dict(data)
+        if state.phase == "running":
+            state = TaskRunnerState(
+                runner_id=state.runner_id,
+                phase="paused",
+                steps=state.steps,
+                observations=state.observations,
+                last_action_id=state.last_action_id,
+                last_error="runner restarted; explicit observation rehydration required",
+                recovery_required=True,
+            )
+        return state
 
     def _persist(self) -> None:
         self.state_manager.write_json(self.state_path, self.state.to_dict())
