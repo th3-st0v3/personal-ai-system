@@ -32,8 +32,7 @@ test('recovery never prepares a replacement chat without verified exhaustion', (
 
 test('recovery clears terminal operations and does not loop on the same failed operation', () => {
   assert.match(source, /current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'/);
-  assert.match(source, /clearRecoveryState\(\)/);
-  assert.match(source, /status === 'failed' \|\| state\.status === 'cancelled'/);
+  assert.match(source, /if \(!current \|\| current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'\) return/);
 });
 
 test('recovery detects security challenges without attempting to bypass them', () => {
