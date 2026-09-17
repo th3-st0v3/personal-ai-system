@@ -4,9 +4,9 @@ import argparse
 import math
 import sys
 
-from scripts import pasi_automation_entrypoint
 from scripts import pasi_overnight_engine_v2 as supervisor
 from scripts import pasi_overnight_engine as legacy
+from scripts import pasi_weeklong_resilience as weeklong
 
 
 def validate_hours(hours: float) -> float:
@@ -17,25 +17,24 @@ def validate_hours(hours: float) -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run PASI unattended for an extended duration with no artificial upper-hour cap."
+        description="Run PASI unattended for an extended duration with resilient response and recovery handling."
     )
     parser.add_argument("--hours", type=float, required=True)
     args, passthrough = parser.parse_known_args()
     hours = validate_hours(args.hours)
 
-    # The legacy engine's 12-hour ceiling was a bounded-test convenience, not a
-    # runtime safety boundary. Keep the lower bound and make the upper limit
-    # explicitly unbounded for long-lived operation.
+    # Extended operation intentionally has no artificial upper-hour cap, while
+    # retaining finite-hour input validation and the existing lower bound.
     legacy.MAX_HOURS = float("inf")
     supervisor.MAX_HOURS = float("inf")
 
     sys.argv = [
-        "pasi_automation_entrypoint.py",
+        "pasi_weeklong_resilience.py",
         "--hours",
         str(hours),
         *passthrough,
     ]
-    return pasi_automation_entrypoint.main()
+    return weeklong.main()
 
 
 if __name__ == "__main__":
