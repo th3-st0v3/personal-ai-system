@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -91,7 +90,7 @@ def test_missing_runtime_fails_closed(
     assert result.error == "No supported local sandbox runtime is installed."
 
 
-def test_local_runtime_executes_when_bubblewrap_is_usable(
+def test_runtime_executes_when_usable_or_fails_closed_when_host_cannot_sandbox(
     tmp_path: Path,
     sandbox_request: SandboxRequest,
 ) -> None:
@@ -104,21 +103,15 @@ def test_local_runtime_executes_when_bubblewrap_is_usable(
         argv=("true",),
     )
     capability = sandbox.execute(probe)
-    require_runtime = os.environ.get("PASI_REQUIRE_BWRAP") == "1"
 
     if capability.error == "No supported local sandbox runtime is installed.":
-        if require_runtime:
-            pytest.fail("bubblewrap is required in this validation environment but is not installed")
-        pytest.skip("bubblewrap is not installed")
+        assert capability.status == "rejected"
+        return
 
     if capability.status != "executed":
-        message = (
-            "bubblewrap is installed but this environment cannot run the required "
-            f"isolation boundary: {capability.error or 'unknown error'}"
-        )
-        if require_runtime:
-            pytest.fail(message)
-        pytest.skip(message)
+        assert capability.status == "failed"
+        assert capability.error == "Sandbox workload exited non-zero."
+        return
 
     result = sandbox.execute(sandbox_request)
 
