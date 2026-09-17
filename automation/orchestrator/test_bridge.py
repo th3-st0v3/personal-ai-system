@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from automation.orchestrator.bridge import BridgeState
+from automation.orchestrator.operation_lifecycle import InvalidOperationTransition
 from automation.orchestrator.state import StateManager
 
 
@@ -146,3 +149,44 @@ def test_new_chat_operation_can_have_empty_prompt(tmp_path: Path) -> None:
     operation = bridge.queue_operation("new_chat", "")
     assert operation.operation_type == "new_chat"
     assert operation.prompt == ""
+
+
+def test_completed_operation_cannot_return_to_generating(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("test", "done")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+    bridge.complete_operation(operation.operation_id)
+
+    with pytest.raises(InvalidOperationTransition):
+        bridge.heartbeat(operation.operation_id)
+
+    final = bridge.get_operation(operation.operation_id)
+    assert final is not None
+    assert final["status"] == "completed"
+
+
+def test_failed_operation_cannot_be_completed_later(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("test", "fail")
+    bridge.claim_next_operation()
+    bridge.fail_operation(operation.operation_id, "failure")
+
+    with pytest.raises(InvalidOperationTransition):
+        bridge.complete_operation(operation.operation_id)
+
+    final = bridge.get_operation(operation.operation_id)
+    assert final is not None
+    assert final["status"] == "failed"
+
+
+def test_heartbeat_requires_claimed_or_generating_state(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("test", "queued")
+
+    with pytest.raises(InvalidOperationTransition):
+        bridge.heartbeat(operation.operation_id)
+
+    final = bridge.get_operation(operation.operation_id)
+    assert final is not None
+    assert final["status"] == "queued"

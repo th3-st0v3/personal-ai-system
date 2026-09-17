@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .config import CONFIG, ensure_runtime_directories
 from .models import ChatOperation
+from .operation_lifecycle import InvalidOperationTransition, validate_transition
 from .state import StateManager
 
 
@@ -55,6 +56,7 @@ class BridgeState:
                 if item.get("status") != "queued":
                     continue
 
+                validate_transition("queued", "claimed")
                 item["status"] = "claimed"
 
                 self.state_manager.save_queue(queue)
@@ -102,18 +104,10 @@ class BridgeState:
         self,
         operation_id: str,
     ) -> dict[str, Any] | None:
-        with self.lock:
-            queue = self.state_manager.load_queue()
-
-            for item in queue:
-                if item.get("operation_id") == operation_id:
-                    item["status"] = "generating"
-
-                    self.state_manager.save_queue(queue)
-
-                    return item
-
-        return None
+        return self._update_operation(
+            operation_id=operation_id,
+            status="generating",
+        )
 
     def save_browser_observation(
         self,
@@ -189,6 +183,8 @@ class BridgeState:
                 if item.get("operation_id") != operation_id:
                     continue
 
+                current_status = str(item.get("status", ""))
+                validate_transition(current_status, status)
                 item["status"] = status
 
                 if chat_url is not None:
@@ -470,10 +466,17 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.NOT_FOUND,
             )
 
-        except Exception as exc:
+        except InvalidOperationTransition as exc:
             self._send_json(
                 {
                     "error": str(exc)
+                },
+                HTTPStatus.CONFLICT,
+            )
+        except Exception:
+            self._send_json(
+                {
+                    "error": "Internal server error."
                 },
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
