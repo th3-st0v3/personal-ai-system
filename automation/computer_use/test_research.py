@@ -6,9 +6,12 @@ from typing import Any, Sequence
 from unittest.mock import patch
 
 from automation.computer_use.research import (
+    DuckDuckGoHTMLSearchProvider,
     HTTPSResearchAdapter,
     ResearchAdapterError,
     ResearchSource,
+    _DuckDuckGoResultParser,
+    _result_target,
 )
 
 
@@ -46,6 +49,65 @@ class ResearchSourceTests(unittest.TestCase):
         self.assertEqual([item.url for item in ranked], ["https://c.example", "https://a.example", "https://b.example"])
 
 
+class DuckDuckGoSearchTests(unittest.TestCase):
+    def test_result_parser_extracts_title_snippet_and_redirect_target(self) -> None:
+        html = """
+        <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage">Example <b>title</b></a>
+        <a class="result__snippet">Example <b>snippet</b>.</a>
+        """
+        parser = _DuckDuckGoResultParser()
+        parser.feed(html)
+        parser.close()
+        self.assertEqual(parser.results[0]["title"], "Example title")
+        self.assertEqual(parser.results[0]["snippet"], "Example snippet.")
+        self.assertEqual(_result_target(parser.results[0]["url"]), "https://example.com/page")
+
+    def test_result_target_rejects_credentials_private_ports_and_search_redirects(self) -> None:
+        self.assertIsNone(_result_target("https://user:pass@example.com/a"))
+        self.assertIsNone(_result_target("https://example.com:444/a"))
+        self.assertIsNone(_result_target("https://duckduckgo.com/l/?uddg=https%3A%2F%2Fduckduckgo.com%2F"))
+
+    def test_provider_is_bounded_and_normalizes_results(self) -> None:
+        html = """
+        <html><body>
+          <a class="result__a" href="https://example.com/a">A</a>
+          <a class="result__snippet">alpha</a>
+          <a class="result__a" href="https://example.org/b">B</a>
+          <a class="result__snippet">beta</a>
+        </body></html>
+        """
+        class Headers:
+            def get_content_type(self) -> str:
+                return "text/html"
+
+        class Response:
+            headers = Headers()
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int) -> bytes:
+                return html.encode("utf-8")
+
+        provider = DuckDuckGoHTMLSearchProvider()
+        with patch("automation.computer_use.research.socket.getaddrinfo", return_value=[(None, None, None, None, ("52.149.246.39", 443))]):
+            with patch("automation.computer_use.research.build_opener") as opener:
+                opener.return_value.open.return_value = Response()
+                sources = provider.search("pasi", limit=1)
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0].url, "https://example.com/a")
+        self.assertEqual(sources[0].title, "A")
+        self.assertEqual(sources[0].snippet, "alpha")
+
+    def test_provider_rejects_out_of_range_limit(self) -> None:
+        provider = DuckDuckGoHTMLSearchProvider()
+        with self.assertRaises(ResearchAdapterError):
+            provider.search("pasi", limit=11)
+
+
 class ResearchAdapterTests(unittest.TestCase):
     def test_search_is_bounded_and_sorted_by_explicit_metadata(self) -> None:
         provider = FakeSearchProvider(
@@ -58,6 +120,7 @@ class ResearchAdapterTests(unittest.TestCase):
         self.assertEqual(provider.limits, [1])
         self.assertEqual(observation.data["sources"][0]["url"], "https://a.example")
         self.assertEqual(observation.data["sources"][0]["source_quality"], 90)
+        self.assertTrue(observation.data["untrusted"])
 
     def test_search_requires_provider_and_bounded_query(self) -> None:
         with self.assertRaises(ResearchAdapterError):

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller Loader
 // @namespace    https://github.com/th3-st0v3/personal-ai-system
-// @version      1.4.0
-// @description  Loads a verified PASI ChatGPT controller from the local PASI runtime for private-repository-safe automation.
+// @version      1.6.0
+// @description  Loads verified PASI ChatGPT controller and recovery releases from the local PASI runtime.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -15,13 +15,17 @@
 
     var LOCAL_MANIFEST_URL = 'http://127.0.0.1:8766/controller/manifest';
     var LOCAL_SOURCE_URL = 'http://127.0.0.1:8766/controller/source';
+    var LOCAL_RECOVERY_SOURCE_URL = 'http://127.0.0.1:8766/recovery/source';
     var POLL_INTERVAL_MS = 30000;
     var CHECK_TIMEOUT_MS = 10000;
     var LAST_VERSION_KEY = 'pasi_controller_verified_version';
     var LAST_HASH_KEY = 'pasi_controller_verified_git_blob_sha';
+    var LAST_RECOVERY_VERSION_KEY = 'pasi_recovery_verified_version';
+    var LAST_RECOVERY_HASH_KEY = 'pasi_recovery_verified_git_blob_sha';
     var ACTIVE_HASH_PROPERTY = '__PASI_CHATGPT_CONTROLLER_ACTIVE_HASH__';
+    var ACTIVE_RECOVERY_HASH_PROPERTY = '__PASI_CHATGPT_RECOVERY_ACTIVE_HASH__';
 
-    console.log('[PASI Loader] Local private-repository controller loader v1.4.0 active.');
+    console.log('[PASI Loader] Verified PASI ChatGPT controller loader v1.6.0 active.');
     activateOrScheduleReload();
     setInterval(checkForPublishedController, POLL_INTERVAL_MS);
 
@@ -55,7 +59,11 @@
             validateManifest(manifest);
 
             var activeHash = window[ACTIVE_HASH_PROPERTY] || '';
-            if (activeHash && activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()) return;
+            var activeRecoveryHash = window[ACTIVE_RECOVERY_HASH_PROPERTY] || '';
+            if (activeHash && activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()
+                && activeRecoveryHash && activeRecoveryHash.toLowerCase() === manifest.recovery_git_blob_sha.toLowerCase()) {
+                return;
+            }
 
             var source = await requestText(LOCAL_SOURCE_URL, { 'Accept': 'text/plain, */*' });
             var blobSha = await gitBlobSha1(source);
@@ -67,26 +75,42 @@
                 return;
             }
 
+            var recoverySource = await requestText(LOCAL_RECOVERY_SOURCE_URL, { 'Accept': 'text/plain, */*' });
+            var recoverySha = await gitBlobSha1(recoverySource);
+            if (recoverySha !== manifest.recovery_git_blob_sha.toLowerCase()) {
+                console.error('[PASI Loader] Local recovery Git blob mismatch; refusing to execute.', {
+                    expected: manifest.recovery_git_blob_sha,
+                    actual: recoverySha
+                });
+                return;
+            }
+
             var storedVersion = GM_getValue(LAST_VERSION_KEY, '');
             var storedHash = GM_getValue(LAST_HASH_KEY, '');
-            if (activeHash && storedHash && storedHash !== manifest.git_blob_sha) {
-                console.log('[PASI Loader] Verified controller update detected; refreshing the page before activation.');
-                GM_setValue(LAST_VERSION_KEY, manifest.version);
-                GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
+            var storedRecoveryVersion = GM_getValue(LAST_RECOVERY_VERSION_KEY, '');
+            var storedRecoveryHash = GM_getValue(LAST_RECOVERY_HASH_KEY, '');
+            var releaseChanged = activeHash && storedHash && storedHash !== manifest.git_blob_sha;
+            var recoveryChanged = activeRecoveryHash && storedRecoveryHash && storedRecoveryHash !== manifest.recovery_git_blob_sha;
+            if (releaseChanged || recoveryChanged) {
+                console.log('[PASI Loader] Verified PASI release change detected; refreshing the page before activation.', {
+                    controller_changed: Boolean(releaseChanged),
+                    recovery_changed: Boolean(recoveryChanged)
+                });
+                rememberManifest(manifest);
                 window.location.reload();
                 return;
             }
 
-            if (!activeHash && storedVersion === manifest.version && storedHash === manifest.git_blob_sha) {
-                console.log('[PASI Loader] Verified controller release ' + manifest.version + ' is ready; activating after page load.');
-            } else {
-                GM_setValue(LAST_VERSION_KEY, manifest.version);
-                GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
-            }
-
+            rememberManifest(manifest);
             window[ACTIVE_HASH_PROPERTY] = manifest.git_blob_sha.toLowerCase();
             console.log('[PASI Loader] Verified controller release ' + manifest.version + '; activating.');
-            eval(source);
+            eval(injectActiveOperationGetter(source));
+            eval(recoverySource);
+            window[ACTIVE_RECOVERY_HASH_PROPERTY] = manifest.recovery_git_blob_sha.toLowerCase();
+            if (storedVersion === manifest.version && storedHash === manifest.git_blob_sha
+                && storedRecoveryVersion === manifest.recovery_version && storedRecoveryHash === manifest.recovery_git_blob_sha) {
+                console.log('[PASI Loader] Verified controller and recovery releases are current.');
+            }
         } catch (error) {
             console.warn('[PASI Loader] Controller synchronization check failed:', error);
         }
@@ -99,7 +123,9 @@
             validateManifest(manifest);
 
             var activeHash = window[ACTIVE_HASH_PROPERTY] || '';
-            if (!activeHash || activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()) return;
+            var activeRecoveryHash = window[ACTIVE_RECOVERY_HASH_PROPERTY] || '';
+            if (activeHash && activeHash.toLowerCase() === manifest.git_blob_sha.toLowerCase()
+                && activeRecoveryHash && activeRecoveryHash.toLowerCase() === manifest.recovery_git_blob_sha.toLowerCase()) return;
 
             var source = await requestText(LOCAL_SOURCE_URL, { 'Accept': 'text/plain, */*' });
             var blobSha = await gitBlobSha1(source);
@@ -111,13 +137,29 @@
                 return;
             }
 
-            console.log('[PASI Loader] New verified controller release detected; reloading page for clean activation.');
-            GM_setValue(LAST_VERSION_KEY, manifest.version);
-            GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
+            var recoverySource = await requestText(LOCAL_RECOVERY_SOURCE_URL, { 'Accept': 'text/plain, */*' });
+            var recoverySha = await gitBlobSha1(recoverySource);
+            if (recoverySha !== manifest.recovery_git_blob_sha.toLowerCase()) {
+                console.error('[PASI Loader] Local recovery Git blob mismatch; refusing to reload.', {
+                    expected: manifest.recovery_git_blob_sha,
+                    actual: recoverySha
+                });
+                return;
+            }
+
+            console.log('[PASI Loader] New verified PASI controller/recovery release detected; reloading page for clean activation.');
+            rememberManifest(manifest);
             window.location.reload();
         } catch (error) {
             console.warn('[PASI Loader] Controller update check failed:', error);
         }
+    }
+
+    function rememberManifest(manifest) {
+        GM_setValue(LAST_VERSION_KEY, manifest.version);
+        GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
+        GM_setValue(LAST_RECOVERY_VERSION_KEY, manifest.recovery_version);
+        GM_setValue(LAST_RECOVERY_HASH_KEY, manifest.recovery_git_blob_sha);
     }
 
     async function loadLocalManifest() {
@@ -132,6 +174,19 @@
         if (typeof manifest.git_blob_sha !== 'string' || !/^[a-f0-9]{40}$/i.test(manifest.git_blob_sha)) {
             throw new Error('Invalid controller manifest Git blob SHA.');
         }
+        if (typeof manifest.recovery_version !== 'string' || !/^\d+\.\d+\.\d+$/.test(manifest.recovery_version)) {
+            throw new Error('Invalid recovery manifest version.');
+        }
+        if (typeof manifest.recovery_git_blob_sha !== 'string' || !/^[a-f0-9]{40}$/i.test(manifest.recovery_git_blob_sha)) {
+            throw new Error('Invalid recovery manifest Git blob SHA.');
+        }
+    }
+
+    function injectActiveOperationGetter(source) {
+        var needle = 'var activeOperationId = null;';
+        var replacement = needle + "\n    try { window.__PASI_CHATGPT_ACTIVE_OPERATION__ = function () { return activeOperationId; }; } catch (_) {}";
+        if (source.indexOf(needle) === -1) throw new Error('Controller source did not expose the expected active-operation binding.');
+        return source.replace(needle, replacement);
     }
 
     async function gitBlobSha1(text) {

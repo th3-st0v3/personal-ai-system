@@ -46,7 +46,12 @@ from .github import (
     GitHubTransport,
     UrllibGitHubTransport,
 )
-from .research import HTTPSResearchAdapter, ResearchAdapterError, ResearchSource
+from .research import (
+    DuckDuckGoHTMLSearchProvider,
+    HTTPSResearchAdapter,
+    ResearchAdapterError,
+    ResearchSource,
+)
 from .review import (
     IndependentReviewer,
     ReviewError,
@@ -81,6 +86,7 @@ __all__ = [
     "FollowUpDecision",
     "TaskState",
     "HTTPSResearchAdapter",
+    "DuckDuckGoHTMLSearchProvider",
     "ResearchAdapterError",
     "ResearchSource",
     "IndependentReviewer",
@@ -99,11 +105,11 @@ __all__ = [
     "BrowserUseAdapterError",
     "BrowserUseTaskAdapter",
     "BrowserUseUnavailable",
-    "BrowserFallbackResolver",
-    "BrowserRecoveryResult",
-    "ResearchFallbackResolver",
     "GitHubAdapterError",
     "GitHubControlAdapter",
     "GitHubTransport",
     "UrllibGitHubTransport",
+    "BrowserFallbackResolver",
+    "BrowserRecoveryResult",
+    "ResearchFallbackResolver",
 ]
