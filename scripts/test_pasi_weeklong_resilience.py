@@ -57,12 +57,10 @@ class WeeklongResilienceTests(unittest.TestCase):
         self.assertNotIn("```", parsed[3])
         self.assertTrue(resilience._contract_valid(parsed))
 
-    def test_allows_explicit_no_change_completion(self) -> None:
-        response = self._complete_prefix() + "\nPASI_RESULT_NO_CHANGE: true\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END\n"
+    def test_rejects_completion_without_patch(self) -> None:
+        response = self._complete_prefix() + "\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END\n"
         parsed = resilience._parsed_response(response, legacy.parse_response)
-        self.assertEqual(parsed[3], resilience.NO_CHANGE_SENTINEL)
-        self.assertEqual(parsed[5]["no_change"], "true")
-        self.assertTrue(resilience._contract_valid(parsed))
+        self.assertFalse(resilience._contract_valid(parsed))
 
     def test_archives_response_without_failing_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
