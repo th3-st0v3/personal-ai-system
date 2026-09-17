@@ -125,6 +125,14 @@ class _DuckDuckGoResultParser(HTMLParser):
         self._snippet_depth = 0
         self._snippet_parts: list[str] = []
 
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        return re.sub(r"\s+", " ", value).strip()
+
+    @classmethod
+    def _normalize_punctuation(cls, value: str) -> str:
+        return re.sub(r"\s+([.,!?;:])", r"\1", cls._normalize_text(value))
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag.lower() != "a":
             return
@@ -138,14 +146,14 @@ class _DuckDuckGoResultParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if tag.lower() == "a" and self._anchor is not None:
-            title = re.sub(r"\s+", " ", self._anchor["title"]).strip()
+            title = self._normalize_punctuation(self._anchor["title"])
             if title:
                 self.results.append({**self._anchor, "title": title, "snippet": ""})
             self._anchor = None
         if tag.lower() == "a" and self._snippet_depth:
             self._snippet_depth = 0
             if self.results:
-                self.results[-1]["snippet"] = re.sub(r"\s+", " ", " ".join(self._snippet_parts)).strip()
+                self.results[-1]["snippet"] = self._normalize_punctuation(" ".join(self._snippet_parts))
 
     def handle_data(self, data: str) -> None:
         if self._anchor is not None:
