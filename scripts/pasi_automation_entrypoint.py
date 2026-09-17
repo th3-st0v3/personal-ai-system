@@ -127,11 +127,11 @@ def collect_web_context(task: str) -> str:
     sections: list[str] = []
     seen_urls: set[str] = set()
     remaining = MAX_WEB_TOTAL_CHARS
+    urls: list[str] = []
 
     if explicit_urls:
-        urls = explicit_urls
+        urls = list(explicit_urls)
     elif queries:
-        urls = []
         search_adapter = HTTPSResearchAdapter(
             search_provider=DuckDuckGoHTMLSearchProvider(timeout_seconds=10.0),
             timeout_seconds=10.0,
