@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from scripts import pasi_overnight_engine as legacy
 
@@ -289,7 +289,7 @@ def provider_condition(code: int, output: str) -> str | None:
     return None
 
 
-def automation_gate_is_satisfied(evidence: dict[str, object]) -> bool:
+def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool:
     gate = evidence.get("automation_gate")
     opportunity = evidence.get("automation_opportunity")
     evidence_text = evidence.get("automation_evidence")
@@ -544,7 +544,7 @@ def finish_state(state: OvernightState, reason: str) -> None:
     state.stop_reason = reason
     state.last_result = reason
     save_state(state)
-    log_event("run_finished", phase=state.phase, completed_tasks=state.completed_tasks, failed_tasks=state.failed_tasks, reason=reason)
+    log_event("run_finished", phase=state.phase, completed_tasks=state.completed_tasks, failed_tasks=state.failed_tasks, provider_limit_pauses=state.provider_limit_pauses, reason=reason)
 
 
 def main() -> int:
