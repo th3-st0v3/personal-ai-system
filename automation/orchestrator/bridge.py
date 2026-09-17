@@ -99,8 +99,13 @@ class BridgeState:
             queue = self.state_manager.load_queue()
 
             for item in queue:
-                if item.get("operation_id") == operation_id:
-                    return dict(item)
+                if item.get("operation_id") != operation_id:
+                    continue
+
+                if self._repair_response_from_browser_observation(item):
+                    self.state_manager.save_queue(queue)
+
+                return dict(item)
 
         return None
 
@@ -230,6 +235,12 @@ class BridgeState:
                 continue
             if item.get("operation_type") != "prompt":
                 return
+            if (
+                item.get("response_text_available") is True
+                and isinstance(item.get("response_text"), str)
+                and item.get("response_text").strip()
+            ):
+                return
 
             item["response_text"] = response_text
             item["response_text_available"] = True
@@ -240,6 +251,46 @@ class BridgeState:
             item["response_observed_at"] = observation.get("captured_at", time.time())
             self.state_manager.save_queue(queue)
             return
+
+    def _repair_response_from_browser_observation(
+        self,
+        item: dict[str, Any],
+    ) -> bool:
+        if item.get("operation_type") != "prompt":
+            return False
+        if item.get("response_text_available") is True:
+            return False
+
+        observation = self.state_manager.load_browser_results()
+        if not isinstance(observation, dict):
+            return False
+
+        data = observation.get("data")
+        if not isinstance(data, dict) or data.get("kind") != "chatgpt_response":
+            return False
+        if data.get("active_operation_id") != item.get("operation_id"):
+            return False
+
+        response_text = data.get("response_text")
+        if (
+            not isinstance(response_text, str)
+            or len(response_text) > MAX_RESPONSE_TEXT_CHARS
+            or data.get("response_text_available") is not True
+            or not response_text.strip()
+        ):
+            return False
+
+        item["response_text"] = response_text
+        item["response_text_available"] = True
+        chat_url = data.get("chat_url")
+        if isinstance(chat_url, str):
+            item["chat_url"] = chat_url
+        item["response_source"] = "browser_observation"
+        item["response_observed_at"] = observation.get(
+            "captured_at",
+            time.time(),
+        )
+        return True
 
     def _retry_operation(
         self,

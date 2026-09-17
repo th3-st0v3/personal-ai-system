@@ -116,6 +116,80 @@ def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
     assert completed["response_text_available"] is False
 
 
+def test_completed_operation_repairs_late_browser_response_observation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "late observation")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+    bridge.heartbeat(operation.operation_id)
+
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/late",
+    )
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["response_text_available"] is False
+
+    bridge.state_manager.save_browser_results(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:48:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/late",
+                "response_text": "response arrived after completion acknowledgement",
+                "response_text_available": True,
+            },
+        }
+    )
+
+    repaired = bridge.get_operation(operation.operation_id)
+    assert repaired is not None
+    assert repaired["status"] == "completed"
+    assert repaired["response_text"] == "response arrived after completion acknowledgement"
+    assert repaired["response_text_available"] is True
+    assert repaired["response_source"] == "browser_observation"
+    assert repaired["chat_url"] == "https://chatgpt.com/c/late"
+
+
+def test_authoritative_completion_response_is_not_overwritten_by_late_observation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "keep authoritative response")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+    bridge.heartbeat(operation.operation_id)
+
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/authoritative",
+        response_text="authoritative response",
+        response_text_available=True,
+    )
+    assert completed is not None
+
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:49:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/stale",
+                "response_text": "stale duplicate response",
+                "response_text_available": True,
+            },
+        }
+    )
+
+    current = bridge.get_operation(operation.operation_id)
+    assert current is not None
+    assert current["response_text"] == "authoritative response"
+    assert current["response_text_available"] is True
+    assert current["chat_url"] == "https://chatgpt.com/c/authoritative"
+
+
 def test_browser_response_observation_persists_to_matching_prompt(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "observe me")
