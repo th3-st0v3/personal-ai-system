@@ -26,9 +26,12 @@ class TestPasiChat(unittest.TestCase):
     def test_build_prompt_does_not_claim_execution(self) -> None:
         self.assertIn("Do not claim that files were changed", build_prompt("make a change", "clean working tree", {}))
 
-    def test_github_classifier_is_conditional(self) -> None:
+    def test_github_classifier_is_conditional_and_not_triggered_by_generic_mentions(self) -> None:
         self.assertTrue(needs_github_context("inspect the GitHub repository and fix the bridge"))
         self.assertTrue(needs_github_context("update automation/tampermonkey/chatgpt-controller.user.js"))
+        self.assertTrue(needs_github_context("review the pull request and latest commit"))
+        self.assertFalse(needs_github_context("what is GitHub?"))
+        self.assertFalse(needs_github_context("run the unit tests"))
         self.assertFalse(needs_github_context("explain Newton's second law"))
         self.assertTrue(needs_github_context("explain Newton's second law", override="always"))
         self.assertFalse(needs_github_context("fix the repository", override="never"))
