@@ -15,7 +15,7 @@ test('loader verifies an enabled local PASI controller release without dynamic e
   assert.match(source, /gitBlobSha1Bytes/);
   assert.match(source, /Controller integrity verification failed/);
   assert.match(source, /Recovery integrity verification failed/);
-  assert.match(source, /GM_getValue\(LAST_VERSION_KEY/);
+  assert.match(source, /GM_setValue\(LAST_VERSION_KEY/);
   assert.match(source, /GM_setValue\(LAST_HASH_KEY/);
   assert.match(source, /Runtime execution is handled by the dedicated PASI Controller userscript/);
   assert.doesNotMatch(source, /\beval\s*\(/);
