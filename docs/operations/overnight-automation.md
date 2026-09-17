@@ -33,13 +33,13 @@ Refresh `https://chatgpt.com/` after the controller-distribution service is up. 
 
 The `scripts/pasi_overnight.py` runner starts the controller-distribution service automatically, so this manual server command is mainly useful for troubleshooting and first-time validation.
 
-## Launch an overnight run
+## One-command overnight run
 
 The detached launcher defaults to 10 hours, which is inside the supported 8-12 hour range:
 
 ```bash
 cd ~/workspace/personal-ai-system
-./scripts/start_pasi_overnight.sh
+bash scripts/start_pasi_overnight.sh
 ```
 
 The process is detached from the terminal. Logs are written to `.runtime/overnight/runner.log`; structured events are in `.runtime/overnight/events.jsonl`; persistent run state is in `.runtime/overnight/state.json`.
@@ -47,13 +47,13 @@ The process is detached from the terminal. Logs are written to `.runtime/overnig
 To choose a duration explicitly:
 
 ```bash
-PASI_OVERNIGHT_HOURS=12 ./scripts/start_pasi_overnight.sh
+PASI_OVERNIGHT_HOURS=12 bash scripts/start_pasi_overnight.sh
 ```
 
 To start with a different initial task:
 
 ```bash
-./scripts/start_pasi_overnight.sh --task "Optimize the PASI computer-use control plane for lower human-input requirements while preserving safe approval boundaries."
+bash scripts/start_pasi_overnight.sh --task "Optimize the PASI computer-use control plane for lower human-input requirements while preserving safe approval boundaries."
 ```
 
 ## Monitor and stop
@@ -61,13 +61,13 @@ To start with a different initial task:
 Check the current task, counters, deadline, branch, and local service health:
 
 ```bash
-./scripts/status_pasi_overnight.sh
+bash scripts/status_pasi_overnight.sh
 ```
 
 Request a graceful stop:
 
 ```bash
-./scripts/stop_pasi_overnight.sh
+bash scripts/stop_pasi_overnight.sh
 ```
 
 ## Resume after an interruption
@@ -76,7 +76,7 @@ When the runner is interrupted, successful task commits already made to its dedi
 
 ```bash
 cd ~/workspace/personal-ai-system
-./scripts/pasi_overnight.py --resume
+bash scripts/pasi_overnight.py --resume
 ```
 
 The runner restores the persisted task/deadline state and discards only uncommitted changes in the dedicated overnight worktree before retrying the current task.
