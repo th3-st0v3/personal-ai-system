@@ -133,11 +133,17 @@ class ChatGPTAdapter(AIAdapter):
         return operation_id
 
     def select_reasoning_mode(self, mode: str) -> None:
-        if not mode.strip():
+        mode = mode.strip()
+        if not mode:
             raise ValueError("reasoning mode is required")
-        raise ChatGPTAdapterError(
-            "ChatGPT reasoning-mode UI control is not exposed by the current bridge"
-        )
+        operation = self._queue("select_reasoning", mode)
+        operation_id = self._operation_id(operation)
+        self.current_operation_id = operation_id
+        result = self.wait_for_completion(operation_id)
+        if result.completion != "complete":
+            raise ChatGPTAdapterError(
+                f"ChatGPT reasoning-mode selection did not complete: {result.completion}"
+            )
 
     def submit_prompt(self, prompt: str) -> str:
         if not prompt.strip():
@@ -163,6 +169,11 @@ class ChatGPTAdapter(AIAdapter):
         if not isinstance(operation, Mapping):
             raise ChatGPTAdapterError("bridge response did not contain an operation")
         return self._response_from_operation(operation)
+
+    def read_browser_observation(self) -> Mapping[str, Any] | None:
+        payload = self.transport.request("GET", "/browser/observation")
+        observation = payload.get("observation")
+        return observation if isinstance(observation, Mapping) else None
 
     def wait_for_completion(
         self,
@@ -208,6 +219,41 @@ class ChatGPTAdapter(AIAdapter):
     def _response_from_operation(self, operation: Mapping[str, Any]) -> AIResponse:
         operation_id = self._operation_id(operation)
         completion, text, response_available = completion_from_operation(operation)
+        chat_url = _optional_string(operation.get("chat_url"))
+        error = _optional_string(operation.get("error"))
+        chat_exhausted = False
+
+        if operation.get("operation_type") == "prompt" and completion == "complete" and not response_available:
+            try:
+                observation = self.read_browser_observation()
+            except ChatGPTAdapterError:
+                observation = None
+            data = observation.get("data") if isinstance(observation, Mapping) else None
+            if isinstance(data, Mapping) and data.get("kind") == "chatgpt_response":
+                observed_text = data.get("response_text")
+                observed_available = data.get("response_text_available")
+                if isinstance(observed_text, str) and observed_text.strip():
+                    text = observed_text
+                    response_available = observed_available is True
+                observed_url = data.get("chat_url")
+                if chat_url is None and isinstance(observed_url, str):
+                    chat_url = observed_url
+                chat_exhausted = data.get("chat_exhausted") is True
+
+        state_observation = None
+        if operation.get("operation_type") == "prompt":
+            try:
+                state_observation = self.read_browser_observation()
+            except ChatGPTAdapterError:
+                state_observation = None
+        if isinstance(state_observation, Mapping):
+            state_data = state_observation.get("data")
+            if isinstance(state_data, Mapping) and state_data.get("kind") == "chatgpt_state":
+                state_url = state_data.get("chat_url")
+                if chat_url is None and isinstance(state_url, str):
+                    chat_url = state_url
+                chat_exhausted = chat_exhausted or state_data.get("chat_exhausted") is True
+
         return AIResponse(
             response_id=f"{operation_id}:response",
             session_id=self.session_id,
@@ -216,7 +262,9 @@ class ChatGPTAdapter(AIAdapter):
             text=text,
             completion=completion,
             response_available=response_available,
-            chat_url=_optional_string(operation.get("chat_url")),
+            chat_url=chat_url,
+            error=error,
+            chat_exhausted=chat_exhausted,
         )
 
 
