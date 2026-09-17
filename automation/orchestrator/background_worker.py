@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -8,6 +10,7 @@ from typing import Any, Literal, Protocol
 from automation.computer_use.controller import AuthorizationGateway, ControlPlane
 from automation.computer_use.contracts import ActionProposal, Observation, Session
 from .state import StateCorruptionError, StateManager
+from .verification_telemetry import VerificationTelemetry
 
 
 WorkerPhase = Literal[
@@ -107,7 +110,9 @@ class BackgroundWorker:
 
     The worker never chooses tools or bypasses authorization. A caller supplies
     an executor and the existing ControlPlane authorization boundary. Process
-    restart while work is active always requires an explicit resume.
+    restart while work is active always requires an explicit resume. Optional
+    verification telemetry records bounded execution evidence without storing
+    complete action or observation payloads.
     """
 
     def __init__(
@@ -115,6 +120,7 @@ class BackgroundWorker:
         state_manager: StateManager,
         worker_id: str,
         control_plane: ControlPlane,
+        telemetry: VerificationTelemetry | None = None,
     ) -> None:
         if not worker_id.strip() or any(char in worker_id for char in "/\\"):
             raise ValueError("worker_id must be a non-empty path-safe identifier")
@@ -123,6 +129,7 @@ class BackgroundWorker:
         self.state_manager = state_manager
         self.worker_id = worker_id
         self.control_plane = control_plane
+        self.telemetry = telemetry
         self.state_path = state_manager.ai_dir / f"worker-{worker_id}.json"
         self.lock = threading.RLock()
         self.state = self._load_or_initialize()
@@ -141,6 +148,7 @@ class BackgroundWorker:
                 deadline_at=(now + timedelta(seconds=self.control_plane.session.max_duration_seconds)).isoformat(),
             )
             self._persist()
+            self._record_event("worker_started", "running", self.state.updated_at)
             return self.state
 
     def pause(self, reason: str = "paused by operator") -> WorkerState:
@@ -149,6 +157,7 @@ class BackgroundWorker:
                 raise WorkerExecutionError(f"worker cannot pause from phase {self.state.phase!r}")
             self.state = self._replace(phase="paused", pause_reason=reason, recovery_required=False)
             self._persist()
+            self._record_event("worker_paused", "paused", reason)
             return self.state
 
     def resume(self, *, human_approval: bool = False) -> WorkerState:
@@ -167,6 +176,7 @@ class BackgroundWorker:
             self._ensure_not_expired()
             self.state = self._replace(phase="running", pause_reason=None, recovery_required=False)
             self._persist()
+            self._record_event("worker_resumed", "running", "human approval" if human_approval else "operator resume")
             return self.state
 
     def stop(self, reason: str = "stopped by operator") -> WorkerState:
@@ -180,6 +190,7 @@ class BackgroundWorker:
                 approved_action_id=None,
             )
             self._persist()
+            self._record_event("worker_stopped", "stopped", reason)
             return self.state
 
     def complete(self) -> WorkerState:
@@ -193,6 +204,7 @@ class BackgroundWorker:
                 pause_reason=None,
             )
             self._persist()
+            self._record_event("worker_completed", "completed", self.state.updated_at)
             return self.state
 
     def step(
@@ -220,6 +232,7 @@ class BackgroundWorker:
                 pause_reason=None,
             )
             self._persist()
+            action_fingerprint = _fingerprint(asdict(action))
 
             try:
                 authorization = self.control_plane.authorize(
@@ -234,6 +247,14 @@ class BackgroundWorker:
                             pause_reason=authorization.reason,
                             recovery_required=False,
                         )
+                        self._persist()
+                        self._record_event(
+                            "action_authorization",
+                            "waiting_human",
+                            action_fingerprint,
+                            action_id=action.action_id,
+                            details={"reason": authorization.reason},
+                        )
                     else:
                         self.state = self._replace(
                             phase="failed",
@@ -241,18 +262,33 @@ class BackgroundWorker:
                             approved_action_id=None,
                             last_error=authorization.reason,
                         )
-                    self._persist()
+                        self._persist()
+                        self._record_event(
+                            "action_authorization",
+                            "rejected",
+                            action_fingerprint,
+                            action_id=action.action_id,
+                            details={"reason": authorization.reason},
+                        )
                     return None
 
                 observation = executor.execute(action)
+                observation_fingerprint = observation.fingerprint()
                 self.state = self._replace(
                     phase="running",
                     current_action=None,
                     approved_action_id=None,
                     last_error=None,
-                    last_observation_fingerprint=observation.fingerprint(),
+                    last_observation_fingerprint=observation_fingerprint,
                 )
                 self._persist()
+                self._record_event(
+                    "action_execution",
+                    "executed",
+                    observation_fingerprint,
+                    action_id=action.action_id,
+                    details={"action_fingerprint": action_fingerprint},
+                )
                 return observation
             except Exception as exc:
                 self.state = self._replace(
@@ -262,6 +298,13 @@ class BackgroundWorker:
                     last_error=str(exc),
                 )
                 self._persist()
+                self._record_event(
+                    "action_execution",
+                    "failed",
+                    action_fingerprint,
+                    action_id=action.action_id,
+                    details={"error": str(exc)},
+                )
                 raise
 
     def recover(self) -> WorkerState:
@@ -285,6 +328,7 @@ class BackgroundWorker:
                 )
                 self.state = state
                 self._persist()
+                self._record_event("worker_recovered", "paused", "worker restarted; explicit resume required")
             else:
                 self.state = state
             return self.state
@@ -299,6 +343,7 @@ class BackgroundWorker:
                     last_error="session duration expired",
                 )
                 self._persist()
+                self._record_event("worker_expired", "failed", "session duration expired")
             return self.state
 
     def _load_or_initialize(self) -> WorkerState:
@@ -326,6 +371,27 @@ class BackgroundWorker:
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
         return WorkerState.from_dict(data)
 
+    def _record_event(
+        self,
+        event_type: str,
+        status: str,
+        evidence: str,
+        *,
+        action_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        if self.telemetry is None:
+            return
+        self.telemetry.append(
+            event_type=event_type,
+            status=status,
+            evidence_fingerprint=evidence,
+            session_id=self.control_plane.session.session_id,
+            task_id=self.control_plane.session.task_id,
+            action_id=action_id,
+            details={"worker_id": self.worker_id, **(details or {})},
+        )
+
     def _expired(self) -> bool:
         if self.state.deadline_at is None:
             return False
@@ -346,7 +412,13 @@ class BackgroundWorker:
                 last_error="session duration expired",
             )
             self._persist()
+            self._record_event("worker_expired", "failed", "session duration expired")
             raise WorkerExecutionError("session duration expired")
+
+
+def _fingerprint(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 __all__ = [
