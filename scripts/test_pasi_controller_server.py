@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,6 +36,21 @@ class TestPasiControllerServer(unittest.TestCase):
         self.assertEqual(actual_sha, manifest["recovery_git_blob_sha"])
         self.assertIn("GENERATION_TIMEOUT_MS", source)
         self.assertEqual(manifest["recovery_version"], "1.0.1")
+
+    def test_git_show_preserves_crlf_bytes(self) -> None:
+        payload = b"controller-bytes\r\n"
+        completed = subprocess.CompletedProcess(
+            args=["git", "show", "origin/main:controller.js"],
+            returncode=0,
+            stdout=payload,
+            stderr=b"",
+        )
+        with patch.object(server.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(
+                server._git_show("origin/main", "controller.js"),
+                payload,
+            )
+            self.assertIs(run.call_args.kwargs["text"], False)
 
     def test_canonical_bundle_reads_verified_origin_main_blobs(self) -> None:
         controller = "// @version      7.8.9\nconsole.log('controller');\n"
