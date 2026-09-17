@@ -10,7 +10,7 @@
   const RECOVERY_GRACE_MS = 10 * 60 * 1000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
-  const RECOVERY_VERSION = '1.0.2';
+  const RECOVERY_VERSION = '1.0.3';
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -70,7 +70,7 @@
   function usageLimited() {
     if (contextExhausted()) return false;
     const text = normalize(document.body?.innerText || '');
-    return ['current usage limit', 'usage limit reached', 'free tier limit', 'message limit', 'daily limit', 'weekly limit', 'model usage limit', 'rate limit', 'too many requests'].some((marker) => text.includes(marker));
+    return ['current usage limit', 'usage limit reached', 'free tier limit', 'message limit', 'daily limit', 'weekly limit', 'model usage limit'].some((marker) => text.includes(marker));
   }
 
   function replacementReason() {
@@ -133,7 +133,7 @@
       await bridge('/browser/observation', {
         method: 'POST',
         body: { observation: {
-          schema_version: 'pasi-chatgpt-recovery-v2',
+          schema_version: 'pasi-chatgpt-recovery-v3',
           captured_at: new Date().toISOString(),
           data: { kind, recovery_version: RECOVERY_VERSION, chat_url: location.href, ...data }
         } }
