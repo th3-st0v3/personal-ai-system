@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,10 +24,11 @@ class TestPasiControllerServer(unittest.TestCase):
         self.assertIn(f"@version      {manifest['version']}", source)
 
     def test_git_blob_hash_uses_git_blob_header(self) -> None:
-        path = Path(self.id())
         payload = b"hello\n"
         expected = hashlib.sha1(b"blob 6\0" + payload).hexdigest()
-        path.write_bytes(payload)
+        with tempfile.NamedTemporaryFile(delete=False) as temporary:
+            path = Path(temporary.name)
+            temporary.write(payload)
         try:
             self.assertEqual(git_blob_sha1(path), expected)
         finally:
