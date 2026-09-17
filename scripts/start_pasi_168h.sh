@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Running Python files from scripts/ does not reliably put the repository root
+# on sys.path. Export it here so the unattended launcher works from a clean
+# shell without requiring a manually prepared PYTHONPATH.
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
 if [[ ! -x "$REPO_ROOT/.venv/bin/python" ]]; then
     printf 'error: expected executable Python at %s/.venv/bin/python\n' "$REPO_ROOT" >&2
     exit 1
@@ -38,7 +43,7 @@ if [[ -f "$REPO_ROOT/.runtime/overnight/runner.pid" ]]; then
 fi
 
 log_file="$REPO_ROOT/.runtime/overnight/runner.log"
-nohup "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" --hours 168 "$@" >>"$log_file" 2>&1 < /dev/null &
+nohup env PYTHONPATH="$PYTHONPATH" "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" --hours 168 "$@" >>"$log_file" 2>&1 < /dev/null &
 pid=$!
 
 printf 'Started PASI extended runner (launcher PID %s, 168 hours).\n' "$pid"
