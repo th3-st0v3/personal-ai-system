@@ -92,10 +92,24 @@ def test_waiting_human_requires_explicit_approval_to_resume(tmp_path) -> None:
 
     resumed = worker.resume(human_approval=True)
     assert resumed.phase == "running"
+    assert resumed.approved_action_id == "a2"
 
-    result = worker.step(approval_action(), executor, external_human_approval=True)
+    result = worker.step(approval_action(), executor)
     assert result is not None
     assert len(executor.actions) == 1
+
+
+def test_approved_action_cannot_be_retargeted(tmp_path) -> None:
+    worker, _ = make_worker(tmp_path)
+    executor = RecordingExecutor()
+    worker.start()
+    worker.step(approval_action(), executor)
+    worker.resume(human_approval=True)
+
+    different = ActionProposal("different", "session-1", "test", "desktop_ui")
+    with pytest.raises(WorkerExecutionError, match="does not match"):
+        worker.step(different, executor)
+    assert executor.actions == []
 
 
 def test_approved_action_executes_and_clears_current_action(tmp_path) -> None:
