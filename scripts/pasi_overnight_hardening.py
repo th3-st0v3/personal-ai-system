@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 from pathlib import Path
+from typing import Any
 
+from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine as engine
 from scripts import pasi_overnight_engine_v2 as supervisor
 
@@ -44,20 +47,138 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
         raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
 
 
-def wait_for_watchdog(max_wait_seconds: float = 25.0) -> bool:
-    deadline = time.monotonic() + max_wait_seconds
-    while time.monotonic() < deadline:
-        if supervisor.runtime_watchdog_is_live():
-            return True
-        time.sleep(1.0)
-    return False
+def _task_id(data: dict[str, Any]) -> str:
+    value = data.get("task_number")
+    return str(value) if value is not None else ""
+
+
+def _record_event_obstacle(ledger: ObstacleLedger, kind: str, data: dict[str, Any]) -> None:
+    mappings = {
+        "verification_failed": (
+            "verification_failed",
+            "A proposed change failed deterministic verification.",
+            "Review the recorded verification evidence; PASI will try a different task/approach rather than blocking the run.",
+        ),
+        "provider_pause": (
+            "provider_pause",
+            "A primary AI/provider route is temporarily unavailable or limited.",
+            "Use the configured fallback provider or continue with an alternate engineering task; retry the primary route only when available.",
+        ),
+        "standby_auth_required": (
+            "auth_challenge",
+            "The ChatGPT/browser surface reported an interactive authentication or security challenge.",
+            "Complete the interactive challenge when convenient; unattended PASI work continues through alternatives while it remains unresolved.",
+        ),
+        "run_failed": (
+            "run_failure",
+            "The unattended runner encountered a top-level failure.",
+            "Inspect the recorded error and restart/resume the runner after the environment is repaired.",
+        ),
+    }
+    selected = mappings.get(kind)
+    if selected is None:
+        return
+    obstacle_kind, summary, next_action = selected
+    details = {key: value for key, value in data.items() if key in {"error", "condition", "count", "phase", "task_number", "attempt"}}
+    ledger.record(obstacle_kind, summary, next_action, task_id=_task_id(data), details=details)
+
+
+def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
+    if supervisor.runtime_watchdog_is_live():
+        return True
+    ledger.record(
+        "runtime_unavailable",
+        "ChatGPT/browser heartbeat is unavailable or stale.",
+        "Use a configured fallback provider now; the next task will re-check the browser automatically.",
+        details={"deadline_at": getattr(state, "deadline_at", "")},
+        status="waiting_external",
+    )
+    supervisor.log_event("standby_bypassed", reason="browser heartbeat unavailable; continuing without waiting")
+    return True
+
+
+def nonblocking_sleep(state: Any, seconds: float, *, ledger: ObstacleLedger) -> bool:
+    if seconds > 0:
+        ledger.record(
+            "retry_backoff_deferred",
+            f"A retry requested a {seconds:.0f}-second backoff.",
+            "Backoff was converted to immediate continuation so the unattended scheduler can pursue alternative work.",
+            details={"requested_seconds": seconds, "deadline_at": getattr(state, "deadline_at", "")},
+            status="pending",
+        )
+    return not supervisor.STOP and supervisor.now_utc() < supervisor.datetime.fromisoformat(state.deadline_at)
+
+
+def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: ObstacleLedger) -> tuple[int, str]:
+    prompt = supervisor.build_prompt(task, state, failure).replace(
+        "- The repository is private; use the connected GitHub app when source/history context is required.",
+        "- The repository is public; use public GitHub first. If public retrieval is unavailable, the ChatGPT launcher automatically falls back to the connected GitHub app in the same conversation.",
+    )
+
+    if not supervisor.runtime_watchdog_is_live():
+        ledger.record(
+            "browser_unavailable",
+            "Primary ChatGPT browser runtime is not live.",
+            "Attempt a configured provider fallback immediately and continue to the next task when no fallback is available.",
+            task_id=str(getattr(state, "task_number", "")),
+            status="waiting_external",
+        )
+        fallback = supervisor.command(
+            [sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
+            Path(state.worktree),
+            timeout=225.0,
+        )
+        if fallback[0] == 0 and fallback[1].strip():
+            ledger.record(
+                "browser_unavailable",
+                "ChatGPT browser runtime was unavailable; fallback provider produced a response.",
+                "Continue the task using the verified fallback response; return to ChatGPT when its heartbeat recovers.",
+                task_id=str(getattr(state, "task_number", "")),
+                status="pending",
+                details={"fallback": "provider_router"},
+            )
+            return 0, fallback[1]
+        return 92, fallback[1] or "CHAT_GUARD_TIMEOUT: browser runtime unavailable and no fallback provider succeeded"
+
+    return supervisor.command(
+        [sys.executable, "scripts/pasi_chat_guard.py", prompt, "--github", "auto", "--timeout", str(supervisor.TASK_TIMEOUT_SECONDS)],
+        Path(state.worktree),
+        timeout=supervisor.TASK_TIMEOUT_SECONDS + 45.0,
+    )
 
 
 def main() -> int:
-    supervisor.validate_patch_paths = validate_patch_paths
+    ledger = ObstacleLedger(supervisor.REPO_ROOT)
+    original_validate = supervisor.validate_patch_paths
     original_watchdog = supervisor.runtime_watchdog_is_live
-    supervisor.runtime_watchdog_is_live = wait_for_watchdog
+    original_sleep = supervisor.sleep_until_retry
+    original_invoke = supervisor.invoke_chat
+    original_log = supervisor.log_event
+
+    def log_event(kind: str, **data: Any) -> None:
+        original_log(kind, **data)
+        _record_event_obstacle(ledger, kind, data)
+        if kind == "task_failed":
+            ledger.record(
+                "task_failed",
+                "A task exhausted its bounded retry budget.",
+                "Continue with the next non-repeating task; use the recorded failure evidence to inform future recovery work.",
+                task_id=_task_id(data),
+                status="pending",
+                details={"error": str(data.get("error", ""))[-3000:]},
+            )
+
+    supervisor.validate_patch_paths = validate_patch_paths
+    supervisor.log_event = log_event
+    supervisor.runtime_watchdog_is_live = original_watchdog
+    supervisor.standby_until_ready = lambda state: nonblocking_standby(state, ledger=ledger)
+    supervisor.sleep_until_retry = lambda state, seconds: nonblocking_sleep(state, seconds, ledger=ledger)
+    supervisor.invoke_chat = lambda task, state, failure: resilient_invoke_chat(task, state, failure, ledger=ledger)
     try:
         return supervisor.main()
     finally:
+        supervisor.validate_patch_paths = original_validate
         supervisor.runtime_watchdog_is_live = original_watchdog
+        supervisor.sleep_until_retry = original_sleep
+        supervisor.invoke_chat = original_invoke
+        supervisor.log_event = original_log
