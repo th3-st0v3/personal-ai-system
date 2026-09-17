@@ -9,6 +9,7 @@ from automation.computer_use.controller import AuthorizationGateway, ControlPlan
 from automation.computer_use.contracts import ActionProposal, Observation, Session
 from .state import StateCorruptionError, StateManager
 from .verification_telemetry import VerificationTelemetry
+from .worker_verification import DeterministicWorkerVerifier, WorkerVerifier
 
 
 WorkerPhase = Literal[
@@ -110,10 +111,10 @@ class BackgroundWorker:
     an executor and the existing ControlPlane authorization boundary. Process
     restart while work is active always requires an explicit resume.
 
-    Verification telemetry is an audit boundary, not an execution authority.
-    When enabled, a successful execution is persisted only after its observation
-    fingerprint is recorded. A telemetry write failure stops the worker so it
-    cannot silently continue without the evidence trail it was configured to keep.
+    Verification is a post-execution audit boundary, not an execution authority.
+    A configured verifier must explicitly accept the returned observation before
+    the worker clears the action and continues. Verification failures or telemetry
+    persistence failures stop the worker rather than silently continuing.
     """
 
     def __init__(
@@ -122,6 +123,7 @@ class BackgroundWorker:
         worker_id: str,
         control_plane: ControlPlane,
         telemetry: VerificationTelemetry | None = None,
+        verifier: WorkerVerifier | None = None,
     ) -> None:
         if not worker_id.strip() or any(char in worker_id for char in "/\\"):
             raise ValueError("worker_id must be a non-empty path-safe identifier")
@@ -131,6 +133,7 @@ class BackgroundWorker:
         self.worker_id = worker_id
         self.control_plane = control_plane
         self.telemetry = telemetry
+        self.verifier = verifier or DeterministicWorkerVerifier()
         self.state_path = state_manager.ai_dir / f"worker-{worker_id}.json"
         self.lock = threading.RLock()
         self.state = self._load_or_initialize()
@@ -253,11 +256,45 @@ class BackgroundWorker:
                     return None
 
                 observation = executor.execute(action)
+                verification = self.verifier.verify(action, observation)
+                if not verification.verified:
+                    if self.telemetry is not None:
+                        try:
+                            self.telemetry.record_worker_verification(
+                                action,
+                                observation,
+                                verification.to_dict(),
+                                session_id=self.control_plane.session.session_id,
+                                task_id=self.control_plane.session.task_id,
+                                worker_id=self.worker_id,
+                            )
+                        except Exception as exc:
+                            self.state = self._replace(
+                                phase="failed",
+                                current_action=None,
+                                approved_action_id=None,
+                                last_error=f"post-execution verification failed; telemetry failed: {exc}",
+                            )
+                            self._persist()
+                            raise WorkerExecutionError(
+                                "post-execution verification failed and telemetry could not be recorded"
+                            ) from exc
+                    reason = "; ".join(verification.failures) or "verifier rejected observation"
+                    self.state = self._replace(
+                        phase="failed",
+                        current_action=None,
+                        approved_action_id=None,
+                        last_error=f"post-execution verification failed: {reason}",
+                    )
+                    self._persist()
+                    raise WorkerExecutionError("post-execution verification failed; worker stopped")
+
                 if self.telemetry is not None:
                     try:
-                        self.telemetry.record_worker_execution(
+                        self.telemetry.record_worker_verification(
                             action,
                             observation,
+                            verification.to_dict(),
                             session_id=self.control_plane.session.session_id,
                             task_id=self.control_plane.session.task_id,
                             worker_id=self.worker_id,
