@@ -375,20 +375,41 @@
   }
 
   async function finishOperation(operationId, responseText = '') {
-    await reportObservation('chatgpt_response', {
+    const body = {
+      operation_id: operationId,
       chat_url: chatUrl(),
-      response_text: responseText,
-      response_text_available: Boolean(responseText),
+      response_text: responseText.slice(0, 50000),
+      response_text_available: Boolean(responseText)
+    };
+    await reportObservation('chatgpt_response', {
+      chat_url: body.chat_url,
+      response_text: body.response_text,
+      response_text_available: body.response_text_available,
       conversation_context_exhausted: contextExhausted(),
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
       active_operation_id: operationId
     });
-    const response = await bridge('/chat/finished', {
-      method: 'POST',
-      body: { operation_id: operationId, chat_url: location.href, response_text_available: Boolean(responseText) }
-    });
-    if (!response.ok) throw new Error('PASI_NATIVE: bridge completion failed');
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await bridge('/chat/finished', { method: 'POST', body });
+        if (response.ok) return;
+        lastError = new Error(`PASI_NATIVE: bridge completion failed: HTTP ${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+
+      try {
+        const operation = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
+        const payload = operation.ok ? operation.json() : null;
+        if (payload?.operation?.status === 'completed') return;
+      } catch (_) {}
+
+      if (attempt < 3) await sleep(150);
+    }
+    throw lastError || new Error('PASI_NATIVE: bridge completion failed');
   }
 
   async function failOperation(operationId, error) {
@@ -445,8 +466,12 @@
     try {
       const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
       if (!stored?.operation_id) return;
-      const ok = await failOperation(stored.operation_id, new Error('PASI_NATIVE: browser page reloaded during operation; operation returned to bounded retry path'));
-      if (ok) localStorage.removeItem(ACTIVE_KEY);
+      const current = await bridge(`/operation?operation_id=${encodeURIComponent(stored.operation_id)}`);
+      const payload = current.ok ? current.json() : null;
+      if (payload?.operation?.status === 'completed' || payload?.operation?.status === 'failed' || payload?.operation?.status === 'cancelled') {
+        localStorage.removeItem(ACTIVE_KEY);
+      }
+      // Preserve non-terminal operations for the dedicated bounded recovery companion.
     } catch (_) {}
   }
 
@@ -466,6 +491,7 @@
   async function start() {
     await recoverInterruptedOperation();
     try { await reportHealth(); } catch (_) {}
+    await poll();
     setInterval(poll, POLL_MS);
     setInterval(reportHealth, HEALTH_MS);
   }
