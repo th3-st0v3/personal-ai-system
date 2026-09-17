@@ -16,7 +16,16 @@ class CapabilityGateway:
     broker: LocalAccessBroker
 
     def capabilities(self) -> list[dict[str, str]]:
-        return self.broker.capabilities()
+        items = self.broker.capabilities()
+        if not any(item["name"] == "computer.resource.acquire" for item in items):
+            items.append(
+                {
+                    "name": "computer.resource.acquire",
+                    "risk": "approval_required",
+                    "description": "Acquire an explicitly preapproved HTTPS resource or exact pinned Python package; otherwise queue an action item without blocking automation.",
+                }
+            )
+        return items
 
     def dispatch(self, request: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(request, Mapping):
