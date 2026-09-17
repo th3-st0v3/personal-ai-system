@@ -62,14 +62,22 @@ def _contract_valid(parsed: tuple[str, str, str, str, bool, dict[str, str]]) -> 
     return legacy.completion_contract_is_satisfied(status, values) and bool(patch)
 
 
-def _archive_response(worktree: Path, task_number: int, attempt: int, response: str) -> None:
+def _archive_response(
+    worktree: Path,
+    task_number: int,
+    attempt: int,
+    response: str,
+    *,
+    label: str,
+) -> None:
     if not response:
         return
     root = worktree / ".runtime" / "overnight" / "responses"
     try:
         root.mkdir(parents=True, exist_ok=True)
         payload = response[-RESPONSE_ARCHIVE_MAX_CHARS:]
-        target = root / f"task-{task_number:04d}-attempt-{attempt:02d}.txt"
+        safe_label = re.sub(r"[^a-zA-Z0-9_-]+", "_", label).strip("_") or "response"
+        target = root / f"task-{task_number:04d}-attempt-{attempt:02d}-{safe_label}.txt"
         target.write_text(payload + "\n", encoding="utf-8")
     except OSError:
         pass
@@ -219,11 +227,12 @@ def main() -> int:
     def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: Any):
         enriched_task = task.rstrip() + "\n" + _contract_instruction()
         code, response = original_invoke(enriched_task, state, failure, ledger=ledger)
-        _archive_response(Path(state.worktree), state.task_number, state.current_attempt, response)
+        _archive_response(Path(state.worktree), state.task_number, state.current_attempt, response, label="primary")
 
         condition = supervisor.provider_condition(code, response)
         if condition in {"provider_usage_limit", "auth_required"}:
             fallback_code, fallback_response = _invoke_provider_fallback(task, state)
+            _archive_response(Path(state.worktree), state.task_number, state.current_attempt, fallback_response, label="provider-fallback")
             fallback_parsed = _parsed_response(fallback_response, original_parse)
             if fallback_code == 0 and _contract_valid(fallback_parsed):
                 supervisor.log_event(
@@ -249,7 +258,13 @@ def main() -> int:
         repair_failure = failure or parsed[1] or "response did not satisfy the PASI completion contract"
         for repair_attempt in range(1, MAX_REPAIR_ATTEMPTS + 1):
             repair_code, repair_response = _invoke_repair(enriched_task, state, response, repair_failure)
-            _archive_response(Path(state.worktree), state.task_number, state.current_attempt * 10 + repair_attempt, repair_response)
+            _archive_response(
+                Path(state.worktree),
+                state.task_number,
+                state.current_attempt,
+                repair_response,
+                label=f"repair-{repair_attempt}",
+            )
             if repair_response:
                 response = repair_response
             parsed = _parsed_response(response, original_parse)
@@ -265,13 +280,14 @@ def main() -> int:
 
         fallback = _invoke_provider_fallback(task, state)
         fallback_response = fallback[1]
-        _archive_response(Path(state.worktree), state.task_number, state.current_attempt, fallback_response)
+        _archive_response(Path(state.worktree), state.task_number, state.current_attempt, fallback_response, label="post-repair-fallback")
         fallback_parsed = _parsed_response(fallback_response, original_parse)
         if fallback[0] == 0 and _contract_valid(fallback_parsed):
             supervisor.log_event(
                 "response_contract_recovered_by_fallback_provider",
                 task_number=state.task_number,
                 attempt=state.current_attempt,
+                phase="post_repair",
             )
             return 0, fallback_response
         return code, response
