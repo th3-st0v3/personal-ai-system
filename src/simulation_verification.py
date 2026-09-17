@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
-from .simulation_library import SIMULATION_SCHEMA_VERSION, _fingerprint, get_simulation
+from simulation_library import SIMULATION_SCHEMA_VERSION, _fingerprint, get_simulation
 
 
 VerificationStatus = Literal["verified", "failed", "inconclusive"]
@@ -29,7 +29,7 @@ class SimulationVerification:
         }
 
 
-def _mapping(value: object, label: str) -> Mapping[str, Any] | None:
+def _mapping(value: object) -> Mapping[str, Any] | None:
     if isinstance(value, Mapping):
         return value
     return None
@@ -47,9 +47,9 @@ def verify_simulation_result(result: Mapping[str, object]) -> SimulationVerifica
         checks.append("schema_version")
 
     key = result.get("key")
-    provenance = _mapping(result.get("provenance"), "provenance")
-    outputs = _mapping(result.get("outputs"), "outputs")
-    inputs = _mapping(result.get("inputs"), "inputs")
+    provenance = _mapping(result.get("provenance"))
+    outputs = _mapping(result.get("outputs"))
+    inputs = _mapping(result.get("inputs"))
 
     if not isinstance(key, str):
         failures.append("simulation key is missing")
@@ -71,7 +71,9 @@ def verify_simulation_result(result: Mapping[str, object]) -> SimulationVerifica
         non_finite = [
             name
             for name, value in outputs.items()
-            if isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(float(value))
+            if isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and not math.isfinite(float(value))
         ]
         non_numeric = [
             name
@@ -79,9 +81,13 @@ def verify_simulation_result(result: Mapping[str, object]) -> SimulationVerifica
             if not isinstance(value, (int, float)) or isinstance(value, bool)
         ]
         if non_finite:
-            failures.append(f"outputs contain non-finite values: {', '.join(map(str, non_finite))}")
+            failures.append(
+                f"outputs contain non-finite values: {', '.join(map(str, non_finite))}"
+            )
         elif non_numeric:
-            failures.append(f"outputs contain non-numeric values: {', '.join(map(str, non_numeric))}")
+            failures.append(
+                f"outputs contain non-numeric values: {', '.join(map(str, non_numeric))}"
+            )
         else:
             checks.append("finite numeric outputs")
 
@@ -91,10 +97,14 @@ def verify_simulation_result(result: Mapping[str, object]) -> SimulationVerifica
         invalid_inputs = [
             name
             for name, value in inputs.items()
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value))
+            if not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
         ]
         if invalid_inputs:
-            failures.append(f"inputs contain invalid values: {', '.join(map(str, invalid_inputs))}")
+            failures.append(
+                f"inputs contain invalid values: {', '.join(map(str, invalid_inputs))}"
+            )
         else:
             checks.append("finite numeric inputs")
 
