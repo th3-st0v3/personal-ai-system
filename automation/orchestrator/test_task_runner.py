@@ -14,16 +14,19 @@ from automation.orchestrator.task_runner import BoundedTaskRunner, CompletionDec
 class RecordingExecutor:
     def __init__(self) -> None:
         self.actions: list[str] = []
+        self.observations: list[Observation] = []
 
     def execute(self, action: ActionProposal) -> Observation:
         self.actions.append(action.action_id)
-        return Observation(
+        observation = Observation(
             observation_id=f"obs-{len(self.actions)}",
             session_id=action.session_id,
             source="test-executor",
             kind="result",
             data={"action_id": action.action_id},
         )
+        self.observations.append(observation)
+        return observation
 
 
 @dataclass
@@ -146,17 +149,19 @@ def test_runner_halts_for_human_approval(tmp_path) -> None:
 
 def test_runner_restart_with_running_state_requires_rehydration(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
+    executor = RecordingExecutor()
     runner = BoundedTaskRunner(
         state_manager,
         "runner-1",
         worker,
         SequencePlanner([action("a1"), action("a2")]),
-        RecordingExecutor(),
+        executor,
         CountChecker(3),
         max_steps=1,
     )
     result = runner.run()
     assert result.step_limit_reached is True
+    assert len(executor.observations) == 1
 
     restarted = BoundedTaskRunner(
         state_manager,
@@ -172,14 +177,7 @@ def test_runner_restart_with_running_state_requires_rehydration(tmp_path) -> Non
     assert blocked.phase == "paused"
     assert "rehydration" in blocked.reason
 
-    observation = Observation(
-        observation_id="obs-1",
-        session_id="session-1",
-        source="test-executor",
-        kind="result",
-        data={"action_id": "a1"},
-    )
-    restarted.mark_rehydrated([observation])
+    restarted.mark_rehydrated(executor.observations)
     assert restarted.state.recovery_required is False
 
     resumed = restarted.run()
