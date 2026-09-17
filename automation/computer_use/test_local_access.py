@@ -23,7 +23,7 @@ def test_reads_utf8_file_and_preserves_bounds(tmp_path: Path) -> None:
     target.mkdir()
     (target / "main.py").write_text("print('ok')\n" * 100, encoding="utf-8")
     broker = LocalAccessBroker(tmp_path, max_read_bytes=1000)
-    result = broker.read_text("src/main.py", max_chars=40)
+    result = broker.read_text("src/main.py", max_chars=39)
     assert result["content"] == "print('ok')\n" * 3 + "pri"
     assert result["truncated"] is True
     assert result["path"].endswith("src/main.py")
