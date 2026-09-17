@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.2
+// @version      2.4.3
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -26,7 +26,7 @@
     var githubAttached = false;
     var reasoningMode = null;
 
-    console.log('[PASI] ChatGPT Controller v2.4.2 loaded.');
+    console.log('[PASI] ChatGPT Controller v2.4.3 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -91,9 +91,7 @@
     }
 
     async function processOperation(operation) {
-        if (!operation || typeof operation.operation_type !== 'string') {
-            throw new Error('ChatGPT operation type is missing.');
-        }
+        if (!operation || typeof operation.operation_type !== 'string') throw new Error('ChatGPT operation type is missing.');
         if (operation.operation_type === 'new_chat') {
             await startNewChat();
             githubAttached = false;
@@ -144,12 +142,7 @@
     }
 
     function findNewChat() {
-        var selectors = [
-            'a[aria-label="New chat"]',
-            'button[aria-label="New chat"]',
-            '[role="button"][aria-label="New chat"]',
-            '[data-testid="new-chat-button"]'
-        ];
+        var selectors = ['a[aria-label="New chat"]', 'button[aria-label="New chat"]', '[role="button"][aria-label="New chat"]', '[data-testid="new-chat-button"]'];
         var found = firstVisible(selectors);
         if (found) return found;
         return findVisibleLabeled('new chat', ['a', 'button', '[role="button"]']);
@@ -230,15 +223,7 @@
     }
 
     function findPlusControl() {
-        return firstVisible([
-            'button[aria-label="Add files and more"]',
-            'button[aria-label*="Add files"]',
-            'button[aria-label*="Attach"]',
-            'button[title*="Add files"]',
-            'button[title*="Attach"]',
-            '[role="button"][aria-label*="Add files"]',
-            '[role="button"][aria-label*="Attach"]'
-        ]) || findVisibleLabeledAny(['add files and more', 'add files', 'attach', 'more'], ['button', '[role="button"]']);
+        return firstVisible(['button[aria-label="Add files and more"]', 'button[aria-label*="Add files"]', 'button[aria-label*="Attach"]', 'button[title*="Add files"]', 'button[title*="Attach"]', '[role="button"][aria-label*="Add files"]', '[role="button"][aria-label*="Attach"]']) || findVisibleLabeledAny(['add files and more', 'add files', 'attach', 'more'], ['button', '[role="button"]']);
     }
 
     async function waitForGitHubControl() {
@@ -266,14 +251,7 @@
     }
 
     function findRepositoryPicker() {
-        return firstVisible([
-            'input[placeholder*="repository" i]',
-            'input[placeholder*="repo" i]',
-            'input[aria-label*="repository" i]',
-            'input[aria-label*="repo" i]',
-            '[role="dialog"] input[type="text"]',
-            '[role="dialog"] [role="textbox"]'
-        ]);
+        return firstVisible(['input[placeholder*="repository" i]', 'input[placeholder*="repo" i]', 'input[aria-label*="repository" i]', 'input[aria-label*="repo" i]', '[role="dialog"] input[type="text"]', '[role="dialog"] [role="textbox"]']);
     }
 
     async function selectGitHubRepository(picker, repository) {
@@ -465,7 +443,8 @@
                     chat_url: window.location.href,
                     response_text: responseText.slice(0, 50000),
                     response_text_available: true,
-                    conversation_context_exhausted: isConversationContextExhaustedVisible()
+                    conversation_context_exhausted: isConversationContextExhaustedVisible(),
+                    chat_exhausted: isConversationContextExhaustedVisible()
                 }
             } }
         });
@@ -474,6 +453,7 @@
     async function reportChatState(force) {
         if (!force && (processing || activeOperationId !== null)) return;
         try {
+            var exhausted = isConversationContextExhaustedVisible();
             await bridgeRequest('/browser/observation', {
                 method: 'POST',
                 body: { observation: {
@@ -482,7 +462,8 @@
                     data: {
                         kind: 'chatgpt_state',
                         chat_url: isChatUrl(window.location.href) ? window.location.href : null,
-                        conversation_context_exhausted: isConversationContextExhaustedVisible(),
+                        conversation_context_exhausted: exhausted,
+                        chat_exhausted: exhausted,
                         github_attached: githubAttached || githubContextAlreadyAttached(),
                         reasoning_mode: reasoningMode
                     }
@@ -495,7 +476,7 @@
 
     async function reportFinished(operationId, responseObserved) {
         var response = await bridgeRequest('/chat/finished', {
-            method: 'POST',
+            method: 'POST,
             body: { operation_id: operationId, chat_url: window.location.href, response_text_available: Boolean(responseObserved) }
         });
         if (!response.ok) throw new Error('Bridge completion failed: HTTP ' + response.status);
