@@ -304,7 +304,7 @@ def main() -> int:
                 status="pending",
             )
         deadline = supervisor.datetime.fromisoformat(state.deadline_at)
-        end = min(deadline, supervisor.now_utc() + supervisor.timedelta(seconds=wait_seconds))
+        end = min(deadline, supervisor.now_utc() + timedelta(seconds=wait_seconds))
         while not supervisor.STOP and supervisor.now_utc() < end:
             time.sleep(min(1.0, max(0.1, (end - supervisor.now_utc()).total_seconds())))
         return not supervisor.STOP and supervisor.now_utc() < deadline
@@ -345,6 +345,7 @@ def main() -> int:
                 reason=state.stop_reason if state is not None else "no persisted state",
                 task_number=state.task_number if state is not None else None,
             )
+            supervisor.STOP = False
             end = min(deadline, supervisor.now_utc() + timedelta(seconds=RUNNER_RESTART_BACKOFF_SECONDS))
             while not supervisor.STOP and supervisor.now_utc() < end:
                 time.sleep(1.0)
