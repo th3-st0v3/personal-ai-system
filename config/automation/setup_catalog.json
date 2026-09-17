@@ -49,6 +49,14 @@
       "reason": "Required to run the repository's JavaScript and browser-controller contract tests during development or CI mirroring.",
       "required": false,
       "kind": "development-runtime"
+    },
+    {
+      "name": "Ollama",
+      "version": "local model runtime",
+      "source": "https://ollama.com/",
+      "reason": "Optional free/local fallback for provider outages or browser recovery; PASI can use any locally installed model selected by OLLAMA_MODEL or the first model reported by the local server.",
+      "required": false,
+      "kind": "local-provider"
     }
   ],
   "logins": [
@@ -69,21 +77,21 @@
     {
       "name": "OpenRouter",
       "url": "https://openrouter.ai/",
-      "reason": "Conditional provider fallback when configured; PASI can continue with another route when this is unavailable.",
+      "reason": "Optional provider fallback when deliberately configured; not required for the free browser-first path.",
       "required": false,
       "verification": "login|mfa"
     },
     {
       "name": "Perplexity",
       "url": "https://www.perplexity.ai/",
-      "reason": "Conditional web-research fallback when configured; not required for core repository automation.",
+      "reason": "Optional web-research/provider fallback when deliberately configured; not required for core repository automation.",
       "required": false,
       "verification": "login|captcha|cloudflare|mfa"
     },
     {
       "name": "Claude",
       "url": "https://claude.ai/",
-      "reason": "Conditional provider fallback when configured; not required for the core PASI runner.",
+      "reason": "Optional provider fallback when deliberately configured; not required for the core PASI runner.",
       "required": false,
       "verification": "login|captcha|cloudflare|mfa"
     }
