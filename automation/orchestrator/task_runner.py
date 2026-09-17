@@ -166,10 +166,10 @@ class BoundedTaskRunner:
         with self.lock:
             if self.state.phase == "completed":
                 return self._result("task already completed")
-            if self.state.phase in {"failed", "waiting_human", "paused"}:
-                return self._result(self.state.last_error or f"runner is {self.state.phase}")
             if self.state.recovery_required:
                 return self._result("runner requires observation rehydration before it can safely resume")
+            if self.state.phase in {"failed", "waiting_human", "paused"}:
+                return self._result(self.state.last_error or f"runner is {self.state.phase}")
 
             worker_phase = self.worker.status().phase
             if worker_phase == "stopped":
@@ -240,7 +240,7 @@ class BoundedTaskRunner:
             return self._result("maximum task-runner step budget reached", step_limit_reached=True)
 
     def mark_rehydrated(self, observations: Sequence[Observation]) -> TaskRunnerState:
-        """Restore the bounded observation context after an explicit trusted rehydration step."""
+        """Restore bounded observation context after an explicit trusted rehydration step."""
         with self.lock:
             if len(observations) > self.max_observations:
                 raise ValueError("observation history exceeds configured bound")
@@ -248,7 +248,13 @@ class BoundedTaskRunner:
             fingerprints = tuple(item.fingerprint() for item in self._observation_objects)
             if self.state.observations and fingerprints != self.state.observations:
                 raise WorkerExecutionError("rehydrated observations do not match persisted fingerprints")
-            self.state = self._replace(recovery_required=False, observations=fingerprints)
+            phase: RunnerPhase = "running" if self.worker.status().phase == "running" else "paused"
+            self.state = self._replace(
+                phase=phase,
+                recovery_required=False,
+                observations=fingerprints,
+                last_error=None if phase == "running" else self.state.last_error,
+            )
             self._persist()
             return self.state
 
