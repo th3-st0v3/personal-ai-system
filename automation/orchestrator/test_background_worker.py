@@ -81,6 +81,23 @@ def test_approval_required_action_waits_for_human_and_is_not_executed(tmp_path) 
     assert worker.status().current_action is not None
 
 
+def test_waiting_human_requires_explicit_approval_to_resume(tmp_path) -> None:
+    worker, _ = make_worker(tmp_path)
+    executor = RecordingExecutor()
+    worker.start()
+    worker.step(approval_action(), executor)
+
+    with pytest.raises(WorkerExecutionError, match="human approval"):
+        worker.resume()
+
+    resumed = worker.resume(human_approval=True)
+    assert resumed.phase == "running"
+
+    result = worker.step(approval_action(), executor, external_human_approval=True)
+    assert result is not None
+    assert len(executor.actions) == 1
+
+
 def test_approved_action_executes_and_clears_current_action(tmp_path) -> None:
     worker, _ = make_worker(tmp_path)
     executor = RecordingExecutor()
