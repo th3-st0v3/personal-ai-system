@@ -77,6 +77,8 @@ class ChatOperation:
 
     chat_url: str | None = None
     error: str | None = None
+    response_text: str = ""
+    response_text_available: bool = False
 
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
