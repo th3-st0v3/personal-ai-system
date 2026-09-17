@@ -1,0 +1,1 @@
+Automation guidance files were consolidated into this branch for review. The canonical runtime implementation remains the next step: conditional continuation prompts and the live task queue should be implemented and tested in code, not only documented.
