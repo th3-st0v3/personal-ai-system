@@ -198,6 +198,46 @@ When configured, the worker records the verification result and observation fing
 
 Background operation does not imply unrestricted access to the user's computer. Credentials, password managers, banking/brokerage systems, arbitrary privileged administration, and unrelated personal data remain outside the capability boundary.
 
+## Bounded self-directed task runner
+
+`BoundedTaskRunner` adds orchestration above the persistent worker without becoming a second authorization layer. It repeatedly performs:
+
+```text
+Planner proposal
+  ↓
+BackgroundWorker authorization
+  ↓
+Authorized execution
+  ↓
+Post-execution verification
+  ↓
+Bounded observation history
+  ↓
+Deterministic completion check
+  ↓
+Continue / Complete / Wait for human / Fail
+```
+
+The runner is finite and fail-closed. It has a maximum step count, bounded observation history, repeated-observation detection, and persisted state. A planner returning `stop` or no action does **not** prove completion. Only the completion checker can produce the `complete` decision that permits the worker to enter its terminal completed state.
+
+Restart safety is explicit: persisted fingerprints are not treated as a substitute for the observations themselves. A runner restored from a previously active state requires explicit observation rehydration before it can continue. This prevents the system from silently replanning against an incomplete context.
+
+Human approval remains outside the planner. Approval-required actions enter the worker's `waiting_human` state and remain bound to the exact pending action ID.
+
+## Structured model planning
+
+`StructuredTaskPlanner` is the model-facing planning seam. It accepts an `AIAdapter`-compatible model client and requests one semantic action in strict JSON. The planner validates the returned session ID, action kind, declared risk, action fields, parameter size, and output size before producing an `ActionProposal`.
+
+The planner deliberately does not execute anything and cannot grant permission. A model can propose a safe action, propose an approval-required action, or request `stop`; authorization, execution, verification, and completion remain independent deterministic layers.
+
+`AIAdapterModelClient` adapts the existing provider-neutral `AIAdapter` interface into the structured planner seam. That allows the same runner architecture to use ChatGPT, OpenRouter-backed providers, Claude adapters, or future local/task-specific models without changing the control plane.
+
+## Explicit evidence-based goals
+
+`TaskGoal` and `EvidenceGoalChecker` make task completion machine-checkable. Goals can require observation kinds, observation sources, explicit evidence predicates, and optional verified-observation requirements. The checker returns `incomplete` until those configured requirements are satisfied; it never treats model language such as “done” as proof.
+
+This is the foundation for task-specific engineering verifiers: a future domain module can encode equations, acceptance ranges, required source provenance, test results, or engineering requirement coverage as deterministic predicates while leaving model planning replaceable.
+
 ## Events and provenance
 
 Control-plane events are structured records linking observations, actions, authorization decisions, AI responses, and verification. This enables debugging and future replay/audit workflows:
@@ -232,6 +272,8 @@ The verification telemetry ledger is intentionally bounded. It stores hashes, id
 8. GitHub API/connector plus UI fallback adapter.
 9. Persistent background worker with pause/resume/recovery.
 10. Simulation provenance, verification telemetry, and worker post-execution verification.
-11. Task-specific verifiers plus replay and diagnostic workflows.
+11. Bounded self-directed task runner with deterministic completion gates.
+12. Provider-neutral structured model planner and explicit evidence-based task goals.
+13. Task-specific engineering verifiers, replay, and diagnosis workflows.
 
 The system should not skip the contract, authorization, and verification layers in order to reach end-to-end UI automation faster; those layers are what make later autonomy replaceable, testable, and governable.
