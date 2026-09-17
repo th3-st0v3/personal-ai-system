@@ -10,7 +10,7 @@
   const RECOVERY_GRACE_MS = 10 * 60 * 1000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
-  const RECOVERY_VERSION = '1.0.4';
+  const RECOVERY_VERSION = '1.0.5';
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -143,7 +143,7 @@
 
   async function finishExisting(operationId, responseText) {
     const bounded = responseText.slice(0, 50000);
-    await report('chatgpt_response', {
+    void report('chatgpt_response', {
       response_text: bounded,
       response_text_available: Boolean(bounded),
       chat_exhausted: contextExhausted(),
@@ -258,58 +258,51 @@
       }
     }
 
-    const reloadAt = Date.parse(String(state.reload_at || ''));
-    if (Number.isFinite(reloadAt) && Date.now() - reloadAt < RECOVERY_GRACE_MS) {
-      await report('chatgpt_recovery', { phase: 'grace_wait', operation_id: operationId, recovery_action: 'wait_after_reload', grace_remaining_ms: RECOVERY_GRACE_MS - (Date.now() - reloadAt) });
-      return;
-    }
-
     const reason = replacementReason();
-    if (!reason) {
-      await report('chatgpt_recovery', { phase: 'preserve_current_chat', operation_id: operationId, recovery_action: 'preserve_current_chat', reason: 'no_verified_usage_or_context_exhaustion' });
-      await markRetryableFailure(operationId, 'PASI_NATIVE: browser page reloaded during operation; no verified usage/context exhaustion; current chat preserved for bounded retry.');
-      clearRecoveryState();
-      return;
+    if (reason) {
+      await report('chatgpt_recovery', { phase: 'verified_exhaustion', operation_id: operationId, replacement_reason: reason, recovery_action: 'new_chat' });
+      try {
+        await queueNewChat();
+        clearRecoveryState();
+        return;
+      } catch (error) {
+        await report('chatgpt_recovery', { phase: 'replacement_failed', operation_id: operationId, recovery_action: 'replacement_failed', error: String(error?.message || error) });
+        return;
+      }
     }
 
-    try {
-      await report('chatgpt_recovery', { phase: 'preparing_new_chat', operation_id: operationId, recovery_action: 'queue_new_chat', replacement_reason: reason });
-      await queueNewChat();
-      await markRetryableFailure(operationId, `CHAT_RECOVERED_RETRY: verified ${reason}; a fresh ChatGPT conversation was prepared for the same task.`);
-      await report('chatgpt_recovery', { phase: 'ready_for_retry', operation_id: operationId, recovery_action: 'fresh_chat_prepared', replacement_reason: reason });
-    } catch (error) {
-      await markRetryableFailure(operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}`);
-      await report('chatgpt_recovery', { phase: 'failed', operation_id: operationId, recovery_action: 'retry_runner', error: String(error?.message || error) });
-    }
-    clearRecoveryState();
+    const startedMs = Number(state.started_ms || Date.now());
+    const age = Date.now() - startedMs;
+    if (age < RECOVERY_GRACE_MS) return;
+
+    await report('chatgpt_recovery', { phase: 'preserve_current_chat', operation_id: operationId, recovery_action: 'retry_runner', reason: 'no_verified_usage_or_context_exhaustion' });
   }
 
-  async function inspect() {
-    const state = readRecoveryState();
-    if (state?.operation_id) {
-      await handleReloadRecovery(state);
-      return;
-    }
+  async function startup() {
+    const persisted = readRecoveryState();
+    if (persisted?.operation_id) await handleReloadRecovery(persisted);
 
     const operationId = activeOperationId();
     if (!operationId) return;
-    const current = await operation(operationId);
-    if (!current || current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') return;
 
-    const startedAt = current.created_at || current.updated_at || new Date().toISOString();
-    const startedMs = Date.parse(startedAt);
-    if (!Number.isFinite(startedMs)) return;
-    const stateForTimer = { operation_id: operationId, started_ms: startedMs, baseline: fingerprint(), reload_count: 0, phase: 'monitoring' };
-    const age = Date.now() - startedMs;
-    if (age < RECOVERY_TRIGGER_MS && !connectionFailure()) return;
-    await preserveOrReload(operationId, stateForTimer);
+    const state = readRecoveryState() || {
+      operation_id: operationId,
+      started_ms: Date.now(),
+      baseline: fingerprint(),
+      reload_count: 0,
+      phase: 'monitoring'
+    };
+    state.operation_id = operationId;
+    if (!state.baseline) state.baseline = fingerprint();
+    writeRecoveryState(state);
+
+    setInterval(async () => {
+      const current = activeOperationId();
+      if (!current) return clearRecoveryState();
+      const persistedState = readRecoveryState() || state;
+      await preserveOrReload(current, persistedState);
+    }, POLL_MS);
   }
 
-  async function start() {
-    await report('chatgpt_recovery', { phase: 'started', recovery_action: 'monitor', generation_timeout_ms: GENERATION_TIMEOUT_MS, recovery_grace_ms: RECOVERY_GRACE_MS });
-    setInterval(() => { inspect().catch(() => {}); }, POLL_MS);
-    await inspect();
-  }
-
-  start().catch(() => {});
+  startup();
 })();
