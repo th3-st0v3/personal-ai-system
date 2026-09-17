@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from .ide_state import VSCodeStateReader
 from .local_access import LocalAccessBroker, LocalAccessError
+from .preapproval import AcquisitionEngine, AcquisitionError
 from .workspace_search import WorkspaceSearch
 
 
@@ -51,6 +52,34 @@ class CapabilityGateway:
                 data = WorkspaceSearch(self.broker).search(query, limit=int(limit) if limit is not None else None)
             elif capability == "computer.ide.read":
                 data = VSCodeStateReader(self.broker).read()
+            elif capability == "computer.resource.acquire":
+                kind = parameters.get("kind")
+                task_id = parameters.get("task_id", "")
+                if not isinstance(kind, str) or kind not in {"public_download", "package_install"}:
+                    return self._error(
+                        "computer.resource.acquire requires kind=public_download or package_install",
+                        request_id=request_id,
+                    )
+                engine = AcquisitionEngine(self.broker.project_root)
+                if kind == "public_download":
+                    url = parameters.get("url")
+                    if not isinstance(url, str) or not url.strip():
+                        return self._error("public_download requires parameters.url", request_id=request_id)
+                    expected_sha256 = parameters.get("expected_sha256")
+                    max_bytes = parameters.get("max_bytes", 5_000_000)
+                    filename = parameters.get("filename")
+                    data = engine.acquire_public_download(
+                        url,
+                        filename=filename if isinstance(filename, str) else None,
+                        expected_sha256=expected_sha256 if isinstance(expected_sha256, str) else None,
+                        max_bytes=int(max_bytes),
+                        task_id=str(task_id),
+                    )
+                else:
+                    package = parameters.get("package")
+                    if not isinstance(package, str) or not package.strip():
+                        return self._error("package_install requires parameters.package", request_id=request_id)
+                    data = engine.install_python_package(package, task_id=str(task_id))
             else:
                 return {
                     "request_id": request_id,
@@ -58,15 +87,20 @@ class CapabilityGateway:
                     "risk": self._risk_for(capability),
                     "error": "capability is unavailable through the safe local gateway",
                 }
-        except (LocalAccessError, TypeError, ValueError) as exc:
+        except (LocalAccessError, AcquisitionError, TypeError, ValueError) as exc:
             return self._error(str(exc), request_id=request_id)
 
-        return {
+        result = {
             "request_id": request_id,
             "status": "ok",
             "capability": capability,
             "data": data,
         }
+        if isinstance(data, Mapping) and data.get("status") == "blocked":
+            result["status"] = "blocked"
+            result["risk"] = "approval_required"
+            result["obstacle_id"] = data.get("obstacle_id")
+        return result
 
     def _risk_for(self, capability: str) -> str:
         for item in self.capabilities():
@@ -74,6 +108,8 @@ class CapabilityGateway:
                 return item["risk"]
         if capability == "computer.files.search":
             return "safe"
+        if capability == "computer.resource.acquire":
+            return "approval_required"
         return "unknown"
 
     @staticmethod
