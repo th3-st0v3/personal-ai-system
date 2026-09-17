@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from scripts import pasi_overnight_engine as engine
+from scripts import pasi_overnight_engine_v2 as supervisor
 
 
 _FORBIDDEN_PATH_PARTS = frozenset({".git", ".env", ".env.local", ".env.production"})
@@ -46,5 +47,5 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
 
 
 def main() -> int:
-    engine.validate_patch_paths = validate_patch_paths
-    return engine.main()
+    supervisor.validate_patch_paths = validate_patch_paths
+    return supervisor.main()
