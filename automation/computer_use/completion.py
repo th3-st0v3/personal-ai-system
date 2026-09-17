@@ -16,7 +16,9 @@ def completion_from_operation(
     """Map bridge operation evidence to a CUCP completion state.
 
     A bridge `completed` state is a verified controller acknowledgement that
-    generation finished. Response-text availability is reported separately.
+    generation finished. A persisted verified response is equivalent completion
+    evidence when the acknowledgement was lost after the browser answered.
+    Response-text availability is reported separately.
     """
 
     status = operation.get("status")
@@ -35,6 +37,8 @@ def completion_from_operation(
     if status == "cancelled":
         return "interrupted", response_text, response_available
     if status in {"queued", "claimed", "generating"}:
+        if status == "generating" and response_available:
+            return "complete", response_text, True
         return "generating", response_text, response_available
     if status == "completed":
         return "complete", response_text, response_available
