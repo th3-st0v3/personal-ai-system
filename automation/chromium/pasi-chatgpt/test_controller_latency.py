@@ -48,8 +48,12 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     tampermonkey = _read(TAMPERMONKEY)
     native = _read(NATIVE)
 
-    for source in (tampermonkey, native):
-        assert "credentials: 'omit'" in source or "GM_xmlhttpRequest" in source
-        assert "captcha" in source
-        assert "session has expired" in source
-        assert "context limit" in source or "context window limit" in source
+    assert "GM_xmlhttpRequest" in tampermonkey
+    assert "context limit" in tampermonkey or "conversation has reached its limit" in tampermonkey
+    assert "reportFailure" in tampermonkey
+
+    assert "credentials: 'omit'" in native
+    assert "captcha" in native
+    assert "session has expired" in native
+    assert "CHAT_EXHAUSTED" in native
+    assert "reportHealth" in native
