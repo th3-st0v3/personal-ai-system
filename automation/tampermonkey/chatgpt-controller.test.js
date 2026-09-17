@@ -7,8 +7,8 @@ const controllerPath = path.join(__dirname, 'chatgpt-controller.user.js');
 const source = fs.readFileSync(controllerPath, 'utf8');
 
 test('controller declares the current hardened version', () => {
-    assert.match(source, /@version\s+2\.4\.6/);
-    assert.match(source, /CONTROLLER_VERSION = ['"]2\.4\.6['"]/);
+    assert.match(source, /@version\s+2\.4\.7/);
+    assert.match(source, /CONTROLLER_VERSION = ['"]2\.4\.7['"]/);
 });
 
 test('controller supports conditional reasoning selection', () => {
@@ -30,6 +30,14 @@ test('controller extracts live assistant responses and reports them', () => {
     assert.match(source, /data-message-author-role=\\?"assistant/);
     assert.match(source, /kind: ['"]chatgpt_response['"]/);
     assert.match(source, /response_text_available: true/);
+});
+
+test('controller sends the verified response directly with completion acknowledgement', () => {
+    assert.match(source, /await reportFinished\(operation\.operation_id, response\)/);
+    assert.match(source, /function reportFinished\(operationId, responseText\)/);
+    assert.match(source, /if \(typeof responseText === 'string'\) body\.response_text = responseText\.slice\(0, 50000\)/);
+    assert.match(source, /for \(var attempt = 1; attempt <= 3; attempt \+= 1\)/);
+    assert.match(source, /\/operation\?operation_id=/);
 });
 
 test('controller distinguishes context exhaustion from provider usage exhaustion', () => {
