@@ -136,6 +136,25 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(adapter.new_session(), "op-new")
         self.assertEqual(transport.requests[0][2], {"operation_type": "new_chat", "prompt": ""})
 
+    def test_attach_github_repository_queues_semantic_attachment_operation(self) -> None:
+        transport = FakeTransport(
+            [
+                {"operation": {"operation_id": "op-github"}},
+                {"operation": {"operation_id": "op-github", "status": "completed"}},
+            ]
+        )
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        self.assertEqual(adapter.attach_github_repository("th3-st0v3/personal-ai-system"), "op-github")
+        self.assertEqual(
+            transport.requests[0][2],
+            {"operation_type": "attach_github", "prompt": "th3-st0v3/personal-ai-system"},
+        )
+
+    def test_attach_github_repository_rejects_invalid_repository(self) -> None:
+        adapter = ChatGPTAdapter(FakeTransport([]), session_id="session-1")
+        with self.assertRaises(ValueError):
+            adapter.attach_github_repository("personal-ai-system")
+
     def test_reasoning_mode_does_not_fake_capability(self) -> None:
         adapter = ChatGPTAdapter(FakeTransport([]), session_id="session-1")
         with self.assertRaises(ChatGPTAdapterError):

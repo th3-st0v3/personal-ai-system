@@ -117,6 +117,21 @@ class ChatGPTAdapter(AIAdapter):
             )
         return self.current_operation_id
 
+    def attach_github_repository(self, repository: str) -> str:
+        """Ask the browser controller to activate the connected GitHub app for a repository."""
+        repository = repository.strip()
+        if not repository or "/" not in repository:
+            raise ValueError("repository must be in owner/name form")
+        operation = self._queue("attach_github", repository)
+        operation_id = self._operation_id(operation)
+        self.current_operation_id = operation_id
+        result = self.wait_for_completion(operation_id)
+        if result.completion != "complete":
+            raise ChatGPTAdapterError(
+                f"GitHub context attachment did not complete: {result.completion}"
+            )
+        return operation_id
+
     def select_reasoning_mode(self, mode: str) -> None:
         if not mode.strip():
             raise ValueError("reasoning mode is required")
