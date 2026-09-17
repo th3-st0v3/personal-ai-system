@@ -143,7 +143,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
     def test_select_reasoning_mode_queues_semantic_selection(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-thinking"}}, {"operation": {"operation_id": "op-thinking", "status": "completed"}}])
         ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001).select_reasoning_mode("thinking")
-        self.assertEqual(transport.requests[0][2], {"operation_type": "select_reasoning", "prompt": "thinking"})
+        self.assertEqual(transport.requests[0][2], ("POST", "/queue", {"operation_type": "select_reasoning", "prompt": "thinking"}))
 
     def test_read_response_requires_active_operation(self) -> None:
         with self.assertRaises(ChatGPTAdapterError):
