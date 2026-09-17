@@ -160,18 +160,14 @@ def _recover_primary_provider(
     state: Any,
     response: str,
     failure: str,
-    primary_invoke: Callable[[str, Any, str, Any], tuple[int, str]],
+    primary_invoke: Callable[..., tuple[int, str]],
     ledger: Any,
 ) -> tuple[int, str]:
-    fallback = _invoke_provider_fallback(task, state)
-    if fallback[0] == 0:
-        return fallback
-
     deadline = min(
         supervisor.datetime.fromisoformat(state.deadline_at),
         supervisor.now_utc() + supervisor.timedelta(seconds=PRIMARY_RECOVERY_WINDOW_SECONDS),
     )
-    last_code, last_response = fallback[0], fallback[1] or response
+    last_code, last_response = supervisor.provider_condition(90, response) and 90 or 1, response
     while not supervisor.STOP and supervisor.now_utc() < deadline:
         remaining = (deadline - supervisor.now_utc()).total_seconds()
         supervisor.log_event(
@@ -188,13 +184,14 @@ def _recover_primary_provider(
         if supervisor.STOP:
             break
 
-        retry_code, retry_response = primary_invoke(task, state, failure, ledger)
+        retry_code, retry_response = primary_invoke(task, state, failure, ledger=ledger)
         last_code, last_response = retry_code, retry_response
         if retry_code == 0:
             return retry_code, retry_response
         condition = supervisor.provider_condition(retry_code, retry_response)
         if condition not in {"provider_usage_limit", "auth_required"}:
             break
+        response = retry_response or response
         failure = retry_response[-8_000:] or failure
 
     return last_code, last_response
