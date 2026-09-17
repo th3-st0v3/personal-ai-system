@@ -5,7 +5,30 @@ import unittest
 from pathlib import Path
 
 from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
-from scripts.pasi_chat import build_prompt, needs_github_context, process_controller_update_signal
+from scripts.pasi_chat import build_prompt, needs_github_context, process_controller_update_signal, route_chat
+
+
+class FakeChatAdapter:
+    def __init__(self, state: dict[str, object] | None = None) -> None:
+        self.state = state or {}
+        self.calls: list[tuple[str, str]] = []
+
+    def read_browser_observation(self) -> dict[str, object]:
+        return {"data": dict(self.state)} if self.state else {}
+
+    def new_session(self) -> str:
+        self.calls.append(("new_session", ""))
+        self.state = {"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/new", "chat_exhausted": False, "github_attached": False}
+        return "op-new"
+
+    def attach_github_repository(self, repository: str) -> str:
+        self.calls.append(("attach_github", repository))
+        self.state["github_attached"] = True
+        return "op-github"
+
+    def select_reasoning_mode(self, mode: str) -> None:
+        self.calls.append(("select_reasoning", mode))
+        self.state["reasoning_mode"] = mode
 
 
 class TestPasiChat(unittest.TestCase):
@@ -35,6 +58,33 @@ class TestPasiChat(unittest.TestCase):
         self.assertFalse(needs_github_context("explain Newton's second law"))
         self.assertTrue(needs_github_context("explain Newton's second law", override="always"))
         self.assertFalse(needs_github_context("fix the repository", override="never"))
+
+    def test_reuses_existing_chat_without_creating_a_new_one(self) -> None:
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
+        handoff, chat_url = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
+        self.assertEqual(chat_url, "https://chatgpt.com/c/existing")
+        self.assertNotIn(("new_session", ""), adapter.calls)
+        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
+        self.assertFalse(handoff["github_attached"])
+
+    def test_creates_new_chat_only_when_existing_chat_is_exhausted(self) -> None:
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": True, "github_attached": False})
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
+        self.assertIn(("new_session", ""), adapter.calls)
+        self.assertFalse(handoff["chat_exhausted"])
+
+    def test_attaches_github_only_when_task_requires_repository_context(self) -> None:
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "auto")
+        self.assertIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
+        self.assertNotIn(("select_reasoning", "thinking"), adapter.calls)
+        self.assertTrue(handoff["github_attached"])
+
+    def test_does_not_attach_github_when_already_attached(self) -> None:
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": True})
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "github_attached": True}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "auto")
+        self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
+        self.assertTrue(handoff["github_attached"])
 
     def test_normal_response_does_not_stage_controller_update(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
