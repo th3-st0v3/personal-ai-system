@@ -89,7 +89,7 @@ class ChatGPTAdapter(AIAdapter):
     def new_session(self) -> str:
         operation = self._queue("new_chat", "")
         self.current_operation_id = self._operation_id(operation)
-        result = self.wait_for_completion(self.current_operation_id)
+        result = self.wait_for_completion(self.current_operation_id, recover_response_text=False)
         if result.completion != "complete":
             raise ChatGPTAdapterError(f"new ChatGPT session did not complete: {result.completion}")
         return self.current_operation_id
@@ -100,7 +100,7 @@ class ChatGPTAdapter(AIAdapter):
             raise ValueError("repository must be in owner/name form")
         operation_id = self._operation_id(self._queue("attach_github", repository))
         self.current_operation_id = operation_id
-        result = self.wait_for_completion(operation_id)
+        result = self.wait_for_completion(operation_id, recover_response_text=False)
         if result.completion != "complete":
             raise ChatGPTAdapterError(f"GitHub context attachment did not complete: {result.completion}")
         return operation_id
@@ -111,7 +111,7 @@ class ChatGPTAdapter(AIAdapter):
             raise ValueError("reasoning mode is required")
         operation_id = self._operation_id(self._queue("select_reasoning", mode))
         self.current_operation_id = operation_id
-        result = self.wait_for_completion(operation_id)
+        result = self.wait_for_completion(operation_id, recover_response_text=False)
         if result.completion != "complete":
             raise ChatGPTAdapterError(f"ChatGPT reasoning-mode selection did not complete: {result.completion}")
 
@@ -141,7 +141,13 @@ class ChatGPTAdapter(AIAdapter):
         observation = payload.get("observation")
         return observation if isinstance(observation, Mapping) else None
 
-    def wait_for_completion(self, operation_id: str, timeout_seconds: float | None = None) -> AIResponse:
+    def wait_for_completion(
+        self,
+        operation_id: str,
+        timeout_seconds: float | None = None,
+        *,
+        recover_response_text: bool = True,
+    ) -> AIResponse:
         limit = self.max_wait_seconds if timeout_seconds is None else timeout_seconds
         if limit <= 0:
             raise ValueError("timeout_seconds must be positive")
@@ -149,10 +155,25 @@ class ChatGPTAdapter(AIAdapter):
         while True:
             response = self.read_operation(operation_id)
             if response.completion in {"complete", "error", "interrupted"}:
+                if response.completion == "complete" and recover_response_text and not response.response_available:
+                    return self._recheck_completed_response(operation_id, response)
                 return response
             if time.monotonic() - started >= limit:
                 return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
             time.sleep(self.poll_interval_seconds)
+
+    def _recheck_completed_response(self, operation_id: str, response: AIResponse) -> AIResponse:
+        latest = response
+        for attempt in range(3):
+            if attempt:
+                time.sleep(min(self.poll_interval_seconds, 0.25))
+            try:
+                latest = self.read_operation(operation_id)
+            except ChatGPTAdapterError:
+                continue
+            if latest.completion != "complete" or latest.response_available:
+                return latest
+        return latest
 
     def _queue(self, operation_type: str, prompt: str) -> Mapping[str, Any]:
         payload = self.transport.request("POST", "/queue", {"operation_type": operation_type, "prompt": prompt})
