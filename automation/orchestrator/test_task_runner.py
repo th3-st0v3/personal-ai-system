@@ -79,9 +79,7 @@ def test_runner_executes_until_deterministic_completion(tmp_path) -> None:
         CountChecker(2),
         max_steps=4,
     )
-
     result = runner.run()
-
     assert result.phase == "completed"
     assert result.steps == 2
     assert result.step_limit_reached is False
@@ -91,17 +89,8 @@ def test_runner_executes_until_deterministic_completion(tmp_path) -> None:
 
 def test_runner_never_treats_planner_exhaustion_as_completion(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
-    runner = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([]),
-        RecordingExecutor(),
-        CountChecker(1),
-    )
-
+    runner = BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([]), RecordingExecutor(), CountChecker(1))
     result = runner.run()
-
     assert result.phase == "failed"
     assert "completion was not proven" in result.reason
     assert worker.status().phase == "stopped"
@@ -110,17 +99,9 @@ def test_runner_never_treats_planner_exhaustion_as_completion(tmp_path) -> None:
 def test_runner_stops_at_step_budget_without_claiming_completion(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
     runner = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([action("a1"), action("a2")]),
-        RecordingExecutor(),
-        CountChecker(3),
-        max_steps=2,
+        state_manager, "runner-1", worker, SequencePlanner([action("a1"), action("a2")]), RecordingExecutor(), CountChecker(3), max_steps=2
     )
-
     result = runner.run()
-
     assert result.phase == "running"
     assert result.step_limit_reached is True
     assert result.steps == 2
@@ -131,17 +112,8 @@ def test_runner_halts_for_human_approval(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
     executor = RecordingExecutor()
     approval_action = ActionProposal("a2", "session-1", "test", "desktop_ui")
-    runner = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([approval_action]),
-        executor,
-        CountChecker(1),
-    )
-
+    runner = BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([approval_action]), executor, CountChecker(1))
     result = runner.run()
-
     assert result.phase == "waiting_human"
     assert result.waiting_for_human is True
     assert executor.actions == []
@@ -152,22 +124,12 @@ def test_runner_approval_resume_is_bound_to_pending_action(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
     executor = RecordingExecutor()
     approval_action = ActionProposal("a2", "session-1", "test", "desktop_ui")
-    runner = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([approval_action]),
-        executor,
-        CountChecker(1),
-    )
-
+    runner = BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([approval_action]), executor, CountChecker(1))
     result = runner.run()
     assert result.phase == "waiting_human"
-
     resumed = runner.approve_pending_action()
     assert resumed.phase == "running"
     assert worker.status().approved_action_id == "a2"
-
     completed = runner.run()
     assert completed.phase == "completed"
     assert executor.actions == ["a2"]
@@ -177,69 +139,44 @@ def test_runner_restart_with_running_state_requires_rehydration(tmp_path) -> Non
     worker, state_manager = make_worker(tmp_path)
     executor = RecordingExecutor()
     runner = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([action("a1"), action("a2")]),
-        executor,
-        CountChecker(3),
-        max_steps=1,
+        state_manager, "runner-1", worker, SequencePlanner([action("a1"), action("a2")]), executor, CountChecker(3), max_steps=1
     )
     result = runner.run()
     assert result.step_limit_reached is True
     assert len(executor.observations) == 1
-
     restarted = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([action("a2")]),
-        RecordingExecutor(),
-        CountChecker(2),
-        max_steps=2,
+        state_manager, "runner-1", worker, SequencePlanner([action("a2")]), RecordingExecutor(), CountChecker(2), max_steps=2
     )
     assert restarted.state.recovery_required is True
     blocked = restarted.run()
     assert blocked.phase == "paused"
     assert "rehydration" in blocked.reason
-
     restarted.mark_rehydrated(executor.observations)
     assert restarted.state.recovery_required is False
-
     resumed = restarted.run()
     assert resumed.phase == "completed"
     assert resumed.steps == 2
 
 
+def test_runner_rejects_extra_rehydrated_observations_when_persisted_history_is_empty(tmp_path) -> None:
+    worker, state_manager = make_worker(tmp_path)
+    runner = BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([action("a1")]), RecordingExecutor(), CountChecker(1))
+    # Simulate a restart before the first observation was persisted.
+    runner.state_path.write_text(
+        '{"runner_id":"runner-1","phase":"running","steps":0,"observations":[],"pending_action":null,"recovery_required":false,"updated_at":"2026-01-01T00:00:00+00:00"}',
+        encoding="utf-8",
+    )
+    restarted = BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([action("a1")]), RecordingExecutor(), CountChecker(1))
+    with pytest.raises(RuntimeError, match="rehydrated observations do not match"):
+        restarted.mark_rehydrated([Observation("unexpected", "session-1", "test", "result", {"x": 1})])
+
+
 def test_runner_persists_completed_state_and_rejects_corrupt_state(tmp_path) -> None:
     worker, state_manager = make_worker(tmp_path)
-    runner = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([action("a1")]),
-        RecordingExecutor(),
-        CountChecker(1),
-    )
+    runner = BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([action("a1")]), RecordingExecutor(), CountChecker(1))
     runner.run()
-
-    restarted = BoundedTaskRunner(
-        state_manager,
-        "runner-1",
-        worker,
-        SequencePlanner([]),
-        RecordingExecutor(),
-        CountChecker(1),
-    )
+    restarted = BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([]), RecordingExecutor(), CountChecker(1))
     assert restarted.state.phase == "completed"
-
     runner.state_path.write_text("{not-json", encoding="utf-8")
     with pytest.raises(RuntimeError, match="Corrupt state file"):
-        BoundedTaskRunner(
-            state_manager,
-            "runner-1",
-            worker,
-            SequencePlanner([]),
-            RecordingExecutor(),
-            CountChecker(1),
-        )
+        BoundedTaskRunner(state_manager, "runner-1", worker, SequencePlanner([]), RecordingExecutor(), CountChecker(1))
