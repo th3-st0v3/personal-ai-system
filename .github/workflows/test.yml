@@ -24,10 +24,10 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Run canonical validation suite
         run: bash scripts/check_all.sh
+      - name: Run Tampermonkey controller contract tests
+        run: node --test automation/tampermonkey/chatgpt-controller.test.js
       - name: Validate Tampermonkey controller syntax
         run: node --check automation/tampermonkey/chatgpt-controller.user.js
-      - name: Validate Tampermonkey controller test syntax
-        run: node --check automation/tampermonkey/chatgpt-controller.test.js
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v7
