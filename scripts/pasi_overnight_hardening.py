@@ -19,6 +19,8 @@ _FORBIDDEN_PATH_PATTERNS = (
 _DIFF_PATH_RE = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]+\n\+\+\+ /dev/null$", re.MULTILINE)
 _AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
+_BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
+_CONTROLLER_HEALTH_URL = "http://127.0.0.1:8766/health"
 
 
 def validate_patch_paths(patch: str, allow_delete: bool) -> None:
@@ -90,12 +92,12 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
     services = (
         (
             "bridge",
-            supervisor.healthy(f"{supervisor.BRIDGE_URL}/health"),
+            supervisor.healthy(_BRIDGE_HEALTH_URL),
             [sys.executable, "-m", "automation.orchestrator.bridge"],
         ),
         (
             "controller_distribution",
-            supervisor.healthy("http://127.0.0.1:8766/health"),
+            supervisor.healthy(_CONTROLLER_HEALTH_URL),
             [sys.executable, "scripts/pasi_controller_server.py"],
         ),
     )
