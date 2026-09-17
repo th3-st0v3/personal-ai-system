@@ -16,7 +16,7 @@ from automation.computer_use.local_access import LocalAccessBroker
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_URL = "http://127.0.0.1:8765"
-POLL_SECONDS = 2.0
+POLL_SECONDS = 0.5
 DEFAULT_TIMEOUT = 900.0
 GUARD_EXIT_USAGE_LIMIT = 90
 GUARD_EXIT_AUTH_REQUIRED = 91

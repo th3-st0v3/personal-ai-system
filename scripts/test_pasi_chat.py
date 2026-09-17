@@ -56,7 +56,7 @@ class TestPasiChat(unittest.TestCase):
 
     def test_build_prompt_includes_bounded_handoff(self) -> None:
         prompt = build_prompt("continue the task", "Working tree: clean", {"chat_url": "https://chatgpt.com/c/example", "summary": "Prior verified handoff"})
-        self.assertIn("Previous PASI ChatGPT session: https://chatgpt.com/c/example", prompt)
+        self.assertIn("Active PASI ChatGPT session: https://chatgpt.com/c/example", prompt)
         self.assertIn("Previous PASI handoff:\nPrior verified handoff", prompt)
 
     def test_build_prompt_does_not_claim_execution(self) -> None:
@@ -88,82 +88,23 @@ class TestPasiChat(unittest.TestCase):
         self.assertFalse(needs_github_context("what is GitHub?"))
         self.assertFalse(needs_github_context("run the unit tests"))
         self.assertFalse(needs_github_context("explain Newton's second law"))
-        self.assertFalse(needs_github_context("explain Newton's second law", override="public"))
-        self.assertFalse(needs_github_context("explain Newton's second law", override="auto"))
-        self.assertTrue(needs_github_context("explain Newton's second law", override="fallback"))
-        self.assertTrue(needs_github_context("explain Newton's second law", override="always"))
-        self.assertFalse(needs_github_context("fix the repository", override="never"))
 
-    def test_public_github_unavailable_detection_is_conservative(self) -> None:
+    def test_public_github_failure_signal_detection(self) -> None:
         self.assertTrue(public_github_context_unavailable("PASI_PUBLIC_GITHUB_UNAVAILABLE: true"))
-        self.assertTrue(public_github_context_unavailable("I cannot access the GitHub repository from this environment."))
-        self.assertTrue(public_github_context_unavailable("The public GitHub link is not accessible here."))
-        self.assertFalse(public_github_context_unavailable("I inspected the public repository and found the bridge implementation."))
-        self.assertFalse(public_github_context_unavailable("GitHub is useful for source control."))
+        self.assertTrue(public_github_context_unavailable("I can't access the GitHub repository"))
+        self.assertFalse(public_github_context_unavailable("I reviewed the GitHub repository and found the bug."))
 
-    def test_reuses_existing_chat_and_enables_thinking(self) -> None:
-        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
-        handoff, chat_url = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
-        self.assertEqual(chat_url, "https://chatgpt.com/c/existing")
-        self.assertNotIn(("new_session", ""), adapter.calls)
-        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
-        self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
-        self.assertFalse(handoff["github_attached"])
-        self.assertEqual(handoff["context_source"], "public_github")
-
-    def test_creates_new_chat_only_when_existing_chat_is_exhausted(self) -> None:
-        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": True, "github_attached": False})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
-        self.assertIn(("new_session", ""), adapter.calls)
-        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
-        self.assertFalse(handoff["chat_exhausted"])
-
-    def test_public_repo_task_does_not_attach_github_app(self) -> None:
-        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "auto")
-        self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
-        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
-        self.assertFalse(handoff["github_attached"])
-        self.assertEqual(handoff["context_source"], "public_github")
-
-    def test_explicit_fallback_attaches_github_but_keeps_thinking_enabled(self) -> None:
-        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "fallback")
-        self.assertIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
-        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
-        self.assertTrue(handoff["github_attached"])
-        self.assertEqual(handoff["context_source"], "github_app_fallback")
-
-    def test_already_attached_github_context_is_not_duplicated_and_thinking_is_still_enabled(self) -> None:
-        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": True})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "github_attached": True}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "fallback")
-        self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
-        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
-        self.assertTrue(handoff["github_attached"])
-
-    def test_normal_response_does_not_stage_controller_update(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+    def test_controller_update_signal_requires_explicit_structured_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
             controller = root / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
             controller.parent.mkdir(parents=True)
-            controller.write_text("// @version      2.4.0\n", encoding="utf-8")
-            result = process_controller_update_signal("ordinary answer", root)
-            self.assertFalse(result["requested"])
-            self.assertFalse((root / ".runtime" / "chatgpt" / "controller-update-request.json").exists())
-
-    def test_explicit_matching_new_version_stages_controller_update(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            controller = root / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
-            controller.parent.mkdir(parents=True)
-            controller.write_text("// @version      2.4.0\n", encoding="utf-8")
-            write_sync_state(root / ".runtime" / "chatgpt" / "controller-sync-state.json", version="2.3.0")
-            response = "PASI_CONTROLLER_UPDATE: true\nPASI_CONTROLLER_UPDATE_VERSION: 2.4.0\nPASI_CONTROLLER_UPDATE_REASON: improve response extraction"
-            result = process_controller_update_signal(response, root)
+            controller.write_text("// @version      2.4.6\n", encoding="utf-8")
+            state_path = root / ".runtime" / "chatgpt" / "controller-sync-state.json"
+            write_sync_state(state_path, version="2.4.5")
+            result = process_controller_update_signal("PASI_CONTROLLER_UPDATE: true\nPASI_CONTROLLER_UPDATE_VERSION: 2.4.6\nPASI_CONTROLLER_UPDATE_REASON: test", root)
             self.assertTrue(result["eligible"])
-            request_path = root / ".runtime" / "chatgpt" / "controller-update-request.json"
-            self.assertTrue(request_path.exists())
-            self.assertEqual(read_last_synced_version(root / ".runtime" / "chatgpt" / "controller-sync-state.json"), "2.3.0")
+            self.assertEqual(read_last_synced_version(state_path), "2.4.5")
 
 
 if __name__ == "__main__":

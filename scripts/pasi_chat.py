@@ -24,6 +24,7 @@ PUBLIC_REPOSITORY_URL = "https://github.com/th3-st0v3/personal-ai-system"
 PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL = PUBLIC_REPOSITORY_URL + "/tree/main"
 CHAT_URL_PATTERN = re.compile(r"^https://chatgpt\.com/c/")
 MAX_HANDOFF_CHARS = 12_000
+MAX_CHAT_HISTORY = 20
 CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
 CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
 _PUBLIC_GITHUB_FAILURE_PHRASES = (
@@ -89,14 +90,19 @@ def save_handoff(payload: Mapping[str, object]) -> None:
     if not isinstance(controller_signal, Mapping):
         safe.pop("controller_update_signal", None)
     chat_url = safe.get("chat_url")
-    if not isinstance(chat_url, str) or len(chat_url) > 500:
+    if not isinstance(chat_url, str) or len(chat_url) > 500 or not CHAT_URL_PATTERN.match(chat_url):
         safe.pop("chat_url", None)
+    history = safe.get("chat_url_history")
+    if isinstance(history, list):
+        safe["chat_url_history"] = history[-MAX_CHAT_HISTORY:]
+    else:
+        safe.pop("chat_url_history", None)
     context_source = safe.get("context_source")
     if not isinstance(context_source, str) or len(context_source) > 100:
         safe.pop("context_source", None)
     text = json.dumps(safe, indent=2, ensure_ascii=False)
     if len(text) > MAX_HANDOFF_CHARS:
-        minimal = {key: safe[key] for key in ("chat_url", "chat_exhausted", "github_attached", "reasoning_mode", "context_source") if key in safe}
+        minimal = {key: safe[key] for key in ("chat_url", "chat_exhausted", "github_attached", "reasoning_mode", "context_source", "chat_url_history") if key in safe}
         if "summary" in safe:
             minimal["summary"] = str(safe["summary"])[-4_000:]
         text = json.dumps(minimal, indent=2, ensure_ascii=False)
@@ -110,7 +116,7 @@ def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> s
     chat_url = handoff.get("chat_url")
     summary = handoff.get("summary")
     if isinstance(chat_url, str) and chat_url.strip():
-        continuity.append(f"Previous PASI ChatGPT session: {chat_url}")
+        continuity.append(f"Active PASI ChatGPT session: {chat_url}")
     if isinstance(summary, str) and summary.strip():
         continuity.append("Previous PASI handoff:\n" + summary[:6_000])
     continuity_text = "\n\n".join(continuity) or "No previous PASI handoff is available."
@@ -137,6 +143,12 @@ Thinking/reasoning mode is required for every PASI task. Keep Thinking enabled r
 
 CONTINUITY:
 {continuity_text}
+
+CHAT SESSION POLICY:
+- Preserve the active ChatGPT conversation whenever it is available.
+- Do not replace a conversation because the page is slow, fails to load, reloads, times out, or briefly loses controller connectivity.
+- A replacement conversation is justified only by a verified provider/context usage condition reported by the controller, or when there is no usable known conversation at all.
+- If the browser reports a different ChatGPT conversation URL, treat that as a detected navigation/chat switch and continue in the detected conversation rather than silently pretending it is the previous one.
 
 CONTROLLER UPDATE SIGNAL:
 Normally do not request a Tampermonkey update. Only when concrete evidence shows the PASI ChatGPT/Tampermonkey controller itself needs a code update, append:
@@ -225,6 +237,27 @@ def wait_for_browser_controller(
     raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
 
 
+def valid_chat_url(value: object) -> str | None:
+    return value if isinstance(value, str) and CHAT_URL_PATTERN.match(value) else None
+
+
+def record_chat_change(handoff: dict[str, object], previous_url: str | None, new_url: str | None, reason: str) -> None:
+    previous = valid_chat_url(previous_url)
+    current = valid_chat_url(new_url)
+    if not current or previous == current:
+        return
+    history = handoff.get("chat_url_history")
+    entries = list(history) if isinstance(history, list) else []
+    entries.append({
+        "previous_url": previous,
+        "new_url": current,
+        "reason": reason,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    })
+    handoff["chat_url_history"] = entries[-MAX_CHAT_HISTORY:]
+    handoff["last_chat_change_reason"] = reason
+
+
 def route_chat(
     adapter: ChatGPTRoutingAdapter,
     handoff: dict[str, object],
@@ -233,24 +266,35 @@ def route_chat(
     github_mode: str,
 ) -> tuple[dict[str, object], str | None]:
     state = browser_state(adapter)
-    state_url = state.get("chat_url")
-    current_url = state_url if isinstance(state_url, str) else None
-    if current_url is not None and not CHAT_URL_PATTERN.match(current_url):
-        current_url = None
-    if state.get("chat_exhausted") is True:
+    observed_url = valid_chat_url(state.get("chat_url"))
+    known_url = valid_chat_url(handoff.get("chat_url"))
+
+    if observed_url and known_url and observed_url != known_url:
+        print(f"Detected ChatGPT conversation change: {known_url} -> {observed_url}")
+        record_chat_change(handoff, known_url, observed_url, "browser_observed_chat_change")
+        known_url = observed_url
+        handoff.update({"chat_url": observed_url, "chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
+    elif observed_url and not known_url:
+        handoff["chat_url"] = observed_url
+        known_url = observed_url
+
+    observed_exhausted = state.get("chat_exhausted") is True
+    if observed_exhausted:
         handoff["chat_exhausted"] = True
-    if current_url is not None:
-        handoff["chat_url"] = current_url
-    handoff_url = handoff.get("chat_url")
-    chat_url = handoff_url if isinstance(handoff_url, str) and CHAT_URL_PATTERN.match(handoff_url) else None
-    if chat_url is None or handoff.get("chat_exhausted") is True:
-        print("Creating a new ChatGPT conversation because no usable conversation is available.")
+
+    exhausted = handoff.get("chat_exhausted") is True
+    if known_url is None or exhausted:
+        if known_url is not None and exhausted:
+            print(f"Creating a new ChatGPT conversation because {known_url} is verified exhausted.")
+            record_chat_change(handoff, known_url, None, "verified_chat_exhaustion")
+        else:
+            print("Creating a new ChatGPT conversation because no usable conversation is known.")
         operation_id = adapter.new_session()
         print(f"New chat operation: {operation_id}")
         handoff.update({"chat_url": None, "chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
-        chat_url = None
+        known_url = None
     else:
-        print(f"Reusing ChatGPT conversation: {chat_url}")
+        print(f"Reusing ChatGPT conversation: {known_url}")
 
     reasoning_mode = handoff.get("reasoning_mode")
     if not isinstance(reasoning_mode, str) or reasoning_mode not in {"thinking", "think"}:
@@ -275,7 +319,7 @@ def route_chat(
             print("GitHub app context is already attached from a prior explicit fallback; not removing it.")
 
     handoff.update({"github_attached": github_attached, "reasoning_mode": reasoning_mode, "chat_exhausted": False, "context_source": "github_app_fallback" if fallback_requested else ("github_app_fallback" if github_attached else "public_github")})
-    return handoff, chat_url
+    return handoff, known_url
 
 
 def process_controller_update_signal(response_text: str, root: Path) -> dict[str, object]:
@@ -309,7 +353,7 @@ def main() -> int:
 
     task = " ".join(args.task).strip()
     handoff = load_handoff()
-    adapter = ChatGPTAdapter(UrllibBridgeTransport(), session_id=f"launcher-{uuid.uuid4().hex}", poll_interval_seconds=1.0, max_wait_seconds=args.timeout)
+    adapter = ChatGPTAdapter(UrllibBridgeTransport(), session_id=f"launcher-{uuid.uuid4().hex}", poll_interval_seconds=0.25, max_wait_seconds=args.timeout)
     try:
         print("Checking for a live PASI ChatGPT browser controller...")
         wait_for_browser_controller(adapter, timeout_seconds=min(args.timeout, CONTROLLER_LIVENESS_TIMEOUT_SECONDS))
@@ -319,7 +363,10 @@ def main() -> int:
         response = adapter.wait_for_completion(prompt_operation)
         if response.completion == "error" and response.chat_exhausted:
             print("Current ChatGPT conversation is exhausted; creating one replacement chat and retrying once.")
-            handoff.update({"chat_exhausted": True, "github_attached": False, "reasoning_mode": None})
+            previous_url = valid_chat_url(handoff.get("chat_url"))
+            if previous_url:
+                record_chat_change(handoff, previous_url, None, "verified_prompt_exhaustion")
+            handoff.update({"chat_exhausted": True, "chat_url": None, "github_attached": False, "reasoning_mode": None})
             handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
             print(f"Retry prompt operation: {retry_operation}")
@@ -360,8 +407,11 @@ def main() -> int:
         print("No response text was captured by the bridge.")
 
     latest_state = browser_state(adapter)
-    latest_chat_url = latest_state.get("chat_url")
-    if isinstance(latest_chat_url, str) and CHAT_URL_PATTERN.match(latest_chat_url):
+    latest_chat_url = valid_chat_url(latest_state.get("chat_url"))
+    current_handoff_url = valid_chat_url(handoff.get("chat_url"))
+    if latest_chat_url and current_handoff_url and latest_chat_url != current_handoff_url:
+        record_chat_change(handoff, current_handoff_url, latest_chat_url, "completion_observed_chat_change")
+    if latest_chat_url:
         handoff["chat_url"] = latest_chat_url
     handoff.update({"chat_exhausted": response.chat_exhausted, "summary": summary, "controller_update_signal": update_signal})
     save_handoff(handoff)

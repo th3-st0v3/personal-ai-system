@@ -33,9 +33,27 @@ test('native content controller uses standard fetch instead of GM APIs', () => {
 
 test('native controller reports health and preserves interrupted-operation recovery', () => {
   assert.match(content, /chatgpt_health/);
+  assert.match(content, /chatgpt_chat_changed/);
+  assert.match(content, /conversation_signature/);
   assert.match(content, /localStorage/);
   assert.match(content, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
+  assert.match(content, /CHAT_USAGE_LIMITED/);
+});
+
+test('native prompt submission requires explicit user-message acknowledgement', () => {
+  assert.match(content, /SUBMISSION_ACK_MS = 2500/);
+  assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
+  assert.match(content, /newestUserMatches/);
+  assert.match(content, /waitForSubmissionAck/);
+  assert.match(content, /prompt could not be verified after bounded attempts/);
+});
+
+test('native new-chat creation requires a changed conversation identity or genuinely empty chat', () => {
+  assert.match(content, /previousChat = chatUrl\(\)/);
+  assert.match(content, /differentChat/);
+  assert.match(content, /emptyConversation/);
+  assert.match(content, /new chat control did not change conversation identity/);
 });
 
 test('activity indicator is isolated, non-interactive, and reduced-motion aware', () => {
@@ -49,10 +67,14 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
-test('native recovery companion enforces bounded response recovery', () => {
+test('native recovery companion only replaces a chat after verified usage or context exhaustion', () => {
   assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
-  assert.match(recovery, /RECOVERY_TRIGGER_MS = 24 \* 60 \* 1000/);
+  assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
   assert.match(recovery, /location\.reload\(\)/);
+  assert.match(recovery, /function usageLimited\(\)/);
+  assert.match(recovery, /function replacementReason\(\)/);
+  assert.match(recovery, /phase: 'preserve_current_chat'/);
+  assert.match(recovery, /no_verified_usage_or_context_exhaustion/);
   assert.match(recovery, /CHAT_RECOVERED_RETRY/);
   assert.match(recovery, /operation_type: 'new_chat'/);
 });
