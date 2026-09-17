@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any
 
 
+class StateCorruptionError(RuntimeError):
+    """Raised when persisted orchestration state cannot be trusted."""
+
+
 class StateManager:
     def __init__(self, ai_dir: Path):
         self.ai_dir = ai_dir
@@ -50,197 +54,80 @@ class StateManager:
         try:
             with path.open("r", encoding="utf-8") as file:
                 return json.load(file)
-        except (OSError, json.JSONDecodeError):
-            return default
+        except (OSError, json.JSONDecodeError) as exc:
+            raise StateCorruptionError(f"Corrupt state file: {path}") from exc
+
+    @staticmethod
+    def require_dict(path: Path, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise StateCorruptionError(f"Invalid state shape for {path}: expected object")
+        return value
+
+    @staticmethod
+    def require_list(path: Path, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+            raise StateCorruptionError(f"Invalid state shape for {path}: expected list of objects")
+        return value
 
     def save_dataclass(self, path: Path, value: Any) -> None:
         self.write_json(path, asdict(value))
 
     def load_project_state(self) -> dict[str, Any]:
-        return self.read_json(
-            self.project_state_path,
-            {},
-        )
+        return self.require_dict(self.project_state_path, self.read_json(self.project_state_path, {}))
 
     def save_project_state(self, state: Any) -> None:
-        self.save_dataclass(
-            self.project_state_path,
-            state,
-        )
+        self.save_dataclass(self.project_state_path, state)
 
     def load_current_task(self) -> dict[str, Any]:
-        return self.read_json(
-            self.current_task_path,
-            {},
-        )
+        return self.require_dict(self.current_task_path, self.read_json(self.current_task_path, {}))
 
     def save_current_task(self, task: Any) -> None:
-        self.save_dataclass(
-            self.current_task_path,
-            task,
-        )
+        self.save_dataclass(self.current_task_path, task)
 
     def load_feature_status(self) -> dict[str, Any]:
-        return self.read_json(
-            self.feature_status_path,
-            {},
-        )
+        return self.require_dict(self.feature_status_path, self.read_json(self.feature_status_path, {}))
 
-    def save_feature_status(
-        self,
-        feature_status: dict[str, Any],
-    ) -> None:
-        self.write_json(
-            self.feature_status_path,
-            feature_status,
-        )
+    def save_feature_status(self, feature_status: dict[str, Any]) -> None:
+        self.write_json(self.feature_status_path, feature_status)
 
-    def save_retry_state(
-        self,
-        retry_state: dict[str, Any],
-    ) -> None:
-        self.write_json(
-            self.retry_state_path,
-            retry_state,
-        )
+    def save_retry_state(self, retry_state: dict[str, Any]) -> None:
+        self.write_json(self.retry_state_path, retry_state)
 
-    def load_retry_state(
-        self,
-    ) -> dict[str, Any]:
-        value = self.read_json(
-            self.retry_state_path,
-            {},
-        )
+    def load_retry_state(self) -> dict[str, Any]:
+        return self.require_dict(self.retry_state_path, self.read_json(self.retry_state_path, {}))
 
-        if not isinstance(value, dict):
-            return {}
+    def save_test_results(self, results: dict[str, Any]) -> None:
+        self.write_json(self.test_results_path, results)
 
-        return value
+    def save_browser_results(self, results: dict[str, Any]) -> None:
+        self.write_json(self.browser_results_path, results)
 
-    def save_test_results(
-        self,
-        results: dict[str, Any],
-    ) -> None:
-        self.write_json(
-            self.test_results_path,
-            results,
-        )
+    def save_context_package(self, context_package: Any) -> None:
+        self.write_json(self.context_package_path, context_package.to_context_dict())
 
-    def save_browser_results(
-        self,
-        results: dict[str, Any],
-    ) -> None:
-        self.write_json(
-            self.browser_results_path,
-            results,
-        )
+    def load_context_package(self) -> dict[str, Any]:
+        return self.require_dict(self.context_package_path, self.read_json(self.context_package_path, {}))
 
-    def save_context_package(
-        self,
-        context_package: Any,
-    ) -> None:
-        self.write_json(
-            self.context_package_path,
-            context_package.to_context_dict(),
-        )
+    def save_research_state(self, research_state: Any) -> None:
+        self.write_json(self.research_state_path, research_state.model_dump(mode="json"))
 
-    def load_context_package(
-        self,
-    ) -> dict[str, Any]:
-        value = self.read_json(
-            self.context_package_path,
-            {},
-        )
+    def load_research_state(self) -> dict[str, Any]:
+        return self.require_dict(self.research_state_path, self.read_json(self.research_state_path, {}))
 
-        if not isinstance(value, dict):
-            return {}
+    def save_execution_result(self, execution_result: Any) -> None:
+        self.write_json(self.execution_results_path, execution_result.model_dump(mode="json"))
 
-        return value
+    def load_execution_result(self) -> dict[str, Any]:
+        return self.require_dict(self.execution_results_path, self.read_json(self.execution_results_path, {}))
 
-    def save_research_state(
-        self,
-        research_state: Any,
-    ) -> None:
-        self.write_json(
-            self.research_state_path,
-            research_state.model_dump(mode="json"),
-        )
+    def load_browser_results(self) -> dict[str, Any]:
+        return self.require_dict(self.browser_results_path, self.read_json(self.browser_results_path, {}))
 
-    def load_research_state(
-        self,
-    ) -> dict[str, Any]:
-        value = self.read_json(
-            self.research_state_path,
-            {},
-        )
+    def save_handoff(self, handoff: dict[str, Any]) -> None:
+        self.write_json(self.handoff_path, handoff)
 
-        if not isinstance(value, dict):
-            return {}
+    def save_queue(self, queue: list[dict[str, Any]]) -> None:
+        self.write_json(self.queue_path, queue)
 
-        return value
-
-    def save_execution_result(
-        self,
-        execution_result: Any,
-    ) -> None:
-        self.write_json(
-            self.execution_results_path,
-            execution_result.model_dump(mode="json"),
-        )
-
-    def load_execution_result(
-        self,
-    ) -> dict[str, Any]:
-        value = self.read_json(
-            self.execution_results_path,
-            {},
-        )
-
-        if not isinstance(value, dict):
-            return {}
-
-        return value
-
-    def load_browser_results(
-        self,
-    ) -> dict[str, Any]:
-        value = self.read_json(
-            self.browser_results_path,
-            {},
-        )
-
-        if not isinstance(value, dict):
-            return {}
-
-        return value
-
-    def save_handoff(
-        self,
-        handoff: dict[str, Any],
-    ) -> None:
-        self.write_json(
-            self.handoff_path,
-            handoff,
-        )
-
-    def save_queue(
-        self,
-        queue: list[dict[str, Any]],
-    ) -> None:
-        self.write_json(
-            self.queue_path,
-            queue,
-        )
-
-    def load_queue(
-        self,
-    ) -> list[dict[str, Any]]:
-        value = self.read_json(
-            self.queue_path,
-            [],
-        )
-
-        if not isinstance(value, list):
-            return []
-
-        return value
+    def load_queue(self) -> list[dict[str, Any]]:
+        return self.require_list(self.queue_path, self.read_json(self.queue_path, []))
