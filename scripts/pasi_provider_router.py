@@ -119,7 +119,8 @@ def extract_chat_text(payload: dict[str, Any]) -> str:
 
 def call_ollama(prompt: str, timeout: float) -> str:
     base_url = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_URL).rstrip("/")
-    model = os.environ.get("OLLAMA_MODEL", "").strip()
+    configured_model = os.environ.get("OLLAMA_MODEL", "").strip()
+    model: str = configured_model
     if not model:
         try:
             tags = get_json(base_url + "/api/tags", min(timeout, OLLAMA_DISCOVERY_TIMEOUT))
