@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,9 @@ from typing import Any, Mapping
 
 MAX_DETAIL_CHARS = 4_000
 MAX_OBSTACLE_LOG_BYTES = 2_000_000
+MAX_RECENT_LINES = 200
+MAX_COMPACT_LINES = 500
+_PENDING_STATUSES = frozenset({"pending", "needs_preapproval", "waiting_external"})
 _REDACT_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._-]+|(api[_ -]?key\s*[=:]\s*|token\s*[=:]\s*|password\s*[=:]\s*)\S+")
 _SENSITIVE_KEYS = re.compile(r"(?i)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|secret|authorization|credential|private[_ -]?key)")
 
@@ -75,9 +79,8 @@ class ObstacleLedger:
 
     def _read_recent(self) -> list[dict[str, Any]]:
         try:
-            if self.log_path.stat().st_size > MAX_OBSTACLE_LOG_BYTES:
-                return []
-            lines = self.log_path.read_text(encoding="utf-8").splitlines()[-200:]
+            with self.log_path.open("r", encoding="utf-8") as handle:
+                lines = list(deque(handle, maxlen=MAX_RECENT_LINES))
         except OSError:
             return []
         values: list[dict[str, Any]] = []
@@ -89,6 +92,33 @@ class ObstacleLedger:
             if isinstance(value, dict):
                 values.append(value)
         return values
+
+    def _compact_if_needed(self, recent: list[dict[str, Any]]) -> None:
+        try:
+            oversized = self.log_path.stat().st_size > MAX_OBSTACLE_LOG_BYTES
+        except OSError:
+            oversized = False
+        if not oversized:
+            return
+
+        pending = [item for item in recent if item.get("status") in _PENDING_STATUSES]
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in [*pending, *recent[-MAX_COMPACT_LINES:]]:
+            obstacle_id = str(item.get("obstacle_id", ""))
+            fingerprint = str(item.get("fingerprint", ""))
+            identity = obstacle_id or fingerprint or json.dumps(item, sort_keys=True, ensure_ascii=False)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            merged.append(item)
+
+        temporary = self.log_path.with_suffix(".jsonl.tmp")
+        temporary.write_text(
+            "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in merged[-MAX_COMPACT_LINES:]),
+            encoding="utf-8",
+        )
+        temporary.replace(self.log_path)
 
     def record(
         self,
@@ -106,7 +136,7 @@ class ObstacleLedger:
         fingerprint = self._fingerprint(kind, safe_summary, safe_next, task_id)
         recent = self._read_recent()
         for item in reversed(recent):
-            if item.get("fingerprint") == fingerprint and item.get("status") in {"pending", "needs_preapproval", "waiting_external"}:
+            if item.get("fingerprint") == fingerprint and item.get("status") in _PENDING_STATUSES:
                 return Obstacle(
                     obstacle_id=str(item.get("obstacle_id", "")),
                     created_at=str(item.get("created_at", "")),
@@ -119,6 +149,7 @@ class ObstacleLedger:
                     fingerprint=fingerprint,
                 )
 
+        self._compact_if_needed(recent)
         created_at = datetime.now(timezone.utc).isoformat()
         obstacle_id = f"obs-{created_at.replace(':', '').replace('+00:00', 'Z')}-{fingerprint}"
         obstacle = Obstacle(
@@ -138,7 +169,7 @@ class ObstacleLedger:
         return obstacle
 
     def _refresh_action_list(self) -> None:
-        pending = [item for item in self._read_recent() if item.get("status") in {"pending", "needs_preapproval", "waiting_external"}]
+        pending = [item for item in self._read_recent() if item.get("status") in _PENDING_STATUSES]
         lines = [
             "# PASI Action List",
             "",
@@ -154,5 +185,5 @@ class ObstacleLedger:
         self.list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def pending(self, limit: int = 50) -> list[dict[str, Any]]:
-        values = [item for item in self._read_recent() if item.get("status") in {"pending", "needs_preapproval", "waiting_external"}]
+        values = [item for item in self._read_recent() if item.get("status") in _PENDING_STATUSES]
         return values[-max(1, limit):]
