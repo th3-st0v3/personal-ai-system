@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from scripts import pasi_overnight_engine as legacy
 from scripts import pasi_weeklong_resilience as resilience
@@ -68,6 +70,20 @@ class WeeklongResilienceTests(unittest.TestCase):
             resilience._archive_response(worktree, 3, 2, "response", label="primary")
             target = worktree / ".runtime" / "overnight" / "responses" / "task-0003-attempt-02-primary.txt"
             self.assertEqual(target.read_text(encoding="utf-8").strip(), "response")
+
+    def test_pre_state_failure_is_restartable(self) -> None:
+        deadline = datetime.now(timezone.utc) + timedelta(hours=1)
+        self.assertFalse(resilience._should_not_restart(1, None, deadline))
+
+    def test_manual_stop_is_not_restartable(self) -> None:
+        deadline = datetime.now(timezone.utc) + timedelta(hours=1)
+        state = SimpleNamespace(stop_reason="stopped")
+        self.assertTrue(resilience._should_not_restart(0, state, deadline))
+
+    def test_active_failure_state_is_restartable(self) -> None:
+        deadline = datetime.now(timezone.utc) + timedelta(hours=1)
+        state = SimpleNamespace(stop_reason="unexpected exception")
+        self.assertFalse(resilience._should_not_restart(1, state, deadline))
 
 
 if __name__ == "__main__":
