@@ -4,12 +4,16 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import scripts.pasi_controller_server as server
 from scripts.pasi_controller_server import (
     CONTROLLER_PATH,
     MANIFEST_PATH,
     RECOVERY_PATH,
+    ControllerDistributionError,
     git_blob_sha1,
+    load_verified_canonical_bundle,
     load_verified_recovery,
     load_verified_release,
 )
@@ -31,6 +35,33 @@ class TestPasiControllerServer(unittest.TestCase):
         self.assertEqual(actual_sha, manifest["recovery_git_blob_sha"])
         self.assertIn("GENERATION_TIMEOUT_MS", source)
         self.assertEqual(manifest["recovery_version"], "1.0.1")
+
+    def test_canonical_bundle_reads_verified_origin_main_blobs(self) -> None:
+        controller = "// @version      7.8.9\nconsole.log('controller');\n"
+        recovery = "const RECOVERY_VERSION = '3.2.1';\nconsole.log('recovery');\n"
+        with patch.object(server, "refresh_remote_main", return_value=True):
+            with patch.object(server, "_git_ref_sha", return_value="a" * 40):
+                def fake_show(ref: str, path: str) -> bytes:
+                    self.assertEqual(ref, server.REMOTE_MAIN_REF)
+                    return controller.encode() if path.endswith("chatgpt-controller.user.js") else recovery.encode()
+
+                with patch.object(server, "_git_show", side_effect=fake_show):
+                    manifest, actual_controller, controller_sha, actual_recovery, recovery_sha = load_verified_canonical_bundle()
+        expected_controller_sha = hashlib.sha1(b"blob 50\0" + controller.encode()).hexdigest()
+        expected_recovery_sha = hashlib.sha1(b"blob 57\0" + recovery.encode()).hexdigest()
+        self.assertEqual(actual_controller, controller)
+        self.assertEqual(actual_recovery, recovery)
+        self.assertEqual(controller_sha, expected_controller_sha)
+        self.assertEqual(recovery_sha, expected_recovery_sha)
+        self.assertEqual(manifest["release_commit"], "a" * 40)
+        self.assertEqual(manifest["version"], "7.8.9")
+        self.assertEqual(manifest["recovery_version"], "3.2.1")
+
+    def test_canonical_bundle_uses_clean_main_only_when_remote_is_unavailable(self) -> None:
+        with patch.object(server, "refresh_remote_main", return_value=False):
+            with patch.object(server, "_local_main_is_safe", return_value=False):
+                with self.assertRaises(ControllerDistributionError):
+                    load_verified_canonical_bundle()
 
     def test_git_blob_hash_uses_git_blob_header(self) -> None:
         payload = b"hello\n"
