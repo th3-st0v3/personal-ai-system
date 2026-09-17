@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.5
+// @version      2.4.6
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,15 +12,18 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
+    var CONTROLLER_VERSION = '2.4.6';
     var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
     var DOM_POLL_INTERVAL_MS = 100;
     var COMPOSER_TIMEOUT_MS = 15000;
     var SEND_TIMEOUT_MS = 10000;
     var SUBMISSION_TIMEOUT_MS = 4000;
-    var RETRY_DELAY_MS = 150;
-    var CLICK_SETTLE_MS = 300;
-    var RESPONSE_SETTLE_MS = 250;
+    var SUBMISSION_ACK_MS = 2500;
+    var SUBMISSION_ATTEMPTS = 3;
+    var RETRY_DELAY_MS = 100;
+    var CLICK_SETTLE_MS = 250;
+    var RESPONSE_SETTLE_MS = 200;
     var GENERATION_TIMEOUT_MS = 60 * 60 * 1000;
     var NEW_CHAT_TIMEOUT_MS = 15000;
     var MENU_TIMEOUT_MS = 8000;
@@ -30,12 +33,13 @@
     var processing = false;
     var githubAttached = false;
     var reasoningMode = null;
+    var lastKnownChatUrl = null;
 
     window.__PASI_CHATGPT_ACTIVE_OPERATION__ = function () {
         return activeOperationId;
     };
 
-    console.log('[PASI] ChatGPT Controller v2.4.5 loaded.');
+    console.log('[PASI] ChatGPT Controller v' + CONTROLLER_VERSION + ' loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -69,7 +73,7 @@
             await recoverInterruptedOperation();
             var health = await bridgeRequest('/health');
             if (!health.ok) return;
-            await reportChatState();
+            await reportChatState(true);
             setInterval(pollForOperation, POLL_INTERVAL_MS);
             setInterval(reportChatState, STATE_INTERVAL_MS);
         } catch (error) {
@@ -88,7 +92,9 @@
             processing = true;
             localStorage.setItem(ACTIVE_KEY, JSON.stringify({
                 operation_id: activeOperationId,
-                started_at: new Date().toISOString()
+                operation_type: payload.operation.operation_type,
+                started_at: new Date().toISOString(),
+                chat_url: chatUrl()
             }));
             try {
                 await processOperation(payload.operation);
@@ -101,57 +107,81 @@
         } finally {
             activeOperationId = null;
             processing = false;
-            localStorage.removeItem(ACTIVE_KEY);
         }
     }
 
     async function processOperation(operation) {
         if (!operation || typeof operation.operation_type !== 'string') throw new Error('ChatGPT operation type is missing.');
-        if (operation.operation_type === 'new_chat') {
-            await startNewChat();
-            githubAttached = false;
-            reasoningMode = null;
-            await reportFinished(operation.operation_id, false);
-            await reportChatState();
-            return;
+        var finalized = false;
+        try {
+            if (operation.operation_type === 'new_chat') {
+                await startNewChat();
+                githubAttached = false;
+                reasoningMode = null;
+                await reportFinished(operation.operation_id, false);
+                finalized = true;
+                await reportChatState(true);
+                return;
+            }
+            if (operation.operation_type === 'select_reasoning') {
+                await selectReasoningMode(operation.prompt);
+                reasoningMode = normalize(operation.prompt) || 'thinking';
+                await reportFinished(operation.operation_id, false);
+                finalized = true;
+                await reportChatState(true);
+                return;
+            }
+            if (operation.operation_type === 'attach_github') {
+                await attachGitHubContext(operation.prompt);
+                githubAttached = true;
+                await reportFinished(operation.operation_id, false);
+                finalized = true;
+                await reportChatState(true);
+                return;
+            }
+            if (operation.operation_type === 'prompt') {
+                await startPrompt(operation);
+                finalized = true;
+                return;
+            }
+            throw new Error('Unsupported ChatGPT operation type: ' + operation.operation_type);
+        } catch (error) {
+            var reported = await reportFailure(operation.operation_id, error);
+            finalized = reported;
+            throw error;
+        } finally {
+            if (finalized) localStorage.removeItem(ACTIVE_KEY);
+            await reportChatState(true);
         }
-        if (operation.operation_type === 'select_reasoning') {
-            await selectReasoningMode(operation.prompt);
-            reasoningMode = normalize(operation.prompt) || 'thinking';
-            await reportFinished(operation.operation_id, false);
-            await reportChatState();
-            return;
-        }
-        if (operation.operation_type === 'attach_github') {
-            await attachGitHubContext(operation.prompt);
-            githubAttached = true;
-            await reportFinished(operation.operation_id, false);
-            await reportChatState();
-            return;
-        }
-        if (operation.operation_type === 'prompt') {
-            await startPrompt(operation);
-            return;
-        }
-        throw new Error('Unsupported ChatGPT operation type: ' + operation.operation_type);
     }
 
     async function startNewChat() {
-        var previousUrl = window.location.href;
+        var previousLocation = window.location.href;
+        var previousChat = chatUrl();
+        var previousSignature = conversationSignature();
         var button = findNewChat();
         if (!button) {
-            await sleep(DOM_POLL_INTERVAL_MS * 3);
+            await sleep(DOM_POLL_INTERVAL_MS * 2);
             button = findNewChat();
         }
         if (!button) throw new Error('Could not find ChatGPT New chat control.');
         if (isDisabled(button)) throw new Error('ChatGPT New chat control is disabled.');
         button.click();
+
         var started = Date.now();
         while (Date.now() - started < NEW_CHAT_TIMEOUT_MS) {
             await sleep(DOM_POLL_INTERVAL_MS);
-            var composer = findComposer();
-            var changed = window.location.href !== previousUrl && isChatUrl(window.location.href);
-            if ((changed || isChatUrl(window.location.href)) && composer && !isGenerating()) return;
+            var currentChat = chatUrl();
+            var navigated = window.location.href !== previousLocation;
+            var differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat);
+            var emptyConversation = userMessages().length === 0 && assistantMessages().length === 0 && findComposer() && !isGenerating();
+            if (findComposer() && !isGenerating() && ((navigated && emptyConversation) || differentChat || (!previousChat && emptyConversation && conversationSignature() !== previousSignature))) {
+                if (previousChat && currentChat && currentChat === previousChat) continue;
+                githubAttached = false;
+                reasoningMode = null;
+                lastKnownChatUrl = currentChat;
+                return;
+            }
         }
         throw new Error('ChatGPT did not reach a verified new-chat state.');
     }
@@ -177,6 +207,7 @@
         if (isDisabled(direct)) throw new Error('ChatGPT Thinking control is disabled.');
         direct.click();
         await sleep(CLICK_SETTLE_MS);
+        if (thinkingEnabled() === false) throw new Error('ChatGPT Thinking state could not be verified.');
     }
 
     function findReasoningControl() {
@@ -299,6 +330,7 @@
 
     async function startPrompt(operation) {
         if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
+        if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
         var composer = await waitForComposer();
         if (!composer) throw new Error('Could not find ChatGPT composer.');
         var baseline = assistantFingerprint();
@@ -306,9 +338,10 @@
         insertText(composer, operation.prompt);
         var send = await waitForSendButton();
         if (!send) throw new Error('Could not find ChatGPT send button.');
-        await submitPrompt(operation.prompt, send);
+        await submitPrompt(operation.prompt);
         var response = await waitForAssistantResponse(baseline);
         if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
+        if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
         if (!response) throw new Error('ChatGPT response could not be extracted from the page.');
         await reportResponseObservation(response);
         await reportFinished(operation.operation_id, true);
@@ -343,30 +376,61 @@
         return firstVisible(['button[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]', 'button[type="submit"]'], true) || findVisibleLabeledAny(['send prompt', 'send message', 'send'], ['button', '[role="button"]'], true);
     }
 
-    async function submitPrompt(expected, initialButton) {
-        for (var attempt = 1; attempt <= 3; attempt += 1) {
-            var composer = findComposerContaining(expected) || findComposer();
+    function userMessages() {
+        return Array.prototype.filter.call(document.querySelectorAll('[data-message-author-role="user"]'), isVisible);
+    }
+
+    function assistantMessages() {
+        return Array.prototype.filter.call(document.querySelectorAll('[data-message-author-role="assistant"]'), isVisible);
+    }
+
+    function messageText(node) {
+        return String(node && (node.innerText || node.textContent) || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function newestUserMatches(expected, baselineCount) {
+        var nodes = userMessages();
+        if (nodes.length <= baselineCount) return false;
+        var needle = normalize(expected);
+        for (var index = nodes.length - 1; index >= baselineCount; index -= 1) {
+            var text = normalize(messageText(nodes[index]));
+            if (text === needle || text.indexOf(needle) !== -1) return true;
+        }
+        return false;
+    }
+
+    function conversationSignature() {
+        return userMessages().length + ':' + assistantMessages().length + ':' + assistantFingerprint();
+    }
+
+    async function submitPrompt(expected) {
+        var baselineUserCount = userMessages().length;
+        for (var attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
+            var composer = findComposer();
             if (!composer) throw new Error('Composer disappeared before submission.');
-            var button = findSendButton() || initialButton;
-            if (button && !isDisabled(button) && isVisible(button)) {
+            if (normalize(readComposerText(composer)).indexOf(normalize(expected)) === -1) throw new Error('PASI: composer lost the requested prompt before submission.');
+            var button = findSendButton();
+            if (button && !isDisabled(button)) {
                 console.log('[PASI] Submit attempt ' + attempt + ': clicking Send.');
                 button.click();
             } else {
-                requestFormSubmit(composer);
-                dispatchEnter(composer);
+                var form = composer.closest('form');
+                if (form && typeof form.requestSubmit === 'function') form.requestSubmit(button || undefined);
+                else dispatchEnter(composer);
             }
-            if (await waitForSubmissionTransition(expected)) return;
-            if (attempt < 3) await sleep(RETRY_DELAY_MS);
+            if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+            if (attempt < SUBMISSION_ATTEMPTS) await sleep(RETRY_DELAY_MS);
         }
         if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
-        throw new Error('ChatGPT prompt submission did not leave the composer after repeated send attempts.');
+        if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
+        throw new Error('PASI: prompt submission could not be verified after bounded attempts.');
     }
 
-    async function waitForSubmissionTransition(expected) {
+    async function waitForSubmissionAck(expected, baselineUserCount) {
         var started = Date.now();
-        while (Date.now() - started < SUBMISSION_TIMEOUT_MS) {
-            if (isGenerating() || !findComposerContaining(expected)) return true;
-            if (isConversationContextExhaustedVisible()) return false;
+        while (Date.now() - started < SUBMISSION_ACK_MS) {
+            if (newestUserMatches(expected, baselineUserCount)) return true;
+            if (isGenerating() && userMessages().length > baselineUserCount) return true;
             await sleep(DOM_POLL_INTERVAL_MS);
         }
         return false;
@@ -381,13 +445,14 @@
                 sawGeneration = true;
             } else if (sawGeneration) {
                 await sleep(RESPONSE_SETTLE_MS);
-                var extracted = extractLatestAssistantResponse();
-                if (extracted && assistantFingerprint() !== baseline) return extracted;
+                var response = extractLatestAssistantResponse();
+                if (response && assistantFingerprint() !== baseline) return response;
             } else if (current !== baseline) {
                 var fast = extractLatestAssistantResponse();
                 if (fast) return fast;
             }
             if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
+            if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
             await sleep(DOM_POLL_INTERVAL_MS * 2);
         }
         throw new Error('ChatGPT generation timed out.');
@@ -442,6 +507,26 @@
         return false;
     }
 
+    function isUsageLimitedVisible() {
+        if (isConversationContextExhaustedVisible()) return false;
+        var text = normalize(document.body ? document.body.innerText : '');
+        var markers = [
+            'current usage limit',
+            'usage limit reached',
+            'free tier limit',
+            'message limit',
+            'daily limit',
+            'weekly limit',
+            'model usage limit',
+            'rate limit',
+            'too many requests'
+        ];
+        for (var i = 0; i < markers.length; i += 1) {
+            if (text.indexOf(markers[i]) !== -1) return true;
+        }
+        return false;
+    }
+
     function isGitHubConnectionFailureVisible() {
         var text = normalize(document.body ? document.body.innerText : '');
         return text.indexOf('github needs to be connected') !== -1 || text.indexOf('connect github') !== -1 || text.indexOf('github is unavailable') !== -1 || text.indexOf('github connection failed') !== -1 || text.indexOf('no github repositories') !== -1;
@@ -455,11 +540,14 @@
                 captured_at: new Date().toISOString(),
                 data: {
                     kind: 'chatgpt_response',
-                    chat_url: window.location.href,
+                    controller_version: CONTROLLER_VERSION,
+                    chat_url: chatUrl(),
                     response_text: responseText.slice(0, 50000),
                     response_text_available: true,
                     conversation_context_exhausted: isConversationContextExhaustedVisible(),
-                    chat_exhausted: isConversationContextExhaustedVisible()
+                    chat_exhausted: isConversationContextExhaustedVisible(),
+                    provider_usage_limited: isUsageLimitedVisible(),
+                    active_operation_id: activeOperationId
                 }
             } }
         });
@@ -468,7 +556,33 @@
     async function reportChatState(force) {
         if (!force && (processing || activeOperationId !== null)) return;
         try {
+            var currentUrl = chatUrl();
+            if (currentUrl !== lastKnownChatUrl) {
+                if (lastKnownChatUrl !== null || currentUrl !== null) {
+                    await bridgeRequest('/browser/observation', {
+                        method: 'POST',
+                        body: { observation: {
+                            schema_version: 'chatgpt-controller-chat-change-v1',
+                            captured_at: new Date().toISOString(),
+                            data: {
+                                kind: 'chatgpt_chat_changed',
+                                controller_version: CONTROLLER_VERSION,
+                                previous_chat_url: lastKnownChatUrl,
+                                new_chat_url: currentUrl,
+                                active_operation_id: activeOperationId,
+                                reason: processing ? 'during_operation' : 'navigation'
+                            }
+                        } }
+                    });
+                }
+                if (!processing) {
+                    githubAttached = false;
+                    reasoningMode = null;
+                }
+                lastKnownChatUrl = currentUrl;
+            }
             var exhausted = isConversationContextExhaustedVisible();
+            var limited = isUsageLimitedVisible();
             await bridgeRequest('/browser/observation', {
                 method: 'POST',
                 body: { observation: {
@@ -476,11 +590,15 @@
                     captured_at: new Date().toISOString(),
                     data: {
                         kind: 'chatgpt_state',
-                        chat_url: isChatUrl(window.location.href) ? window.location.href : null,
+                        controller_version: CONTROLLER_VERSION,
+                        chat_url: currentUrl,
                         conversation_context_exhausted: exhausted,
                         chat_exhausted: exhausted,
-                        github_attached: githubAttached || githubContextAlreadyAttached(),
-                        reasoning_mode: reasoningMode
+                        provider_usage_limited: limited,
+                        github_attached: githubAttached,
+                        reasoning_mode: reasoningMode,
+                        conversation_signature: conversationSignature(),
+                        active_operation_id: activeOperationId
                     }
                 } }
             });
@@ -492,17 +610,21 @@
     async function reportFinished(operationId, responseObserved) {
         var response = await bridgeRequest('/chat/finished', {
             method: 'POST',
-            body: { operation_id: operationId, chat_url: window.location.href, response_text_available: Boolean(responseObserved) }
+            body: { operation_id: operationId, chat_url: chatUrl(), response_text_available: Boolean(responseObserved) }
         });
         if (!response.ok) throw new Error('Bridge completion failed: HTTP ' + response.status);
     }
 
     async function reportFailure(operationId, error) {
         try {
-            await bridgeRequest('/chat/failed', { method: 'POST', body: { operation_id: operationId, error: error instanceof Error ? error.message : String(error) } });
-            await reportChatState(true);
+            var response = await bridgeRequest('/chat/failed', {
+                method: 'POST',
+                body: { operation_id: operationId, error: error instanceof Error ? error.message : String(error) }
+            });
+            return response.ok;
         } catch (reportError) {
             console.error('[PASI] Failed to report operation failure:', reportError);
+            return false;
         }
     }
 
@@ -510,11 +632,9 @@
         try {
             var stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
             if (!stored || !stored.operation_id) return;
-            await reportFailure(stored.operation_id, new Error('PASI: browser page reloaded during operation; operation returned to retry path'));
-            localStorage.removeItem(ACTIVE_KEY);
-        } catch (_) {
-            localStorage.removeItem(ACTIVE_KEY);
-        }
+            var ok = await reportFailure(stored.operation_id, new Error('PASI: browser page reloaded during operation; current chat preserved for bounded retry'));
+            if (ok) localStorage.removeItem(ACTIVE_KEY);
+        } catch (_) {}
     }
 
     function requestFormSubmit(composer) {
@@ -574,7 +694,7 @@
     function findComposerContaining(expected) {
         var composer = findComposer();
         if (!composer) return null;
-        return readComposerText(composer).indexOf(expected) !== -1 ? composer : null;
+        return normalize(readComposerText(composer)).indexOf(normalize(expected)) !== -1 ? composer : null;
     }
 
     function readComposerText(element) {
@@ -586,6 +706,15 @@
     function isGenerating() { return Boolean(firstVisible(['button[data-testid="stop-button"]', 'button[aria-label="Stop generating"]', 'button[aria-label*="Stop"]'])); }
     function isRepositoryName(repository) { return /^[^/\s]+\/[^/\s]+$/.test(repository); }
     function isChatUrl(url) { return /^https:\/\/chatgpt\.com\/c\//.test(String(url || '')); }
+    function chatUrl() { return isChatUrl(window.location.href) ? window.location.href : null; }
+
+    function thinkingEnabled() {
+        var selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [data-state="on"], [data-state="active"]');
+        for (var i = 0; i < selected.length; i += 1) {
+            if (isVisible(selected[i]) && getLabel(selected[i]).indexOf('thinking') !== -1) return true;
+        }
+        return null;
+    }
 
     function firstVisible(selectors, requireEnabled) {
         for (var i = 0; i < selectors.length; i += 1) {
