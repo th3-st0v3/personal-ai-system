@@ -9,6 +9,10 @@ import uuid
 from pathlib import Path
 from typing import Sequence
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
 from automation.computer_use.chatgpt import ChatGPTAdapter, UrllibBridgeTransport
 
 MAX_CONTEXT_CHARS = 48_000
@@ -101,7 +105,7 @@ def build_prompt(task: str, context: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Start a fresh PASI ChatGPT task with bounded repository context.")
     parser.add_argument("task", nargs="+", help="Engineering/research task to send to ChatGPT")
-    parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Repository root (default: current directory)")
+    parser.add_argument("--repo", type=Path, default=REPOSITORY_ROOT, help="Repository root (default: this repository)")
     parser.add_argument("--timeout", type=float, default=900.0, help="Maximum ChatGPT response wait in seconds (default: 900)")
     args = parser.parse_args()
 
