@@ -22,11 +22,9 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
         raise ValueError("model patch exceeds configured size bound")
     if "new file mode 120000" in patch or "new file mode 160000" in patch:
         raise ValueError("symlink and submodule additions are not allowed in unattended patches")
-
     matches = _DIFF_PATH_RE.findall(patch)
     if not matches:
         raise ValueError("model response did not contain a unified git diff")
-
     for old_path, new_path in matches:
         for path_value in (old_path, new_path):
             if path_value == "/dev/null":
@@ -39,7 +37,6 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
                 raise ValueError(f"forbidden patch path: {path_value}")
             if any(pattern.search(normalized) for pattern in _FORBIDDEN_PATH_PATTERNS):
                 raise ValueError(f"forbidden credential/secret path: {path_value}")
-
     is_deletion = bool(_DELETION_FILE_HEADER_RE.search(patch)) or bool(
         re.search(r"^--- [^\n]+\n\+\+\+ /dev/null$", patch, re.MULTILINE)
     )
