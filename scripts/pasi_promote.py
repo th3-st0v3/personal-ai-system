@@ -75,7 +75,7 @@ def changed_paths(commit: str) -> tuple[str, ...]:
 
 def classify_risk(paths: Sequence[str]) -> str:
     for path in paths:
-        normalized = path.lstrip("./")
+        normalized = path.replace("\\", "/").lstrip("/")
         if normalized.startswith(HIGH_RISK_PATH_PREFIXES) or any(pattern.search(normalized) for pattern in HIGH_RISK_NAME_PATTERNS):
             return "high"
     return "standard"
