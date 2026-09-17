@@ -7,18 +7,18 @@ const source = fs.readFileSync(
   'utf8',
 );
 
-test('loader activates only a verified local PASI controller release', () => {
+test('loader verifies an enabled local PASI controller release without dynamic execution', () => {
   assert.match(source, /controller\/manifest/);
   assert.match(source, /controller\/source/);
   assert.match(source, /recovery\/source/);
   assert.match(source, /manifest\.enabled !== true/);
-  assert.match(source, /gitBlobSha1/);
-  assert.match(source, /Local controller Git blob mismatch/);
-  assert.match(source, /Local recovery Git blob mismatch/);
-  assert.match(source, /eval\(injectActiveOperationGetter\(source\)\)/);
-  assert.match(source, /eval\(recoverySource\)/);
+  assert.match(source, /gitBlobSha1Bytes/);
+  assert.match(source, /Controller integrity verification failed/);
+  assert.match(source, /Recovery integrity verification failed/);
   assert.match(source, /GM_getValue\(LAST_VERSION_KEY/);
   assert.match(source, /GM_setValue\(LAST_HASH_KEY/);
+  assert.match(source, /Runtime execution is handled by the dedicated PASI Controller userscript/);
+  assert.doesNotMatch(source, /\beval\s*\(/);
 });
 
 test('loader uses localhost only for private-repository distribution', () => {
@@ -29,28 +29,28 @@ test('loader uses localhost only for private-repository distribution', () => {
   assert.doesNotMatch(source, /api\.github\.com/);
 });
 
-test('loader reloads when either controller or recovery release changes', () => {
-  assert.match(source, /ACTIVE_HASH_PROPERTY/);
-  assert.match(source, /ACTIVE_RECOVERY_HASH_PROPERTY/);
+test('loader records controller and recovery release changes without reloading or injecting code', () => {
+  assert.match(source, /LAST_HASH_KEY/);
   assert.match(source, /LAST_RECOVERY_HASH_KEY/);
   assert.match(source, /recoveryChanged/);
-  assert.match(source, /Verified PASI release change detected; refreshing the page/);
-  assert.match(source, /New verified PASI controller\/recovery release detected; reloading page/);
-  assert.match(source, /window\.location\.reload\(\)/);
+  assert.match(source, /Verified PASI release change detected/);
+  assert.doesNotMatch(source, /window\.location\.reload\(\)/);
+  assert.doesNotMatch(source, /__PASI_CHATGPT_ACTIVE_OPERATION__/);
 });
 
-test('loader injects an active-operation getter without exposing credentials', () => {
-  assert.match(source, /__PASI_CHATGPT_ACTIVE_OPERATION__/);
-  assert.match(source, /activeOperationId/);
+test('loader does not expose credentials while handling release verification', () => {
+  assert.match(source, /GM_xmlhttpRequest/);
   assert.doesNotMatch(source, /document\.cookie/);
-  assert.doesNotMatch(source, /localStorage\.getItem\(['"]password/);
+  assert.doesNotMatch(source, /localStorage\.getItem\(['\"]password/);
 });
 
-test('loader computes the Git blob identity from UTF-8 bytes', () => {
-  assert.match(source, /blob ' \+ data\.byteLength \+ '\\0'/);
+test('loader computes the Git blob identity from raw response bytes', () => {
+  assert.match(source, /responseType: 'arraybuffer'/);
+  assert.match(source, /new Uint8Array\(response\.response\)/);
+  assert.match(source, /blob ' \+ bytes\.byteLength \+ '\\0'/);
   assert.match(source, /crypto\.subtle\.digest\('SHA-1'/);
 });
 
-test('loader polls quickly enough to activate after local service startup', () => {
+test('loader polls quickly enough to verify after local service startup', () => {
   assert.match(source, /POLL_INTERVAL_MS = 30000/);
 });
