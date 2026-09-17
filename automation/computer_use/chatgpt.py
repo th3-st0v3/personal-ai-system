@@ -180,27 +180,22 @@ class ChatGPTAdapter(AIAdapter):
             except ChatGPTAdapterError:
                 observation = None
             data = observation.get("data") if isinstance(observation, Mapping) else None
-            if isinstance(data, Mapping) and data.get("kind") == "chatgpt_response":
-                observed_text = data.get("response_text")
-                if isinstance(observed_text, str) and observed_text.strip():
-                    text = observed_text
-                    response_available = data.get("response_text_available") is True
-                observed_url = data.get("chat_url")
-                if chat_url is None and isinstance(observed_url, str):
-                    chat_url = observed_url
-                chat_exhausted = chat_exhausted or data.get("chat_exhausted") is True
-
-        if operation.get("operation_type") == "prompt":
-            try:
-                state_observation = self.read_browser_observation()
-            except ChatGPTAdapterError:
-                state_observation = None
-            state_data = state_observation.get("data") if isinstance(state_observation, Mapping) else None
-            if isinstance(state_data, Mapping) and state_data.get("kind") == "chatgpt_state":
-                state_url = state_data.get("chat_url")
-                if chat_url is None and isinstance(state_url, str):
-                    chat_url = state_url
-                chat_exhausted = chat_exhausted or state_data.get("chat_exhausted") is True
+            if isinstance(data, Mapping):
+                kind = data.get("kind")
+                if kind == "chatgpt_response":
+                    observed_text = data.get("response_text")
+                    if isinstance(observed_text, str) and observed_text.strip():
+                        text = observed_text
+                        response_available = data.get("response_text_available") is True
+                    observed_url = data.get("chat_url")
+                    if chat_url is None and isinstance(observed_url, str):
+                        chat_url = observed_url
+                    chat_exhausted = chat_exhausted or data.get("chat_exhausted") is True
+                elif kind == "chatgpt_state":
+                    state_url = data.get("chat_url")
+                    if chat_url is None and isinstance(state_url, str):
+                        chat_url = state_url
+                    chat_exhausted = chat_exhausted or data.get("chat_exhausted") is True
 
         return AIResponse(
             response_id=f"{operation_id}:response",
