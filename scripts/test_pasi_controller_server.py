@@ -47,8 +47,10 @@ class TestPasiControllerServer(unittest.TestCase):
 
                 with patch.object(server, "_git_show", side_effect=fake_show):
                     manifest, actual_controller, controller_sha, actual_recovery, recovery_sha = load_verified_canonical_bundle()
-        expected_controller_sha = hashlib.sha1(b"blob 50\0" + controller.encode()).hexdigest()
-        expected_recovery_sha = hashlib.sha1(b"blob 57\0" + recovery.encode()).hexdigest()
+        controller_bytes = controller.encode()
+        recovery_bytes = recovery.encode()
+        expected_controller_sha = hashlib.sha1(f"blob {len(controller_bytes)}\0".encode() + controller_bytes).hexdigest()
+        expected_recovery_sha = hashlib.sha1(f"blob {len(recovery_bytes)}\0".encode() + recovery_bytes).hexdigest()
         self.assertEqual(actual_controller, controller)
         self.assertEqual(actual_recovery, recovery)
         self.assertEqual(controller_sha, expected_controller_sha)
