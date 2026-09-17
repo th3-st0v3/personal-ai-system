@@ -187,7 +187,16 @@ class DuckDuckGoHTMLSearchProvider:
     max_results: int = 10
 
     def __post_init__(self) -> None:
-        _validate_public_https_url(self.base_url)
+        parsed = urlparse(self.base_url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ResearchAdapterError("DuckDuckGo search base URL must use HTTPS")
+        if parsed.username is not None or parsed.password is not None:
+            raise ResearchAdapterError("DuckDuckGo search base URL must not contain credentials")
+        try:
+            if parsed.port not in {None, 443}:
+                raise ResearchAdapterError("DuckDuckGo search base URL must use port 443")
+        except ValueError as exc:
+            raise ResearchAdapterError("DuckDuckGo search base URL has an invalid port") from exc
         if self.timeout_seconds <= 0 or self.max_query_chars <= 0 or self.max_results <= 0:
             raise ResearchAdapterError("DuckDuckGo search bounds must be positive")
 
