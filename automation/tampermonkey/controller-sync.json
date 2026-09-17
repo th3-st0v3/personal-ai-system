@@ -1,12 +1,12 @@
 {
   "schema_version": "1",
   "enabled": true,
-  "version": "2.4.6",
+  "version": "2.4.7",
   "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/tampermonkey/chatgpt-controller.user.js",
-  "git_blob_sha": "6b9326bce8dd2975e2b9925defad812950214106",
-  "release_commit": "b5dba9e5c96d6ecfbf831cbdfc57c6fef99c1ec3",
+  "git_blob_sha": "ae8628804d81217bc52e602d70bd3a1356268b34",
+  "release_commit": "5ff7ec7b995793d84f77034831d603305963a548",
   "recovery_version": "1.0.4",
   "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
   "recovery_git_blob_sha": "ca949cd0c88be60d8ac4a5fe1e5614931d36d2c5",
-  "reason": "Hardened prompt submission acknowledgement, chat identity tracking, bounded reload recovery, response-text persistence through completion acknowledgement loss, and verified exhaustion-only chat replacement"
+  "reason": "Hardened prompt submission acknowledgement, direct bounded response delivery with completion acknowledgement, chat identity tracking, bounded reload recovery, response-text persistence through completion acknowledgement loss, and verified exhaustion-only chat replacement"
 }
