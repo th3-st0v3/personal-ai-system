@@ -19,18 +19,16 @@ from .semantic_executor import CommandAdapter, SemanticExecutor
 from .state import StateManager
 from .task_goal import EvidenceGoalChecker, TaskGoal
 from .task_planner import AIAdapterModelClient, StructuredTaskPlanner
-from .task_runner import BoundedTaskRunner, CompletionChecker, TaskPlanner, TaskRunFactory
+from .task_runner import BoundedTaskRunner, CompletionChecker, TaskPlanner
+from .task_service import TaskRunFactory
 from .verification_telemetry import VerificationTelemetry
 from .worker_verification import WorkerVerifier
 
-
 GoalFactory = Callable[[str, Session], TaskGoal]
-
 
 @dataclass(frozen=True)
 class TaskRuntimeConfig:
     """Stable bounds and task metadata used by the application composition root."""
-
     project: str
     allowed_applications: tuple[str, ...] = ()
     workspace_root: str | None = None
@@ -51,11 +49,9 @@ class TaskRuntimeConfig:
         if self.planner_poll_interval_seconds <= 0 or self.planner_max_wait_seconds <= 0:
             raise ValueError("planner polling bounds must be positive")
 
-
 @dataclass(frozen=True)
 class TaskRuntimeDependencies:
     """Provider implementations supplied by the application, not selected by the model."""
-
     ai: AIAdapter
     ide: IDEAdapter | None = None
     github: GitHubAdapter | None = None
@@ -66,22 +62,10 @@ class TaskRuntimeDependencies:
     telemetry: VerificationTelemetry | None = None
     verifier: WorkerVerifier | None = None
 
-
 class ConfiguredTaskRunFactory(TaskRunFactory):
-    """Build fully wired bounded task runners from explicit application dependencies.
+    """Build fully wired bounded task runners from explicit application dependencies."""
 
-    The factory owns construction and dependency composition, but it does not
-    decide what an AI may execute. Planner output still crosses the existing
-    BackgroundWorker/ControlPlane authorization boundary before execution.
-    """
-
-    def __init__(
-        self,
-        state_manager: StateManager,
-        dependencies: TaskRuntimeDependencies,
-        config: TaskRuntimeConfig,
-        goal_factory: GoalFactory,
-    ) -> None:
+    def __init__(self, state_manager: StateManager, dependencies: TaskRuntimeDependencies, config: TaskRuntimeConfig, goal_factory: GoalFactory) -> None:
         self.state_manager = state_manager
         self.dependencies = dependencies
         self.config = config
@@ -91,7 +75,6 @@ class ConfiguredTaskRunFactory(TaskRunFactory):
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("prompt must be non-empty")
-
         session = Session(
             session_id=f"session-{runner_id}",
             task_id=runner_id,
@@ -104,7 +87,6 @@ class ConfiguredTaskRunFactory(TaskRunFactory):
         goal = self.goal_factory(prompt, session)
         if not isinstance(goal, TaskGoal):
             raise TypeError("goal_factory must return TaskGoal")
-
         planner_model = AIAdapterModelClient(
             self.dependencies.ai,
             poll_interval_seconds=self.config.planner_poll_interval_seconds,
@@ -141,10 +123,4 @@ class ConfiguredTaskRunFactory(TaskRunFactory):
             max_repeated_observation=self.config.max_repeated_observation,
         )
 
-
-__all__ = [
-    "ConfiguredTaskRunFactory",
-    "GoalFactory",
-    "TaskRuntimeConfig",
-    "TaskRuntimeDependencies",
-]
+__all__ = ["ConfiguredTaskRunFactory", "GoalFactory", "TaskRuntimeConfig", "TaskRuntimeDependencies"]
