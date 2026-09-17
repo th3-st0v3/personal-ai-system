@@ -5,6 +5,8 @@ import json
 import re
 import signal
 import time
+import urllib.error
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -24,7 +26,9 @@ MIN_HOURS = legacy.MIN_HOURS
 MAX_HOURS = legacy.MAX_HOURS
 MAX_ATTEMPTS = legacy.MAX_ATTEMPTS
 MAX_CONTROLLER_BACKOFF = legacy.MAX_CONTROLLER_BACKOFF
+BRIDGE_URL = "http://127.0.0.1:8765"
 TASK_TIMEOUT_SECONDS = 900.0
+WATCHDOG_MAX_AGE_SECONDS = 20.0
 MAX_PROVIDER_LIMIT_PAUSES = 2
 PROVIDER_BACKOFF_SECONDS = (300.0, 900.0)
 AUTOMATION_TASKS_PER_GATE = 2
@@ -176,7 +180,8 @@ def acquire_lock() -> None:
                 pass
             else:
                 raise OvernightV2Error(f"another overnight runner is already active (PID {pid})")
-    PID_PATH.write_text(f"{__import__('os').getpid()}\n", encoding="utf-8")
+    import os
+    PID_PATH.write_text(f"{os.getpid()}\n", encoding="utf-8")
 
 
 def release_lock() -> None:
@@ -315,6 +320,22 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
     )
 
 
+def invoke_gate(state: OvernightState) -> tuple[int, str]:
+    return command_with_output(
+        [
+            legacy.sys.executable,
+            "scripts/pasi_chat_guard.py",
+            build_gate_prompt(state),
+            "--github",
+            "public",
+            "--timeout",
+            str(TASK_TIMEOUT_SECONDS),
+        ],
+        Path(state.worktree),
+        timeout=TASK_TIMEOUT_SECONDS + 45.0,
+    )
+
+
 def provider_condition(code: int, output: str) -> str | None:
     upper = output.upper()
     if code == 90 or "CHAT_USAGE_LIMITED:" in upper:
@@ -326,13 +347,35 @@ def provider_condition(code: int, output: str) -> str | None:
     return None
 
 
+def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECONDS) -> bool:
+    try:
+        with urllib.request.urlopen(f"{BRIDGE_URL}/browser/observation", timeout=3.0) as response:
+            payload = json.loads(response.read(2_000_000).decode("utf-8"))
+    except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    observation = payload.get("observation") if isinstance(payload, dict) else None
+    if not isinstance(observation, dict) or observation.get("kind") != "chatgpt_health":
+        return False
+    captured_at = observation.get("captured_at")
+    if not isinstance(captured_at, str):
+        return False
+    try:
+        timestamp = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    age = (now_utc() - timestamp).total_seconds()
+    return -5.0 <= age <= max_age_seconds
+
+
 def sleep_with_deadline(seconds: float, state: OvernightState) -> bool:
     if seconds <= 0:
         return True
     deadline = datetime.fromisoformat(state.deadline_at)
     end = min(now_utc() + timedelta(seconds=seconds), deadline)
     while not STOP and now_utc() < end:
-        time.sleep(min(1.0, (end - now_utc()).total_seconds()))
+        time.sleep(min(1.0, max(0.0, (end - now_utc()).total_seconds())))
     return not STOP and now_utc() < deadline
 
 
@@ -354,12 +397,6 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     return commit, output
 
 
-def on_signal(signum: int, _frame: object) -> None:
-    global STOP
-    STOP = True
-    log_event("stop_requested", signal=signum)
-
-
 def finish_state(state: OvernightState, reason: str) -> None:
     state.stop_reason = reason
     state.last_result = reason
@@ -377,13 +414,35 @@ def run(state: OvernightState, *, push: bool) -> None:
             save_state(state)
             log_event("automation_gate_started", task_number=state.task_number, completed_tasks=state.completed_tasks)
             code, response = invoke_gate(state)
-            if code != 0:
-                failure = response or "automation gate invocation failed"
-                log_event("automation_gate_failed", error=failure[-6000:])
+            condition = provider_condition(code, response)
+            if condition == "provider_usage_limit":
+                state.provider_limit_pauses += 1
+                log_event("provider_usage_limit", task_number=state.task_number, pause_count=state.provider_limit_pauses, context="automation_gate")
+                if state.provider_limit_pauses > MAX_PROVIDER_LIMIT_PAUSES:
+                    state.stop_reason = "ChatGPT provider/account/model usage limit persisted beyond bounded recovery budget; human intervention is required."
+                    return
+                state.task_number -= 1
+                if not sleep_with_deadline(PROVIDER_BACKOFF_SECONDS[state.provider_limit_pauses - 1], state):
+                    return
+                continue
+            if condition == "auth_required":
+                state.stop_reason = "ChatGPT requires interactive authentication or a security challenge; unattended execution cannot proceed."
+                save_state(state)
+                return
+            if condition == "runtime_guard":
+                failure = response or "runtime guard stopped the automation gate"
+                state.task_number -= 1
                 if not sleep_with_deadline(runtime_backoff, state):
                     return
                 runtime_backoff = min(runtime_backoff * 2.0, MAX_CONTROLLER_BACKOFF)
+                continue
+            if code != 0:
+                failure = response or "automation gate invocation failed"
+                log_event("automation_gate_failed", error=failure[-6000:])
                 state.task_number -= 1
+                if not sleep_with_deadline(runtime_backoff, state):
+                    return
+                runtime_backoff = min(runtime_backoff * 2.0, MAX_CONTROLLER_BACKOFF)
                 continue
             status, summary, suggested, _patch, _allow_delete, values = parse_v2_response(response)
             if status != "complete" or not legacy.completion_contract_is_satisfied(status, values) or not automation_gate_is_satisfied(values):
@@ -475,6 +534,7 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.completed_tasks += 1
             if state.phase == "automation":
                 state.automation_tasks_since_gate += 1
+            state.provider_limit_pauses = 0
             state.last_result = summary or values.get("evidence", "validated task completed")
             state.next_task = next_task.strip() if next_task.strip() else ""
             state.current_attempt = 0
@@ -509,22 +569,6 @@ def run(state: OvernightState, *, push: bool) -> None:
         save_state(state)
 
 
-def invoke_gate(state: OvernightState) -> tuple[int, str]:
-    return command_with_output(
-        [
-            legacy.sys.executable,
-            "scripts/pasi_chat_guard.py",
-            build_gate_prompt(state),
-            "--github",
-            "public",
-            "--timeout",
-            str(TASK_TIMEOUT_SECONDS),
-        ],
-        Path(state.worktree),
-        timeout=TASK_TIMEOUT_SECONDS + 45.0,
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run PASI unattended with provider-aware recovery and an evidence-gated Engineering OS transition.")
     parser.add_argument("--hours", type=float, default=DEFAULT_HOURS)
@@ -537,7 +581,6 @@ def main() -> int:
     if not MIN_HOURS <= args.hours <= MAX_HOURS:
         parser.error(f"--hours must be between {MIN_HOURS:g} and {MAX_HOURS:g}")
 
-    global STOP
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
     acquire_lock()
@@ -571,6 +614,11 @@ def main() -> int:
 
         legacy.ensure_worktree(Path(state.worktree), state.branch, resume=resume)
         children = legacy.ensure_services()
+        if not runtime_watchdog_is_live():
+            raise OvernightV2Error(
+                "ChatGPT runtime watchdog is not reporting fresh health telemetry. Install and enable "
+                "automation/tampermonkey/chatgpt-runtime-watchdog.user.js, open chatgpt.com, and refresh before starting unattended automation."
+            )
         run(state, push=not args.no_push)
         reason = state.stop_reason or ("stopped by operator" if STOP else "overnight deadline reached")
         finish_state(state, reason)
