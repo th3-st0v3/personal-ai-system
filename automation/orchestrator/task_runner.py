@@ -3,9 +3,9 @@ from __future__ import annotations
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Literal, Protocol, Sequence, cast
+from typing import Any, Literal, Protocol, Sequence, cast
 
-from automation.computer_use.contracts import ActionProposal, Observation
+from automation.computer_use.contracts import ActionKind, ActionProposal, Observation
 
 from .background_worker import BackgroundWorker, WorkerExecutionError, WorkerExecutor, WorkerPhase
 from .state import StateCorruptionError, StateManager
@@ -53,6 +53,7 @@ class TaskRunnerState:
     steps: int = 0
     observations: tuple[str, ...] = ()
     last_action_id: str | None = None
+    pending_action: dict[str, Any] | None = None
     last_error: str | None = None
     recovery_required: bool = False
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -86,6 +87,12 @@ class TaskRunnerState:
         if last_action_id is not None and not isinstance(last_action_id, str):
             raise StateCorruptionError("Invalid task runner state: last_action_id must be a string or null")
 
+        pending_action = data.get("pending_action")
+        if pending_action is not None and not isinstance(pending_action, dict):
+            raise StateCorruptionError("Invalid task runner state: pending_action must be an object or null")
+        if pending_action is not None:
+            _action_from_dict(pending_action)
+
         last_error = data.get("last_error")
         if last_error is not None and not isinstance(last_error, str):
             raise StateCorruptionError("Invalid task runner state: last_error must be a string or null")
@@ -104,6 +111,7 @@ class TaskRunnerState:
             steps=steps,
             observations=observations,
             last_action_id=last_action_id,
+            pending_action=pending_action,
             last_error=last_error,
             recovery_required=recovery_required,
             updated_at=updated_at,
@@ -182,14 +190,21 @@ class BoundedTaskRunner:
                     return self._sync_worker_state()
 
                 try:
-                    action = self.planner.plan(tuple(self._observation_objects))
+                    if self.state.pending_action is not None:
+                        action = _action_from_dict(self.state.pending_action)
+                    else:
+                        action = self.planner.plan(tuple(self._observation_objects))
                 except Exception as exc:
                     return self._fail(f"planner failed: {exc}")
 
                 if action is None:
                     return self._fail("planner did not provide a next action and completion was not proven")
 
-                self.state = self._replace(last_action_id=action.action_id)
+                pending_action = asdict(action)
+                self.state = self._replace(
+                    last_action_id=action.action_id,
+                    pending_action=pending_action if action.effective_risk() == "approval_required" else None,
+                )
                 self._persist()
 
                 try:
@@ -211,7 +226,10 @@ class BoundedTaskRunner:
                 except WorkerExecutionError as exc:
                     return self._fail(str(exc))
 
-                self.state = self._replace(steps=self.state.steps + 1)
+                self.state = self._replace(
+                    steps=self.state.steps + 1,
+                    pending_action=None,
+                )
                 self._persist()
 
                 try:
@@ -236,17 +254,18 @@ class BoundedTaskRunner:
             return self._result("maximum task-runner step budget reached", step_limit_reached=True)
 
     def approve_pending_action(self) -> TaskRunnerState:
-        """Resume only the exact action that the worker placed behind the human gate."""
+        """Resume only the exact action persisted behind the human approval gate."""
         with self.lock:
-            if self.state.phase != "waiting_human":
+            if self.state.phase != "waiting_human" or self.state.pending_action is None:
                 raise WorkerExecutionError("runner has no action waiting for human approval")
+            action = _action_from_dict(self.state.pending_action)
             worker_state = self.worker.status()
-            pending_action_id = (
+            pending_worker_action = (
                 worker_state.current_action.get("action_id")
                 if worker_state.current_action is not None
                 else None
             )
-            if pending_action_id != self.state.last_action_id:
+            if pending_worker_action != action.action_id:
                 raise WorkerExecutionError("runner approval target does not match the pending action")
             self.worker.resume(human_approval=True)
             self.state = self._replace(phase="running", last_error=None)
@@ -309,7 +328,12 @@ class BoundedTaskRunner:
             "failed": "failed",
         }
         runner_phase = mapping[phase]
-        self.state = self._replace(phase=runner_phase, last_error=self.worker.status().last_error)
+        pending_action = self.state.pending_action if phase == "waiting_human" else None
+        self.state = self._replace(
+            phase=runner_phase,
+            pending_action=pending_action,
+            last_error=self.worker.status().last_error,
+        )
         self._persist()
         return self._result(
             self.state.last_error or f"worker is {phase}",
@@ -319,7 +343,7 @@ class BoundedTaskRunner:
     def _fail(self, reason: str) -> TaskRunResult:
         if self.worker.status().phase == "running":
             self.worker.stop(reason)
-        self.state = self._replace(phase="failed", last_error=reason)
+        self.state = self._replace(phase="failed", pending_action=None, last_error=reason)
         self._persist()
         return self._result(reason)
 
@@ -352,19 +376,47 @@ class BoundedTaskRunner:
                 steps=state.steps,
                 observations=state.observations,
                 last_action_id=state.last_action_id,
+                pending_action=state.pending_action,
                 last_error="runner restarted; explicit observation rehydration required",
                 recovery_required=True,
             )
         return state
 
-    def _persist(self) -> None:
-        self.state_manager.write_json(self.state_path, self.state.to_dict())
 
-    def _replace(self, **changes: object) -> TaskRunnerState:
-        data = self.state.to_dict()
-        data.update(changes)
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        return TaskRunnerState.from_dict(data)
+def _action_from_dict(data: dict[str, Any]) -> ActionProposal:
+    action_name = data.get("action")
+    if not isinstance(action_name, str) or action_name not in {
+        "observe",
+        "ai_new_session",
+        "ai_select_reasoning",
+        "ai_submit_prompt",
+        "ai_read_response",
+        "ide_read",
+        "ide_diagnostics",
+        "ide_search",
+        "ide_command",
+        "github_read",
+        "github_ui",
+        "web_search",
+        "web_read",
+        "browser_task",
+        "desktop_ui",
+    }:
+        raise StateCorruptionError("Invalid task runner state: pending action kind is invalid")
+    action = ActionProposal(
+        action_id=data.get("action_id", ""),
+        session_id=data.get("session_id", ""),
+        target=data.get("target", ""),
+        action=cast(ActionKind, action_name),
+        parameters=data.get("parameters", {}),
+        reason=data.get("reason", ""),
+        risk=data.get("risk"),
+    )
+    try:
+        action.effective_risk()
+    except (TypeError, ValueError) as exc:
+        raise StateCorruptionError("Invalid task runner state: pending action is invalid") from exc
+    return action
 
 
 __all__ = [
