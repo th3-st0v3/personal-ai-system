@@ -14,7 +14,11 @@ CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "chatgpt-con
 HOST = "127.0.0.1"
 PORT = 8766
 MAX_MANIFEST_BYTES = 64 * 1024
-MAX_CONTROLLER_BYTES = 2 * 000_000
+MAX_CONTROLLER_BYTES = 2_000_000
+ALLOWED_ORIGINS = {
+    "https://chatgpt.com",
+    "https://www.chatgpt.com",
+}
 
 
 class ControllerDistributionError(RuntimeError):
@@ -52,7 +56,7 @@ def load_verified_release() -> tuple[dict[str, Any], str, str]:
     expected_sha = manifest.get("git_blob_sha")
     if not isinstance(version, str) or not version.strip():
         raise ControllerDistributionError("controller sync manifest version is missing")
-    if not isinstance(expected_sha, str) or len(expected_sha) != 40:
+    if not isinstance(expected_sha, str) or not len(expected_sha) == 40:
         raise ControllerDistributionError("controller sync manifest Git blob SHA is missing")
 
     source = controller_bytes.decode("utf-8")
@@ -61,6 +65,8 @@ def load_verified_release() -> tuple[dict[str, Any], str, str]:
         raise ControllerDistributionError(
             f"controller Git blob mismatch: expected {expected_sha}, actual {actual_sha}"
         )
+    if f"@version      {version}" not in source and f"@version {version}" not in source:
+        raise ControllerDistributionError("controller source version does not match sync manifest")
     return manifest, source, actual_sha
 
 
@@ -68,12 +74,16 @@ class ControllerDistributionHandler(BaseHTTPRequestHandler):
     server_version = "PersonalAIControllerDistribution/1.0"
 
     def _headers(self, status: int, content_type: str) -> None:
+        origin = self.headers.get("Origin", "")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "https://chatgpt.com")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
     def _json(self, payload: dict[str, Any], status: int = HTTPStatus.OK) -> None:
@@ -125,22 +135,26 @@ class ControllerDistributionHandler(BaseHTTPRequestHandler):
             except ControllerDistributionError as exc:
                 self._text(str(exc), HTTPStatus.SERVICE_UNAVAILABLE)
                 return
+            encoded = source.encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(source.encode("utf-8"))))
+            self.send_header("Content-Length", str(len(encoded)))
             self.send_header("X-PASI-Controller-Version", str(manifest["version"]))
             self.send_header("X-PASI-Controller-Git-Blob-SHA", actual_sha)
-            self.send_header("Access-Control-Allow-Origin", "https://chatgpt.com")
+            origin = self.headers.get("Origin", "")
+            if origin in ALLOWED_ORIGINS:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Private-Network", "true")
             self.send_header("Vary", "Origin")
             self.end_headers()
-            self.wfile.write(source.encode("utf-8"))
+            self.wfile.write(encoded)
             return
 
         self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
     def log_message(self, format: str, *args: object) -> None:
-        print(f"[PASI Controller Server] {format % args}")
+        print(f"[PASI Controller Server] {format % args}", flush=True)
 
 
 class ControllerDistributionServer(ThreadingHTTPServer):
@@ -150,7 +164,7 @@ class ControllerDistributionServer(ThreadingHTTPServer):
 def main() -> None:
     load_verified_release()
     server = ControllerDistributionServer((HOST, PORT), ControllerDistributionHandler)
-    print(f"PASI controller distribution: http://{HOST}:{PORT}")
+    print(f"PASI controller distribution: http://{HOST}:{PORT}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
