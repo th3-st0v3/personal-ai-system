@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import signal
 import subprocess
 import sys
 import threading
@@ -36,7 +35,6 @@ _USAGE_LIMIT_PHRASES = (
     "model usage limit",
     "rate limit",
     "too many requests",
-    "try again later",
 )
 _AUTH_PHRASES = (
     "log in to continue",
@@ -61,8 +59,8 @@ def request_json(path: str, timeout: float = 3.0) -> dict[str, Any] | None:
 def observation_text(data: Any) -> str:
     if not isinstance(data, dict):
         return ""
-    values = []
-    for key in ("error", "message", "text", "signals", "status", "reason"):
+    values: list[str] = []
+    for key in ("error", "message", "response_text", "text", "signals", "status", "reason"):
         value = data.get(key)
         if isinstance(value, str):
             values.append(value)
@@ -87,7 +85,7 @@ def classify_observation(payload: dict[str, Any] | None) -> str | None:
     text = observation_text(data)
     if any(phrase in text for phrase in _AUTH_PHRASES):
         return "auth_required"
-    if any(phrase in text for phrase in _CONTEXT_LIMIT_PHRASES):
+    if data.get("kind") == "chatgpt_response" and any(phrase in text for phrase in _CONTEXT_LIMIT_PHRASES):
         return None
     if any(phrase in text for phrase in _USAGE_LIMIT_PHRASES):
         return "usage_limit"
