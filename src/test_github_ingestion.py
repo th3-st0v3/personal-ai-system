@@ -1,4 +1,5 @@
 import base64
+import json
 import unittest
 from unittest.mock import patch
 
@@ -33,6 +34,7 @@ class TestGitHubIngestion(unittest.TestCase):
     def test_fetch_accepts_wrapped_base64(self):
         encoded = base64.b64encode(b"hello").decode()
         wrapped = encoded[:2] + "\n" + encoded[2:]
+        payload = json.dumps({"type": "file", "content": wrapped, "sha": "abc"})
 
         class Response:
             def __enter__(self):
@@ -42,7 +44,7 @@ class TestGitHubIngestion(unittest.TestCase):
                 return None
 
             def read(self, size):
-                return ('{"type":"file","content":"' + wrapped + '","sha":"abc"}').encode()
+                return payload.encode()
 
         with patch("github_ingestion.urllib.request.urlopen", return_value=Response()):
             result = github_ingestion.fetch_public_file("https://api.github.com/repos/o/r/contents/a.txt")
