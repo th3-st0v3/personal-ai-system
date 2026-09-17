@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,7 @@ _FORBIDDEN_PATH_PATTERNS = (
 )
 _DIFF_PATH_RE = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]+\n\+\+\+ /dev/null$", re.MULTILINE)
+_AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 
 def validate_patch_paths(patch: str, allow_delete: bool) -> None:
@@ -114,6 +114,7 @@ def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: Obstac
         "- The repository is private; use the connected GitHub app when source/history context is required.",
         "- The repository is public; use public GitHub first. If public retrieval is unavailable, the ChatGPT launcher automatically falls back to the connected GitHub app in the same conversation.",
     )
+    prompt += "\n\nAUTOMATION CONTINUATION: If this task's evidence/research reveals that another automation, computer-use, recovery, integration, or security capability is materially needed to satisfy the current objective, include exactly `PASI_AUTOMATION_CONTINUE: true` in your response. This tells PASI to keep improving automation instead of advancing to ordinary engineering work. Do not emit it merely for optional polish.\n"
 
     if not supervisor.runtime_watchdog_is_live():
         ledger.record(
@@ -154,10 +155,23 @@ def main() -> int:
     original_sleep = supervisor.sleep_until_retry
     original_invoke = supervisor.invoke_chat
     original_log = supervisor.log_event
+    original_gate = supervisor.automation_gate_is_satisfied
+    automation_continue_requested = False
 
     def log_event(kind: str, **data: Any) -> None:
+        nonlocal automation_continue_requested
         original_log(kind, **data)
         _record_event_obstacle(ledger, kind, data)
+        if kind == "task_completed" and str(data.get("summary", "")):
+            if _AUTOMATION_CONTINUE_RE.search(str(data["summary"])):
+                automation_continue_requested = True
+                ledger.record(
+                    "automation_continuation_requested",
+                    "Completed task identified a materially necessary additional automation capability.",
+                    "Keep the automation phase active for another task before considering the Engineering OS phase.",
+                    task_id=_task_id(data),
+                    status="pending",
+                )
         if kind == "task_failed":
             ledger.record(
                 "task_failed",
@@ -168,12 +182,36 @@ def main() -> int:
                 details={"error": str(data.get("error", ""))[-3000:]},
             )
 
+    def gate(evidence: dict[str, object]) -> bool:
+        nonlocal automation_continue_requested
+        pending = ledger.pending()
+        if automation_continue_requested:
+            automation_continue_requested = False
+            ledger.record(
+                "automation_gate_extended",
+                "Automation phase was extended by evidence from the previous task.",
+                "Continue autonomous automation work and reassess after the next verified task.",
+                status="pending",
+            )
+            return False
+        if pending:
+            ledger.record(
+                "automation_gate_extended",
+                "Unresolved automation obstacles remain in the action ledger.",
+                "Continue automation and alternate approaches; do not wait for a human response during the run.",
+                status="pending",
+                details={"pending_count": len(pending)},
+            )
+            return False
+        return original_gate(evidence)
+
     supervisor.validate_patch_paths = validate_patch_paths
     supervisor.log_event = log_event
     supervisor.runtime_watchdog_is_live = original_watchdog
     supervisor.standby_until_ready = lambda state: nonblocking_standby(state, ledger=ledger)
     supervisor.sleep_until_retry = lambda state, seconds: nonblocking_sleep(state, seconds, ledger=ledger)
     supervisor.invoke_chat = lambda task, state, failure: resilient_invoke_chat(task, state, failure, ledger=ledger)
+    supervisor.automation_gate_is_satisfied = gate
     try:
         return supervisor.main()
     finally:
@@ -182,3 +220,4 @@ def main() -> int:
         supervisor.sleep_until_retry = original_sleep
         supervisor.invoke_chat = original_invoke
         supervisor.log_event = original_log
+        supervisor.automation_gate_is_satisfied = original_gate
