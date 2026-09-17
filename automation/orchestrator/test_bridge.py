@@ -116,6 +116,97 @@ def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
     assert completed["response_text_available"] is False
 
 
+def test_browser_response_observation_persists_to_matching_prompt(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "observe me")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:45:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/observe",
+                "response_text": "answer preserved before acknowledgement",
+                "response_text_available": True,
+            },
+        }
+    )
+
+    current = bridge.get_operation(operation.operation_id)
+    assert current is not None
+    assert current["status"] == "claimed"
+    assert current["response_text"] == "answer preserved before acknowledgement"
+    assert current["response_text_available"] is True
+    assert current["response_source"] == "browser_observation"
+    assert current["chat_url"] == "https://chatgpt.com/c/observe"
+
+
+def test_mismatched_browser_response_does_not_attach_to_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "do not attach")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:46:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": "op-from-another-task",
+                "chat_url": "https://chatgpt.com/c/other",
+                "response_text": "unrelated response",
+                "response_text_available": True,
+            },
+        }
+    )
+
+    current = bridge.get_operation(operation.operation_id)
+    assert current is not None
+    assert "response_text" not in current
+    assert current.get("response_text_available") is not True
+
+
+def test_transient_completion_ack_failure_completes_from_persisted_response(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "do not replay")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:47:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/recovery",
+                "response_text": "the original answer survived the lost ack",
+                "response_text_available": True,
+            },
+        }
+    )
+
+    recovered = bridge.fail_operation(
+        operation.operation_id,
+        "PASI_NATIVE: bridge completion failed: HTTP 502",
+    )
+
+    assert recovered is not None
+    assert recovered["status"] == "completed"
+    assert recovered["retry_count"] == 0
+    assert recovered["response_text"] == "the original answer survived the lost ack"
+    assert recovered["response_text_available"] is True
+    assert recovered["completion_recovery_reason"] == "browser_response_observation_after_transient_failure"
+    assert recovered["recovery_error"] == "PASI_NATIVE: bridge completion failed: HTTP 502"
+
+    assert bridge.claim_next_operation() is None
+
+
 def test_transient_browser_failure_is_requeued(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "retry me")
