@@ -2,7 +2,7 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const CONTROLLER_VERSION = '2.4.6';
+  const CONTROLLER_VERSION = '2.4.7';
   const POLL_MS = 250;
   const HEALTH_MS = 5000;
   const DOM_POLL_MS = 100;
@@ -381,7 +381,7 @@
       response_text: responseText.slice(0, 50000),
       response_text_available: Boolean(responseText)
     };
-    await reportObservation('chatgpt_response', {
+    void reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
       response_text: body.response_text,
       response_text_available: body.response_text_available,
