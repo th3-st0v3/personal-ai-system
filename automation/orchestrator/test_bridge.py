@@ -54,6 +54,8 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
     completed = bridge.complete_operation(
         operation.operation_id,
         chat_url="https://chatgpt.com/c/test",
+        response_text="PASI response completed successfully.",
+        response_text_available=True,
     )
 
     assert completed is not None
@@ -62,14 +64,53 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
         completed["chat_url"]
         == "https://chatgpt.com/c/test"
     )
+    assert (
+        completed["response_text"]
+        == "PASI response completed successfully."
+    )
+    assert completed["response_text_available"] is True
     final = bridge.get_operation(operation.operation_id)
     assert final is not None
     assert final["status"] == "completed"
+    assert final["response_text_available"] is True
 
     status = bridge.get_status()
     assert status["queue_size"] == 0
     assert status["history_size"] == 1
     assert status["counts"] == {"completed": 1}
+
+
+def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("test", "bounded")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        response_text="x" * 60_000,
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    assert len(completed["response_text"]) == 50_000
+    assert completed["response_text_available"] is True
+
+
+def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("test", "empty")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        response_text="   ",
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    assert completed["response_text_available"] is False
 
 
 def test_failed_operation_is_not_active(
