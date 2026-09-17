@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from automation.computer_use.obstacles import ObstacleLedger
@@ -11,11 +12,11 @@ def test_obstacle_ledger_keeps_recent_pending_actions_after_compaction(tmp_path:
     ledger = ObstacleLedger(tmp_path)
     ledger.log_path.parent.mkdir(parents=True, exist_ok=True)
     with ledger.log_path.open("w", encoding="utf-8") as handle:
-        for index in range(5_000):
+        for index in range(12_000):
             handle.write(
                 '{"obstacle_id":"old-%d","created_at":"2026-01-01T00:00:00+00:00",'
-                '"kind":"old","status":"resolved","summary":"old","next_action":"none",'
-                '"task_id":"","details":{},"fingerprint":"old-%d"}\n' % (index, index)
+                '"kind":"old","status":"resolved","summary":"old",'
+                '"next_action":"none","task_id":"","details":{},"fingerprint":"old-%d"}\n' % (index, index)
             )
         handle.write(
             '{"obstacle_id":"pending-1","created_at":"2026-01-01T00:00:00+00:00",'
@@ -46,7 +47,12 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     class FakeProcess:
         pass
 
-    monkeypatch.setattr(hardening.subprocess, "Popen", lambda command, cwd: calls.append(command) or FakeProcess())
+    def fake_popen(command: list[str], cwd: Path) -> FakeProcess:
+        assert cwd == supervisor.REPO_ROOT
+        calls.append(command)
+        return FakeProcess()
+
+    monkeypatch.setattr(hardening.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(supervisor, "healthy", lambda _url: False)
     monkeypatch.setattr(supervisor, "log_event", lambda *_args, **_kwargs: None)
 
@@ -54,6 +60,8 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     children = hardening.nonblocking_ensure_services(ledger=ledger)
 
     assert len(children) == 2
-    assert len(calls) == 2
-    assert calls[0][-3:] == ["-m", "automation.orchestrator.bridge", "bridge"]
-        if False else True
+    assert calls == [
+        [sys.executable, "-m", "automation.orchestrator.bridge"],
+        [sys.executable, "scripts/pasi_controller_server.py"],
+    ]
+    assert ledger.pending() == []
