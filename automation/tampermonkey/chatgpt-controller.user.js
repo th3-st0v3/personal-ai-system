@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.3
+// @version      2.4.5
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,21 +12,30 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var POLL_INTERVAL_MS = 1000;
+    var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
+    var DOM_POLL_INTERVAL_MS = 100;
     var COMPOSER_TIMEOUT_MS = 15000;
     var SEND_TIMEOUT_MS = 10000;
     var SUBMISSION_TIMEOUT_MS = 4000;
+    var RETRY_DELAY_MS = 150;
+    var CLICK_SETTLE_MS = 300;
+    var RESPONSE_SETTLE_MS = 250;
     var GENERATION_TIMEOUT_MS = 60 * 60 * 1000;
     var NEW_CHAT_TIMEOUT_MS = 15000;
     var MENU_TIMEOUT_MS = 8000;
+    var ACTIVE_KEY = 'pasi:active-operation';
 
     var activeOperationId = null;
     var processing = false;
     var githubAttached = false;
     var reasoningMode = null;
 
-    console.log('[PASI] ChatGPT Controller v2.4.3 loaded.');
+    window.__PASI_CHATGPT_ACTIVE_OPERATION__ = function () {
+        return activeOperationId;
+    };
+
+    console.log('[PASI] ChatGPT Controller v2.4.5 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -57,6 +66,7 @@
 
     async function start() {
         try {
+            await recoverInterruptedOperation();
             var health = await bridgeRequest('/health');
             if (!health.ok) return;
             await reportChatState();
@@ -76,6 +86,10 @@
             if (!payload || !payload.operation) return;
             activeOperationId = payload.operation.operation_id;
             processing = true;
+            localStorage.setItem(ACTIVE_KEY, JSON.stringify({
+                operation_id: activeOperationId,
+                started_at: new Date().toISOString()
+            }));
             try {
                 await processOperation(payload.operation);
             } catch (error) {
@@ -87,6 +101,7 @@
         } finally {
             activeOperationId = null;
             processing = false;
+            localStorage.removeItem(ACTIVE_KEY);
         }
     }
 
@@ -125,7 +140,7 @@
         var previousUrl = window.location.href;
         var button = findNewChat();
         if (!button) {
-            await sleep(500);
+            await sleep(DOM_POLL_INTERVAL_MS * 3);
             button = findNewChat();
         }
         if (!button) throw new Error('Could not find ChatGPT New chat control.');
@@ -133,7 +148,7 @@
         button.click();
         var started = Date.now();
         while (Date.now() - started < NEW_CHAT_TIMEOUT_MS) {
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
             var composer = findComposer();
             var changed = window.location.href !== previousUrl && isChatUrl(window.location.href);
             if ((changed || isChatUrl(window.location.href)) && composer && !isGenerating()) return;
@@ -161,7 +176,7 @@
         if (!direct) throw new Error('ChatGPT Thinking control was not found.');
         if (isDisabled(direct)) throw new Error('ChatGPT Thinking control is disabled.');
         direct.click();
-        await sleep(500);
+        await sleep(CLICK_SETTLE_MS);
     }
 
     function findReasoningControl() {
@@ -173,7 +188,7 @@
         while (Date.now() - started < MENU_TIMEOUT_MS) {
             var control = findReasoningControl();
             if (control) return control;
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         return null;
     }
@@ -193,7 +208,7 @@
         if (!github) throw new Error('GitHub app was not found in the ChatGPT menu.');
         if (isDisabled(github)) throw new Error('GitHub app control is disabled.');
         github.click();
-        await sleep(500);
+        await sleep(CLICK_SETTLE_MS);
         var picker = await waitForRepositoryPicker();
         if (picker) await selectGitHubRepository(picker, repository);
         if (isGitHubConnectionFailureVisible()) throw new Error('GitHub repository access is unavailable.');
@@ -217,7 +232,7 @@
         while (Date.now() - started < MENU_TIMEOUT_MS) {
             var control = findPlusControl();
             if (control) return control;
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         return null;
     }
@@ -231,7 +246,7 @@
         while (Date.now() - started < MENU_TIMEOUT_MS) {
             var control = findGitHubControl();
             if (control) return control;
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         return null;
     }
@@ -245,7 +260,7 @@
         while (Date.now() - started < MENU_TIMEOUT_MS) {
             var picker = findRepositoryPicker();
             if (picker) return picker;
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         return null;
     }
@@ -256,16 +271,16 @@
 
     async function selectGitHubRepository(picker, repository) {
         setTextControl(picker, repository);
-        await sleep(500);
+        await sleep(CLICK_SETTLE_MS);
         var started = Date.now();
         while (Date.now() - started < MENU_TIMEOUT_MS) {
             var result = findRepositoryResult(repository);
             if (result) {
                 result.click();
-                await sleep(500);
+                await sleep(CLICK_SETTLE_MS);
                 return;
             }
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         throw new Error('GitHub repository picker did not expose the requested repository.');
     }
@@ -305,7 +320,7 @@
         while (Date.now() - started < COMPOSER_TIMEOUT_MS) {
             var composer = findComposer();
             if (composer && !isGenerating()) return composer;
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         return null;
     }
@@ -319,7 +334,7 @@
         while (Date.now() - started < SEND_TIMEOUT_MS) {
             var button = findSendButton();
             if (button) return button;
-            await sleep(250);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         return null;
     }
@@ -341,7 +356,7 @@
                 dispatchEnter(composer);
             }
             if (await waitForSubmissionTransition(expected)) return;
-            if (attempt < 3) await sleep(350);
+            if (attempt < 3) await sleep(RETRY_DELAY_MS);
         }
         if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
         throw new Error('ChatGPT prompt submission did not leave the composer after repeated send attempts.');
@@ -352,7 +367,7 @@
         while (Date.now() - started < SUBMISSION_TIMEOUT_MS) {
             if (isGenerating() || !findComposerContaining(expected)) return true;
             if (isConversationContextExhaustedVisible()) return false;
-            await sleep(150);
+            await sleep(DOM_POLL_INTERVAL_MS);
         }
         return false;
     }
@@ -365,7 +380,7 @@
             if (isGenerating()) {
                 sawGeneration = true;
             } else if (sawGeneration) {
-                await sleep(900);
+                await sleep(RESPONSE_SETTLE_MS);
                 var extracted = extractLatestAssistantResponse();
                 if (extracted && assistantFingerprint() !== baseline) return extracted;
             } else if (current !== baseline) {
@@ -373,7 +388,7 @@
                 if (fast) return fast;
             }
             if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
-            await sleep(400);
+            await sleep(DOM_POLL_INTERVAL_MS * 2);
         }
         throw new Error('ChatGPT generation timed out.');
     }
@@ -488,6 +503,17 @@
             await reportChatState(true);
         } catch (reportError) {
             console.error('[PASI] Failed to report operation failure:', reportError);
+        }
+    }
+
+    async function recoverInterruptedOperation() {
+        try {
+            var stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+            if (!stored || !stored.operation_id) return;
+            await reportFailure(stored.operation_id, new Error('PASI: browser page reloaded during operation; operation returned to retry path'));
+            localStorage.removeItem(ACTIVE_KEY);
+        } catch (_) {
+            localStorage.removeItem(ACTIVE_KEY);
         }
     }
 
