@@ -9,40 +9,40 @@ from simulation_library import SIMULATION_SCHEMA_VERSION, run_simulation
 class SimulationValidationAndProvenanceTests(unittest.TestCase):
     def test_wellbore_rejects_non_positive_physical_inputs(self) -> None:
         base = {
-            "depth": 1000,
-            "density": 1000,
+            "depth": 1000.0,
+            "density": 1000.0,
             "diameter": 0.1,
-            "velocity": 1,
+            "velocity": 1.0,
             "viscosity": 0.001,
         }
         for field in ("depth", "density", "diameter", "velocity", "viscosity"):
             invalid = dict(base)
-            invalid[field] = 0
+            invalid[field] = 0.0
             with self.subTest(field=field):
                 with self.assertRaisesRegex(ValueError, "must be positive"):
                     run_simulation("wellbore_hydraulics", invalid)
 
     def test_heat_conduction_rejects_non_positive_physical_inputs(self) -> None:
         base = {
-            "conductivity": 1,
-            "area": 1,
-            "hot_temperature": 100,
-            "cold_temperature": 50,
-            "thickness": 1,
+            "conductivity": 1.0,
+            "area": 1.0,
+            "hot_temperature": 100.0,
+            "cold_temperature": 50.0,
+            "thickness": 1.0,
         }
         for field in ("conductivity", "area", "thickness"):
             invalid = dict(base)
-            invalid[field] = -1
+            invalid[field] = -1.0
             with self.subTest(field=field):
                 with self.assertRaisesRegex(ValueError, "must be positive"):
                     run_simulation("heat_conduction", invalid)
 
     def test_successful_run_has_deterministic_provenance(self) -> None:
         inputs = {
-            "depth": 1000,
-            "density": 1000,
+            "depth": 1000.0,
+            "density": 1000.0,
             "diameter": 0.1,
-            "velocity": 1,
+            "velocity": 1.0,
             "viscosity": 0.001,
         }
         first = run_simulation("wellbore_hydraulics", inputs)
@@ -52,8 +52,7 @@ class SimulationValidationAndProvenanceTests(unittest.TestCase):
         self.assertEqual(first["provenance"], second["provenance"])
         provenance = cast(dict[str, object], first["provenance"])
         self.assertEqual(provenance["simulation_key"], "wellbore_hydraulics")
-        fingerprint = provenance["fingerprint"]
-        self.assertIsInstance(fingerprint, str)
+        fingerprint = cast(str, provenance["fingerprint"])
         self.assertEqual(len(fingerprint), 64)
         self.assertEqual(first["inputs"], inputs)
 
@@ -61,21 +60,21 @@ class SimulationValidationAndProvenanceTests(unittest.TestCase):
         first = run_simulation(
             "heat_conduction",
             {
-                "conductivity": 1,
-                "area": 1,
-                "hot_temperature": 100,
-                "cold_temperature": 50,
-                "thickness": 1,
+                "conductivity": 1.0,
+                "area": 1.0,
+                "hot_temperature": 100.0,
+                "cold_temperature": 50.0,
+                "thickness": 1.0,
             },
         )
         second = run_simulation(
             "heat_conduction",
             {
-                "conductivity": 2,
-                "area": 1,
-                "hot_temperature": 100,
-                "cold_temperature": 50,
-                "thickness": 1,
+                "conductivity": 2.0,
+                "area": 1.0,
+                "hot_temperature": 100.0,
+                "cold_temperature": 50.0,
+                "thickness": 1.0,
             },
         )
         first_provenance = cast(dict[str, object], first["provenance"])
