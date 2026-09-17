@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import subprocess
 import sys
@@ -44,6 +43,13 @@ def load_request(request_path: Path) -> tuple[str, str]:
     return version.strip(), reason.strip()[:2000] if isinstance(reason, str) else "Explicit PASI controller update."
 
 
+def git_blob_sha1(path: Path) -> str:
+    digest = run(["git", "hash-object", str(path)])
+    if len(digest) != 40 or any(char not in "0123456789abcdef" for char in digest.lower()):
+        raise SystemExit("error: could not calculate controller Git blob SHA-1")
+    return digest
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish a verified PASI controller version to the conditional sync manifest.")
     parser.add_argument("--request", type=Path, default=REQUEST_PATH)
@@ -71,8 +77,7 @@ def main() -> int:
     if requested_version != version:
         raise SystemExit("error: requested version does not match controller source version")
 
-    source = CONTROLLER_PATH.read_bytes()
-    digest = hashlib.sha256(source).hexdigest()
+    git_blob_sha = git_blob_sha1(CONTROLLER_PATH)
     commit = run(["git", "rev-parse", "HEAD"])
 
     manifest = {
@@ -80,7 +85,7 @@ def main() -> int:
         "enabled": True,
         "version": version,
         "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/chatgpt-controller.user.js",
-        "sha256": digest,
+        "git_blob_sha": git_blob_sha,
         "release_commit": commit,
         "reason": reason,
     }

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import tempfile
 import unittest
 from pathlib import Path
 
 from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
 from scripts.pasi_chat import (
+    PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL,
+    PUBLIC_REPOSITORY_URL,
     build_prompt,
     controller_observation_is_live,
     needs_github_context,
@@ -40,13 +42,16 @@ class FakeChatAdapter:
 
 
 class TestPasiChat(unittest.TestCase):
-    def test_build_prompt_contains_task_repo_state_and_github_context(self) -> None:
+    def test_build_prompt_uses_public_repo_as_default_and_always_requires_thinking(self) -> None:
         prompt = build_prompt("inspect the bridge", "Repository: https://github.com/example/repo\nWorking tree: clean", {})
         self.assertIn("TASK:\ninspect the bridge", prompt)
         self.assertIn("REPOSITORY STATE:\nRepository: https://github.com/example/repo", prompt)
-        self.assertIn("GITHUB CONTEXT:", prompt)
-        self.assertIn("connected separately through the ChatGPT GitHub app", prompt)
-        self.assertIn("does not grant repository write access", prompt)
+        self.assertIn("PUBLIC GITHUB CONTEXT:", prompt)
+        self.assertIn(PUBLIC_REPOSITORY_URL, prompt)
+        self.assertIn(PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL, prompt)
+        self.assertIn("public GitHub repository as the default source", prompt)
+        self.assertIn("ChatGPT GitHub app is not part of the default workflow", prompt)
+        self.assertIn("Thinking/reasoning mode is required for every PASI task", prompt)
         self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
     def test_build_prompt_includes_bounded_handoff(self) -> None:
@@ -55,7 +60,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("Previous PASI handoff:\nPrior verified handoff", prompt)
 
     def test_build_prompt_does_not_claim_execution(self) -> None:
-        self.assertIn("Do not claim that files were changed", build_prompt("make a change", "clean working tree", {}))
+        self.assertIn("Do not claim files were changed", build_prompt("make a change", "clean working tree", {}))
 
     def test_live_controller_observation_requires_fresh_state(self) -> None:
         now = datetime(2026, 9, 17, 4, 50, tzinfo=timezone.utc)
@@ -76,41 +81,55 @@ class TestPasiChat(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "browser controller is not reporting a live heartbeat"):
             wait_for_browser_controller(adapter, timeout_seconds=0.2)
 
-    def test_github_classifier_is_conditional_and_not_triggered_by_generic_mentions(self) -> None:
-        self.assertTrue(needs_github_context("inspect the GitHub repository and fix the bridge"))
-        self.assertTrue(needs_github_context("update automation/tampermonkey/chatgpt-controller.user.js"))
-        self.assertTrue(needs_github_context("review the pull request and latest commit"))
+    def test_github_app_is_not_selected_by_task_classification(self) -> None:
+        self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
+        self.assertFalse(needs_github_context("update automation/tampermonkey/chatgpt-controller.user.js"))
+        self.assertFalse(needs_github_context("review the pull request and latest commit"))
         self.assertFalse(needs_github_context("what is GitHub?"))
         self.assertFalse(needs_github_context("run the unit tests"))
         self.assertFalse(needs_github_context("explain Newton's second law"))
-        self.assertTrue(needs_github_context("explain Newton's second law", override="always"))
+        self.assertFalse(needs_github_context("explain Newton's second law", override="public"))
+        self.assertTrue(needs_github_context("explain Newton's second law", override="fallback"))
         self.assertFalse(needs_github_context("fix the repository", override="never"))
 
-    def test_reuses_existing_chat_without_creating_a_new_one(self) -> None:
+    def test_reuses_existing_chat_and_enables_thinking(self) -> None:
         adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
-        handoff, chat_url = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
+        handoff, chat_url = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "public")
         self.assertEqual(chat_url, "https://chatgpt.com/c/existing")
         self.assertNotIn(("new_session", ""), adapter.calls)
         self.assertIn(("select_reasoning", "thinking"), adapter.calls)
+        self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
         self.assertFalse(handoff["github_attached"])
+        self.assertEqual(handoff["context_source"], "public_github")
 
     def test_creates_new_chat_only_when_existing_chat_is_exhausted(self) -> None:
         adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": True, "github_attached": False})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "public")
         self.assertIn(("new_session", ""), adapter.calls)
+        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
         self.assertFalse(handoff["chat_exhausted"])
 
-    def test_attaches_github_only_when_task_requires_repository_context(self) -> None:
+    def test_public_repo_task_does_not_attach_github_app(self) -> None:
         adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "auto")
-        self.assertIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
-        self.assertNotIn(("select_reasoning", "thinking"), adapter.calls)
-        self.assertTrue(handoff["github_attached"])
-
-    def test_does_not_attach_github_when_already_attached(self) -> None:
-        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": True})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "github_attached": True}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "auto")
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "public")
         self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
+        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
+        self.assertFalse(handoff["github_attached"])
+        self.assertEqual(handoff["context_source"], "public_github")
+
+    def test_explicit_fallback_attaches_github_but_keeps_thinking_enabled(self) -> None:
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "fallback")
+        self.assertIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
+        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
+        self.assertTrue(handoff["github_attached"])
+        self.assertEqual(handoff["context_source"], "github_app_fallback")
+
+    def test_already_attached_github_context_is_not_duplicated_and_thinking_is_still_enabled(self) -> None:
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": True})
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "github_attached": True}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "fallback")
+        self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
+        self.assertIn(("select_reasoning", "thinking"), adapter.calls)
         self.assertTrue(handoff["github_attached"])
 
     def test_normal_response_does_not_stage_controller_update(self) -> None:
