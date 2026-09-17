@@ -54,15 +54,38 @@ def compact_repo_state(root: Path) -> str:
 
 def load_handoff() -> dict[str, object]:
     try:
-        value = json.loads(SESSION_STATE_PATH.read_text(encoding="utf-8"))
+        value: Any = json.loads(SESSION_STATE_PATH.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
-    return value if isinstance(value, dict) else {}
+    return dict(value) if isinstance(value, dict) else {}
 
 
-def save_handoff(payload: dict[str, object]) -> None:
+def save_handoff(payload: Mapping[str, object]) -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    SESSION_STATE_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False)[:MAX_HANDOFF_CHARS], encoding="utf-8")
+    safe = dict(payload)
+    summary = safe.get("summary")
+    if isinstance(summary, str):
+        safe["summary"] = summary[-6_000:]
+    else:
+        safe.pop("summary", None)
+    controller_signal = safe.get("controller_update_signal")
+    if not isinstance(controller_signal, Mapping):
+        safe.pop("controller_update_signal", None)
+    chat_url = safe.get("chat_url")
+    if not isinstance(chat_url, str) or len(chat_url) > 500:
+        safe.pop("chat_url", None)
+    context_source = safe.get("context_source")
+    if not isinstance(context_source, str) or len(context_source) > 100:
+        safe.pop("context_source", None)
+    text = json.dumps(safe, indent=2, ensure_ascii=False)
+    if len(text) > MAX_HANDOFF_CHARS:
+        minimal = {key: safe[key] for key in ("chat_url", "chat_exhausted", "github_attached", "reasoning_mode", "context_source") if key in safe}
+        if "summary" in safe:
+            minimal["summary"] = str(safe["summary"])[-4_000:]
+        text = json.dumps(minimal, indent=2, ensure_ascii=False)
+    temporary = SESSION_STATE_PATH.with_suffix(".json.tmp")
+    temporary.write_text(text + "\n", encoding="utf-8")
+    temporary.replace(SESSION_STATE_PATH)
 
 
 def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> str:
@@ -112,7 +135,6 @@ RULES:
 
 
 def needs_github_context(_task: str, *, override: str = "public") -> bool:
-    """Return whether the caller explicitly requested GitHub-app fallback."""
     return override == "fallback"
 
 
@@ -127,17 +149,25 @@ def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
     return dict(data) if isinstance(data, Mapping) and data.get("kind") == "chatgpt_state" else {}
 
 
-def controller_observation_is_live(observation: Mapping[str, Any] | None, *, max_age_seconds: float = CONTROLLER_MAX_OBSERVATION_AGE_SECONDS, now: datetime | None = None) -> bool:
+def controller_observation_is_live(
+    observation: Mapping[str, Any] | None,
+    *,
+    max_age_seconds: float = CONTROLLER_MAX_OBSERVATION_AGE_SECONDS,
+    now: datetime | None = None,
+) -> bool:
     if max_age_seconds <= 0 or not isinstance(observation, Mapping):
         return False
     data = observation.get("data")
     if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
         return False
-    captured_at = data.get("captured_at") or observation.get("captured_at")
-    if not isinstance(captured_at, str) or not captured_at.strip():
+    captured_at_value = data.get("captured_at")
+    if not isinstance(captured_at_value, str) or not captured_at_value.strip():
+        raw_capture = observation.get("captured_at")
+        captured_at_value = raw_capture if isinstance(raw_capture, str) else None
+    if not isinstance(captured_at_value, str) or not captured_at_value.strip():
         return False
     try:
-        timestamp = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        timestamp = datetime.fromisoformat(captured_at_value.replace("Z", "+00:00"))
     except ValueError:
         return False
     if timestamp.tzinfo is None:
@@ -147,7 +177,12 @@ def controller_observation_is_live(observation: Mapping[str, Any] | None, *, max
     return -5.0 <= age <= max_age_seconds
 
 
-def wait_for_browser_controller(adapter: ChatGPTRoutingAdapter, *, timeout_seconds: float = CONTROLLER_LIVENESS_TIMEOUT_SECONDS, max_age_seconds: float = CONTROLLER_MAX_OBSERVATION_AGE_SECONDS) -> None:
+def wait_for_browser_controller(
+    adapter: ChatGPTRoutingAdapter,
+    *,
+    timeout_seconds: float = CONTROLLER_LIVENESS_TIMEOUT_SECONDS,
+    max_age_seconds: float = CONTROLLER_MAX_OBSERVATION_AGE_SECONDS,
+) -> None:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
     started = time.monotonic()
@@ -159,19 +194,27 @@ def wait_for_browser_controller(adapter: ChatGPTRoutingAdapter, *, timeout_secon
         if controller_observation_is_live(observation, max_age_seconds=max_age_seconds):
             return
         time.sleep(0.5)
-    raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
+    raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
 
 
-def route_chat(adapter: ChatGPTRoutingAdapter, handoff: dict[str, object], task: str, repository: str, github_mode: str) -> tuple[dict[str, object], str | None]:
+def route_chat(
+    adapter: ChatGPTRoutingAdapter,
+    handoff: dict[str, object],
+    task: str,
+    repository: str,
+    github_mode: str,
+) -> tuple[dict[str, object], str | None]:
     state = browser_state(adapter)
-    current_url = state.get("chat_url") if isinstance(state.get("chat_url"), str) else None
+    state_url = state.get("chat_url")
+    current_url = state_url if isinstance(state_url, str) else None
     if current_url is not None and not CHAT_URL_PATTERN.match(current_url):
         current_url = None
     if state.get("chat_exhausted") is True:
         handoff["chat_exhausted"] = True
     if current_url is not None:
         handoff["chat_url"] = current_url
-    chat_url = handoff.get("chat_url") if isinstance(handoff.get("chat_url"), str) else None
+    handoff_url = handoff.get("chat_url")
+    chat_url = handoff_url if isinstance(handoff_url, str) and CHAT_URL_PATTERN.match(handoff_url) else None
     if chat_url is None or handoff.get("chat_exhausted") is True:
         print("Creating a new ChatGPT conversation because no usable conversation is available.")
         operation_id = adapter.new_session()
@@ -182,7 +225,7 @@ def route_chat(adapter: ChatGPTRoutingAdapter, handoff: dict[str, object], task:
         print(f"Reusing ChatGPT conversation: {chat_url}")
 
     reasoning_mode = handoff.get("reasoning_mode")
-    if not (isinstance(reasoning_mode, str) and reasoning_mode in {"thinking", "think"}):
+    if not isinstance(reasoning_mode, str) or reasoning_mode not in {"thinking", "think"}:
         adapter.select_reasoning_mode("thinking")
         reasoning_mode = "thinking"
         print("Thinking mode enabled for task.")
@@ -208,7 +251,11 @@ def route_chat(adapter: ChatGPTRoutingAdapter, handoff: dict[str, object], task:
 
 
 def process_controller_update_signal(response_text: str, root: Path) -> dict[str, object]:
-    decision = evaluate_controller_update(response_text, controller_path=root / "automation" / "tampermonkey" / "chatgpt-controller.user.js", last_synced_version=read_last_synced_version(root / ".runtime" / "chatgpt" / "controller-sync-state.json"))
+    decision = evaluate_controller_update(
+        response_text,
+        controller_path=root / "automation" / "tampermonkey" / "chatgpt-controller.user.js",
+        last_synced_version=read_last_synced_version(root / ".runtime" / "chatgpt" / "controller-sync-state.json"),
+    )
     result = decision.to_dict()
     if decision.eligible:
         write_update_request(root / ".runtime" / "chatgpt" / "controller-update-request.json", decision, source="chatgpt-response")
@@ -269,8 +316,9 @@ def main() -> int:
         print("No response text was captured by the bridge.")
 
     latest_state = browser_state(adapter)
-    if isinstance(latest_state.get("chat_url"), str):
-        handoff["chat_url"] = latest_state["chat_url"]
+    latest_chat_url = latest_state.get("chat_url")
+    if isinstance(latest_chat_url, str) and CHAT_URL_PATTERN.match(latest_chat_url):
+        handoff["chat_url"] = latest_chat_url
     handoff.update({"chat_exhausted": response.chat_exhausted, "summary": summary, "controller_update_signal": update_signal})
     save_handoff(handoff)
     return 0 if response.completion == "complete" else 1

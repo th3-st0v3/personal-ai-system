@@ -1,0 +1,15 @@
+{
+  "name": "pasi-readonly",
+  "displayName": "PASI Read-Only Integration",
+  "description": "Publishes bounded VS Code workspace, editor, and diagnostic state to PASI without command or file-write access.",
+  "version": "1.0.0",
+  "publisher": "th3-st0v3",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {}
+}
