@@ -36,6 +36,7 @@ class WorkerState:
     session: Session
     phase: WorkerPhase = "stopped"
     current_action: dict[str, Any] | None = None
+    approved_action_id: str | None = None
     started_at: str | None = None
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     deadline_at: str | None = None
@@ -77,11 +78,16 @@ class WorkerState:
         if current_action is not None and not isinstance(current_action, dict):
             raise StateCorruptionError("Invalid worker state shape: current_action must be an object")
 
+        approved_action_id = data.get("approved_action_id")
+        if approved_action_id is not None and not isinstance(approved_action_id, str):
+            raise StateCorruptionError("Invalid worker state shape: approved_action_id must be a string")
+
         return cls(
             worker_id=worker_id,
             session=session,
             phase=phase,
             current_action=current_action,
+            approved_action_id=approved_action_id,
             started_at=data.get("started_at") if isinstance(data.get("started_at"), str) else None,
             updated_at=str(data.get("updated_at", datetime.now(timezone.utc).isoformat())),
             deadline_at=data.get("deadline_at") if isinstance(data.get("deadline_at"), str) else None,
@@ -147,9 +153,16 @@ class BackgroundWorker:
 
     def resume(self, *, human_approval: bool = False) -> WorkerState:
         with self.lock:
-            if self.state.phase == "waiting_human" and not human_approval:
-                raise WorkerExecutionError("human approval is required before resuming")
-            if self.state.phase not in {"paused", "waiting_human"}:
+            if self.state.phase == "waiting_human":
+                if not human_approval:
+                    raise WorkerExecutionError("human approval is required before resuming")
+                action_id = self.state.current_action.get("action_id") if self.state.current_action else None
+                if not isinstance(action_id, str) or not action_id:
+                    raise WorkerExecutionError("waiting-human state has no resumable action")
+                if self.state.approved_action_id not in {None, action_id}:
+                    raise WorkerExecutionError("approval is bound to a different action")
+                self.state = self._replace(approved_action_id=action_id)
+            elif self.state.phase != "paused":
                 raise WorkerExecutionError(f"worker cannot resume from phase {self.state.phase!r}")
             self._ensure_not_expired()
             self.state = self._replace(phase="running", pause_reason=None, recovery_required=False)
@@ -160,7 +173,12 @@ class BackgroundWorker:
         with self.lock:
             if self.state.phase in {"completed", "failed", "stopped"}:
                 return self.state
-            self.state = self._replace(phase="stopped", pause_reason=reason, current_action=None)
+            self.state = self._replace(
+                phase="stopped",
+                pause_reason=reason,
+                current_action=None,
+                approved_action_id=None,
+            )
             self._persist()
             return self.state
 
@@ -168,7 +186,12 @@ class BackgroundWorker:
         with self.lock:
             if self.state.phase != "running":
                 raise WorkerExecutionError(f"worker cannot complete from phase {self.state.phase!r}")
-            self.state = self._replace(phase="completed", current_action=None, pause_reason=None)
+            self.state = self._replace(
+                phase="completed",
+                current_action=None,
+                approved_action_id=None,
+                pause_reason=None,
+            )
             self._persist()
             return self.state
 
@@ -186,6 +209,11 @@ class BackgroundWorker:
             self._ensure_not_expired()
             if action.session_id != self.control_plane.session.session_id:
                 raise ValueError("action belongs to a different control session")
+
+            if self.state.approved_action_id is not None:
+                if action.action_id != self.state.approved_action_id:
+                    raise WorkerExecutionError("approved action does not match the requested action")
+                external_human_approval = True
 
             self.state = self._replace(
                 current_action=asdict(action),
@@ -210,6 +238,7 @@ class BackgroundWorker:
                         self.state = self._replace(
                             phase="failed",
                             current_action=None,
+                            approved_action_id=None,
                             last_error=authorization.reason,
                         )
                     self._persist()
@@ -219,6 +248,7 @@ class BackgroundWorker:
                 self.state = self._replace(
                     phase="running",
                     current_action=None,
+                    approved_action_id=None,
                     last_error=None,
                     last_observation_fingerprint=observation.fingerprint(),
                 )
@@ -228,6 +258,7 @@ class BackgroundWorker:
                 self.state = self._replace(
                     phase="failed",
                     current_action=None,
+                    approved_action_id=None,
                     last_error=str(exc),
                 )
                 self._persist()
@@ -243,6 +274,7 @@ class BackgroundWorker:
                     session=state.session,
                     phase="paused",
                     current_action=state.current_action,
+                    approved_action_id=None,
                     started_at=state.started_at,
                     updated_at=datetime.now(timezone.utc).isoformat(),
                     deadline_at=state.deadline_at,
@@ -263,6 +295,7 @@ class BackgroundWorker:
                 self.state = self._replace(
                     phase="failed",
                     current_action=None,
+                    approved_action_id=None,
                     last_error="session duration expired",
                 )
                 self._persist()
@@ -309,6 +342,7 @@ class BackgroundWorker:
             self.state = self._replace(
                 phase="failed",
                 current_action=None,
+                approved_action_id=None,
                 last_error="session duration expired",
             )
             self._persist()
