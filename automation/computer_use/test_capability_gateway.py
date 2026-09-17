@@ -44,3 +44,22 @@ def test_gateway_preserves_request_id_on_safe_errors(tmp_path: Path) -> None:
     })
     assert result["status"] == "error"
     assert result["request_id"] == "bad-file"
+
+
+def test_gateway_advertises_resource_acquisition_as_approval_gated(tmp_path: Path) -> None:
+    gateway = CapabilityGateway(LocalAccessBroker(tmp_path))
+    capability = next(item for item in gateway.capabilities() if item["name"] == "computer.resource.acquire")
+    assert capability["risk"] == "approval_required"
+
+
+def test_gateway_blocks_unapproved_resource_without_executing(tmp_path: Path) -> None:
+    gateway = CapabilityGateway(LocalAccessBroker(tmp_path))
+    result = gateway.dispatch({
+        "request_id": "resource-1",
+        "capability": "computer.resource.acquire",
+        "parameters": {"kind": "public_download", "url": "https://example.com/tool.bin"},
+    })
+    assert result["status"] == "blocked"
+    assert result["risk"] == "approval_required"
+    assert result["obstacle_id"]
+    assert (tmp_path / ".runtime" / "automation" / "action-list.md").exists()
