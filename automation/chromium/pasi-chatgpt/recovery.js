@@ -10,7 +10,7 @@
   const RECOVERY_GRACE_MS = 10 * 60 * 1000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
-  const RECOVERY_VERSION = '1.0.1';
+  const RECOVERY_VERSION = '1.0.2';
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +65,16 @@
   function contextExhausted() {
     const text = normalize(document.body?.innerText || '');
     return ['this conversation has reached its limit', 'conversation has reached its limit', 'conversation is too long', 'conversation is full', 'context limit reached', 'context window limit', 'start a new chat to continue', 'start a new conversation to continue'].some((marker) => text.includes(marker));
+  }
+
+  function providerUsageExhausted() {
+    if (contextExhausted()) return false;
+    const text = normalize(document.body?.innerText || '');
+    return ['current usage limit', 'usage limit reached', 'free tier limit', 'message limit', 'daily limit', 'weekly limit', 'model usage limit'].some((marker) => text.includes(marker));
+  }
+
+  function replacementAllowed() {
+    return contextExhausted() || providerUsageExhausted();
   }
 
   function assistants() {
@@ -132,15 +142,22 @@
   }
 
   async function finishExisting(operationId, responseText) {
+    const bounded = responseText.slice(0, 50000);
     await report('chatgpt_response', {
-      response_text: responseText.slice(0, 50000),
-      response_text_available: Boolean(responseText),
+      response_text: bounded,
+      response_text_available: Boolean(bounded),
       chat_exhausted: contextExhausted(),
+      provider_usage_exhausted: providerUsageExhausted(),
       recovery_action: 'preserve_response'
     });
     const finished = await bridge('/chat/finished', {
       method: 'POST',
-      body: { operation_id: operationId, chat_url: location.href, response_text_available: Boolean(responseText) }
+      body: {
+        operation_id: operationId,
+        chat_url: location.href,
+        response_text: bounded,
+        response_text_available: Boolean(bounded)
+      }
     });
     return finished.ok;
   }
@@ -218,7 +235,7 @@
     if (!operationId) return;
 
     const current = await operation(operationId);
-    if (current?.status === 'completed') {
+    if (current?.status === 'completed' || current?.status === 'failed' || current?.status === 'cancelled') {
       clearRecoveryState();
       return;
     }
@@ -250,10 +267,26 @@
       return;
     }
 
+    if (!replacementAllowed()) {
+      await markRetryableFailure(
+        operationId,
+        'CHAT_RECOVERY_WAITING: existing ChatGPT conversation was preserved; no verified context or provider usage exhaustion was observed, so no replacement chat was created.'
+      );
+      await report('chatgpt_recovery', {
+        phase: 'preserved_without_replacement',
+        operation_id: operationId,
+        recovery_action: 'retry_runner_without_new_chat',
+        chat_exhausted: false,
+        provider_usage_exhausted: false
+      });
+      clearRecoveryState();
+      return;
+    }
+
     try {
-      await report('chatgpt_recovery', { phase: 'preparing_new_chat', operation_id: operationId, recovery_action: 'queue_new_chat' });
+      await report('chatgpt_recovery', { phase: 'preparing_new_chat', operation_id: operationId, recovery_action: 'queue_new_chat', replacement_reason: contextExhausted() ? 'context_exhausted' : 'provider_usage_exhausted' });
       await queueNewChat();
-      await markRetryableFailure(operationId, 'CHAT_RECOVERED_RETRY: unrecoverable response state was replaced with a verified fresh ChatGPT conversation; the overnight runner should retry the same task.');
+      await markRetryableFailure(operationId, 'CHAT_RECOVERED_RETRY: verified ChatGPT context or usage exhaustion required a fresh conversation; the overnight runner should retry the same task.');
       await report('chatgpt_recovery', { phase: 'ready_for_retry', operation_id: operationId, recovery_action: 'fresh_chat_prepared' });
     } catch (error) {
       await markRetryableFailure(operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}`);
