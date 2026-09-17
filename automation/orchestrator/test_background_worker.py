@@ -8,6 +8,7 @@ from automation.computer_use.controller import ControlPlane
 from automation.computer_use.contracts import ActionProposal, Observation, Session
 from automation.orchestrator.background_worker import BackgroundWorker, WorkerExecutionError
 from automation.orchestrator.state import StateManager
+from automation.orchestrator.verification_telemetry import VerificationTelemetry
 
 
 class RecordingExecutor:
@@ -25,7 +26,7 @@ class RecordingExecutor:
         )
 
 
-def make_worker(tmp_path, *, background: bool = True, max_duration_seconds: int = 60):
+def make_worker(tmp_path, *, background: bool = True, max_duration_seconds: int = 60, telemetry: bool = False):
     session = Session(
         session_id="session-1",
         task_id="task-1",
@@ -35,7 +36,9 @@ def make_worker(tmp_path, *, background: bool = True, max_duration_seconds: int 
         background=background,
     )
     control = ControlPlane(session)
-    return BackgroundWorker(StateManager(tmp_path / ".ai"), "worker-1", control), control
+    state_manager = StateManager(tmp_path / ".ai")
+    worker_telemetry = VerificationTelemetry(state_manager) if telemetry else None
+    return BackgroundWorker(state_manager, "worker-1", control, worker_telemetry), control
 
 
 def safe_action() -> ActionProposal:
@@ -132,6 +135,36 @@ def test_safe_action_executes_without_external_approval(tmp_path) -> None:
     assert worker.step(safe_action(), executor) is not None
     assert len(executor.actions) == 1
     assert executor.actions[0].action_id == "a1"
+
+
+def test_worker_records_execution_observation_when_telemetry_enabled(tmp_path) -> None:
+    worker, _ = make_worker(tmp_path, telemetry=True)
+    executor = RecordingExecutor()
+    worker.start()
+
+    observation = worker.step(safe_action(), executor)
+
+    assert observation is not None
+    records = worker.telemetry.load() if worker.telemetry is not None else []
+    assert len(records) == 1
+    assert records[0].event_type == "worker_execution"
+    assert records[0].status == "completed"
+    assert records[0].action_id == "a1"
+    assert records[0].task_id == "task-1"
+    assert records[0].session_id == "session-1"
+    assert records[0].evidence_fingerprint == observation.fingerprint()
+
+
+def test_approval_wait_does_not_emit_execution_telemetry(tmp_path) -> None:
+    worker, _ = make_worker(tmp_path, telemetry=True)
+    executor = RecordingExecutor()
+    worker.start()
+
+    assert worker.step(approval_action(), executor) is None
+
+    records = worker.telemetry.load() if worker.telemetry is not None else []
+    assert records == []
+    assert executor.actions == []
 
 
 def test_action_from_different_session_is_rejected(tmp_path) -> None:

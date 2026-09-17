@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from automation.computer_use.contracts import ActionProposal, Observation
+
 from .state import StateCorruptionError, StateManager
 
 
@@ -44,7 +46,7 @@ class VerificationRecord:
             "schema_version": self.schema_version,
         }
 
-    def with_hash(self) -> VerificationRecord:
+    def with_hash(self) -> "VerificationRecord":
         record_hash = _hash_payload(self.unsigned_dict())
         return VerificationRecord(
             record_id=self.record_id,
@@ -67,7 +69,7 @@ class VerificationRecord:
         return value
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> VerificationRecord:
+    def from_dict(cls, value: Mapping[str, Any]) -> "VerificationRecord":
         required_strings = (
             "record_id",
             "event_type",
@@ -241,6 +243,32 @@ class VerificationTelemetry:
             session_id=session_id,
             task_id=task_id,
             action_id=action_id,
+        )
+
+    def record_worker_execution(
+        self,
+        action: ActionProposal,
+        observation: Observation,
+        *,
+        session_id: str,
+        task_id: str,
+        worker_id: str,
+    ) -> VerificationRecord:
+        """Record only bounded metadata and the observation fingerprint for a worker step."""
+        return self.append(
+            event_type="worker_execution",
+            status="completed",
+            evidence_fingerprint=observation.fingerprint(),
+            details={
+                "worker_id": worker_id,
+                "action": action.action,
+                "target": action.target,
+                "observation_kind": observation.kind,
+                "observation_source": observation.source,
+            },
+            session_id=session_id,
+            task_id=task_id,
+            action_id=action.action_id,
         )
 
     @staticmethod
