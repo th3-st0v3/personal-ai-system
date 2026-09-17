@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from scripts import pasi_automation_entrypoint as automation
 from scripts import pasi_overnight_engine as legacy
 from scripts import pasi_overnight_engine_v2 as supervisor
 from scripts import pasi_overnight_hardening as hardening
@@ -167,7 +168,7 @@ def _recover_primary_provider(
         supervisor.datetime.fromisoformat(state.deadline_at),
         supervisor.now_utc() + supervisor.timedelta(seconds=PRIMARY_RECOVERY_WINDOW_SECONDS),
     )
-    last_code, last_response = supervisor.provider_condition(90, response) and 90 or 1, response
+    last_code, last_response = 90, response
     while not supervisor.STOP and supervisor.now_utc() < deadline:
         remaining = (deadline - supervisor.now_utc()).total_seconds()
         supervisor.log_event(
@@ -210,6 +211,7 @@ def main() -> int:
     original_parse = supervisor.parse_response
     original_invoke = hardening.resilient_invoke_chat
     original_verify = supervisor.verify_and_commit
+    original_sleep = hardening.nonblocking_sleep
 
     def parse_response(response: str):
         return _parsed_response(response, original_parse)
@@ -295,14 +297,13 @@ def main() -> int:
             time.sleep(min(1.0, max(0.1, (end - supervisor.now_utc()).total_seconds())))
         return not supervisor.STOP and supervisor.now_utc() < deadline
 
-    original_sleep = hardening.nonblocking_sleep
     hardening.resilient_invoke_chat = resilient_invoke_chat
     hardening.nonblocking_sleep = paced_sleep
     supervisor.parse_response = parse_response
     supervisor.verify_and_commit = verify_and_commit
     try:
-        sys.argv = ["pasi_overnight_hardening.py", "--hours", str(args.hours), *passthrough]
-        return hardening.main()
+        sys.argv = ["pasi_automation_entrypoint.py", "--hours", str(args.hours), *passthrough]
+        return automation.main()
     finally:
         supervisor.parse_response = original_parse
         supervisor.verify_and_commit = original_verify
