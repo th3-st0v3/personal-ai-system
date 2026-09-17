@@ -30,36 +30,50 @@ def read_version() -> str:
     raise ValueError("controller @version was not found")
 
 
+def load_request(request_path: Path) -> tuple[str, str]:
+    try:
+        payload = json.loads(request_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"error: invalid controller update request: {exc}")
+    if not isinstance(payload, dict) or payload.get("state") != "ready":
+        raise SystemExit("error: controller update request is not ready")
+    version = payload.get("requested_version")
+    reason = payload.get("reason")
+    if not isinstance(version, str) or not version.strip():
+        raise SystemExit("error: controller update request has no requested version")
+    return version.strip(), reason.strip()[:2000] if isinstance(reason, str) else "Explicit PASI controller update."
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Publish a verified PASI controller version to the conditional sync manifest.")
+    parser.add_argument("--request", type=Path, default=REQUEST_PATH)
+    parser.add_argument("--version", help="Explicit requested controller version when the transient runtime request is unavailable after a merge")
+    parser.add_argument("--reason", default="Explicit PASI controller update.")
     parser.add_argument("--allow-non-main", action="store_true", help="Allow publishing while not checked out on main")
     args = parser.parse_args()
 
     if not CONTROLLER_PATH.is_file():
         raise SystemExit("error: controller source is missing")
-    if not REQUEST_PATH.is_file():
-        raise SystemExit("error: no explicit controller update request is staged")
     if not args.allow_non_main and run(["git", "branch", "--show-current"]) != "main":
         raise SystemExit("error: controller release must be prepared from main after the controller change is merged")
     if run(["git", "status", "--short"]):
         raise SystemExit("error: working tree must be clean before publishing controller release")
 
-    try:
-        request = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"error: invalid controller update request: {exc}")
-    if not isinstance(request, dict) or request.get("state") != "ready":
-        raise SystemExit("error: controller update request is not ready")
+    if args.version:
+        requested_version = args.version.strip()
+        reason = args.reason.strip()[:2000]
+    elif args.request.is_file():
+        requested_version, reason = load_request(args.request)
+    else:
+        raise SystemExit("error: provide --version after merge or keep the local controller update request available")
 
     version = read_version()
-    requested_version = request.get("requested_version")
     if requested_version != version:
-        raise SystemExit("error: staged request version does not match controller source version")
+        raise SystemExit("error: requested version does not match controller source version")
 
     source = CONTROLLER_PATH.read_bytes()
     digest = hashlib.sha256(source).hexdigest()
     commit = run(["git", "rev-parse", "HEAD"])
-    reason = request.get("reason") if isinstance(request.get("reason"), str) else "Explicit PASI controller update."
 
     manifest = {
         "schema_version": "1",
@@ -68,7 +82,7 @@ def main() -> int:
         "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/chatgpt-controller.user.js",
         "sha256": digest,
         "release_commit": commit,
-        "reason": reason[:2000],
+        "reason": reason,
     }
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
