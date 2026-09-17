@@ -56,6 +56,59 @@ PASI_RESULT_PATCH_END
         self.assertFalse(allow_delete)
         self.assertEqual(values["backend"], "verified")
 
+    def test_parse_response_normalizes_markdown_wrapped_patch(self) -> None:
+        response = """PASI_RESULT_STATUS: complete
+PASI_RESULT_SUMMARY: fixed the issue
+PASI_RESULT_NEXT_TASK: improve monitoring
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: handled
+PASI_RESULT_RESEARCH: performed
+PASI_RESULT_UX: not_applicable
+PASI_RESULT_BACKEND: verified
+PASI_RESULT_EVIDENCE: pytest passed
+PASI_RESULT_ALLOW_DELETE: false
+PASI_RESULT_PATCH_BEGIN
+```diff
+diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+```
+PASI_RESULT_PATCH_END
+"""
+        _, _, _, patch, _, _ = parse_response(response)
+        self.assertEqual(patch, "diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-old\n+new\n")
+
+    def test_parse_response_discards_prose_before_diff(self) -> None:
+        response = """PASI_RESULT_STATUS: complete
+PASI_RESULT_SUMMARY: fixed the issue
+PASI_RESULT_NEXT_TASK: improve monitoring
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: handled
+PASI_RESULT_RESEARCH: performed
+PASI_RESULT_UX: not_applicable
+PASI_RESULT_BACKEND: verified
+PASI_RESULT_EVIDENCE: pytest passed
+PASI_RESULT_ALLOW_DELETE: false
+PASI_RESULT_PATCH_BEGIN
+Here is the requested patch:
+```diff
+diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+```
+PASI_RESULT_PATCH_END
+"""
+        _, _, _, patch, _, _ = parse_response(response)
+        self.assertIn("diff --git a/example.txt b/example.txt", patch)
+        self.assertNotIn("Here is the requested patch:", patch)
+        self.assertNotIn("```", patch)
+
     def test_new_file_patch_is_allowed_but_delete_requires_explicit_marker(self) -> None:
         new_file = """diff --git a/new.txt b/new.txt
 new file mode 100644
