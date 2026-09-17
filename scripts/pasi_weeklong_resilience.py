@@ -5,6 +5,7 @@ import math
 import re
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -164,7 +165,7 @@ def _recover_primary_provider(
 ) -> tuple[int, str]:
     deadline = min(
         supervisor.datetime.fromisoformat(state.deadline_at),
-        supervisor.now_utc() + supervisor.timedelta(seconds=PRIMARY_RECOVERY_WINDOW_SECONDS),
+        supervisor.now_utc() + timedelta(seconds=PRIMARY_RECOVERY_WINDOW_SECONDS),
     )
     last_code, last_response = 90, response
     while not supervisor.STOP and supervisor.now_utc() < deadline:
@@ -176,7 +177,7 @@ def _recover_primary_provider(
             remaining_seconds=int(max(0, remaining)),
             previous_failure=(failure or response)[-2000:],
         )
-        end = supervisor.now_utc() + supervisor.timedelta(seconds=min(PRIMARY_RECOVERY_POLL_SECONDS, max(1.0, remaining)))
+        end = supervisor.now_utc() + timedelta(seconds=min(PRIMARY_RECOVERY_POLL_SECONDS, max(1.0, remaining)))
         while not supervisor.STOP and supervisor.now_utc() < min(deadline, end):
             time.sleep(1.0)
         if supervisor.STOP:
@@ -193,13 +194,13 @@ def _recover_primary_provider(
     return last_code, last_response
 
 
-def _should_not_restart(exit_code: int, state: Any | None) -> bool:
+def _should_not_restart(exit_code: int, state: Any | None, deadline: Any) -> bool:
     if exit_code in {130, 143}:
+        return True
+    if supervisor.now_utc() >= deadline:
         return True
     if state is None:
         return False
-    if supervisor.now_utc() >= supervisor.datetime.fromisoformat(state.deadline_at):
-        return True
     return state.stop_reason in {"stopped", "keyboard_interrupt", "deadline_reached"}
 
 
@@ -315,15 +316,17 @@ def main() -> int:
 
     restart_count = 0
     resume_passthrough = list(passthrough)
+    process_deadline = supervisor.now_utc() + timedelta(hours=args.hours)
     try:
         while True:
             supervisor.STOP = False
             sys.argv = ["pasi_automation_entrypoint.py", "--hours", str(args.hours), *resume_passthrough]
             exit_code = automation.main()
             state = supervisor.load_state()
-            if _should_not_restart(exit_code, state):
+            deadline = supervisor.datetime.fromisoformat(state.deadline_at) if state is not None else process_deadline
+            if _should_not_restart(exit_code, state, deadline):
                 return exit_code
-            if supervisor.now_utc() >= supervisor.datetime.fromisoformat(state.deadline_at) if state is not None else True:
+            if supervisor.now_utc() >= deadline:
                 return exit_code
             if restart_count >= MAX_RUNNER_RESTARTS:
                 supervisor.log_event(
@@ -342,8 +345,7 @@ def main() -> int:
                 reason=state.stop_reason if state is not None else "no persisted state",
                 task_number=state.task_number if state is not None else None,
             )
-            deadline = supervisor.datetime.fromisoformat(state.deadline_at) if state is not None else supervisor.now_utc()
-            end = min(deadline, supervisor.now_utc() + supervisor.timedelta(seconds=RUNNER_RESTART_BACKOFF_SECONDS))
+            end = min(deadline, supervisor.now_utc() + timedelta(seconds=RUNNER_RESTART_BACKOFF_SECONDS))
             while not supervisor.STOP and supervisor.now_utc() < end:
                 time.sleep(1.0)
     finally:
