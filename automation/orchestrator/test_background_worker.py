@@ -48,7 +48,14 @@ class RejectingVerifier:
         )
 
 
-def make_worker(tmp_path, *, background: bool = True, max_duration_seconds: int = 60, telemetry: bool = False, verifier=None):
+def make_worker(
+    tmp_path,
+    *,
+    background: bool = True,
+    max_duration_seconds: int = 60,
+    telemetry: bool = False,
+    verifier=None,
+):
     session = Session(
         session_id="session-1",
         task_id="task-1",
@@ -197,11 +204,12 @@ def test_post_execution_verification_failure_stops_worker_and_records_failure(tm
     with pytest.raises(WorkerExecutionError, match="post-execution verification failed"):
         worker.step(safe_action(), executor)
 
+    state = worker.status()
     assert len(executor.actions) == 1
-    assert worker.status().phase == "failed"
-    assert worker.status().current_action is None
-    assert worker.status().last_error is not None
-    assert "observation session does not match action session" in worker.status().last_error
+    assert state.phase == "failed"
+    assert state.current_action is None
+    assert state.last_error is not None
+    assert "observation session does not match action session" in state.last_error
     records = worker.telemetry.load() if worker.telemetry is not None else []
     assert len(records) == 1
     assert records[0].event_type == "worker_verification"
