@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Any, Mapping
+from urllib.parse import quote
 
 from automation.computer_use.github import GitHubAdapterError, GitHubTransport
 
@@ -20,22 +21,9 @@ class AutomationCommand:
 
 
 class GitHubCommandQueue:
-    """Read-only, idempotent GitHub issue ingress for local automation.
+    """Read-only, idempotent GitHub issue ingress for local automation."""
 
-    GitHub issues act as a durable remote command queue. The local process still
-    decides whether and how to execute a command; an issue can never directly
-    grant an action approval or bypass the task runner's authorization gates.
-    """
-
-    def __init__(
-        self,
-        transport: GitHubTransport,
-        owner: str,
-        repository: str,
-        *,
-        allowed_actors: set[str],
-        max_command_chars: int = DEFAULT_MAX_COMMAND_CHARS,
-    ) -> None:
+    def __init__(self, transport: GitHubTransport, owner: str, repository: str, *, allowed_actors: set[str], max_command_chars: int = DEFAULT_MAX_COMMAND_CHARS) -> None:
         if not owner.strip() or "/" in owner:
             raise ValueError("owner must be a single non-empty path segment")
         if not repository.strip() or "/" in repository:
@@ -54,11 +42,7 @@ class GitHubCommandQueue:
 
     @classmethod
     def from_environment(cls, transport: GitHubTransport) -> "GitHubCommandQueue":
-        actors = {
-            actor.strip()
-            for actor in os.environ.get("PASI_GITHUB_COMMAND_ACTORS", "").split(",")
-            if actor.strip()
-        }
+        actors = {actor.strip() for actor in os.environ.get("PASI_GITHUB_COMMAND_ACTORS", "").split(",") if actor.strip()}
         return cls(
             transport,
             os.environ.get("PASI_GITHUB_OWNER", "th3-st0v3"),
@@ -68,13 +52,11 @@ class GitHubCommandQueue:
 
     def poll_once(self, *, consumed_issue_numbers: set[int] | None = None) -> list[AutomationCommand]:
         consumed = consumed_issue_numbers or set()
-        result = self.transport.request(
-            "GET",
-            f"/repos/{self.owner}/{self.repository}/issues?state=open&sort=created&direction=asc&per_page=30",
-        )
+        owner = quote(self.owner, safe="")
+        repository = quote(self.repository, safe="")
+        result = self.transport.request("GET", f"/repos/{owner}/{repository}/issues?state=open&sort=created&direction=asc&per_page=30")
         if not isinstance(result, list):
             raise GitHubAdapterError("GitHub issue queue response must be a list")
-
         commands: list[AutomationCommand] = []
         for item in result:
             command = self._parse_issue(item, consumed)
@@ -88,8 +70,6 @@ class GitHubCommandQueue:
         raw_number = item.get("number")
         if not isinstance(raw_number, int) or isinstance(raw_number, bool) or raw_number in consumed:
             return None
-        # Pull requests are represented by the Issues API too; never execute one
-        # as a command even if its title/body happens to match the marker.
         if "pull_request" in item:
             return None
         title = item.get("title")
