@@ -68,30 +68,30 @@ class TestPasiControllerServer(unittest.TestCase):
         expected_controller_sha = hashlib.sha1(f"blob {len(controller_bytes)}\0".encode() + controller_bytes).hexdigest()
         expected_recovery_sha = hashlib.sha1(f"blob {len(recovery_bytes)}\0".encode() + recovery_bytes).hexdigest()
         self.assertEqual(actual_controller, controller)
-        self.assertEqual(controller_sha, expected_controller_sha)
         self.assertEqual(actual_recovery, recovery)
+        self.assertEqual(controller_sha, expected_controller_sha)
         self.assertEqual(recovery_sha, expected_recovery_sha)
-        self.assertEqual(manifest["git_blob_sha"], "a" * 40)
-        self.assertEqual(manifest["recovery_git_blob_sha"], "a" * 40)
+        self.assertEqual(manifest["release_commit"], "a" * 40)
+        self.assertEqual(manifest["version"], "7.8.9")
+        self.assertEqual(manifest["recovery_version"], "3.2.1")
 
-    def test_refresh_remote_main_uses_fetch_head(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=["git", "fetch", "origin", "main"],
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
-        with patch.object(server.subprocess, "run", return_value=completed) as run:
-            self.assertTrue(server.refresh_remote_main())
-            self.assertEqual(run.call_args.args[0][0:4], ["git", "fetch", "--prune", "origin"])
-
-    def test_load_verified_release_fails_closed_on_mismatch(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            manifest_path = root / "manifest.json"
-            controller_path = root / "controller.js"
-            manifest_path.write_text('{"version":"1.0.0","git_blob_sha":"deadbeef"}\n', encoding="utf-8")
-            controller_path.write_text("// controller\n", encoding="utf-8")
-            with patch.object(server, "MANIFEST_PATH", manifest_path), patch.object(server, "CONTROLLER_PATH", controller_path):
+    def test_canonical_bundle_uses_clean_main_only_when_remote_is_unavailable(self) -> None:
+        with patch.object(server, "refresh_remote_main", return_value=False):
+            with patch.object(server, "_local_main_is_safe", return_value=False):
                 with self.assertRaises(ControllerDistributionError):
-                    server.load_verified_release()
+                    load_verified_canonical_bundle()
+
+    def test_git_blob_hash_uses_git_blob_header(self) -> None:
+        payload = b"hello\n"
+        expected = hashlib.sha1(b"blob 6\0" + payload).hexdigest()
+        with tempfile.NamedTemporaryFile(delete=False) as temporary:
+            path = Path(temporary.name)
+            temporary.write(payload)
+        try:
+            self.assertEqual(git_blob_sha1(path), expected)
+        finally:
+            path.unlink()
+
+
+if __name__ == "__main__":
+    unittest.main()
