@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import shutil
 import subprocess
@@ -54,17 +53,21 @@ def git_context(root: Path, task: str) -> str:
         if prs:
             sections.append(f"Open GitHub pull requests:\n{prs[:6_000]}")
 
-    words = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9_./-]{4,}", task) if w.lower() not in {"about", "should", "would", "could", "their", "there", "which", "these"}]
+    words = [
+        w for w in re.findall(r"[A-Za-z][A-Za-z0-9_./-]{4,}", task)
+        if w.lower() not in {"about", "should", "would", "could", "their", "there", "which", "these"}
+    ]
     seen: set[str] = set()
     matched: list[Path] = []
     for word in words[:12]:
-        for relative in run(["git", "grep", "-l", "-I", "-e", word], root, timeout=3.0).splitlines():
-            path = Path(relative)
-            if path in seen or path.name.startswith("."):
+        for relative_text in run(["git", "grep", "-l", "-I", "-e", word], root, timeout=3.0).splitlines():
+            path = Path(relative_text)
+            key = str(path)
+            if key in seen or path.name.startswith("."):
                 continue
             if any(part in {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache"} for part in path.parts):
                 continue
-            seen.add(path)
+            seen.add(key)
             matched.append(path)
             if len(matched) >= MAX_MATCHED_FILES:
                 break
@@ -72,9 +75,8 @@ def git_context(root: Path, task: str) -> str:
             break
 
     for relative in [Path("README.md"), Path("docs/architecture/computer-use-control-plane.md")]:
-        if relative.exists() or (root / relative).is_file():
-            if relative not in matched:
-                matched.insert(0, relative)
+        if (root / relative).is_file() and relative not in matched:
+            matched.insert(0, relative)
 
     remaining = MAX_CONTEXT_CHARS - sum(len(s) for s in sections)
     for path in matched[:MAX_MATCHED_FILES + 2]:
@@ -100,11 +102,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Start a fresh PASI ChatGPT task with bounded repository context.")
     parser.add_argument("task", nargs="+", help="Engineering/research task to send to ChatGPT")
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Repository root (default: current directory)")
+    parser.add_argument("--timeout", type=float, default=900.0, help="Maximum ChatGPT response wait in seconds (default: 900)")
     args = parser.parse_args()
 
     root = args.repo.expanduser().resolve()
     if not (root / ".git").exists():
         print(f"error: {root} is not a Git repository", file=sys.stderr)
+        return 2
+    if args.timeout <= 0:
+        print("error: --timeout must be positive", file=sys.stderr)
         return 2
 
     task = " ".join(args.task).strip()
@@ -115,7 +121,7 @@ def main() -> int:
         UrllibBridgeTransport(),
         session_id=f"launcher-{uuid.uuid4().hex}",
         poll_interval_seconds=1.0,
-        max_wait_seconds=60.0,
+        max_wait_seconds=args.timeout,
     )
 
     print("Creating new ChatGPT conversation...")
