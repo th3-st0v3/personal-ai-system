@@ -3,11 +3,10 @@ from __future__ import annotations
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from .controller import AuthorizationGateway, ControlPlane
-from .contracts import ActionProposal, ActionRisk, Observation, Session
+from .contracts import ActionProposal, Observation, Session
 from .state import StateCorruptionError, StateManager
 
 
@@ -50,18 +49,39 @@ class WorkerState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WorkerState":
+        worker_id = data.get("worker_id")
+        if not isinstance(worker_id, str) or not worker_id.strip():
+            raise StateCorruptionError("Invalid worker state shape: worker_id is required")
+
         session_data = data.get("session")
         if not isinstance(session_data, dict):
             raise StateCorruptionError("Invalid worker state shape: session is missing")
-        session = Session(**session_data)
+        allowed_applications = session_data.get("allowed_applications", ())
+        if isinstance(allowed_applications, list):
+            session_data = dict(session_data)
+            session_data["allowed_applications"] = tuple(allowed_applications)
+        try:
+            session = Session(**session_data)
+        except (TypeError, ValueError) as exc:
+            raise StateCorruptionError("Invalid worker state shape: invalid session") from exc
+
         phase = data.get("phase", "stopped")
         if phase not in {"stopped", "running", "paused", "waiting_human", "completed", "failed"}:
             raise StateCorruptionError("Invalid worker state shape: unknown phase")
+
+        recovery_required = data.get("recovery_required", False)
+        if not isinstance(recovery_required, bool):
+            raise StateCorruptionError("Invalid worker state shape: recovery_required must be boolean")
+
+        current_action = data.get("current_action")
+        if current_action is not None and not isinstance(current_action, dict):
+            raise StateCorruptionError("Invalid worker state shape: current_action must be an object")
+
         return cls(
-            worker_id=str(data.get("worker_id", "")),
+            worker_id=worker_id,
             session=session,
             phase=phase,
-            current_action=data.get("current_action") if isinstance(data.get("current_action"), dict) else None,
+            current_action=current_action,
             started_at=data.get("started_at") if isinstance(data.get("started_at"), str) else None,
             updated_at=str(data.get("updated_at", datetime.now(timezone.utc).isoformat())),
             deadline_at=data.get("deadline_at") if isinstance(data.get("deadline_at"), str) else None,
@@ -72,7 +92,7 @@ class WorkerState:
                 if isinstance(data.get("last_observation_fingerprint"), str)
                 else None
             ),
-            recovery_required=bool(data.get("recovery_required", False)),
+            recovery_required=recovery_required,
         )
 
 
@@ -144,7 +164,7 @@ class BackgroundWorker:
 
     def complete(self) -> WorkerState:
         with self.lock:
-            if self.state.phase not in {"running", "paused"}:
+            if self.state.phase != "running":
                 raise WorkerExecutionError(f"worker cannot complete from phase {self.state.phase!r}")
             self.state = self._replace(phase="completed", current_action=None, pause_reason=None)
             self._persist()
@@ -166,7 +186,7 @@ class BackgroundWorker:
                 raise ValueError("action belongs to a different control session")
 
             self.state = self._replace(
-                current_action=action.to_dict() if hasattr(action, "to_dict") else asdict(action),
+                current_action=asdict(action),
                 pause_reason=None,
             )
             self._persist()
@@ -187,6 +207,7 @@ class BackgroundWorker:
                     else:
                         self.state = self._replace(
                             phase="failed",
+                            current_action=None,
                             last_error=authorization.reason,
                         )
                     self._persist()
@@ -273,7 +294,10 @@ class BackgroundWorker:
     def _expired(self) -> bool:
         if self.state.deadline_at is None:
             return False
-        deadline = datetime.fromisoformat(self.state.deadline_at)
+        try:
+            deadline = datetime.fromisoformat(self.state.deadline_at)
+        except ValueError as exc:
+            raise StateCorruptionError("Invalid worker state shape: deadline_at is invalid") from exc
         return datetime.now(timezone.utc) >= deadline
 
     def _ensure_not_expired(self) -> None:
