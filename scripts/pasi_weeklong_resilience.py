@@ -4,6 +4,7 @@ import argparse
 import math
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from scripts import pasi_overnight_hardening as hardening
 REPAIR_TIMEOUT_SECONDS = 600.0
 MAX_REPAIR_ATTEMPTS = 2
 RESPONSE_ARCHIVE_MAX_CHARS = 60_000
+PRIMARY_RECOVERY_WINDOW_SECONDS = 3 * 60 * 60
+PRIMARY_RECOVERY_POLL_SECONDS = 60.0
 NO_CHANGE_SENTINEL = "__PASI_NO_CHANGE__"
 _DIFF_LINE_RE = re.compile(r"^diff --git .+$", re.MULTILINE)
 _NO_CHANGE_RE = re.compile(r"^PASI_RESULT_NO_CHANGE:\s*true$", re.MULTILINE | re.IGNORECASE)
@@ -69,6 +72,13 @@ def _archive_response(worktree: Path, task_number: int, attempt: int, response: 
         target.write_text(payload + "\n", encoding="utf-8")
     except OSError:
         pass
+
+
+def _contract_instruction() -> str:
+    return """
+WEEKLONG RESPONSE CONTRACT:
+Return the PASI completion markers exactly as requested. Include PASI_RESULT_NO_CHANGE: true only when there is genuinely no safe or necessary repository change; otherwise provide the unified git diff. Never claim tests or evidence that were not actually produced.
+"""
 
 
 def _repair_prompt(task: str, response: str, failure: str) -> str:
@@ -128,6 +138,61 @@ def _invoke_repair(task: str, state: Any, response: str, failure: str) -> tuple[
     )
 
 
+def _invoke_provider_fallback(task: str, state: Any) -> tuple[int, str]:
+    return supervisor.command(
+        [
+            sys.executable,
+            "scripts/pasi_provider_router.py",
+            "--task",
+            _repair_prompt(task, "", "primary ChatGPT provider is unavailable or restricted"),
+            "--repo",
+            str(state.worktree),
+            "--timeout",
+            "180",
+        ],
+        Path(state.worktree),
+        timeout=225.0,
+    )
+
+
+def _recover_primary_provider(task: str, state: Any, response: str, failure: str) -> tuple[int, str]:
+    fallback = _invoke_provider_fallback(task, state)
+    if fallback[0] == 0:
+        return fallback
+
+    deadline = min(
+        supervisor.datetime.fromisoformat(state.deadline_at),
+        supervisor.now_utc() + supervisor.timedelta(seconds=PRIMARY_RECOVERY_WINDOW_SECONDS),
+    )
+    last_code, last_response = fallback[0], fallback[1] or response
+    while not supervisor.STOP and supervisor.now_utc() < deadline:
+        remaining = (deadline - supervisor.now_utc()).total_seconds()
+        supervisor.log_event(
+            "primary_provider_recovery_wait",
+            task_number=state.task_number,
+            attempt=state.current_attempt,
+            remaining_seconds=int(max(0, remaining)),
+            previous_failure=(failure or response)[-2000:],
+        )
+        sleep_until = min(PRIMARY_RECOVERY_POLL_SECONDS, max(1.0, remaining))
+        end = supervisor.now_utc() + supervisor.timedelta(seconds=sleep_until)
+        while not supervisor.STOP and supervisor.now_utc() < min(deadline, end):
+            time.sleep(1.0)
+        if supervisor.STOP:
+            break
+
+        retry_code, retry_response = hardening.resilient_invoke_chat(task, state, failure, ledger=None)  # type: ignore[arg-type]
+        last_code, last_response = retry_code, retry_response
+        if retry_code == 0:
+            return retry_code, retry_response
+        condition = supervisor.provider_condition(retry_code, retry_response)
+        if condition not in {"provider_usage_limit", "auth_required"}:
+            break
+        failure = retry_response[-8_000:] or failure
+
+    return last_code, last_response
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run PASI unattended with resilient response recovery for weeklong operation.")
     parser.add_argument("--hours", type=float, required=True)
@@ -146,15 +211,31 @@ def main() -> int:
         return _parsed_response(response, original_parse)
 
     def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: Any):
-        code, response = original_invoke(task, state, failure, ledger=ledger)
+        enriched_task = task.rstrip() + "\n" + _contract_instruction()
+        code, response = original_invoke(enriched_task, state, failure, ledger=ledger)
         _archive_response(Path(state.worktree), state.task_number, state.current_attempt, response)
+
+        condition = supervisor.provider_condition(code, response)
+        if condition in {"provider_usage_limit", "auth_required"}:
+            fallback_code, fallback_response = _invoke_provider_fallback(task, state)
+            fallback_parsed = _parsed_response(fallback_response, original_parse)
+            if fallback_code == 0 and _contract_valid(fallback_parsed):
+                supervisor.log_event(
+                    "response_contract_recovered_by_fallback_provider",
+                    task_number=state.task_number,
+                    attempt=state.current_attempt,
+                    condition=condition,
+                )
+                return 0, fallback_response
+            return _recover_primary_provider(enriched_task, state, response, fallback_response or response)
+
         parsed = _parsed_response(response, original_parse)
         if code == 0 and _contract_valid(parsed):
             return code, response
 
         repair_failure = failure or parsed[1] or "response did not satisfy the PASI completion contract"
         for repair_attempt in range(1, MAX_REPAIR_ATTEMPTS + 1):
-            repair_code, repair_response = _invoke_repair(task, state, response, repair_failure)
+            repair_code, repair_response = _invoke_repair(enriched_task, state, response, repair_failure)
             _archive_response(Path(state.worktree), state.task_number, state.current_attempt * 10 + repair_attempt, repair_response)
             if repair_response:
                 response = repair_response
@@ -169,20 +250,7 @@ def main() -> int:
                 return 0, response
             repair_failure = parsed[1] or response[-8_000:] or repair_failure
 
-        fallback = supervisor.command(
-            [
-                sys.executable,
-                "scripts/pasi_provider_router.py",
-                "--task",
-                _repair_prompt(task, response, repair_failure),
-                "--repo",
-                str(state.worktree),
-                "--timeout",
-                "180",
-            ],
-            Path(state.worktree),
-            timeout=225.0,
-        )
+        fallback = _invoke_provider_fallback(task, state)
         fallback_response = fallback[1]
         _archive_response(Path(state.worktree), state.task_number, state.current_attempt, fallback_response)
         fallback_parsed = _parsed_response(fallback_response, original_parse)
@@ -200,9 +268,27 @@ def main() -> int:
             return "NO_CHANGE", "PASI_RESULT_NO_CHANGE was explicitly verified; no repository change was necessary."
         return original_verify(worktree, branch, task, patch, allow_delete, push=push)
 
+    def paced_sleep(state: Any, seconds: float, *, ledger: Any) -> bool:
+        wait_seconds = min(max(seconds, 1.0), 900.0)
+        if ledger is not None:
+            ledger.record(
+                "retry_backoff",
+                f"Waiting {wait_seconds:.0f} seconds before retrying an unavailable provider/runtime.",
+                "Retry automatically after the bounded wait; no security or approval boundary is bypassed.",
+                details={"requested_seconds": seconds},
+                status="pending",
+            )
+        deadline = supervisor.datetime.fromisoformat(state.deadline_at)
+        end = min(deadline, supervisor.now_utc() + supervisor.timedelta(seconds=wait_seconds))
+        while not supervisor.STOP and supervisor.now_utc() < end:
+            time.sleep(min(1.0, max(0.1, (end - supervisor.now_utc()).total_seconds())))
+        return not supervisor.STOP and supervisor.now_utc() < deadline
+
+    original_sleep = hardening.nonblocking_sleep
+    hardening.resilient_invoke_chat = resilient_invoke_chat
+    hardening.nonblocking_sleep = paced_sleep
     supervisor.parse_response = parse_response
     supervisor.verify_and_commit = verify_and_commit
-    hardening.resilient_invoke_chat = resilient_invoke_chat
     try:
         sys.argv = ["pasi_overnight_hardening.py", "--hours", str(args.hours), *passthrough]
         return hardening.main()
@@ -210,6 +296,7 @@ def main() -> int:
         supervisor.parse_response = original_parse
         supervisor.verify_and_commit = original_verify
         hardening.resilient_invoke_chat = original_invoke
+        hardening.nonblocking_sleep = original_sleep
 
 
 if __name__ == "__main__":
