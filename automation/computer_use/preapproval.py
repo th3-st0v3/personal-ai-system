@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -43,16 +44,19 @@ class PreapprovalPolicy:
         self.repo_root = self.repo_root.expanduser().resolve()
         configured = self.policy_path
         if configured is None:
-            configured = Path(__import__("os").environ.get("PASI_PREAPPROVALS_PATH", DEFAULT_POLICY_PATH))
+            configured = Path(os.environ.get("PASI_PREAPPROVALS_PATH", DEFAULT_POLICY_PATH))
         if not configured.is_absolute():
             configured = self.repo_root / configured
         self.policy_path = configured.resolve()
 
     def _load(self) -> dict[str, Any]:
+        policy_path = self.policy_path
+        if policy_path is None:
+            raise AcquisitionError("preapproval policy path is not configured")
         try:
-            if self.policy_path.stat().st_size > MAX_POLICY_BYTES:
+            if policy_path.stat().st_size > MAX_POLICY_BYTES:
                 raise AcquisitionError("preapproval policy is too large")
-            raw = json.loads(self.policy_path.read_text(encoding="utf-8"))
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {"schema_version": 1, "approvals": []}
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -90,7 +94,8 @@ class PreapprovalPolicy:
             hosts = item.get("hosts", [])
             if not isinstance(hosts, list) or parsed.hostname.lower() not in {str(host).lower().lstrip(".") for host in hosts}:
                 continue
-            limit = int(item.get("max_bytes", max_bytes)) if str(item.get("max_bytes", "")).isdigit() else max_bytes
+            limit_value = item.get("max_bytes", max_bytes)
+            limit = int(limit_value) if isinstance(limit_value, int) or (isinstance(limit_value, str) and limit_value.isdigit()) else max_bytes
             if max_bytes > limit:
                 continue
             return ApprovalDecision(True, str(item.get("id", "unnamed")), "matching HTTPS host preapproval")
@@ -98,7 +103,7 @@ class PreapprovalPolicy:
 
     def approve_package_install(self, package: str) -> ApprovalDecision:
         package = package.strip()
-        if not _PACKAGE_RE.fullmatch(package):
+        if not _PACKAGE_RE.fullmatch(package) or "==" not in package:
             return ApprovalDecision(False, None, "package must be an exact version-pinned requirement such as package==1.2.3")
         normalized = package.casefold()
         for item in self._load().get("approvals", []):
@@ -127,7 +132,10 @@ class AcquisitionEngine:
         self.acquisition_dir = directory.resolve()
 
     def _blocked(self, kind: str, target: str, reason: str, *, task_id: str = "") -> dict[str, Any]:
-        obstacle = self.obstacles.record(
+        obstacles = self.obstacles
+        if obstacles is None:
+            raise AcquisitionError("obstacle ledger is not configured")
+        obstacle = obstacles.record(
             "preapproval_required",
             f"Preapproval required for {kind}: {target}",
             f"Review the request and add a narrowly scoped preapproval if this acquisition is intended. Reason: {reason}",
@@ -146,7 +154,10 @@ class AcquisitionEngine:
         max_bytes: int = 5_000_000,
         task_id: str = "",
     ) -> dict[str, Any]:
-        decision = self.policy.approve_public_download(url, max_bytes=max_bytes)
+        policy = self.policy
+        if policy is None:
+            raise AcquisitionError("preapproval policy is not configured")
+        decision = policy.approve_public_download(url, max_bytes=max_bytes)
         if not decision.allowed:
             return self._blocked("public_download", url, decision.reason, task_id=task_id)
         parsed = urlparse(url)
@@ -154,9 +165,12 @@ class AcquisitionEngine:
         name = re.sub(r"[^A-Za-z0-9._-]", "_", name)[:120]
         if not name or name in {".", ".."}:
             name = "download.bin"
-        self.acquisition_dir.mkdir(parents=True, exist_ok=True)
-        destination = (self.acquisition_dir / name).resolve()
-        if self.acquisition_dir not in destination.parents:
+        acquisition_dir = self.acquisition_dir
+        if acquisition_dir is None:
+            raise AcquisitionError("acquisition directory is not configured")
+        acquisition_dir.mkdir(parents=True, exist_ok=True)
+        destination = (acquisition_dir / name).resolve()
+        if acquisition_dir not in destination.parents:
             raise AcquisitionError("download destination escaped acquisition directory")
         if max_bytes <= 0 or max_bytes > MAX_DOWNLOAD_BYTES:
             raise AcquisitionError(f"max_bytes must be between 1 and {MAX_DOWNLOAD_BYTES}")
@@ -196,7 +210,11 @@ class AcquisitionEngine:
         }
 
     def install_python_package(self, package: str, *, task_id: str = "") -> dict[str, Any]:
-        decision = self.policy.approve_package_install(package)
+        policy = self.policy
+        obstacles = self.obstacles
+        if policy is None or obstacles is None:
+            raise AcquisitionError("acquisition policy is not configured")
+        decision = policy.approve_package_install(package)
         if not decision.allowed:
             return self._blocked("package_install", package, decision.reason, task_id=task_id)
         executable = Path(sys.executable).resolve()
@@ -210,7 +228,7 @@ class AcquisitionEngine:
         )
         output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
         if result.returncode != 0:
-            self.obstacles.record(
+            obstacles.record(
                 "acquisition_failed",
                 f"Preapproved package installation failed: {package}",
                 "Review the package/version and environment; retry only after the failure cause is understood.",
