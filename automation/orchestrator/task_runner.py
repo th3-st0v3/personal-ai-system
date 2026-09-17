@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Literal, Protocol, Sequence
+from typing import Literal, Protocol, Sequence, cast
 
 from automation.computer_use.contracts import ActionProposal, Observation
 
@@ -66,10 +66,11 @@ class TaskRunnerState:
         if not isinstance(runner_id, str) or not runner_id.strip():
             raise StateCorruptionError("Invalid task runner state: runner_id is required")
 
-        phase = data.get("phase", "stopped")
+        phase_value = data.get("phase", "stopped")
         valid_phases = {"stopped", "running", "waiting_human", "paused", "completed", "failed"}
-        if phase not in valid_phases:
+        if phase_value not in valid_phases:
             raise StateCorruptionError("Invalid task runner state: unknown phase")
+        phase = cast(RunnerPhase, phase_value)
 
         steps = data.get("steps", 0)
         if not isinstance(steps, int) or steps < 0:
@@ -119,12 +120,7 @@ class TaskRunResult:
 
 
 class BoundedTaskRunner:
-    """Run a task to a deterministic completion condition within a finite step budget.
-
-    The runner supplies orchestration only. The planner proposes actions, the worker
-    enforces authorization and verification, the executor performs one authorized
-    action, and the completion checker decides whether the objective is proven.
-    """
+    """Run a task to a deterministic completion condition within a finite step budget."""
 
     def __init__(
         self,
