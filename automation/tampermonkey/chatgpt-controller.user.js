@@ -476,7 +476,7 @@
 
     async function reportFinished(operationId, responseObserved) {
         var response = await bridgeRequest('/chat/finished', {
-            method: 'POST,
+            method: 'POST',
             body: { operation_id: operationId, chat_url: window.location.href, response_text_available: Boolean(responseObserved) }
         });
         if (!response.ok) throw new Error('Bridge completion failed: HTTP ' + response.status);
