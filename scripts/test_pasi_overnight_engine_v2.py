@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from scripts import pasi_overnight_engine_v2 as engine
+
+
+class TestPasiOvernightEngineV2(unittest.TestCase):
+    def test_automation_gate_requires_consistent_evidence(self) -> None:
+        self.assertTrue(
+            engine.automation_gate_is_satisfied(
+                {
+                    "automation_gate": "proceed_engineering",
+                    "automation_opportunity": "none",
+                    "automation_evidence": "Repeated automation audits found no concrete remaining reliability improvement.",
+                }
+            )
+        )
+        self.assertTrue(
+            engine.automation_gate_is_satisfied(
+                {
+                    "automation_gate": "continue_automation",
+                    "automation_opportunity": "concrete",
+                    "automation_evidence": "A verified controller failure mode still has a concrete fix.",
+                }
+            )
+        )
+        self.assertFalse(
+            engine.automation_gate_is_satisfied(
+                {
+                    "automation_gate": "proceed_engineering",
+                    "automation_opportunity": "concrete",
+                    "automation_evidence": "There is still a concrete fix.",
+                }
+            )
+        )
+        self.assertFalse(
+            engine.automation_gate_is_satisfied(
+                {
+                    "automation_gate": "continue_automation",
+                    "automation_opportunity": "none",
+                    "automation_evidence": "No concrete automation work remains.",
+                }
+            )
+        )
+
+    def test_provider_conditions_are_distinct_from_chat_completion_failures(self) -> None:
+        self.assertEqual(engine.provider_condition(90, "CHAT_USAGE_LIMITED: provider limit"), "provider_usage_limit")
+        self.assertEqual(engine.provider_condition(91, "CHAT_AUTH_REQUIRED: login"), "auth_required")
+        self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
+        self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
+
+    def test_unique_task_selection_avoids_recent_tasks(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task="",
+            requested_task="",
+            recent_tasks=[engine.AUTOMATION_TASKS[0]],
+        )
+        self.assertEqual(engine.choose_unique(engine.AUTOMATION_TASKS, state), engine.AUTOMATION_TASKS[1])
+
+    def test_state_round_trip_uses_schema_v2(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="round-trip",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=10)).isoformat(),
+            worktree="/tmp/pasi-worktree",
+            branch="pasi/test",
+            phase="engineering_os",
+            current_task="Improve engineering verification",
+            requested_task="Improve engineering verification",
+            completed_tasks=4,
+            automation_tasks_since_gate=0,
+            automation_gates=1,
+            provider_limit_pauses=1,
+            recent_tasks=["one", "two"],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            original_runtime = engine.RUNTIME_DIR
+            original_state = engine.STATE_PATH
+            try:
+                engine.RUNTIME_DIR = Path(directory)
+                engine.STATE_PATH = Path(directory) / "state.json"
+                engine.save_state(state)
+                restored = engine.load_state()
+            finally:
+                engine.RUNTIME_DIR = original_runtime
+                engine.STATE_PATH = original_state
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertEqual(restored.schema_version, 2)
+        self.assertEqual(restored.phase, "engineering_os")
+        self.assertEqual(restored.provider_limit_pauses, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
