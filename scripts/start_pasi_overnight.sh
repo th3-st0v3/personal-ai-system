@@ -30,7 +30,9 @@ fi
 hours="${PASI_OVERNIGHT_HOURS:-12}"
 log_file="$REPO_ROOT/.runtime/overnight/runner.log"
 
-nohup "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_automation_entrypoint.py" --hours "$hours" "$@" >>"$log_file" 2>&1 < /dev/null &
+# Close the launcher's flock descriptor in the detached runner so the lock
+# protects startup only and is not retained for the lifetime of the run.
+nohup bash -c 'exec 9>&-; exec "$@"' _ "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_automation_entrypoint.py" --hours "$hours" "$@" >>"$log_file" 2>&1 < /dev/null &
 pid=$!
 
 printf 'Started PASI overnight runner (launcher PID %s, %s hours).\n' "$pid" "$hours"
