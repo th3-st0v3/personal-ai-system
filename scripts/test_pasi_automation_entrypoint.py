@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -43,14 +42,33 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
         self.assertIn("PASI_SETUP_REQUIREMENTS_BEGIN", result)
         self.assertIn("SELF-IMPROVEMENT LOOP", result)
 
-    def test_capture_is_non_blocking_for_runner(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            response = """PASI_SETUP_REQUIREMENTS_BEGIN
-{"downloads":[{"name":"Tool","version":"1.2.3","source":"https://example.com/tool","reason":"needed","required":true}],"logins":[{"name":"Service","url":"https://example.com/login","reason":"needed","required":true,"verification":"login"}]}
-PASI_SETUP_REQUIREMENTS_END"""
-            with patch.object(entrypoint.supervisor, "REPO_ROOT", root):
-                entrypoint.capture_response_requirements_for_test(response, root) if hasattr(entrypoint, "capture_response_requirements_for_test") else None
+    def test_setup_capture_failures_are_non_blocking(self) -> None:
+        events: list[tuple[str, dict[str, object]]] = []
+
+        def fake_log(kind: str, **data: object) -> None:
+            events.append((kind, data))
+
+        with patch.object(entrypoint, "capture_response_requirements", side_effect=ValueError("bad setup block")):
+            with patch.object(entrypoint.supervisor, "log_event", side_effect=fake_log):
+                entrypoint._record_setup_requirements("invalid")
+        self.assertEqual(events[0][0], "setup_requirements_capture_failed")
+
+    def test_self_improvement_surface_logging_is_non_blocking(self) -> None:
+        output = "automation/tampermonkey/controller.js\nscripts/tool.py\n.vscode/settings.json\n"
+        events: list[tuple[str, dict[str, object]]] = []
+
+        def fake_log(kind: str, **data: object) -> None:
+            events.append((kind, data))
+
+        with patch.object(entrypoint.supervisor, "command", return_value=(0, output)):
+            with patch.object(entrypoint.supervisor, "log_event", side_effect=fake_log):
+                entrypoint._record_self_improvement_surfaces(Path("."), "commit-123")
+        self.assertEqual(events[0][0], "self_improvement_surfaces")
+        surfaces = events[0][1]["surfaces"]
+        assert isinstance(surfaces, list)
+        self.assertIn("tampermonkey", surfaces)
+        self.assertIn("wsl", surfaces)
+        self.assertIn("vscode", surfaces)
 
     def test_main_forwards_to_hardening_with_25_minute_timeout(self) -> None:
         seen: list[float] = []
