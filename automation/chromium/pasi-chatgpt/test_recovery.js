@@ -4,10 +4,11 @@ const test = require('node:test');
 
 const source = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery.js', 'utf8');
 
-test('recovery uses the requested 25-minute generation ceiling with a pre-timeout trigger', () => {
+test('recovery uses the requested 25-minute generation ceiling and starts recovery at the ceiling', () => {
   assert.match(source, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
-  assert.match(source, /RECOVERY_TRIGGER_MS = 24 \* 60 \* 1000/);
+  assert.match(source, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
   assert.match(source, /RECOVERY_GRACE_MS = 10 \* 60 \* 1000/);
+  assert.match(source, /generation_timeout_ms: GENERATION_TIMEOUT_MS/);
 });
 
 test('recovery can preserve a response, reload once, and prepare a fresh chat for retry', () => {
@@ -16,6 +17,7 @@ test('recovery can preserve a response, reload once, and prepare a fresh chat fo
   assert.match(source, /queueNewChat/);
   assert.match(source, /operation_type: 'new_chat'/);
   assert.match(source, /CHAT_RECOVERED_RETRY/);
+  assert.match(source, /grace_wait/);
 });
 
 test('recovery detects security challenges without attempting to bypass them', () => {
