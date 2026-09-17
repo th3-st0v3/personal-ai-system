@@ -51,10 +51,11 @@ test('native prompt submission requires explicit user-message acknowledgement', 
   assert.match(content, /prompt could not be verified after bounded attempts/);
 });
 
-test('native completion persists response text and retries acknowledgement without replaying the prompt', () => {
+test('native completion persists response text before bounded acknowledgement retries', () => {
   assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: Boolean\(responseText\)/);
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
   assert.match(content, /status === 'completed'/);
@@ -78,7 +79,7 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
-test('native recovery companion only replaces a chat after verified usage or context exhaustion', () => {
+test('native recovery companion preserves response text without blocking completion acknowledgement', () => {
   assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
   assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
   assert.match(recovery, /location\.reload\(\)/);
@@ -89,6 +90,7 @@ test('native recovery companion only replaces a chat after verified usage or con
   assert.match(recovery, /CHAT_RECOVERED_RETRY/);
   assert.match(recovery, /operation_type: 'new_chat'/);
   assert.match(recovery, /response_text: bounded/);
+  assert.match(recovery, /void report\('chatgpt_response'/);
   assert.match(recovery, /current\.status === 'failed'/);
 });
 
