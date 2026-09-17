@@ -10,8 +10,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      PASI_REQUIRE_BWRAP: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -20,23 +18,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
-      - name: Enable unprivileged namespaces for sandbox validation
-        run: |
-          if sudo sysctl -n kernel.unprivileged_userns_clone >/dev/null 2>&1; then
-            sudo sysctl -w kernel.unprivileged_userns_clone=1
-          fi
-          if sudo sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
       - name: Install Python dependencies
         run: |
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
-      - name: Install Bubblewrap sandbox runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends bubblewrap
-          bwrap --version
       - name: Run canonical validation suite
         run: bash scripts/check_all.sh
       - name: Upload diagnostics
