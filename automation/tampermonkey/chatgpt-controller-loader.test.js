@@ -29,10 +29,13 @@ test('loader uses localhost only for private-repository distribution', () => {
   assert.doesNotMatch(source, /api\.github\.com/);
 });
 
-test('loader cleanly reloads after a verified controller update', () => {
+test('loader reloads when either controller or recovery release changes', () => {
   assert.match(source, /ACTIVE_HASH_PROPERTY/);
-  assert.match(source, /Verified controller update detected; refreshing the page/);
-  assert.match(source, /New verified controller release detected; reloading page/);
+  assert.match(source, /ACTIVE_RECOVERY_HASH_PROPERTY/);
+  assert.match(source, /LAST_RECOVERY_HASH_KEY/);
+  assert.match(source, /recoveryChanged/);
+  assert.match(source, /Verified PASI release change detected; refreshing the page/);
+  assert.match(source, /New verified PASI controller\/recovery release detected; reloading page/);
   assert.match(source, /window\.location\.reload\(\)/);
 });
 
