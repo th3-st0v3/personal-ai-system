@@ -404,6 +404,15 @@ class BoundedTaskRunner:
             )
         return state
 
+    def _persist(self) -> None:
+        self.state_manager.write_json(self.state_path, self.state.to_dict())
+
+    def _replace(self, **changes: object) -> TaskRunnerState:
+        data = self.state.to_dict()
+        data.update(changes)
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return TaskRunnerState.from_dict(data)
+
 
 def _action_from_dict(data: dict[str, Any]) -> ActionProposal:
     action_id = data.get("action_id")
