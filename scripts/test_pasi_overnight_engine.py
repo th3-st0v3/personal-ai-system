@@ -9,8 +9,8 @@ from scripts.pasi_overnight_engine import (
     choose_next_task,
     completion_contract_is_satisfied,
     parse_response,
-    validate_patch_paths,
 )
+from scripts.pasi_overnight_hardening import validate_patch_paths
 
 
 class TestPasiOvernightEngine(unittest.TestCase):
