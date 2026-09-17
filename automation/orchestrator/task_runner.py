@@ -235,6 +235,24 @@ class BoundedTaskRunner:
             self._persist()
             return self._result("maximum task-runner step budget reached", step_limit_reached=True)
 
+    def approve_pending_action(self) -> TaskRunnerState:
+        """Resume only the exact action that the worker placed behind the human gate."""
+        with self.lock:
+            if self.state.phase != "waiting_human":
+                raise WorkerExecutionError("runner has no action waiting for human approval")
+            worker_state = self.worker.status()
+            pending_action_id = (
+                worker_state.current_action.get("action_id")
+                if worker_state.current_action is not None
+                else None
+            )
+            if pending_action_id != self.state.last_action_id:
+                raise WorkerExecutionError("runner approval target does not match the pending action")
+            self.worker.resume(human_approval=True)
+            self.state = self._replace(phase="running", last_error=None)
+            self._persist()
+            return self.state
+
     def mark_rehydrated(self, observations: Sequence[Observation]) -> TaskRunnerState:
         """Restore bounded observation context after an explicit trusted rehydration step."""
         with self.lock:
