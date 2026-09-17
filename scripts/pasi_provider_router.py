@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -212,12 +213,12 @@ def main() -> int:
         return 0
     repo = args.repo.expanduser().resolve()
     if not repo.is_dir():
-        print(f"error: repository does not exist: {repo}", file=os.sys.stderr)
+        print(f"error: repository does not exist: {repo}", file=sys.stderr)
         return 2
     try:
         provider, response = route(args.task, repo, args.timeout)
     except Exception as exc:
-        print(f"provider router failed: {exc}", file=os.sys.stderr)
+        print(f"provider router failed: {exc}", file=sys.stderr)
         return 1
     print(f"PASI_FALLBACK_PROVIDER: {provider}")
     print(response)
