@@ -7,19 +7,24 @@ const source = fs.readFileSync(
   'utf8',
 );
 
-test('loader validates and gates published controller releases', () => {
+test('loader conditionally activates published controller releases', () => {
   assert.match(source, /controller-sync\.json/);
   assert.match(source, /manifest\.enabled !== true/);
-  assert.match(source, /sha256Hex/);
-  assert.match(source, /Controller hash mismatch/);
+  assert.match(source, /gitBlobSha1/);
+  assert.match(source, /Controller Git blob mismatch/);
   assert.match(source, /eval\(source\)/);
   assert.match(source, /GM_getValue\(LAST_VERSION_KEY/);
   assert.match(source, /GM_setValue\(LAST_HASH_KEY/);
 });
 
-test('loader restricts source to the PASI main raw GitHub path', () => {
+test('loader restricts controller source to PASI main', () => {
   assert.match(
     source,
     /https:\/\/raw\.githubusercontent\.com\/th3-st0v3\/personal-ai-system\/main\//,
   );
+});
+
+test('loader computes the Git blob identity from UTF-8 bytes', () => {
+  assert.match(source, /blob ' \+ data\.byteLength \+ '\\0'/);
+  assert.match(source, /crypto\.subtle\.digest\('SHA-1'/);
 });
