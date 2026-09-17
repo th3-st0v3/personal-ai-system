@@ -167,8 +167,8 @@ def test_mismatched_browser_response_does_not_attach_to_operation(tmp_path: Path
 
     current = bridge.get_operation(operation.operation_id)
     assert current is not None
-    assert "response_text" not in current
-    assert current.get("response_text_available") is not True
+    assert not current["response_text"].strip()
+    assert current["response_text_available"] is False
 
 
 def test_transient_completion_ack_failure_completes_from_persisted_response(tmp_path: Path) -> None:
