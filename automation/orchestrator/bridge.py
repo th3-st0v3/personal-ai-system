@@ -15,6 +15,7 @@ from .state import StateManager
 
 HOST = "127.0.0.1"
 PORT = 8765
+MAX_RESPONSE_TEXT_CHARS = 50_000
 
 
 class BridgeState:
@@ -82,11 +83,15 @@ class BridgeState:
         self,
         operation_id: str,
         chat_url: str | None = None,
+        response_text: str | None = None,
+        response_text_available: bool = False,
     ) -> dict[str, Any] | None:
         return self._update_operation(
             operation_id=operation_id,
             status="completed",
             chat_url=chat_url,
+            response_text=response_text,
+            response_text_available=response_text_available,
         )
 
     def fail_operation(
@@ -175,6 +180,8 @@ class BridgeState:
         status: str,
         chat_url: str | None = None,
         error: str | None = None,
+        response_text: str | None = None,
+        response_text_available: bool = False,
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
@@ -192,6 +199,14 @@ class BridgeState:
 
                 if error is not None:
                     item["error"] = error
+
+                if response_text is not None:
+                    bounded_response = response_text[:MAX_RESPONSE_TEXT_CHARS]
+                    item["response_text"] = bounded_response
+                    item["response_text_available"] = bool(
+                        response_text_available
+                        and bool(bounded_response.strip())
+                    )
 
                 self.state_manager.save_queue(queue)
 
@@ -650,6 +665,15 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "chat_url"
         )
 
+        response_text = payload.get(
+            "response_text"
+        )
+
+        response_text_available = payload.get(
+            "response_text_available",
+            False,
+        )
+
         if not isinstance(
             operation_id,
             str,
@@ -676,10 +700,48 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if response_text is not None and not isinstance(
+            response_text,
+            str,
+        ):
+            self._send_json(
+                {
+                    "error":
+                        "response_text must be a string."
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        if not isinstance(
+            response_text_available,
+            bool,
+        ):
+            self._send_json(
+                {
+                    "error":
+                        "response_text_available must be a boolean."
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        if response_text is not None and len(response_text) > MAX_RESPONSE_TEXT_CHARS:
+            self._send_json(
+                {
+                    "error":
+                        f"response_text exceeds {MAX_RESPONSE_TEXT_CHARS} characters."
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
         operation = (
             self.bridge_state.complete_operation(
                 operation_id=operation_id,
                 chat_url=chat_url,
+                response_text=response_text,
+                response_text_available=response_text_available,
             )
         )
 
