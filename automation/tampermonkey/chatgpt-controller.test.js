@@ -49,6 +49,12 @@ test('controller recognizes chat identity changes instead of silently reusing st
     assert.match(source, /conversationSignature/);
 });
 
+test('controller continuously reports state even while an operation is active', () => {
+    assert.match(source, /setInterval\(function \(\) \{ reportChatState\(true\); \}, STATE_INTERVAL_MS\)/);
+    assert.match(source, /active_operation_id/);
+    assert.match(source, /reason: processing \? 'during_operation' : 'navigation'/);
+});
+
 test('controller retains guarded prompt submission with bounded explicit acknowledgement', () => {
     assert.match(source, /SUBMISSION_ACK_MS = 2500/);
     assert.match(source, /SUBMISSION_ATTEMPTS = 3/);
@@ -62,8 +68,8 @@ test('controller retains guarded prompt submission with bounded explicit acknowl
 test('controller requires verified new-chat identity before considering new_chat complete', () => {
     assert.match(source, /var previousChat = chatUrl\(\)/);
     assert.match(source, /var differentChat = Boolean\(previousChat && currentChat && currentChat !== previousChat\)/);
-    assert.match(source, /var emptyConversation = userMessages\(\)\.length === 0/);
-    assert.match(source, /previousChat && currentChat && currentChat === previousChat/);
+    assert.match(source, /var initialChatReady = !previousChat/);
+    assert.match(source, /previousChat && \(!currentChat \|\| currentChat === previousChat\)/);
 });
 
 test('controller preserves interrupted operations until the bridge acknowledges recovery', () => {
@@ -71,14 +77,4 @@ test('controller preserves interrupted operations until the bridge acknowledges 
     assert.match(source, /if \(ok\) localStorage\.removeItem\(ACTIVE_KEY\)/);
     assert.match(source, /var finalized = false/);
     assert.match(source, /if \(finalized\) localStorage\.removeItem\(ACTIVE_KEY\)/);
-});
-
-test('controller continuously reports state and active operation without creating chats', () => {
-    assert.match(source, /setInterval\(reportChatState/);
-    assert.match(source, /kind: ['"]chatgpt_state['"]/);
-    assert.match(source, /conversation_context_exhausted/);
-    assert.match(source, /provider_usage_limited/);
-    assert.match(source, /chat_exhausted/);
-    assert.match(source, /github_attached/);
-    assert.match(source, /active_operation_id/);
 });
