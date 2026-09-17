@@ -8,6 +8,7 @@ from typing import Any, Literal, Protocol
 from automation.computer_use.controller import AuthorizationGateway, ControlPlane
 from automation.computer_use.contracts import ActionProposal, Observation, Session
 from .state import StateCorruptionError, StateManager
+from .verification_telemetry import VerificationTelemetry
 
 
 WorkerPhase = Literal[
@@ -108,6 +109,11 @@ class BackgroundWorker:
     The worker never chooses tools or bypasses authorization. A caller supplies
     an executor and the existing ControlPlane authorization boundary. Process
     restart while work is active always requires an explicit resume.
+
+    Verification telemetry is an audit boundary, not an execution authority.
+    When enabled, a successful execution is persisted only after its observation
+    fingerprint is recorded. A telemetry write failure stops the worker so it
+    cannot silently continue without the evidence trail it was configured to keep.
     """
 
     def __init__(
@@ -115,6 +121,7 @@ class BackgroundWorker:
         state_manager: StateManager,
         worker_id: str,
         control_plane: ControlPlane,
+        telemetry: VerificationTelemetry | None = None,
     ) -> None:
         if not worker_id.strip() or any(char in worker_id for char in "/\\"):
             raise ValueError("worker_id must be a non-empty path-safe identifier")
@@ -123,6 +130,7 @@ class BackgroundWorker:
         self.state_manager = state_manager
         self.worker_id = worker_id
         self.control_plane = control_plane
+        self.telemetry = telemetry
         self.state_path = state_manager.ai_dir / f"worker-{worker_id}.json"
         self.lock = threading.RLock()
         self.state = self._load_or_initialize()
@@ -245,6 +253,27 @@ class BackgroundWorker:
                     return None
 
                 observation = executor.execute(action)
+                if self.telemetry is not None:
+                    try:
+                        self.telemetry.record_worker_execution(
+                            action,
+                            observation,
+                            session_id=self.control_plane.session.session_id,
+                            task_id=self.control_plane.session.task_id,
+                            worker_id=self.worker_id,
+                        )
+                    except Exception as exc:
+                        self.state = self._replace(
+                            phase="failed",
+                            current_action=None,
+                            approved_action_id=None,
+                            last_error=f"verification telemetry failed: {exc}",
+                        )
+                        self._persist()
+                        raise WorkerExecutionError(
+                            "verification telemetry failed; worker stopped after execution"
+                        ) from exc
+
                 self.state = self._replace(
                     phase="running",
                     current_action=None,
@@ -254,6 +283,8 @@ class BackgroundWorker:
                 )
                 self._persist()
                 return observation
+            except WorkerExecutionError:
+                raise
             except Exception as exc:
                 self.state = self._replace(
                     phase="failed",
