@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller Loader
 // @namespace    https://github.com/th3-st0v3/personal-ai-system
-// @version      1.0.0
-// @description  Conditionally loads a verified PASI ChatGPT controller release.
+// @version      1.1.0
+// @description  Conditionally loads a verified PASI ChatGPT controller release from the trusted main branch.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -14,10 +14,11 @@
     'use strict';
 
     var MANIFEST_URL = 'https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/controller-sync.json';
+    var TRUSTED_SOURCE_PREFIX = 'https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/';
     var POLL_INTERVAL_MS = 60000;
     var CHECK_TIMEOUT_MS = 10000;
     var LAST_VERSION_KEY = 'pasi_controller_synced_version';
-    var LAST_HASH_KEY = 'pasi_controller_synced_sha256';
+    var LAST_HASH_KEY = 'pasi_controller_synced_git_blob_sha';
 
     console.log('[PASI Loader] Conditional controller loader active.');
     checkForPublishedController();
@@ -55,21 +56,21 @@
 
             var installedVersion = GM_getValue(LAST_VERSION_KEY, '');
             var installedHash = GM_getValue(LAST_HASH_KEY, '');
-            if (installedVersion === manifest.version && installedHash === manifest.sha256) return;
+            if (installedVersion === manifest.version && installedHash === manifest.git_blob_sha) return;
 
             var source = await requestText(manifest.source_url);
-            var digest = await sha256Hex(source);
-            if (digest !== manifest.sha256.toLowerCase()) {
-                console.error('[PASI Loader] Controller hash mismatch; refusing to execute update.', {
-                    expected: manifest.sha256,
-                    actual: digest
+            var blobSha = await gitBlobSha1(source);
+            if (blobSha !== manifest.git_blob_sha.toLowerCase()) {
+                console.error('[PASI Loader] Controller Git blob mismatch; refusing to execute update.', {
+                    expected: manifest.git_blob_sha,
+                    actual: blobSha
                 });
                 return;
             }
 
             console.log('[PASI Loader] Verified controller release ' + manifest.version + '; activating.');
             GM_setValue(LAST_VERSION_KEY, manifest.version);
-            GM_setValue(LAST_HASH_KEY, manifest.sha256);
+            GM_setValue(LAST_HASH_KEY, manifest.git_blob_sha);
             eval(source);
         } catch (error) {
             console.warn('[PASI Loader] Controller synchronization check failed:', error);
@@ -80,18 +81,21 @@
         return typeof manifest.version === 'string' &&
             /^\d+\.\d+\.\d+$/.test(manifest.version) &&
             typeof manifest.source_url === 'string' &&
-            manifest.source_url.indexOf('https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/') === 0 &&
-            typeof manifest.sha256 === 'string' &&
-            /^[a-f0-9]{64}$/i.test(manifest.sha256);
+            manifest.source_url.indexOf(TRUSTED_SOURCE_PREFIX) === 0 &&
+            typeof manifest.git_blob_sha === 'string' &&
+            /^[a-f0-9]{40}$/i.test(manifest.git_blob_sha);
     }
 
-    async function sha256Hex(text) {
+    async function gitBlobSha1(text) {
         var data = new TextEncoder().encode(text);
-        var digest = await crypto.subtle.digest('SHA-256', data);
+        var header = new TextEncoder().encode('blob ' + data.byteLength + '\0');
+        var combined = new Uint8Array(header.byteLength + data.byteLength);
+        combined.set(header, 0);
+        combined.set(data, header.byteLength);
+        var digest = await crypto.subtle.digest('SHA-1', combined);
         var bytes = new Uint8Array(digest);
         var output = '';
-        var i;
-        for (i = 0; i < bytes.length; i += 1) {
+        for (var i = 0; i < bytes.length; i += 1) {
             output += bytes[i].toString(16).padStart(2, '0');
         }
         return output;
