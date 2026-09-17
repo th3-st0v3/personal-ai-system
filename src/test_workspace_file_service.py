@@ -100,10 +100,10 @@ class TestWorkspaceFileService(unittest.TestCase):
             self.fail("created file metadata could not be retrieved")
         file_storage.delete_bytes(self.root, record[4])
 
-        self.assertFalse(workspace_file_service.delete_file(self.root, file_id))
+        self.assertTrue(workspace_file_service.delete_file(self.root, file_id))
         self.assertIsNone(workspace_storage.get_file(file_id))
 
-    def test_delete_file_reports_physical_cleanup_failure_after_metadata_delete(self):
+    def test_delete_file_retains_invalidated_metadata_when_physical_cleanup_fails(self):
         file_id = workspace_file_service.create_file(
             self.root, self.project_id, "cleanup-fails.txt", b"payload"
         )
@@ -120,7 +120,11 @@ class TestWorkspaceFileService(unittest.TestCase):
             with self.assertRaises(workspace_file_service.FileServiceError):
                 workspace_file_service.delete_file(self.root, file_id)
 
-        self.assertIsNone(workspace_storage.get_file(file_id))
+        retained = workspace_storage.get_file(file_id)
+        self.assertIsNotNone(retained)
+        if retained is None:
+            self.fail("invalidated metadata was unexpectedly removed")
+        self.assertEqual(retained[8], "Invalidated")
         self.assertTrue(file_storage.exists(self.root, record[4]))
 
     def test_delete_files_removes_all_metadata_and_bytes(self):
@@ -151,7 +155,7 @@ class TestWorkspaceFileService(unittest.TestCase):
 
         self.assertIsNotNone(workspace_storage.get_file(existing_id))
 
-    def test_delete_files_reports_physical_cleanup_failure(self):
+    def test_delete_files_reports_physical_cleanup_failure_and_retains_tombstone(self):
         file_id = workspace_file_service.create_file(
             self.root, self.project_id, "cleanup-fails-bulk.txt", b"payload"
         )
@@ -168,8 +172,30 @@ class TestWorkspaceFileService(unittest.TestCase):
             with self.assertRaises(workspace_file_service.FileServiceError):
                 workspace_file_service.delete_files(self.root, [file_id])
 
-        self.assertIsNone(workspace_storage.get_file(file_id))
+        retained = workspace_storage.get_file(file_id)
+        self.assertIsNotNone(retained)
+        if retained is None:
+            self.fail("invalidated metadata was unexpectedly removed")
+        self.assertEqual(retained[8], "Invalidated")
         self.assertTrue(file_storage.exists(self.root, record[4]))
+
+    def test_reconcile_storage_removes_orphans_and_reports_missing(self):
+        file_id = workspace_file_service.create_file(
+            self.root, self.project_id, "tracked.txt", b"payload"
+        )
+        record = workspace_storage.get_file(file_id)
+        self.assertIsNotNone(record)
+        if record is None:
+            self.fail("created file metadata could not be retrieved")
+        orphan_key = "files/orphan-object"
+        file_storage.save_bytes(self.root, orphan_key, b"orphan")
+        file_storage.delete_bytes(self.root, record[4])
+
+        result = workspace_file_service.reconcile_storage(self.root)
+        self.assertIn(orphan_key, result["orphaned"])
+        self.assertIn(orphan_key, result["removed"])
+        self.assertIn(record[4], result["missing"])
+        self.assertFalse(file_storage.exists(self.root, orphan_key))
 
 
 if __name__ == "__main__":
