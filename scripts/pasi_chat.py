@@ -138,14 +138,9 @@ RULES:
 """
 
 
-def needs_github_context(task: str, *, override: str = "auto") -> bool:
-    if override == "fallback":
-        return True
-    if override in {"never", "public"}:
-        return False
-    if override == "always":
-        return True
-    return False
+def needs_github_context(task: str, *, override: str = "public") -> bool:
+    """Return whether the caller explicitly requested GitHub-app fallback."""
+    return override == "fallback"
 
 
 def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
@@ -247,7 +242,7 @@ def route_chat(adapter: ChatGPTRoutingAdapter, handoff: dict[str, object], task:
 
     # The public repository is the default context source. GitHub-app attachment is an explicit fallback only.
     github_attached = handoff.get("github_attached") is True or state.get("github_attached") is True
-    fallback_requested = github_mode in {"fallback", "always"}
+    fallback_requested = github_mode == "fallback"
     if fallback_requested:
         if not github_attached:
             operation_id = adapter.attach_github_repository(repository)
