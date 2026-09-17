@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from automation.orchestrator.state import StateCorruptionError, StateManager
 from automation.orchestrator.verification_telemetry import (
@@ -70,7 +70,7 @@ class VerificationTelemetryTests(unittest.TestCase):
             evidence_fingerprint="a" * 64,
         )
         payload = cast(
-            list[dict[str, object]],
+            list[dict[str, Any]],
             json.loads(self.telemetry.path.read_text(encoding="utf-8")),
         )
         payload[0]["status"] = "tampered"
@@ -91,7 +91,7 @@ class VerificationTelemetryTests(unittest.TestCase):
             },
         )
         verification = verify_simulation_result(result).to_dict()
-        provenance = cast(dict[str, object], result["provenance"])
+        provenance = cast(dict[str, Any], result["provenance"])
 
         record = self.telemetry.record_simulation_verification(
             result,
