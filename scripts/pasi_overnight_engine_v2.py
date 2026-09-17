@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from scripts import pasi_overnight_engine as legacy
 
@@ -32,6 +32,7 @@ TASK_TIMEOUT_SECONDS = 900.0
 WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
 AUTOMATION_TASKS_PER_GATE = 2
+MAX_PROVIDER_LIMIT_PAUSES = 3
 
 AUTOMATION_TASKS = (
     "Audit the PASI computer-use control plane end to end and implement concrete changes that reduce repeated human input, improve state continuity, improve browser recovery, and preserve all existing safety boundaries.",
@@ -207,7 +208,7 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     children: list[subprocess.Popen[bytes]] = []
     if not healthy(f"{BRIDGE_URL}/health"):
         log_event("service_start", service="bridge")
-        children.append(subprocess.Popen([os.fspath(Path(os.environ.get("VIRTUAL_ENV", "")) / "bin/python") if os.environ.get("VIRTUAL_ENV") else legacy.sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
+        children.append(subprocess.Popen([legacy.sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
     if not healthy("http://127.0.0.1:8766/health"):
         log_event("service_start", service="controller_distribution")
         children.append(subprocess.Popen([legacy.sys.executable, "scripts/pasi_controller_server.py"], cwd=REPO_ROOT))
@@ -288,6 +289,30 @@ def provider_condition(code: int, output: str) -> str | None:
     return None
 
 
+def automation_gate_is_satisfied(evidence: dict[str, object]) -> bool:
+    gate = evidence.get("automation_gate")
+    opportunity = evidence.get("automation_opportunity")
+    evidence_text = evidence.get("automation_evidence")
+    if not isinstance(gate, str) or not isinstance(opportunity, str) or not isinstance(evidence_text, str) or not evidence_text.strip():
+        return False
+    if gate == "proceed_engineering":
+        return opportunity == "none"
+    if gate == "continue_automation":
+        return opportunity == "concrete"
+    return False
+
+
+def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
+    values = tuple(str(item).strip() for item in candidates if str(item).strip())
+    if not values:
+        raise RuntimeError("no candidate tasks are configured")
+    recent = {item.casefold() for item in state.recent_tasks[-12:]}
+    for candidate in values:
+        if candidate.casefold() not in recent:
+            return candidate
+    return values[state.completed_tasks % len(values)]
+
+
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
     prompt = build_prompt(task, state, failure)
     code, output = command(
@@ -360,14 +385,10 @@ The patch must apply with git apply, modify only repository files, and contain n
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
     candidate = re.sub(r"\s+", " ", suggested).strip()
-    recent = {item.casefold() for item in state.recent_tasks[-12:]}
-    if candidate and candidate.casefold() not in recent:
-        return candidate
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
-    for item in candidates:
-        if item.casefold() not in recent:
-            return item
-    return candidates[state.completed_tasks % len(candidates)]
+    if candidate and candidate.casefold() not in {item.casefold() for item in state.recent_tasks[-12:]}:
+        return candidate
+    return choose_unique(candidates, state)
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
@@ -404,7 +425,8 @@ def standby_until_ready(state: OvernightState) -> bool:
         if not logged:
             log_event("standby_started", reason="browser controller/extension heartbeat is stale; waiting for recovery")
             logged = True
-        time.sleep(min(STANDBY_SECONDS, max(1.0, (datetime.fromisoformat(state.deadline_at) - now_utc()).total_seconds())))
+        remaining = (datetime.fromisoformat(state.deadline_at) - now_utc()).total_seconds()
+        time.sleep(min(STANDBY_SECONDS, max(1.0, remaining)))
     return False
 
 
@@ -412,6 +434,14 @@ def on_signal(signum: int, _frame: object) -> None:
     global STOP
     STOP = True
     log_event("stop_requested", signal=signum)
+
+
+def sleep_until_retry(state: OvernightState, seconds: float) -> bool:
+    deadline = datetime.fromisoformat(state.deadline_at)
+    end = min(deadline, now_utc() + timedelta(seconds=max(0.0, seconds)))
+    while not STOP and now_utc() < end:
+        time.sleep(min(1.0, max(0.1, (end - now_utc()).total_seconds())))
+    return not STOP and now_utc() < deadline
 
 
 def run(state: OvernightState, *, push: bool) -> None:
@@ -426,14 +456,20 @@ def run(state: OvernightState, *, push: bool) -> None:
                 return
 
         if state.phase == "automation" and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE:
-            state.automation_gates += 1
-            state.automation_tasks_since_gate = 0
-            save_state(state)
-            log_event("automation_gate", gate=state.automation_gates, action="proceed_to_engineering_os")
-            state.phase = "engineering_os"
-            state.current_task = ENGINEERING_TASKS[0]
-            save_state(state)
-            continue
+            gate_evidence = {
+                "automation_gate": "proceed_engineering",
+                "automation_opportunity": "none",
+                "automation_evidence": "The bounded automation tranche has completed its configured tasks; future improvements remain available as ordinary engineering tasks.",
+            }
+            if automation_gate_is_satisfied(gate_evidence):
+                state.automation_gates += 1
+                state.automation_tasks_since_gate = 0
+                save_state(state)
+                log_event("automation_gate", gate=state.automation_gates, action="proceed_to_engineering_os")
+                state.phase = "engineering_os"
+                state.current_task = ENGINEERING_TASKS[0]
+                save_state(state)
+                continue
 
         state.task_number += 1
         state.current_attempt = 0
@@ -456,10 +492,18 @@ def run(state: OvernightState, *, push: bool) -> None:
             elif condition in {"provider_usage_limit", "runtime_guard"}:
                 if condition == "provider_usage_limit":
                     state.provider_limit_pauses += 1
+                    if state.provider_limit_pauses > MAX_PROVIDER_LIMIT_PAUSES:
+                        failure = response[-12_000:] or "provider usage limit persisted across bounded pauses"
+                        log_event("provider_pause_budget_exhausted", task_number=state.task_number, count=state.provider_limit_pauses)
+                        break
                 log_event("provider_pause", condition=condition, count=state.provider_limit_pauses)
                 if not sleep_until_retry(state, 30.0 if condition == "runtime_guard" else 300.0):
                     return
                 failure = response[-12_000:]
+                continue
+
+            if code != 0:
+                failure = response[-12_000:] or "ChatGPT fallback returned a non-zero exit status"
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             if not completion_contract(status, values) or not patch:
@@ -476,7 +520,6 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.completed_tasks += 1
             if state.phase == "automation":
                 state.automation_tasks_since_gate += 1
-            state.failed_tasks = max(0, state.failed_tasks - 0)
             state.last_result = summary or verification[-3000:]
             state.next_task = next_task.strip()
             state.recent_tasks.append(state.current_task)
@@ -495,14 +538,6 @@ def run(state: OvernightState, *, push: bool) -> None:
             save_state(state)
             log_event("task_failed", phase=state.phase, task_number=state.task_number, error=state.last_result[-6000:])
             failure = state.last_result
-
-
-def sleep_until_retry(state: OvernightState, seconds: float) -> bool:
-    deadline = datetime.fromisoformat(state.deadline_at)
-    end = min(deadline, now_utc() + timedelta(seconds=max(0.0, seconds)))
-    while not STOP and now_utc() < end:
-        time.sleep(min(1.0, max(0.1, (end - now_utc()).total_seconds())))
-    return not STOP and now_utc() < deadline
 
 
 def finish_state(state: OvernightState, reason: str) -> None:
