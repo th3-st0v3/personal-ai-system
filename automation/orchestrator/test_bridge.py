@@ -1,8 +1,11 @@
 from pathlib import Path
+import json
+import threading
+from http.client import HTTPConnection
 
 import pytest
 
-from automation.orchestrator.bridge import BridgeState
+from automation.orchestrator.bridge import BridgeHTTPServer, BridgeRequestHandler, BridgeState
 from automation.orchestrator.operation_lifecycle import InvalidOperationTransition
 from automation.orchestrator.state import StateManager
 
@@ -111,6 +114,156 @@ def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
 
     assert completed is not None
     assert completed["response_text_available"] is False
+
+
+def test_transient_browser_failure_is_requeued(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "retry me")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+
+    recovered = bridge.fail_operation(
+        operation.operation_id,
+        "Could not find ChatGPT composer.",
+    )
+
+    assert recovered is not None
+    assert recovered["status"] == "queued"
+    assert recovered["retry_count"] == 1
+    assert recovered["last_retry_error"] == "Could not find ChatGPT composer."
+
+    reclaimed = bridge.claim_next_operation()
+    assert reclaimed is not None
+    assert reclaimed["operation_id"] == operation.operation_id
+    assert reclaimed["retry_count"] == 1
+
+
+def test_transient_browser_failure_is_bounded(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "bounded retries")
+
+    for expected_retry_count in (1, 2, 3):
+        claimed = bridge.claim_next_operation()
+        assert claimed is not None
+        recovered = bridge.fail_operation(
+            operation.operation_id,
+            "Could not find ChatGPT composer.",
+        )
+        assert recovered is not None
+        assert recovered["status"] == "queued"
+        assert recovered["retry_count"] == expected_retry_count
+
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+    failed = bridge.fail_operation(
+        operation.operation_id,
+        "Could not find ChatGPT composer.",
+    )
+    assert failed is not None
+    assert failed["status"] == "failed"
+    assert failed["failure_reason"] == "transient_retry_exhausted"
+
+
+def test_non_transient_failure_remains_terminal(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "provider failure")
+    bridge.claim_next_operation()
+
+    failed = bridge.fail_operation(
+        operation.operation_id,
+        "provider router failed: HTTP 429",
+    )
+
+    assert failed is not None
+    assert failed["status"] == "failed"
+    assert failed["retry_count"] == 0
+    assert "failure_reason" not in failed
+
+
+def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "integration")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps(
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/integration",
+                "response_text": "PASI HTTP completion response",
+                "response_text_available": True,
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/finished",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+
+        assert response.status == 200
+        assert body["operation"]["status"] == "completed"
+        assert body["operation"]["response_text"] == "PASI HTTP completion response"
+        assert body["operation"]["response_text_available"] is True
+        assert bridge.get_operation(operation.operation_id) == body["operation"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
+def test_http_transient_failure_requeues_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "recover")
+        claimed = bridge.claim_next_operation()
+        assert claimed is not None
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps(
+            {
+                "operation_id": operation.operation_id,
+                "error": "Could not find ChatGPT composer.",
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/failed",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+
+        assert response.status == 200
+        assert body["operation"]["status"] == "queued"
+        assert body["operation"]["retry_count"] == 1
+
+        reclaimed = bridge.claim_next_operation()
+        assert reclaimed is not None
+        assert reclaimed["operation_id"] == operation.operation_id
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_failed_operation_is_not_active(
