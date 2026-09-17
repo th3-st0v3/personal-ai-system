@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from automation.computer_use.setup_requirements import MARKDOWN_RELATIVE_PATH, RUNTIME_RELATIVE_PATH, record_requirements
+from automation.computer_use.setup_requirements import MARKDOWN_RELATIVE_PATH, RUNTIME_RELATIVE_PATH
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = REPO_ROOT / "config" / "automation" / "setup_catalog.json"
@@ -54,9 +54,8 @@ def _entries(catalog: dict[str, Any], dynamic: dict[str, Any], key: str) -> list
     extra = dynamic.get(key, [])
     merged: list[dict[str, Any]] = []
     for item in list(baseline) + list(extra):
-        if not isinstance(item, dict):
-            continue
-        merged.append(item)
+        if isinstance(item, dict):
+            merged.append(item)
     seen: set[tuple[str, str]] = set()
     unique: list[dict[str, Any]] = []
     for item in merged:
@@ -80,11 +79,19 @@ def build_report() -> dict[str, Any]:
     observation = _runtime_observation()
     bridge_health = _health(BRIDGE_URL + "/health")
     controller_health = _health(CONTROLLER_URL + "/health")
-    runtime_data = observation.get("data") if isinstance(observation, dict) and isinstance(observation.get("data"), dict) else {}
+    runtime_data: dict[str, Any] = {}
+    if observation is not None:
+        observed_data = observation.get("data")
+        if isinstance(observed_data, dict):
+            runtime_data = observed_data
     return {
         "repository": str(REPO_ROOT),
         "local_prerequisites": {
-            "venv_python": {"path": str(python_path), "present": python_path.is_file(), "executable": python_path.is_file() and python_path.stat().st_mode & 0o111 != 0},
+            "venv_python": {
+                "path": str(python_path),
+                "present": python_path.is_file(),
+                "executable": python_path.is_file() and python_path.stat().st_mode & 0o111 != 0,
+            },
             "git": {"present": shutil.which("git") is not None},
             "node": {"present": shutil.which("node") is not None},
         },
@@ -136,18 +143,15 @@ def print_report(report: dict[str, Any]) -> None:
         print(f"  [{state}] {name}")
     print()
     print("Runtime")
-    runtime = report["runtime"]
-    bridge_health = runtime.get("bridge_health")
-    controller_distribution = runtime.get("controller_distribution_health")
-    bridge = bridge_health.get("status", "unavailable") if isinstance(bridge_health, dict) else "unavailable"
-    distribution = controller_distribution.get("status", "unavailable") if isinstance(controller_distribution, dict) else "unavailable"
+    bridge = report["runtime"]["bridge_health"].get("status", "unavailable")
+    distribution = report["runtime"]["controller_distribution_health"].get("status", "unavailable")
     print(f"  Bridge: {bridge}")
     print(f"  Controller distribution: {distribution}")
-    if runtime.get("chatgpt_login_required") is True:
+    if report["runtime"]["chatgpt_login_required"]:
         print("  ChatGPT: ACTION REQUIRED — authenticate / complete the interactive security check in the browser.")
-    elif runtime.get("chatgpt_usage_limited") is True:
+    elif report["runtime"]["chatgpt_usage_limited"]:
         print("  ChatGPT: provider/account usage limit detected; PASI will use configured fallbacks when possible.")
-    elif runtime.get("chatgpt_context_exhausted") is True:
+    elif report["runtime"]["chatgpt_context_exhausted"]:
         print("  ChatGPT: current conversation is exhausted; PASI recovery will use a fresh chat.")
     else:
         print("  ChatGPT: no authentication or usage-limit obstacle is currently reported.")
@@ -169,10 +173,9 @@ def main() -> int:
     else:
         print_report(report)
 
-    local_prerequisites = report["local_prerequisites"]
-    mandatory = local_prerequisites.get("venv_python", {})
-    git = local_prerequisites.get("git", {})
-    if args.check and (not isinstance(mandatory, dict) or not mandatory.get("present") or not mandatory.get("executable") or not isinstance(git, dict) or not git.get("present")):
+    mandatory = report["local_prerequisites"]["venv_python"]
+    git = report["local_prerequisites"]["git"]
+    if args.check and (not mandatory.get("present") or not mandatory.get("executable") or not git.get("present")):
         return 2
     return 0
 
