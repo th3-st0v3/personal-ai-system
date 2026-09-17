@@ -13,6 +13,7 @@ MAX_DETAIL_CHARS = 4_000
 MAX_OBSTACLE_LOG_BYTES = 2_000_000
 MAX_RECENT_LINES = 200
 MAX_COMPACT_LINES = 500
+MAX_PENDING_COMPACT = 200
 _PENDING_STATUSES = frozenset({"pending", "needs_preapproval", "waiting_external"})
 _REDACT_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._-]+|(api[_ -]?key\s*[=:]\s*|token\s*[=:]\s*|password\s*[=:]\s*)\S+")
 _SENSITIVE_KEYS = re.compile(r"(?i)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|secret|authorization|credential|private[_ -]?key)")
@@ -101,10 +102,33 @@ class ObstacleLedger:
         if not oversized:
             return
 
-        pending = [item for item in recent if item.get("status") in _PENDING_STATUSES]
+        pending: deque[dict[str, Any]] = deque(maxlen=MAX_PENDING_COMPACT)
+        try:
+            with self.log_path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    try:
+                        item = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(item, dict) and item.get("status") in _PENDING_STATUSES:
+                        pending.append(item)
+        except OSError:
+            pending.clear()
+
         merged: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for item in [*pending, *recent[-MAX_COMPACT_LINES:]]:
+        for item in recent[-MAX_COMPACT_LINES:]:
+            obstacle_id = str(item.get("obstacle_id", ""))
+            fingerprint = str(item.get("fingerprint", ""))
+            identity = obstacle_id or fingerprint or json.dumps(item, sort_keys=True, ensure_ascii=False)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            merged.append(item)
+
+        # Put retained pending obstacles at the end so _read_recent(), the action
+        # list, and pending() continue to see them even after compaction.
+        for item in pending:
             obstacle_id = str(item.get("obstacle_id", ""))
             fingerprint = str(item.get("fingerprint", ""))
             identity = obstacle_id or fingerprint or json.dumps(item, sort_keys=True, ensure_ascii=False)
