@@ -9,6 +9,7 @@ from automation.computer_use.contracts import ActionProposal, Observation, Sessi
 from automation.orchestrator.background_worker import BackgroundWorker, WorkerExecutionError
 from automation.orchestrator.state import StateManager
 from automation.orchestrator.verification_telemetry import VerificationTelemetry
+from automation.orchestrator.worker_verification import WorkerVerification
 
 
 class RecordingExecutor:
@@ -26,7 +27,28 @@ class RecordingExecutor:
         )
 
 
-def make_worker(tmp_path, *, background: bool = True, max_duration_seconds: int = 60, telemetry: bool = False):
+class MismatchedObservationExecutor(RecordingExecutor):
+    def execute(self, action: ActionProposal) -> Observation:
+        self.actions.append(action)
+        return Observation(
+            observation_id=f"obs-{len(self.actions)}",
+            session_id="other-session",
+            source="test-executor",
+            kind="result",
+            data={"action_id": action.action_id},
+        )
+
+
+class RejectingVerifier:
+    def verify(self, action: ActionProposal, observation: Observation) -> WorkerVerification:
+        return WorkerVerification(
+            status="failed",
+            checks=("custom check",),
+            failures=("custom verifier rejected observation",),
+        )
+
+
+def make_worker(tmp_path, *, background: bool = True, max_duration_seconds: int = 60, telemetry: bool = False, verifier=None):
     session = Session(
         session_id="session-1",
         task_id="task-1",
@@ -38,7 +60,7 @@ def make_worker(tmp_path, *, background: bool = True, max_duration_seconds: int 
     control = ControlPlane(session)
     state_manager = StateManager(tmp_path / ".ai")
     worker_telemetry = VerificationTelemetry(state_manager) if telemetry else None
-    return BackgroundWorker(state_manager, "worker-1", control, worker_telemetry), control
+    return BackgroundWorker(state_manager, "worker-1", control, worker_telemetry, verifier), control
 
 
 def safe_action() -> ActionProposal:
@@ -147,8 +169,8 @@ def test_worker_records_execution_observation_when_telemetry_enabled(tmp_path) -
     assert observation is not None
     records = worker.telemetry.load() if worker.telemetry is not None else []
     assert len(records) == 1
-    assert records[0].event_type == "worker_execution"
-    assert records[0].status == "completed"
+    assert records[0].event_type == "worker_verification"
+    assert records[0].status == "verified"
     assert records[0].action_id == "a1"
     assert records[0].task_id == "task-1"
     assert records[0].session_id == "session-1"
@@ -165,6 +187,43 @@ def test_approval_wait_does_not_emit_execution_telemetry(tmp_path) -> None:
     records = worker.telemetry.load() if worker.telemetry is not None else []
     assert records == []
     assert executor.actions == []
+
+
+def test_post_execution_verification_failure_stops_worker_and_records_failure(tmp_path) -> None:
+    worker, _ = make_worker(tmp_path, telemetry=True)
+    executor = MismatchedObservationExecutor()
+    worker.start()
+
+    with pytest.raises(WorkerExecutionError, match="post-execution verification failed"):
+        worker.step(safe_action(), executor)
+
+    assert len(executor.actions) == 1
+    assert worker.status().phase == "failed"
+    assert worker.status().current_action is None
+    assert worker.status().last_error is not None
+    assert "observation session does not match action session" in worker.status().last_error
+    records = worker.telemetry.load() if worker.telemetry is not None else []
+    assert len(records) == 1
+    assert records[0].event_type == "worker_verification"
+    assert records[0].status == "failed"
+    assert records[0].action_id == "a1"
+
+
+def test_worker_accepts_replaceable_verifier(tmp_path) -> None:
+    worker, _ = make_worker(tmp_path, telemetry=True, verifier=RejectingVerifier())
+    executor = RecordingExecutor()
+    worker.start()
+
+    with pytest.raises(WorkerExecutionError, match="post-execution verification failed"):
+        worker.step(safe_action(), executor)
+
+    assert len(executor.actions) == 1
+    assert worker.status().phase == "failed"
+    records = worker.telemetry.load() if worker.telemetry is not None else []
+    assert records[0].status == "failed"
+    verification = records[0].details.get("verification") if isinstance(records[0].details, dict) else None
+    assert isinstance(verification, dict)
+    assert verification.get("failures") == ["custom verifier rejected observation"]
 
 
 def test_action_from_different_session_is_rejected(tmp_path) -> None:
