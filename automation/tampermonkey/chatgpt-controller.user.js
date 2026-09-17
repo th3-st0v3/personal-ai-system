@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.1
+// @version      2.4.2
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -26,7 +26,7 @@
     var githubAttached = false;
     var reasoningMode = null;
 
-    console.log('[PASI] ChatGPT Controller v2.4.1 loaded.');
+    console.log('[PASI] ChatGPT Controller v2.4.2 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -305,7 +305,7 @@
     }
 
     async function startPrompt(operation) {
-        if (isChatExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports a usage limit for this conversation.');
+        if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
         var composer = await waitForComposer();
         if (!composer) throw new Error('Could not find ChatGPT composer.');
         var baseline = assistantFingerprint();
@@ -315,7 +315,7 @@
         if (!send) throw new Error('Could not find ChatGPT send button.');
         await submitPrompt(operation.prompt, send);
         var response = await waitForAssistantResponse(baseline);
-        if (isChatExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports a usage limit for this conversation.');
+        if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
         if (!response) throw new Error('ChatGPT response could not be extracted from the page.');
         await reportResponseObservation(response);
         await reportFinished(operation.operation_id, true);
@@ -365,7 +365,7 @@
             if (await waitForSubmissionTransition(expected)) return;
             if (attempt < 3) await sleep(350);
         }
-        if (isChatExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports a usage limit for this conversation.');
+        if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
         throw new Error('ChatGPT prompt submission did not leave the composer after repeated send attempts.');
     }
 
@@ -373,7 +373,7 @@
         var started = Date.now();
         while (Date.now() - started < SUBMISSION_TIMEOUT_MS) {
             if (isGenerating() || !findComposerContaining(expected)) return true;
-            if (isChatExhaustedVisible()) return false;
+            if (isConversationContextExhaustedVisible()) return false;
             await sleep(150);
         }
         return false;
@@ -394,7 +394,7 @@
                 var fast = extractLatestAssistantResponse();
                 if (fast) return fast;
             }
-            if (isChatExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports a usage limit for this conversation.');
+            if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports that this conversation has reached its context or conversation-length limit.');
             await sleep(400);
         }
         throw new Error('ChatGPT generation timed out.');
@@ -427,12 +427,21 @@
         return cleanLongText(last.innerText || last.textContent || '').slice(-4000);
     }
 
-    function isChatExhaustedVisible() {
+    function isConversationContextExhaustedVisible() {
         var text = normalize(document.body ? document.body.innerText : '');
         var markers = [
-            'you\'ve reached your limit', 'you’ve reached your limit', 'you have reached your limit',
-            'you\'ve reached your current usage limit', 'you’ve reached your current usage limit',
-            'current usage limit', 'message limit reached', 'usage limit reached', 'free tier limit'
+            'this conversation has reached its limit',
+            'conversation has reached its limit',
+            'conversation limit reached',
+            'conversation is too long',
+            'conversation is full',
+            'maximum conversation length',
+            'maximum length for this conversation',
+            'context limit reached',
+            'context window limit',
+            'context length limit',
+            'start a new chat to continue',
+            'start a new conversation to continue'
         ];
         for (var i = 0; i < markers.length; i += 1) {
             if (text.indexOf(markers[i]) !== -1) return true;
@@ -456,7 +465,7 @@
                     chat_url: window.location.href,
                     response_text: responseText.slice(0, 50000),
                     response_text_available: true,
-                    chat_exhausted: isChatExhaustedVisible()
+                    conversation_context_exhausted: isConversationContextExhaustedVisible()
                 }
             } }
         });
@@ -473,7 +482,7 @@
                     data: {
                         kind: 'chatgpt_state',
                         chat_url: isChatUrl(window.location.href) ? window.location.href : null,
-                        chat_exhausted: isChatExhaustedVisible(),
+                        conversation_context_exhausted: isConversationContextExhaustedVisible(),
                         github_attached: githubAttached || githubContextAlreadyAttached(),
                         reasoning_mode: reasoningMode
                     }
