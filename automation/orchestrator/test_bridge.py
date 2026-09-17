@@ -1,8 +1,11 @@
 from pathlib import Path
+import json
+import threading
+from http.client import HTTPConnection
 
 import pytest
 
-from automation.orchestrator.bridge import BridgeState
+from automation.orchestrator.bridge import BridgeHTTPServer, BridgeRequestHandler, BridgeState
 from automation.orchestrator.operation_lifecycle import InvalidOperationTransition
 from automation.orchestrator.state import StateManager
 
@@ -111,6 +114,49 @@ def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
 
     assert completed is not None
     assert completed["response_text_available"] is False
+
+
+def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "integration")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps(
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/integration",
+                "response_text": "PASI HTTP completion response",
+                "response_text_available": True,
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/finished",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+
+        assert response.status == 200
+        assert body["operation"]["status"] == "completed"
+        assert body["operation"]["response_text"] == "PASI HTTP completion response"
+        assert body["operation"]["response_text_available"] is True
+        assert bridge.get_operation(operation.operation_id) == body["operation"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_failed_operation_is_not_active(
