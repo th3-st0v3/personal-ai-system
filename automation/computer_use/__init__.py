@@ -40,6 +40,12 @@ from .contracts import (
     Observation,
     Session,
 )
+from .github import (
+    GitHubAdapterError,
+    GitHubControlAdapter,
+    GitHubTransport,
+    UrllibGitHubTransport,
+)
 from .research import HTTPSResearchAdapter, ResearchAdapterError, ResearchSource
 from .review import (
     IndependentReviewer,
@@ -96,4 +102,8 @@ __all__ = [
     "BrowserFallbackResolver",
     "BrowserRecoveryResult",
     "ResearchFallbackResolver",
+    "GitHubAdapterError",
+    "GitHubControlAdapter",
+    "GitHubTransport",
+    "UrllibGitHubTransport",
 ]
