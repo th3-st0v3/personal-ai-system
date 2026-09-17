@@ -7,6 +7,7 @@ const root = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
 const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
+const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
@@ -18,7 +19,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js', 'recovery.js']);
 });
 
 test('native content controller uses standard fetch instead of GM APIs', () => {
@@ -46,6 +47,14 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /PASI · Working/);
   assert.match(activity, /PASI · Finishing/);
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
+});
+
+test('native recovery companion enforces bounded response recovery', () => {
+  assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
+  assert.match(recovery, /RECOVERY_TRIGGER_MS = 24 \* 60 \* 1000/);
+  assert.match(recovery, /location\.reload\(\)/);
+  assert.match(recovery, /CHAT_RECOVERED_RETRY/);
+  assert.match(recovery, /operation_type: 'new_chat'/);
 });
 
 test('background service worker performs bounded stale-tab recovery', () => {
