@@ -5,8 +5,8 @@
   "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/tampermonkey/chatgpt-controller.user.js",
   "git_blob_sha": "e363ba49afea190fc02d9d00057296767b6da81f",
   "release_commit": "fb27ad4132a99ad4ebd8fd0797adfe45890b603f",
-  "recovery_version": "1.0.1",
+  "recovery_version": "1.0.2",
   "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
-  "recovery_git_blob_sha": "ae7fa9a6bd4f048e3c352a15822350d724fa67c8",
-  "reason": "Validated controller release with live response extraction, conditional Thinking and GitHub routing, conversation-context rollover, and a verified 25-minute hung-response recovery companion with reload grace"
+  "recovery_git_blob_sha": "1b6426b92e0036a7ab4846792dba841dd538ebe4",
+  "reason": "Validated controller release with live response extraction, conditional Thinking and GitHub routing, conversation-context rollover, faster native completion persistence, and exhaustion-gated hung-response recovery with a single reload"
 }
