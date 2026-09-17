@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.0
+// @version      2.4.1
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -26,7 +26,7 @@
     var githubAttached = false;
     var reasoningMode = null;
 
-    console.log('[PASI] ChatGPT Controller v2.4.0 loaded.');
+    console.log('[PASI] ChatGPT Controller v2.4.1 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -401,14 +401,11 @@
     }
 
     function extractLatestAssistantResponse() {
-        var selectors = ['[data-message-author-role="assistant"]', 'main article'];
-        for (var s = 0; s < selectors.length; s += 1) {
-            var nodes = document.querySelectorAll(selectors[s]);
-            for (var i = nodes.length - 1; i >= 0; i -= 1) {
-                if (!isVisible(nodes[i])) continue;
-                var text = extractAssistantNodeText(nodes[i]);
-                if (text) return text;
-            }
+        var nodes = document.querySelectorAll('[data-message-author-role="assistant"]');
+        for (var i = nodes.length - 1; i >= 0; i -= 1) {
+            if (!isVisible(nodes[i])) continue;
+            var text = extractAssistantNodeText(nodes[i]);
+            if (text) return text;
         }
         return '';
     }
@@ -435,7 +432,7 @@
         var markers = [
             'you\'ve reached your limit', 'you’ve reached your limit', 'you have reached your limit',
             'you\'ve reached your current usage limit', 'you’ve reached your current usage limit',
-            'current usage limit', 'message limit reached', 'usage limit reached', 'come back later'
+            'current usage limit', 'message limit reached', 'usage limit reached', 'free tier limit'
         ];
         for (var i = 0; i < markers.length; i += 1) {
             if (text.indexOf(markers[i]) !== -1) return true;
@@ -459,13 +456,14 @@
                     chat_url: window.location.href,
                     response_text: responseText.slice(0, 50000),
                     response_text_available: true,
-                    chat_exhausted: false
+                    chat_exhausted: isChatExhaustedVisible()
                 }
             } }
         });
     }
 
-    async function reportChatState() {
+    async function reportChatState(force) {
+        if (!force && (processing || activeOperationId !== null)) return;
         try {
             await bridgeRequest('/browser/observation', {
                 method: 'POST',
@@ -497,7 +495,7 @@
     async function reportFailure(operationId, error) {
         try {
             await bridgeRequest('/chat/failed', { method: 'POST', body: { operation_id: operationId, error: error instanceof Error ? error.message : String(error) } });
-            await reportChatState();
+            await reportChatState(true);
         } catch (reportError) {
             console.error('[PASI] Failed to report operation failure:', reportError);
         }
