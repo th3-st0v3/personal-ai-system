@@ -7,7 +7,7 @@ const controllerPath = path.join(__dirname, 'chatgpt-controller.user.js');
 const source = fs.readFileSync(controllerPath, 'utf8');
 
 test('controller declares the expected current version', () => {
-    assert.match(source, /@version\s+2\.4\.0/);
+    assert.match(source, /@version\s+2\.4\.1/);
 });
 
 test('controller supports conditional reasoning selection', () => {
@@ -35,6 +35,12 @@ test('controller reports explicit chat exhaustion signals', () => {
     assert.match(source, /function isChatExhaustedVisible\(/);
     assert.match(source, /CHAT_EXHAUSTED:/);
     assert.match(source, /usage limit/);
+    assert.doesNotMatch(source, /'come back later'/);
+});
+
+test('controller avoids state overwrite while an operation is active', () => {
+    assert.match(source, /if \(!force && \(processing \|\| activeOperationId !== null\)\) return;/);
+    assert.match(source, /await reportChatState\(true\)/);
 });
 
 test('controller retains guarded prompt submission and generation checks', () => {
