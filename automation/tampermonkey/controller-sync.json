@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "enabled": false,
+  "version": "2.3.0",
+  "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/chatgpt-controller.user.js",
+  "sha256": "",
+  "release_commit": "",
+  "reason": "Initial conditional synchronization manifest"
+}
