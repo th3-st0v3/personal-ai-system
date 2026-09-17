@@ -13,6 +13,7 @@ from scripts.pasi_chat import (
     controller_observation_is_live,
     needs_github_context,
     process_controller_update_signal,
+    public_github_context_unavailable,
     route_chat,
     wait_for_browser_controller,
 )
@@ -50,7 +51,6 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn(PUBLIC_REPOSITORY_URL, prompt)
         self.assertIn(PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL, prompt)
         self.assertIn("public GitHub repository as the default source", prompt)
-        self.assertIn("ChatGPT GitHub app is not part of the default workflow", prompt)
         self.assertIn("Thinking/reasoning mode is required for every PASI task", prompt)
         self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
@@ -89,12 +89,21 @@ class TestPasiChat(unittest.TestCase):
         self.assertFalse(needs_github_context("run the unit tests"))
         self.assertFalse(needs_github_context("explain Newton's second law"))
         self.assertFalse(needs_github_context("explain Newton's second law", override="public"))
+        self.assertFalse(needs_github_context("explain Newton's second law", override="auto"))
         self.assertTrue(needs_github_context("explain Newton's second law", override="fallback"))
+        self.assertTrue(needs_github_context("explain Newton's second law", override="always"))
         self.assertFalse(needs_github_context("fix the repository", override="never"))
+
+    def test_public_github_unavailable_detection_is_conservative(self) -> None:
+        self.assertTrue(public_github_context_unavailable("PASI_PUBLIC_GITHUB_UNAVAILABLE: true"))
+        self.assertTrue(public_github_context_unavailable("I cannot access the GitHub repository from this environment."))
+        self.assertTrue(public_github_context_unavailable("The public GitHub link is not accessible here."))
+        self.assertFalse(public_github_context_unavailable("I inspected the public repository and found the bridge implementation."))
+        self.assertFalse(public_github_context_unavailable("GitHub is useful for source control."))
 
     def test_reuses_existing_chat_and_enables_thinking(self) -> None:
         adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
-        handoff, chat_url = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "public")
+        handoff, chat_url = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
         self.assertEqual(chat_url, "https://chatgpt.com/c/existing")
         self.assertNotIn(("new_session", ""), adapter.calls)
         self.assertIn(("select_reasoning", "thinking"), adapter.calls)
@@ -104,14 +113,14 @@ class TestPasiChat(unittest.TestCase):
 
     def test_creates_new_chat_only_when_existing_chat_is_exhausted(self) -> None:
         adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": True, "github_attached": False})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "public")
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "explain thermodynamics", "th3-st0v3/personal-ai-system", "auto")
         self.assertIn(("new_session", ""), adapter.calls)
         self.assertIn(("select_reasoning", "thinking"), adapter.calls)
         self.assertFalse(handoff["chat_exhausted"])
 
     def test_public_repo_task_does_not_attach_github_app(self) -> None:
         adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
-        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "public")
+        handoff, _ = route_chat(adapter, {"chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False}, "inspect the repository bridge", "th3-st0v3/personal-ai-system", "auto")
         self.assertNotIn(("attach_github", "th3-st0v3/personal-ai-system"), adapter.calls)
         self.assertIn(("select_reasoning", "thinking"), adapter.calls)
         self.assertFalse(handoff["github_attached"])
