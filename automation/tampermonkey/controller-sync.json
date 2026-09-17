@@ -4,9 +4,9 @@
   "version": "2.4.6",
   "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/tampermonkey/chatgpt-controller.user.js",
   "git_blob_sha": "6b9326bce8dd2975e2b9925defad812950214106",
-  "release_commit": "0145442346da2d3816ae022c74757583aa5d4802",
-  "recovery_version": "1.0.2",
+  "release_commit": "b5dba9e5c96d6ecfbf831cbdfc57c6fef99c1ec3",
+  "recovery_version": "1.0.3",
   "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
-  "recovery_git_blob_sha": "1112c8517eb507e4af18bf0a3e995c591768f5e3",
+  "recovery_git_blob_sha": "5053291b81dd22588fc570395d19dbbdb9cf9c92",
   "reason": "Hardened prompt submission acknowledgement, chat identity tracking, bounded reload recovery, and verified exhaustion-only chat replacement"
 }
