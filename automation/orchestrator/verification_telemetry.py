@@ -47,8 +47,18 @@ class VerificationRecord:
     def with_hash(self) -> "VerificationRecord":
         record_hash = _hash_payload(self.unsigned_dict())
         return VerificationRecord(
-            **self.unsigned_dict(),
+            record_id=self.record_id,
+            event_type=self.event_type,
+            status=self.status,
+            evidence_fingerprint=self.evidence_fingerprint,
+            session_id=self.session_id,
+            task_id=self.task_id,
+            action_id=self.action_id,
+            details=dict(self.details),
+            timestamp=self.timestamp,
+            previous_record_hash=self.previous_record_hash,
             record_hash=record_hash,
+            schema_version=self.schema_version,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,7 +68,15 @@ class VerificationRecord:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "VerificationRecord":
-        required_strings = ("record_id", "event_type", "status", "evidence_fingerprint", "timestamp", "record_hash", "schema_version")
+        required_strings = (
+            "record_id",
+            "event_type",
+            "status",
+            "evidence_fingerprint",
+            "timestamp",
+            "record_hash",
+            "schema_version",
+        )
         for field_name in required_strings:
             if not isinstance(value.get(field_name), str) or not value[field_name]:
                 raise StateCorruptionError(
@@ -70,6 +88,11 @@ class VerificationRecord:
                 raise StateCorruptionError(
                     f"Invalid verification telemetry record: {field_name} must be a string or null"
                 )
+        previous_hash = value.get("previous_record_hash")
+        if previous_hash is not None and not isinstance(previous_hash, str):
+            raise StateCorruptionError(
+                "Invalid verification telemetry record: previous_record_hash must be a string or null"
+            )
         details = value.get("details", {})
         if not isinstance(details, dict):
             raise StateCorruptionError(
@@ -85,7 +108,7 @@ class VerificationRecord:
             action_id=value.get("action_id"),
             details=details,
             timestamp=value["timestamp"],
-            previous_record_hash=value.get("previous_record_hash"),
+            previous_record_hash=previous_hash,
             record_hash=value["record_hash"],
             schema_version=value["schema_version"],
         )
@@ -101,7 +124,13 @@ class VerificationRecord:
 
 
 def _hash_payload(value: Mapping[str, Any]) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -137,7 +166,7 @@ class VerificationTelemetry:
         records = [
             VerificationRecord.from_dict(item)
             if isinstance(item, dict)
-            else (_raise_invalid_record())
+            else _raise_invalid_record()
             for item in raw
         ]
         self._validate_chain(records)
@@ -177,8 +206,9 @@ class VerificationTelemetry:
         ).with_hash()
         records.append(record)
         if len(records) > self.max_records:
+            # Retain the original predecessor hash on the new head so the
+            # bounded ledger still points to the discarded history boundary.
             records = records[-self.max_records :]
-            records[0] = _reanchor(records[0])
         self.state_manager.write_json(self.path, [item.to_dict() for item in records])
         return record
 
@@ -217,36 +247,39 @@ class VerificationTelemetry:
 
     @staticmethod
     def _validate_chain(records: list[VerificationRecord]) -> None:
-        previous: str | None = None
-        for record in records:
+        if not records:
+            return
+        previous = records[0].previous_record_hash
+        if previous is not None and not _looks_like_sha256(previous):
+            raise StateCorruptionError(
+                f"Invalid verification telemetry anchor at {records[0].record_id}"
+            )
+        for record in records[1:]:
             if record.previous_record_hash != previous:
                 raise StateCorruptionError(
                     f"Invalid verification telemetry chain at {record.record_id}"
                 )
             previous = record.record_hash
+        if records[0].record_hash != _hash_payload(records[0].unsigned_dict()):
+            raise StateCorruptionError(
+                f"Invalid verification telemetry record: hash mismatch for {records[0].record_id}"
+            )
+
+
+def _looks_like_sha256(value: str) -> bool:
+    if len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
 
 
 def _raise_invalid_record() -> VerificationRecord:
     raise StateCorruptionError(
         "Invalid verification telemetry state: every record must be an object"
     )
-
-
-def _reanchor(record: VerificationRecord) -> VerificationRecord:
-    return VerificationRecord(
-        record_id=record.record_id,
-        event_type=record.event_type,
-        status=record.status,
-        evidence_fingerprint=record.evidence_fingerprint,
-        session_id=record.session_id,
-        task_id=record.task_id,
-        action_id=record.action_id,
-        details=record.details,
-        timestamp=record.timestamp,
-        previous_record_hash=None,
-        record_hash="",
-        schema_version=record.schema_version,
-    ).with_hash()
 
 
 __all__ = [
