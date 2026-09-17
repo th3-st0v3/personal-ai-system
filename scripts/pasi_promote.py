@@ -128,7 +128,7 @@ def _enable_auto_merge(pr_number: int) -> tuple[bool, str]:
     return code == 0, output
 
 
-def promote(commit: str, branch: str, task: str, verification: str, *, auto_merge_standard: bool = True) -> PromotionResult:
+def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = True) -> PromotionResult:
     if branch == MAIN_BRANCH:
         return PromotionResult(branch, None, "", "standard", False, "already on main")
     if not gh_available():
@@ -145,11 +145,9 @@ def promote(commit: str, branch: str, task: str, verification: str, *, auto_merg
         f"Task: {task}\n\n"
         f"Commit: `{commit}`\n\n"
         f"Risk class: **{risk}**\n\n"
-        "Deterministic verification completed before promotion.\n\n"
+        "Deterministic repository verification completed before this PR was created. The commit was produced from a validated PASI task patch.\n\n"
         "### Changed paths\n"
         f"{path_lines or '- none'}\n\n"
-        "### Verification evidence\n"
-        f"{verification[-5_000:]}\n\n"
         "PASI never auto-merges high-risk controller, browser, security-boundary, provider-routing, or workflow changes. Those changes are opened as normal PRs for human review."
     )
     pr_number, pr_url = _existing_pr(branch)
@@ -172,7 +170,6 @@ def main() -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--branch", required=True)
     parser.add_argument("--task", required=True)
-    parser.add_argument("--verification", default="verification completed")
     parser.add_argument("--no-auto-merge-standard", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -182,7 +179,6 @@ def main() -> int:
             args.commit,
             args.branch,
             args.task,
-            args.verification,
             auto_merge_standard=not args.no_auto_merge_standard,
         )
     except PromotionError as exc:
