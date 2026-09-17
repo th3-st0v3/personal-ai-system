@@ -6,7 +6,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from scripts import pasi_overnight_engine as legacy
 from scripts import pasi_overnight_engine_v2 as supervisor
@@ -155,7 +155,14 @@ def _invoke_provider_fallback(task: str, state: Any) -> tuple[int, str]:
     )
 
 
-def _recover_primary_provider(task: str, state: Any, response: str, failure: str) -> tuple[int, str]:
+def _recover_primary_provider(
+    task: str,
+    state: Any,
+    response: str,
+    failure: str,
+    primary_invoke: Callable[[str, Any, str, Any], tuple[int, str]],
+    ledger: Any,
+) -> tuple[int, str]:
     fallback = _invoke_provider_fallback(task, state)
     if fallback[0] == 0:
         return fallback
@@ -181,7 +188,7 @@ def _recover_primary_provider(task: str, state: Any, response: str, failure: str
         if supervisor.STOP:
             break
 
-        retry_code, retry_response = hardening.resilient_invoke_chat(task, state, failure, ledger=None)  # type: ignore[arg-type]
+        retry_code, retry_response = primary_invoke(task, state, failure, ledger)
         last_code, last_response = retry_code, retry_response
         if retry_code == 0:
             return retry_code, retry_response
@@ -227,7 +234,14 @@ def main() -> int:
                     condition=condition,
                 )
                 return 0, fallback_response
-            return _recover_primary_provider(enriched_task, state, response, fallback_response or response)
+            return _recover_primary_provider(
+                enriched_task,
+                state,
+                response,
+                fallback_response or response,
+                original_invoke,
+                ledger,
+            )
 
         parsed = _parsed_response(response, original_parse)
         if code == 0 and _contract_valid(parsed):
