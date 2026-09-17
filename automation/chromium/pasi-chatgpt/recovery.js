@@ -6,11 +6,11 @@
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const POLL_MS = 2000;
   const GENERATION_TIMEOUT_MS = 25 * 60 * 1000;
-  const RECOVERY_TRIGGER_MS = 24 * 60 * 1000;
+  const RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS;
   const RECOVERY_GRACE_MS = 10 * 60 * 1000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
-  const RECOVERY_VERSION = '1.0.0';
+  const RECOVERY_VERSION = '1.0.1';
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -59,7 +59,7 @@
 
   function connectionFailure() {
     const text = normalize(document.body?.innerText || '');
-    return ['network error', 'connection lost', 'failed to fetch', 'websocket', 'reconnecting', 'something went wrong', 'try again'].some((marker) => text.includes(marker));
+    return ['network error', 'connection lost', 'failed to fetch', 'websocket', 'reconnecting'].some((marker) => text.includes(marker));
   }
 
   function contextExhausted() {
@@ -161,12 +161,12 @@
     const response = await bridge('/queue', { method: 'POST', body: { operation_type: 'new_chat', prompt: '' } });
     if (!response.ok) throw new Error(`new_chat queue rejected with HTTP ${response.status}`);
     const payload = response.json();
-    const operationId = payload?.operation?.operation_id;
-    if (!operationId) throw new Error('new_chat queue did not return an operation id');
+    const newOperationId = payload?.operation?.operation_id;
+    if (!newOperationId) throw new Error('new_chat queue did not return an operation id');
     const started = Date.now();
     while (Date.now() - started < MAX_NEW_CHAT_WAIT_MS) {
-      const state = await operation(operationId);
-      if (state?.status === 'completed') return operationId;
+      const state = await operation(newOperationId);
+      if (state?.status === 'completed') return newOperationId;
       if (state?.status === 'failed' || state?.status === 'cancelled') throw new Error(state.error || 'new_chat recovery operation failed');
       await sleep(500);
     }
@@ -188,19 +188,26 @@
       }
     }
 
-    if (connectionFailure() || Date.now() - Number(state.started_ms || Date.now()) >= RECOVERY_TRIGGER_MS) {
-      if (Number(state.reload_count || 0) < MAX_RELOADS) {
-        const next = {
-          ...state,
-          reload_count: Number(state.reload_count || 0) + 1,
-          phase: 'reloaded',
-          reload_at: new Date().toISOString()
-        };
-        writeRecoveryState(next);
-        await report('chatgpt_recovery', { phase: 'reloading', operation_id: operationId, recovery_action: 'reload_page', reload_count: next.reload_count });
-        location.reload();
-        return true;
-      }
+    const startedMs = Number(state.started_ms || Date.now());
+    const age = Date.now() - startedMs;
+    const shouldRecover = connectionFailure() || age >= RECOVERY_TRIGGER_MS;
+    if (shouldRecover && Number(state.reload_count || 0) < MAX_RELOADS) {
+      const next = {
+        ...state,
+        reload_count: Number(state.reload_count || 0) + 1,
+        phase: 'reloaded',
+        reload_at: new Date().toISOString()
+      };
+      writeRecoveryState(next);
+      await report('chatgpt_recovery', {
+        phase: 'reloading',
+        operation_id: operationId,
+        recovery_action: 'reload_page',
+        reload_count: next.reload_count,
+        generation_timeout_ms: GENERATION_TIMEOUT_MS
+      });
+      location.reload();
+      return true;
     }
 
     return false;
@@ -230,6 +237,17 @@
         clearRecoveryState();
         return;
       }
+    }
+
+    const reloadAt = Date.parse(String(state.reload_at || ''));
+    if (Number.isFinite(reloadAt) && Date.now() - reloadAt < RECOVERY_GRACE_MS) {
+      await report('chatgpt_recovery', {
+        phase: 'grace_wait',
+        operation_id: operationId,
+        recovery_action: 'wait_after_reload',
+        grace_remaining_ms: RECOVERY_GRACE_MS - (Date.now() - reloadAt)
+      });
+      return;
     }
 
     try {
@@ -273,7 +291,7 @@
   }
 
   async function start() {
-    await report('chatgpt_recovery', { phase: 'started', recovery_action: 'monitor' });
+    await report('chatgpt_recovery', { phase: 'started', recovery_action: 'monitor', generation_timeout_ms: GENERATION_TIMEOUT_MS, recovery_grace_ms: RECOVERY_GRACE_MS });
     setInterval(() => { inspect().catch(() => {}); }, POLL_MS);
     await inspect();
   }
