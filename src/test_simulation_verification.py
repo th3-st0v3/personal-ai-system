@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from typing import cast
+from typing import Any, cast
 
 from simulation_library import run_simulation
 from simulation_verification import verify_simulation_result
@@ -41,7 +41,7 @@ class SimulationVerificationTests(unittest.TestCase):
         )
         tampered = dict(result)
         original_outputs = cast(dict[str, float], result["outputs"])
-        tampered_outputs: dict[str, float] = dict(original_outputs)
+        tampered_outputs: dict[str, float] = original_outputs.copy()
         tampered_outputs["bottom_pressure"] += 1.0
         tampered["outputs"] = tampered_outputs
 
@@ -66,8 +66,8 @@ class SimulationVerificationTests(unittest.TestCase):
             },
         )
         tampered = dict(result)
-        original_provenance = cast(dict[str, str], result["provenance"])
-        tampered_provenance: dict[str, str] = dict(original_provenance)
+        original_provenance = cast(dict[str, Any], result["provenance"])
+        tampered_provenance: dict[str, Any] = original_provenance.copy()
         tampered_provenance["simulation_key"] = "wellbore_hydraulics"
         tampered["provenance"] = tampered_provenance
 
