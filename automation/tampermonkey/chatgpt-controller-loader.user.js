@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller Loader
 // @namespace    https://github.com/th3-st0v3/personal-ai-system
-// @version      1.3.0
+// @version      1.4.0
 // @description  Loads a verified PASI ChatGPT controller from the local PASI runtime for private-repository-safe automation.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -15,13 +15,13 @@
 
     var LOCAL_MANIFEST_URL = 'http://127.0.0.1:8766/controller/manifest';
     var LOCAL_SOURCE_URL = 'http://127.0.0.1:8766/controller/source';
-    var POLL_INTERVAL_MS = 5 * 60 * 1000;
+    var POLL_INTERVAL_MS = 30000;
     var CHECK_TIMEOUT_MS = 10000;
     var LAST_VERSION_KEY = 'pasi_controller_verified_version';
     var LAST_HASH_KEY = 'pasi_controller_verified_git_blob_sha';
     var ACTIVE_HASH_PROPERTY = '__PASI_CHATGPT_CONTROLLER_ACTIVE_HASH__';
 
-    console.log('[PASI Loader] Local private-repository controller loader active.');
+    console.log('[PASI Loader] Local private-repository controller loader v1.4.0 active.');
     activateOrScheduleReload();
     setInterval(checkForPublishedController, POLL_INTERVAL_MS);
 
