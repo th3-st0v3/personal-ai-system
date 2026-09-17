@@ -7,7 +7,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -30,6 +30,13 @@ GITHUB_TASK_SIGNALS = re.compile(
     re.IGNORECASE,
 )
 CHAT_URL_PATTERN = re.compile(r"^https://chatgpt\.com/c/")
+
+
+class ChatGPTRoutingAdapter(Protocol):
+    def read_browser_observation(self) -> Mapping[str, Any] | None: ...
+    def new_session(self) -> str: ...
+    def attach_github_repository(self, repository: str) -> str: ...
+    def select_reasoning_mode(self, mode: str) -> None: ...
 
 
 def run(command: Sequence[str], root: Path, *, timeout: float = 5.0) -> str:
@@ -122,7 +129,7 @@ def needs_github_context(task: str, *, override: str = "auto") -> bool:
     return GITHUB_TASK_SIGNALS.search(task) is not None
 
 
-def browser_state(adapter: ChatGPTAdapter) -> dict[str, object]:
+def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
     try:
         observation = adapter.read_browser_observation()
     except Exception:
@@ -135,18 +142,20 @@ def browser_state(adapter: ChatGPTAdapter) -> dict[str, object]:
     return dict(data)
 
 
-def route_chat(adapter: ChatGPTAdapter, handoff: dict[str, object], task: str, repository: str, github_mode: str) -> tuple[dict[str, object], str | None]:
+def route_chat(adapter: ChatGPTRoutingAdapter, handoff: dict[str, object], task: str, repository: str, github_mode: str) -> tuple[dict[str, object], str | None]:
     state = browser_state(adapter)
-    current_url = state.get("chat_url") if isinstance(state.get("chat_url"), str) else None
-    if current_url and not CHAT_URL_PATTERN.match(current_url):
+    current_url_value = state.get("chat_url")
+    current_url = current_url_value if isinstance(current_url_value, str) else None
+    if current_url is not None and not CHAT_URL_PATTERN.match(current_url):
         current_url = None
 
     if state.get("chat_exhausted") is True:
         handoff["chat_exhausted"] = True
-    if isinstance(current_url, str):
+    if current_url is not None:
         handoff["chat_url"] = current_url
 
-    chat_url = handoff.get("chat_url") if isinstance(handoff.get("chat_url"), str) else None
+    handoff_chat_url = handoff.get("chat_url")
+    chat_url = handoff_chat_url if isinstance(handoff_chat_url, str) else None
     exhausted = handoff.get("chat_exhausted") is True
     new_chat = chat_url is None or exhausted
 
@@ -174,7 +183,6 @@ def route_chat(adapter: ChatGPTAdapter, handoff: dict[str, object], task: str, r
         if not reasoning_enabled:
             adapter.select_reasoning_mode("thinking")
             reasoning_mode = "thinking"
-            reasoning_enabled = True
             print("Thinking mode enabled for non-GitHub task.")
         else:
             print("Thinking mode already enabled; GitHub context is not needed.")
