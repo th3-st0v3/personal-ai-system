@@ -2,7 +2,7 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const POLL_MS = 1000;
+  const POLL_MS = 250;
   const HEALTH_MS = 5000;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
@@ -184,7 +184,7 @@
     while (Date.now() - started < timeout) {
       const value = select();
       if (value) return value;
-      await sleep(200);
+      await sleep(100);
     }
     return null;
   }
@@ -194,7 +194,7 @@
     const button = await waitFor(() => findLabeled(['new chat'], ['a', 'button', '[role="button"]']), TIMEOUTS.menu);
     if (!button || disabled(button)) throw new Error('PASI_NATIVE: New chat control unavailable');
     button.click();
-    const ready = await waitFor(() => (location.href !== previous || chatUrl()) && composer() && !generating(), TIMEOUTS.menu + 7000);
+    const ready = await waitFor(() => location.href !== previous && chatUrl() && composer() && !generating(), TIMEOUTS.menu + 7000);
     if (!ready) throw new Error('PASI_NATIVE: new chat did not reach a verified ready state');
     reasoningMode = null;
     githubAttached = false;
@@ -267,7 +267,7 @@
       if (button && !disabled(button)) button.click();
       else if (box.closest('form')?.requestSubmit) box.closest('form').requestSubmit();
       if (await waitFor(() => generating() || !readText(composer()).includes(expected), TIMEOUTS.submit)) return;
-      await sleep(300);
+      await sleep(150);
     }
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     throw new Error('PASI_NATIVE: prompt submission could not be verified');
@@ -279,7 +279,7 @@
     while (Date.now() - started < TIMEOUTS.generation) {
       if (generating()) sawGeneration = true;
       else if (sawGeneration) {
-        await sleep(900);
+        await sleep(250);
         const response = latestAssistant();
         if (response && fingerprint() !== baseline) return response;
       } else {
@@ -287,24 +287,48 @@
         if (current !== baseline && current) return latestAssistant();
       }
       if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-      await sleep(400);
+      await sleep(200);
     }
     throw new Error('PASI_NATIVE: ChatGPT generation timed out');
   }
 
   async function finishOperation(operationId, responseText = '') {
-    await reportObservation('chatgpt_response', {
+    const body = {
+      operation_id: operationId,
       chat_url: chatUrl(),
-      response_text: responseText,
-      response_text_available: Boolean(responseText),
+      response_text: responseText.slice(0, 50000),
+      response_text_available: Boolean(responseText)
+    };
+    await reportObservation('chatgpt_response', {
+      chat_url: body.chat_url,
+      response_text: body.response_text,
+      response_text_available: body.response_text_available,
       conversation_context_exhausted: contextExhausted(),
       chat_exhausted: contextExhausted()
     });
-    const response = await bridge('/chat/finished', {
-      method: 'POST',
-      body: { operation_id: operationId, chat_url: location.href, response_text_available: Boolean(responseText) }
-    });
-    if (!response.ok) throw new Error('PASI_NATIVE: bridge completion failed');
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await bridge('/chat/finished', { method: 'POST', body });
+        if (response.ok) return;
+        lastError = new Error(`PASI_NATIVE: bridge completion failed: HTTP ${response.status}`);
+        try {
+          const operation = bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
+          const payload = await operation.then((value) => value.ok ? value.json() : null);
+          if (payload?.operation?.status === 'completed') return;
+        } catch (_) {}
+      } catch (error) {
+        lastError = error;
+        try {
+          const operation = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
+          const payload = operation.ok ? operation.json() : null;
+          if (payload?.operation?.status === 'completed') return;
+        } catch (_) {}
+      }
+      if (attempt < 3) await sleep(150);
+    }
+    throw lastError || new Error('PASI_NATIVE: bridge completion failed');
   }
 
   async function failOperation(operationId, error) {
@@ -316,7 +340,7 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify({ operation_id: operation.operation_id, started_at: new Date().toISOString() }));
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify({ operation_id: operation.operation_id, started_at: new Date().toISOString(), chat_url: chatUrl() }));
     try {
       switch (operation.operation_type) {
         case 'new_chat': await newChat(); break;
@@ -374,6 +398,7 @@
   async function start() {
     await recoverInterruptedOperation();
     try { await reportHealth(); } catch (_) {}
+    await poll();
     setInterval(poll, POLL_MS);
     setInterval(reportHealth, HEALTH_MS);
   }
