@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 from typing import Any, Mapping
 
-from automation.computer_use.chatgpt import ChatGPTAdapter, ChatGPTAdapterError
+from automation.computer_use.chatgpt import (
+    ChatGPTAdapter,
+    ChatGPTAdapterError,
+    UrllibBridgeTransport,
+)
 from automation.computer_use.completion import ChatGPTCompletionDetector, completion_from_operation
 from automation.computer_use.contracts import Observation
 
@@ -98,6 +102,24 @@ class CompletionTests(unittest.TestCase):
         detector = ChatGPTCompletionDetector()
         for item in ({}, {"operation": {}}, {"browser": {}}):
             self.assertEqual(detector.detect([observation(item)]), "unknown")
+
+
+class BridgeTransportTests(unittest.TestCase):
+    def test_accepts_expected_localhost_url(self) -> None:
+        transport = UrllibBridgeTransport("http://127.0.0.1:8765")
+        self.assertEqual(transport.base_url, "http://127.0.0.1:8765")
+
+    def test_rejects_non_localhost_host_even_when_prefix_matches(self) -> None:
+        with self.assertRaises(ValueError):
+            UrllibBridgeTransport("http://127.0.0.1:8765@example.com:80")
+
+    def test_rejects_credentials(self) -> None:
+        with self.assertRaises(ValueError):
+            UrllibBridgeTransport("http://user:pass@127.0.0.1:8765")
+
+    def test_rejects_non_http_scheme(self) -> None:
+        with self.assertRaises(ValueError):
+            UrllibBridgeTransport("https://127.0.0.1:8765")
 
 
 class ChatGPTAdapterTests(unittest.TestCase):
