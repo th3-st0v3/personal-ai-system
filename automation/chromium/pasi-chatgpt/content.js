@@ -2,8 +2,11 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const POLL_MS = 1000;
+  const POLL_MS = 250;
   const HEALTH_MS = 5000;
+  const DOM_POLL_MS = 100;
+  const CLICK_SETTLE_MS = 300;
+  const RESPONSE_SETTLE_MS = 250;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
   let activeOperationId = null;
@@ -184,7 +187,7 @@
     while (Date.now() - started < timeout) {
       const value = select();
       if (value) return value;
-      await sleep(200);
+      await sleep(DOM_POLL_MS);
     }
     return null;
   }
@@ -211,7 +214,7 @@
     }
     if (!control || disabled(control)) throw new Error('PASI_NATIVE: Thinking control unavailable');
     control.click();
-    await sleep(500);
+    await sleep(CLICK_SETTLE_MS);
     if (thinkingEnabled() === false) throw new Error('PASI_NATIVE: Thinking state could not be verified');
     reasoningMode = 'thinking';
   }
@@ -230,7 +233,7 @@
     const result = await waitFor(() => findLabeled([repository], ['button', '[role="button"]', '[role="option"]', '[role="menuitem"]', 'a']), TIMEOUTS.menu);
     if (!result) throw new Error('PASI_NATIVE: requested repository unavailable');
     result.click();
-    await sleep(500);
+    await sleep(CLICK_SETTLE_MS);
     if (normalize(document.body?.innerText || '').includes('github needs to be connected')) throw new Error('PASI_NATIVE: GitHub connection unavailable');
     githubAttached = true;
   }
@@ -267,7 +270,7 @@
       if (button && !disabled(button)) button.click();
       else if (box.closest('form')?.requestSubmit) box.closest('form').requestSubmit();
       if (await waitFor(() => generating() || !readText(composer()).includes(expected), TIMEOUTS.submit)) return;
-      await sleep(300);
+      if (attempt < 3) await sleep(DOM_POLL_MS + 50);
     }
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     throw new Error('PASI_NATIVE: prompt submission could not be verified');
@@ -279,7 +282,7 @@
     while (Date.now() - started < TIMEOUTS.generation) {
       if (generating()) sawGeneration = true;
       else if (sawGeneration) {
-        await sleep(900);
+        await sleep(RESPONSE_SETTLE_MS);
         const response = latestAssistant();
         if (response && fingerprint() !== baseline) return response;
       } else {
@@ -287,7 +290,7 @@
         if (current !== baseline && current) return latestAssistant();
       }
       if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-      await sleep(400);
+      await sleep(DOM_POLL_MS * 2);
     }
     throw new Error('PASI_NATIVE: ChatGPT generation timed out');
   }

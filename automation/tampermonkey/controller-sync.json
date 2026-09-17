@@ -1,12 +1,12 @@
 {
   "schema_version": "1",
   "enabled": true,
-  "version": "2.4.3",
+  "version": "2.4.5",
   "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/tampermonkey/chatgpt-controller.user.js",
-  "git_blob_sha": "e363ba49afea190fc02d9d00057296767b6da81f",
-  "release_commit": "fb27ad4132a99ad4ebd8fd0797adfe45890b603f",
+  "git_blob_sha": "5954118ce4b0a0bc4ca9a0fda8e0d25ad83d6a11",
+  "release_commit": "89c76e204c94c470c89cef1fa9ddcee0f768ea65",
   "recovery_version": "1.0.1",
   "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
   "recovery_git_blob_sha": "ae7fa9a6bd4f048e3c352a15822350d724fa67c8",
-  "reason": "Validated controller release with live response extraction, conditional Thinking and GitHub routing, conversation-context rollover, and a verified 25-minute hung-response recovery companion with reload grace"
+  "reason": "Validated controller release with lower-latency bridge and DOM polling, response-settle reduction, preserved safety checks, and reload-resilient active-operation state"
 }
