@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 from scripts import pasi_overnight_engine as engine
@@ -46,6 +47,20 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
         raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
 
 
+def wait_for_watchdog(max_wait_seconds: float = 25.0) -> bool:
+    deadline = time.monotonic() + max_wait_seconds
+    while time.monotonic() < deadline:
+        if supervisor.runtime_watchdog_is_live():
+            return True
+        time.sleep(1.0)
+    return False
+
+
 def main() -> int:
     supervisor.validate_patch_paths = validate_patch_paths
-    return supervisor.main()
+    original_watchdog = supervisor.runtime_watchdog_is_live
+    supervisor.runtime_watchdog_is_live = wait_for_watchdog
+    try:
+        return supervisor.main()
+    finally:
+        supervisor.runtime_watchdog_is_live = original_watchdog
