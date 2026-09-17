@@ -180,16 +180,21 @@ class AcquisitionEngine:
         temp = destination.with_suffix(destination.suffix + ".part")
         try:
             request = Request(url, headers={"User-Agent": "PASI-resource-acquirer/1"})
-            with urlopen(request, timeout=30) as response, temp.open("wb") as handle:
-                while True:
-                    chunk = response.read(min(1024 * 1024, max_bytes - total + 1))
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise AcquisitionError("download exceeded preapproved byte limit")
-                    digest.update(chunk)
-                    handle.write(chunk)
+            with urlopen(request, timeout=30) as response:
+                final_url = response.geturl()
+                final_decision = policy.approve_public_download(final_url, max_bytes=max_bytes)
+                if not final_decision.allowed:
+                    raise AcquisitionError(f"download redirect escaped the approved HTTPS host: {final_url}")
+                with temp.open("wb") as handle:
+                    while True:
+                        chunk = response.read(min(1024 * 1024, max_bytes - total + 1))
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise AcquisitionError("download exceeded preapproved byte limit")
+                        digest.update(chunk)
+                        handle.write(chunk)
             actual_sha256 = digest.hexdigest()
             if expected_sha256 and actual_sha256.casefold() != expected_sha256.strip().casefold():
                 raise AcquisitionError("download SHA-256 did not match the requested digest")
@@ -219,7 +224,7 @@ class AcquisitionEngine:
             return self._blocked("package_install", package, decision.reason, task_id=task_id)
         executable = Path(sys.executable).resolve()
         result = subprocess.run(
-            [str(executable), "-m", "pip", "install", "--disable-pip-version-check", "--no-input", package],
+            [str(executable), "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--no-deps", package],
             cwd=self.repo_root,
             capture_output=True,
             text=True,
