@@ -10,6 +10,8 @@ import information_digest
 
 
 class IntegrationWebApplication:
+    MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
+
     def __init__(self):
         connection=db.get_connection()
         try: connection_registry.initialize(connection)
@@ -22,7 +24,12 @@ class IntegrationWebApplication:
     def __call__(self,environ,start_response):
         path=environ.get("PATH_INFO","").rstrip("/") or "/"; method=environ.get("REQUEST_METHOD","GET")
         try:
-            length=int(environ.get("CONTENT_LENGTH") or 0)
+            length_raw = environ.get("CONTENT_LENGTH") or 0
+            length = int(length_raw)
+            if length < 0:
+                raise ValueError("Invalid Content-Length.")
+            if length > self.MAX_REQUEST_BODY_BYTES:
+                return self._finish(start_response,*self._json(413,{"error":"Request body too large."}))
             raw=environ.get("wsgi.input",io.BytesIO()).read(length) if length else b""
             data=json.loads(raw or b"{}")
             if not isinstance(data,dict): raise ValueError("JSON request body must be an object.")
@@ -44,8 +51,11 @@ class IntegrationWebApplication:
                 try: result={"id":connection_registry.register_plugin(c,data["name"],data.get("version","0.1.0"),data.get("description",""),data["entrypoint"],data.get("capabilities"))}
                 finally:c.close()
             elif method=="POST" and path.startswith("/api/plugins/") and path.endswith("/enabled"):
+                enabled = data.get("enabled")
+                if not isinstance(enabled, bool):
+                    raise ValueError("enabled must be a boolean.")
                 plugin_id=int(path.split("/")[3]); c=db.get_connection()
-                try: result=connection_registry.set_plugin_enabled(c,plugin_id,bool(data.get("enabled")))
+                try: result=connection_registry.set_plugin_enabled(c,plugin_id,enabled)
                 finally:c.close()
             else:
                 return self._finish(start_response,*self._json(404,{"error":"Not found"}))
