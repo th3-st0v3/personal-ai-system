@@ -39,6 +39,8 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
   assert.match(content, /CHAT_USAGE_LIMITED/);
+  assert.match(content, /const current = await bridge\(`\/operation\?operation_id=/);
+  assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
 });
 
 test('native prompt submission requires explicit user-message acknowledgement', () => {
@@ -49,10 +51,19 @@ test('native prompt submission requires explicit user-message acknowledgement', 
   assert.match(content, /prompt could not be verified after bounded attempts/);
 });
 
+test('native completion persists response text and retries acknowledgement without replaying the prompt', () => {
+  assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
+  assert.match(content, /\/chat\/finished/);
+  assert.match(content, /response_text_available: Boolean\(responseText\)/);
+  assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
+  assert.match(content, /\/operation\?operation_id=/);
+  assert.match(content, /status === 'completed'/);
+});
+
 test('native new-chat creation requires a changed conversation identity or genuinely empty chat', () => {
   assert.match(content, /previousChat = chatUrl\(\)/);
   assert.match(content, /differentChat/);
-  assert.match(content, /emptyConversation/);
+  assert.match(content, /initialChatReady/);
   assert.match(content, /new chat control did not change conversation identity/);
 });
 
@@ -77,6 +88,8 @@ test('native recovery companion only replaces a chat after verified usage or con
   assert.match(recovery, /no_verified_usage_or_context_exhaustion/);
   assert.match(recovery, /CHAT_RECOVERED_RETRY/);
   assert.match(recovery, /operation_type: 'new_chat'/);
+  assert.match(recovery, /response_text: bounded/);
+  assert.match(recovery, /current\.status === 'failed'/);
 });
 
 test('background service worker performs bounded stale-tab recovery', () => {

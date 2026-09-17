@@ -173,8 +173,10 @@ class ChatGPTAdapter(AIAdapter):
         chat_url = _optional_string(operation.get("chat_url"))
         error = _optional_string(operation.get("error"))
         chat_exhausted = bool(error and error.startswith("CHAT_EXHAUSTED:"))
+        completion_ack_lost = bool(error and error.startswith("PASI_NATIVE: bridge completion failed"))
+        should_check_observation = operation.get("operation_type") == "prompt" and not response_available and (completion == "complete" or completion_ack_lost)
 
-        if operation.get("operation_type") == "prompt" and completion == "complete" and not response_available:
+        if should_check_observation:
             try:
                 observation = self.read_browser_observation()
             except ChatGPTAdapterError:
@@ -184,9 +186,14 @@ class ChatGPTAdapter(AIAdapter):
                 kind = data.get("kind")
                 if kind == "chatgpt_response":
                     observed_text = data.get("response_text")
+                    observed_available = data.get("response_text_available") is True
                     if isinstance(observed_text, str) and observed_text.strip():
                         text = observed_text
-                        response_available = data.get("response_text_available") is True
+                        response_available = observed_available or bool(observed_text.strip())
+                        # Browser evidence proves the assistant answered even if the
+                        # completion acknowledgement itself was lost after the server accepted it.
+                        if completion_ack_lost:
+                            completion = "complete"
                     observed_url = data.get("chat_url")
                     if chat_url is None and isinstance(observed_url, str):
                         chat_url = observed_url

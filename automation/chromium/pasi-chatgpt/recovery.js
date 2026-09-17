@@ -10,7 +10,7 @@
   const RECOVERY_GRACE_MS = 10 * 60 * 1000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
-  const RECOVERY_VERSION = '1.0.3';
+  const RECOVERY_VERSION = '1.0.4';
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -142,18 +142,37 @@
   }
 
   async function finishExisting(operationId, responseText) {
+    const bounded = responseText.slice(0, 50000);
     await report('chatgpt_response', {
-      response_text: responseText.slice(0, 50000),
-      response_text_available: Boolean(responseText),
+      response_text: bounded,
+      response_text_available: Boolean(bounded),
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
       recovery_action: 'preserve_response'
     });
-    const finished = await bridge('/chat/finished', {
-      method: 'POST',
-      body: { operation_id: operationId, chat_url: location.href, response_text_available: Boolean(responseText) }
-    });
-    return finished.ok;
+    const body = {
+      operation_id: operationId,
+      chat_url: location.href,
+      response_text: bounded,
+      response_text_available: Boolean(bounded)
+    };
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const finished = await bridge('/chat/finished', { method: 'POST', body });
+        if (finished.ok) return true;
+        lastError = new Error(`bridge completion failed: HTTP ${finished.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+      try {
+        const current = await operation(operationId);
+        if (current?.status === 'completed') return true;
+      } catch (_) {}
+      if (attempt < 3) await sleep(150);
+    }
+    await report('chatgpt_recovery', { phase: 'completion_ack_failed', operation_id: operationId, recovery_action: 'retry_runner', error: String(lastError?.message || lastError || 'unknown error') });
+    return false;
   }
 
   async function markRetryableFailure(operationId, message) {
@@ -203,20 +222,9 @@
     const age = Date.now() - startedMs;
     const shouldRecover = connectionFailure() || age >= RECOVERY_TRIGGER_MS;
     if (shouldRecover && Number(state.reload_count || 0) < MAX_RELOADS) {
-      const next = {
-        ...state,
-        reload_count: Number(state.reload_count || 0) + 1,
-        phase: 'reloaded',
-        reload_at: new Date().toISOString()
-      };
+      const next = { ...state, reload_count: Number(state.reload_count || 0) + 1, phase: 'reloaded', reload_at: new Date().toISOString() };
       writeRecoveryState(next);
-      await report('chatgpt_recovery', {
-        phase: 'reloading',
-        operation_id: operationId,
-        recovery_action: 'reload_page',
-        reload_count: next.reload_count,
-        generation_timeout_ms: GENERATION_TIMEOUT_MS
-      });
+      await report('chatgpt_recovery', { phase: 'reloading', operation_id: operationId, recovery_action: 'reload_page', reload_count: next.reload_count, generation_timeout_ms: GENERATION_TIMEOUT_MS });
       location.reload();
       return true;
     }
@@ -229,7 +237,7 @@
     if (!operationId) return;
 
     const current = await operation(operationId);
-    if (current?.status === 'completed') {
+    if (current?.status === 'completed' || current?.status === 'failed' || current?.status === 'cancelled') {
       clearRecoveryState();
       return;
     }
@@ -252,43 +260,23 @@
 
     const reloadAt = Date.parse(String(state.reload_at || ''));
     if (Number.isFinite(reloadAt) && Date.now() - reloadAt < RECOVERY_GRACE_MS) {
-      await report('chatgpt_recovery', {
-        phase: 'grace_wait',
-        operation_id: operationId,
-        recovery_action: 'wait_after_reload',
-        grace_remaining_ms: RECOVERY_GRACE_MS - (Date.now() - reloadAt)
-      });
+      await report('chatgpt_recovery', { phase: 'grace_wait', operation_id: operationId, recovery_action: 'wait_after_reload', grace_remaining_ms: RECOVERY_GRACE_MS - (Date.now() - reloadAt) });
       return;
     }
 
     const reason = replacementReason();
     if (!reason) {
-      await report('chatgpt_recovery', {
-        phase: 'preserve_current_chat',
-        operation_id: operationId,
-        recovery_action: 'preserve_current_chat',
-        reason: 'no_verified_usage_or_context_exhaustion'
-      });
+      await report('chatgpt_recovery', { phase: 'preserve_current_chat', operation_id: operationId, recovery_action: 'preserve_current_chat', reason: 'no_verified_usage_or_context_exhaustion' });
       await markRetryableFailure(operationId, 'PASI_NATIVE: browser page reloaded during operation; no verified usage/context exhaustion; current chat preserved for bounded retry.');
       clearRecoveryState();
       return;
     }
 
     try {
-      await report('chatgpt_recovery', {
-        phase: 'preparing_new_chat',
-        operation_id: operationId,
-        recovery_action: 'queue_new_chat',
-        replacement_reason: reason
-      });
+      await report('chatgpt_recovery', { phase: 'preparing_new_chat', operation_id: operationId, recovery_action: 'queue_new_chat', replacement_reason: reason });
       await queueNewChat();
       await markRetryableFailure(operationId, `CHAT_RECOVERED_RETRY: verified ${reason}; a fresh ChatGPT conversation was prepared for the same task.`);
-      await report('chatgpt_recovery', {
-        phase: 'ready_for_retry',
-        operation_id: operationId,
-        recovery_action: 'fresh_chat_prepared',
-        replacement_reason: reason
-      });
+      await report('chatgpt_recovery', { phase: 'ready_for_retry', operation_id: operationId, recovery_action: 'fresh_chat_prepared', replacement_reason: reason });
     } catch (error) {
       await markRetryableFailure(operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}`);
       await report('chatgpt_recovery', { phase: 'failed', operation_id: operationId, recovery_action: 'retry_runner', error: String(error?.message || error) });
@@ -311,14 +299,7 @@
     const startedAt = current.created_at || current.updated_at || new Date().toISOString();
     const startedMs = Date.parse(startedAt);
     if (!Number.isFinite(startedMs)) return;
-    const stateForTimer = {
-      operation_id: operationId,
-      started_ms: startedMs,
-      baseline: fingerprint(),
-      reload_count: 0,
-      phase: 'monitoring'
-    };
-
+    const stateForTimer = { operation_id: operationId, started_ms: startedMs, baseline: fingerprint(), reload_count: 0, phase: 'monitoring' };
     const age = Date.now() - startedMs;
     if (age < RECOVERY_TRIGGER_MS && !connectionFailure()) return;
     await preserveOrReload(operationId, stateForTimer);
