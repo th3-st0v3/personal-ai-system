@@ -6,6 +6,7 @@ const test = require('node:test');
 const root = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
+const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
@@ -17,6 +18,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js']);
 });
 
 test('native content controller uses standard fetch instead of GM APIs', () => {
@@ -33,6 +35,17 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /localStorage/);
   assert.match(content, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
+});
+
+test('activity indicator is isolated, non-interactive, and reduced-motion aware', () => {
+  assert.match(activity, /pasi-activity-indicator/);
+  assert.match(activity, /attachShadow\(\{ mode: 'closed' \}\)/);
+  assert.match(activity, /pointer-events: none/);
+  assert.match(activity, /prefers-reduced-motion: reduce/);
+  assert.match(activity, /PASI · Thinking/);
+  assert.match(activity, /PASI · Working/);
+  assert.match(activity, /PASI · Finishing/);
+  assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
 test('background service worker performs bounded stale-tab recovery', () => {
