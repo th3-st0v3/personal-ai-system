@@ -7,8 +7,8 @@ TERMINAL_OPERATION_STATUSES: Final[frozenset[str]] = frozenset({"completed", "fa
 
 _ALLOWED_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
     "queued": frozenset({"claimed", "failed"}),
-    "claimed": frozenset({"generating", "completed", "failed"}),
-    "generating": frozenset({"generating", "completed", "failed"}),
+    "claimed": frozenset({"generating", "completed", "failed", "queued"}),
+    "generating": frozenset({"generating", "completed", "failed", "queued"}),
     "completed": frozenset(),
     "failed": frozenset(),
 }
