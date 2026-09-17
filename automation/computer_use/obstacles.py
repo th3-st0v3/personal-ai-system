@@ -10,7 +10,8 @@ from typing import Any, Mapping
 
 MAX_DETAIL_CHARS = 4_000
 MAX_OBSTACLE_LOG_BYTES = 2_000_000
-_REDACT_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._-]+|(api[_ -]?key\s*[=:]\s*|token\s*[=:]\s*)\S+")
+_REDACT_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._-]+|(api[_ -]?key\s*[=:]\s*|token\s*[=:]\s*|password\s*[=:]\s*)\S+")
+_SENSITIVE_KEYS = re.compile(r"(?i)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|secret|authorization|credential|private[_ -]?key)")
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,11 @@ def _redact(value: Any) -> Any:
         text = value[:MAX_DETAIL_CHARS]
         return _REDACT_RE.sub(lambda match: (match.group(1) or "") + "[redacted]", text)
     if isinstance(value, Mapping):
-        return {str(key): _redact(item) for key, item in list(value.items())[:50]}
+        result: dict[str, Any] = {}
+        for key, item in list(value.items())[:50]:
+            safe_key = str(key)
+            result[safe_key] = "[redacted]" if _SENSITIVE_KEYS.search(safe_key) else _redact(item)
+        return result
     if isinstance(value, list):
         return [_redact(item) for item in value[:50]]
     return value
