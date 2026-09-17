@@ -153,6 +153,17 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.chat_url, "https://chatgpt.com/c/abc")
         self.assertFalse(response.chat_exhausted)
 
+    def test_failed_prompt_recovers_verified_browser_response_after_completion_ack_loss(self) -> None:
+        transport = FakeTransport([
+            {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "PASI_NATIVE: bridge completion failed: HTTP 502"}},
+            {"observation": {"data": {"kind": "chatgpt_response", "chat_url": "https://chatgpt.com/c/abc", "response_text": "answer survived acknowledgement failure", "response_text_available": True}}},
+        ])
+        response = ChatGPTAdapter(transport, session_id="session-1").read_operation("op-1")
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "answer survived acknowledgement failure")
+        self.assertEqual(response.chat_url, "https://chatgpt.com/c/abc")
+
     def test_failed_prompt_exposes_chat_exhaustion(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "CHAT_EXHAUSTED: usage limit"}}])
         response = ChatGPTAdapter(transport, session_id="session-1").read_operation("op-1")
