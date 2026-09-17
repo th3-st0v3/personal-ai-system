@@ -149,6 +149,7 @@ class BridgeState:
         observation: dict[str, Any],
     ) -> dict[str, Any]:
         with self.lock:
+            self._persist_verified_response_observation(observation)
             self.state_manager.save_browser_results(
                 observation
             )
@@ -204,6 +205,41 @@ class BridgeState:
                 "counts": counts,
             }
 
+    def _persist_verified_response_observation(
+        self,
+        observation: dict[str, Any],
+    ) -> None:
+        data = observation.get("data")
+        if not isinstance(data, dict) or data.get("kind") != "chatgpt_response":
+            return
+
+        operation_id = data.get("active_operation_id")
+        response_text = data.get("response_text")
+        response_text_available = data.get("response_text_available")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            return
+        if not isinstance(response_text, str) or len(response_text) > MAX_RESPONSE_TEXT_CHARS:
+            return
+        if response_text_available is not True or not response_text.strip():
+            return
+
+        queue = self.state_manager.load_queue()
+        for item in queue:
+            if item.get("operation_id") != operation_id:
+                continue
+            if item.get("operation_type") != "prompt":
+                return
+
+            item["response_text"] = response_text
+            item["response_text_available"] = True
+            chat_url = data.get("chat_url")
+            if isinstance(chat_url, str):
+                item["chat_url"] = chat_url
+            item["response_source"] = "browser_observation"
+            item["response_observed_at"] = observation.get("captured_at", time.time())
+            self.state_manager.save_queue(queue)
+            return
+
     def _retry_operation(
         self,
         operation_id: str,
@@ -218,6 +254,19 @@ class BridgeState:
 
                 current_status = str(item.get("status", ""))
                 retry_count = int(item.get("retry_count", 0) or 0)
+
+                if (
+                    item.get("operation_type") == "prompt"
+                    and item.get("response_text_available") is True
+                    and isinstance(item.get("response_text"), str)
+                    and bool(str(item.get("response_text")).strip())
+                ):
+                    validate_transition(current_status, "completed")
+                    item["status"] = "completed"
+                    item["completion_recovery_reason"] = "browser_response_observation_after_transient_failure"
+                    item["recovery_error"] = error[:MAX_ERROR_CHARS]
+                    self.state_manager.save_queue(queue)
+                    return item
 
                 if retry_count >= MAX_TRANSIENT_FAILURE_RETRIES:
                     validate_transition(current_status, "failed")
