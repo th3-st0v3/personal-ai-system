@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from automation.computer_use.contracts import ActionProposal, Observation
 
 
-VerificationStatus = str
+VerificationStatus = Literal["verified", "failed", "inconclusive"]
 
 
 @dataclass(frozen=True)
