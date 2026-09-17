@@ -112,7 +112,6 @@
         if (operation.operation_type === 'attach_github') {
             await attachGitHubContext(operation.prompt);
             githubAttached = true;
-            reasoningMode = null;
             await reportFinished(operation.operation_id, false);
             await reportChatState();
             return;
@@ -158,9 +157,7 @@
 
     async function selectReasoningMode(mode) {
         mode = normalize(mode || 'thinking');
-        if (mode !== 'thinking' && mode !== 'think') {
-            throw new Error('Unsupported ChatGPT reasoning mode: ' + mode);
-        }
+        if (mode !== 'thinking' && mode !== 'think') throw new Error('Unsupported ChatGPT reasoning mode: ' + mode);
         var direct = findReasoningControl();
         if (!direct) {
             var plus = await waitForPlusControl();
@@ -175,10 +172,7 @@
     }
 
     function findReasoningControl() {
-        return findVisibleLabeledAny(
-            ['thinking', 'think', 'thinking mode'],
-            ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]', 'a']
-        );
+        return findVisibleLabeledAny(['thinking', 'think', 'thinking mode'], ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]', 'a']);
     }
 
     async function waitForReasoningControl() {
@@ -209,9 +203,7 @@
         await sleep(500);
         var picker = await waitForRepositoryPicker();
         if (picker) await selectGitHubRepository(picker, repository);
-        if (isGitHubConnectionFailureVisible()) {
-            throw new Error('GitHub repository access is unavailable.');
-        }
+        if (isGitHubConnectionFailureVisible()) throw new Error('GitHub repository access is unavailable.');
         githubAttached = true;
     }
 
@@ -246,10 +238,7 @@
             'button[title*="Attach"]',
             '[role="button"][aria-label*="Add files"]',
             '[role="button"][aria-label*="Attach"]'
-        ]) || findVisibleLabeledAny(
-            ['add files and more', 'add files', 'attach', 'more'],
-            ['button', '[role="button"]']
-        );
+        ]) || findVisibleLabeledAny(['add files and more', 'add files', 'attach', 'more'], ['button', '[role="button"]']);
     }
 
     async function waitForGitHubControl() {
@@ -263,10 +252,7 @@
     }
 
     function findGitHubControl() {
-        return findVisibleLabeledAny(
-            ['github'],
-            ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]', 'a']
-        );
+        return findVisibleLabeledAny(['github'], ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]', 'a']);
     }
 
     async function waitForRepositoryPicker() {
@@ -333,7 +319,6 @@
         if (!response) throw new Error('ChatGPT response could not be extracted from the page.');
         await reportResponseObservation(response);
         await reportFinished(operation.operation_id, true);
-        await reportChatState();
         console.log('[PASI] Operation completed with verified response:', operation.operation_id);
     }
 
@@ -348,13 +333,7 @@
     }
 
     function findComposer() {
-        return firstVisible([
-            '#prompt-textarea',
-            'textarea[data-id="root"]',
-            'textarea',
-            '[contenteditable="true"][role="textbox"]',
-            '[contenteditable="true"]'
-        ]);
+        return firstVisible(['#prompt-textarea', 'textarea[data-id="root"]', 'textarea', '[contenteditable="true"][role="textbox"]', '[contenteditable="true"]']);
     }
 
     async function waitForSendButton() {
@@ -368,12 +347,7 @@
     }
 
     function findSendButton() {
-        return firstVisible([
-            'button[data-testid="send-button"]',
-            'button[aria-label="Send prompt"]',
-            'button[aria-label="Send message"]',
-            'button[type="submit"]'
-        ], true) || findVisibleLabeledAny(['send prompt', 'send message', 'send'], ['button', '[role="button"]'], true);
+        return firstVisible(['button[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]', 'button[type="submit"]'], true) || findVisibleLabeledAny(['send prompt', 'send message', 'send'], ['button', '[role="button"]'], true);
     }
 
     async function submitPrompt(expected, initialButton) {
@@ -427,10 +401,7 @@
     }
 
     function extractLatestAssistantResponse() {
-        var selectors = [
-            '[data-message-author-role="assistant"]',
-            'main article'
-        ];
+        var selectors = ['[data-message-author-role="assistant"]', 'main article'];
         for (var s = 0; s < selectors.length; s += 1) {
             var nodes = document.querySelectorAll(selectors[s]);
             for (var i = nodes.length - 1; i >= 0; i -= 1) {
@@ -462,16 +433,9 @@
     function isChatExhaustedVisible() {
         var text = normalize(document.body ? document.body.innerText : '');
         var markers = [
-            'you\'ve reached your limit',
-            'you’ve reached your limit',
-            'you have reached your limit',
-            'you\'ve reached your current usage limit',
-            'you’ve reached your current usage limit',
-            'current usage limit',
-            'message limit reached',
-            'usage limit reached',
-            'come back later',
-            'try again later'
+            'you\'ve reached your limit', 'you’ve reached your limit', 'you have reached your limit',
+            'you\'ve reached your current usage limit', 'you’ve reached your current usage limit',
+            'current usage limit', 'message limit reached', 'usage limit reached', 'come back later'
         ];
         for (var i = 0; i < markers.length; i += 1) {
             if (text.indexOf(markers[i]) !== -1) return true;
@@ -481,29 +445,23 @@
 
     function isGitHubConnectionFailureVisible() {
         var text = normalize(document.body ? document.body.innerText : '');
-        return text.indexOf('github needs to be connected') !== -1 ||
-            text.indexOf('connect github') !== -1 ||
-            text.indexOf('github is unavailable') !== -1 ||
-            text.indexOf('github connection failed') !== -1 ||
-            text.indexOf('no github repositories') !== -1;
+        return text.indexOf('github needs to be connected') !== -1 || text.indexOf('connect github') !== -1 || text.indexOf('github is unavailable') !== -1 || text.indexOf('github connection failed') !== -1 || text.indexOf('no github repositories') !== -1;
     }
 
     async function reportResponseObservation(responseText) {
         await bridgeRequest('/browser/observation', {
             method: 'POST',
-            body: {
-                observation: {
-                    schema_version: 'chatgpt-controller-v2',
-                    captured_at: new Date().toISOString(),
-                    data: {
-                        kind: 'chatgpt_response',
-                        chat_url: window.location.href,
-                        response_text: responseText.slice(0, 50000),
-                        response_text_available: true,
-                        chat_exhausted: false
-                    }
+            body: { observation: {
+                schema_version: 'chatgpt-controller-v2',
+                captured_at: new Date().toISOString(),
+                data: {
+                    kind: 'chatgpt_response',
+                    chat_url: window.location.href,
+                    response_text: responseText.slice(0, 50000),
+                    response_text_available: true,
+                    chat_exhausted: false
                 }
-            }
+            } }
         });
     }
 
@@ -511,19 +469,17 @@
         try {
             await bridgeRequest('/browser/observation', {
                 method: 'POST',
-                body: {
-                    observation: {
-                        schema_version: 'chatgpt-controller-state-v2',
-                        captured_at: new Date().toISOString(),
-                        data: {
-                            kind: 'chatgpt_state',
-                            chat_url: isChatUrl(window.location.href) ? window.location.href : null,
-                            chat_exhausted: isChatExhaustedVisible(),
-                            github_attached: githubAttached || githubContextAlreadyAttached(),
-                            reasoning_mode: reasoningMode
-                        }
+                body: { observation: {
+                    schema_version: 'chatgpt-controller-state-v2',
+                    captured_at: new Date().toISOString(),
+                    data: {
+                        kind: 'chatgpt_state',
+                        chat_url: isChatUrl(window.location.href) ? window.location.href : null,
+                        chat_exhausted: isChatExhaustedVisible(),
+                        github_attached: githubAttached || githubContextAlreadyAttached(),
+                        reasoning_mode: reasoningMode
                     }
-                }
+                } }
             });
         } catch (error) {
             console.warn('[PASI] Could not report ChatGPT state:', error);
@@ -533,24 +489,14 @@
     async function reportFinished(operationId, responseObserved) {
         var response = await bridgeRequest('/chat/finished', {
             method: 'POST',
-            body: {
-                operation_id: operationId,
-                chat_url: window.location.href,
-                response_text_available: Boolean(responseObserved)
-            }
+            body: { operation_id: operationId, chat_url: window.location.href, response_text_available: Boolean(responseObserved) }
         });
         if (!response.ok) throw new Error('Bridge completion failed: HTTP ' + response.status);
     }
 
     async function reportFailure(operationId, error) {
         try {
-            await bridgeRequest('/chat/failed', {
-                method: 'POST',
-                body: {
-                    operation_id: operationId,
-                    error: error instanceof Error ? error.message : String(error)
-                }
-            });
+            await bridgeRequest('/chat/failed', { method: 'POST', body: { operation_id: operationId, error: error instanceof Error ? error.message : String(error) } });
             await reportChatState();
         } catch (reportError) {
             console.error('[PASI] Failed to report operation failure:', reportError);
@@ -560,8 +506,7 @@
     function requestFormSubmit(composer) {
         var form = composer.closest('form');
         if (form && typeof form.requestSubmit === 'function') {
-            try { form.requestSubmit(findSendButton() || undefined); return true; }
-            catch (error) { return false; }
+            try { form.requestSubmit(findSendButton() || undefined); return true; } catch (error) { return false; }
         }
         return false;
     }
@@ -574,10 +519,7 @@
         element.dispatchEvent(new KeyboardEvent('keyup', init));
     }
 
-    function clearComposer(element) {
-        element.focus();
-        setTextControl(element, '');
-    }
+    function clearComposer(element) { element.focus(); setTextControl(element, ''); }
 
     function insertText(element, text) {
         element.focus();
@@ -626,29 +568,10 @@
         return isTextControl(element) ? String(element.value || '') : String(element.innerText || element.textContent || '');
     }
 
-    function isTextControl(element) {
-        return Boolean(element) && (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT');
-    }
-
-    function setTextControlValue(element, value) {
-        setNativeValue(element, value);
-    }
-
-    function isGenerating() {
-        return Boolean(firstVisible([
-            'button[data-testid="stop-button"]',
-            'button[aria-label="Stop generating"]',
-            'button[aria-label*="Stop"]'
-        ]));
-    }
-
-    function isRepositoryName(repository) {
-        return /^[^/\s]+\/[^/\s]+$/.test(repository);
-    }
-
-    function isChatUrl(url) {
-        return /^https:\/\/chatgpt\.com\/c\//.test(String(url || ''));
-    }
+    function isTextControl(element) { return Boolean(element) && (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT'); }
+    function isGenerating() { return Boolean(firstVisible(['button[data-testid="stop-button"]', 'button[aria-label="Stop generating"]', 'button[aria-label*="Stop"]'])); }
+    function isRepositoryName(repository) { return /^[^/\s]+\/[^/\s]+$/.test(repository); }
+    function isChatUrl(url) { return /^https:\/\/chatgpt\.com\/c\//.test(String(url || '')); }
 
     function firstVisible(selectors, requireEnabled) {
         for (var i = 0; i < selectors.length; i += 1) {
@@ -660,9 +583,7 @@
         return null;
     }
 
-    function findVisibleLabeled(label, selectors) {
-        return findVisibleLabeledAny([label], selectors, false);
-    }
+    function findVisibleLabeled(label, selectors) { return findVisibleLabeledAny([label], selectors, false); }
 
     function findVisibleLabeledAny(labels, selectors, requireEnabled) {
         var needles = labels.map(normalize);
@@ -695,25 +616,13 @@
         return [aria, title, labelledText, element.textContent || ''].filter(Boolean).join(' ').trim();
     }
 
-    function normalize(value) {
-        return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    }
-
-    function cleanLongText(value) {
-        return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 50000);
-    }
-
+    function normalize(value) { return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+    function cleanLongText(value) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 50000); }
     function isVisible(element) {
         if (!element) return false;
         var style = window.getComputedStyle(element);
         return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.getClientRects().length > 0;
     }
-
-    function isDisabled(element) {
-        return Boolean(element) && (element.disabled === true || element.getAttribute('disabled') !== null || element.getAttribute('aria-disabled') === 'true');
-    }
-
-    function sleep(milliseconds) {
-        return new Promise(function (resolve) { setTimeout(resolve, milliseconds); });
-    }
+    function isDisabled(element) { return Boolean(element) && (element.disabled === true || element.getAttribute('disabled') !== null || element.getAttribute('aria-disabled') === 'true'); }
+    function sleep(milliseconds) { return new Promise(function (resolve) { setTimeout(resolve, milliseconds); }); }
 })();
