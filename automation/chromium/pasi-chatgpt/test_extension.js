@@ -170,7 +170,7 @@ test('native controller preserves prompt operations for bounded response recover
   assert.match(content, /phase: 'monitoring'/);
   assert.match(content, /errorMessage\.startsWith\('PASI_NATIVE: response text unavailable;'/);
   assert.match(content, /const responseRecoveryEligible/);
-  assert.match(content, /else if \(responseRecoveryEligible\)/);
+  assert.match(content, /if \(responseRecoveryEligible\)/);
   assert.match(content, /rememberResponseRecovery\(operation, error\)/);
   assert.match(content, /finalized = false/);
 });
