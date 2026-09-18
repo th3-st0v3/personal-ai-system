@@ -450,7 +450,7 @@ def main() -> int:
             print(f"Resuming persisted ChatGPT operation: {prompt_operation}")
         else:
             prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
-            handoff.update({"active_operation_id": prompt_operation, "active_task_fingerprint": task_fingerprint(task)})
+            handoff.update({"active_operation_id": prompt_operation, "active_task_fingerprint": task_fingerprint(task), "active_operation_chat_url": handoff.get("chat_url")})
             save_handoff(handoff)
             print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
@@ -515,6 +515,7 @@ def main() -> int:
         handoff["chat_url"] = latest_chat_url
     handoff.pop("active_operation_id", None)
     handoff.pop("active_task_fingerprint", None)
+    handoff.pop("active_operation_chat_url", None)
     handoff.update({"chat_exhausted": response.chat_exhausted, "summary": summary, "controller_update_signal": update_signal})
     save_handoff(handoff)
     return 0 if response_capture_succeeded(response) else 1
