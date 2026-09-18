@@ -298,7 +298,8 @@
       response_text: responseText,
       response_text_available: Boolean(responseText),
       conversation_context_exhausted: contextExhausted(),
-      chat_exhausted: contextExhausted()
+      chat_exhausted: contextExhausted(),
+      active_operation_id: activeOperationId
     });
     const response = await bridge('/chat/finished', {
       method: 'POST',
