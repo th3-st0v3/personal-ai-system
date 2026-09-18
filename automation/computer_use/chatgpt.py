@@ -162,6 +162,11 @@ class ChatGPTAdapter(AIAdapter):
         payload = self.transport.request("GET", "/browser/observation")
         observation = payload.get("observation")
         return observation if isinstance(observation, Mapping) else None
+    def read_browser_response_observation(self) -> Mapping[str, Any] | None:
+        """Read the durable response record instead of the latest transient state."""
+        payload = self.transport.request("GET", "/browser/response")
+        observation = payload.get("observation")
+        return observation if isinstance(observation, Mapping) else None
 
     def wait_for_completion(
         self,
@@ -234,7 +239,7 @@ class ChatGPTAdapter(AIAdapter):
                 if attempt:
                     time.sleep(min(self.poll_interval_seconds, 0.25))
                 try:
-                    observation = self.read_browser_observation()
+                    observation = self.read_browser_response_observation()
                 except ChatGPTAdapterError:
                     continue
                 data = observation.get("data") if isinstance(observation, Mapping) else None
