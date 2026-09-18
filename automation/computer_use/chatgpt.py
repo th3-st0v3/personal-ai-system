@@ -240,7 +240,12 @@ class ChatGPTAdapter(AIAdapter):
         should_check_observation = operation.get("operation_type") == "prompt" and not response_available and (completion == "complete" or completion_ack_lost)
 
         if should_check_observation:
-            # Durable response persistence can lag the completion acknowledgement by a\n            # short scheduling interval. Recheck boundedly for every completed prompt,\n            # not only when the acknowledgement itself was lost. This never resubmits\n            # the prompt or creates a chat and remains fail-closed on missing evidence.\n            attempts = BROWSER_RESPONSE_RECHECK_ATTEMPTS\n            for attempt in range(attempts):
+            # Durable response persistence can lag the completion acknowledgement by a
+            # short scheduling interval. Recheck boundedly for every completed prompt,
+            # not only when the acknowledgement itself was lost. This never resubmits
+            # the prompt or creates a chat and remains fail-closed on missing evidence.
+            attempts = BROWSER_RESPONSE_RECHECK_ATTEMPTS
+            for attempt in range(attempts):
                 if attempt:
                     time.sleep(BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS)
                 try:
