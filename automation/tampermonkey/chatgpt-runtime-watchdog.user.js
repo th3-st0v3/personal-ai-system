@@ -12,7 +12,7 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var INTERVAL_MS = 5000;
+    var INTERVAL_MS = 20000;
     var MAX_BODY_CHARS = 12000;
     var CONTEXT_MARKERS = [
         'conversation has reached its limit',
