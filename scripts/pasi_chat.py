@@ -16,6 +16,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from automation.computer_use.chatgpt import ChatGPTAdapter, UrllibBridgeTransport
+from automation.computer_use.contracts import AIResponse
 from automation.orchestrator.controller_update import evaluate_controller_update, read_last_synced_version, write_update_request
 
 RUNTIME_DIR = REPOSITORY_ROOT / ".runtime" / "chatgpt"
@@ -238,7 +239,7 @@ def wait_for_browser_controller(
     raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
 
 
-def repair_response_capture(adapter: ChatGPTAdapter, response: object) -> object:
+def repair_response_capture(adapter: ChatGPTAdapter, response: AIResponse) -> AIResponse:
     """Perform one bounded second read when completion succeeded without text."""
     if getattr(response, "completion", None) != "complete" or getattr(response, "response_available", False):
         return response
