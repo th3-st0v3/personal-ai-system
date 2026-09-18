@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
+from automation.computer_use.contracts import AIResponse
 from scripts.pasi_chat import (
     PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL,
     PUBLIC_REPOSITORY_URL,
@@ -16,6 +17,7 @@ from scripts.pasi_chat import (
     public_github_context_unavailable,
     route_chat,
     wait_for_browser_controller,
+    repair_response_capture,
 )
 
 
@@ -93,6 +95,37 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(public_github_context_unavailable("PASI_PUBLIC_GITHUB_UNAVAILABLE: true"))
         self.assertTrue(public_github_context_unavailable("I can't access the GitHub repository"))
         self.assertFalse(public_github_context_unavailable("I reviewed the GitHub repository and found the bug."))
+
+    def test_repair_response_capture_retries_once_without_resending_prompt(self) -> None:
+        class Adapter:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def read_response(self) -> AIResponse:
+                self.calls += 1
+                return AIResponse(
+                    response_id="response-1",
+                    session_id="session-1",
+                    provider="chatgpt",
+                    operation_id="op-1",
+                    text="recovered response",
+                    completion="complete",
+                    response_available=True,
+                )
+
+        initial = AIResponse(
+            response_id="response-0",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-1",
+            text="",
+            completion="complete",
+            response_available=False,
+        )
+        adapter = Adapter()
+        repaired = repair_response_capture(adapter, initial)
+        self.assertEqual(repaired.text, "recovered response")
+        self.assertEqual(adapter.calls, 1)
 
     def test_controller_update_signal_requires_explicit_structured_signal(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
