@@ -196,6 +196,15 @@
           }
         });
         if (finished.ok) return true;
+        const acknowledged = await operation(operationId);
+        if (
+          acknowledged?.status === 'completed' &&
+          acknowledged?.response_text_available === true &&
+          typeof acknowledged?.response_text === 'string' &&
+          Boolean(acknowledged.response_text.trim())
+        ) {
+          return true;
+        }
         lastError = new Error(`bridge completion failed: HTTP ${finished.status}`);
       } catch (error) {
         lastError = error;
