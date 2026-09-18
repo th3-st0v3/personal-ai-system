@@ -339,6 +339,15 @@ def route_chat(
     repository: str,
     github_mode: str,
 ) -> tuple[dict[str, object], str | None]:
+    # A persisted exact-task operation means the prompt was already queued.
+    # Resume it before any routing/replacement logic can create a new chat.
+    pending_operation = pending_operation_for_task(handoff, task)
+    if pending_operation:
+        known_url = valid_chat_url(handoff.get("chat_url"))
+        if known_url:
+            print(f"Resuming persisted ChatGPT operation: {pending_operation}")
+        return handoff, known_url
+
     state = browser_state(adapter)
     observed_url = valid_chat_url(state.get("chat_url"))
     known_url = valid_chat_url(handoff.get("chat_url"))
