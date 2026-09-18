@@ -83,7 +83,7 @@
 
   function securityChallenge() {
     const text = normalize(document.body?.innerText || '');
-    return ['verify you\\'re human', 'captcha', 'cloudflare', 'security check', 'turnstile', 'session has expired', 'log in to continue', 'sign in to continue'].some((marker) => text.includes(marker));
+    return ["verify you're human", 'captcha', 'cloudflare', 'security check', 'turnstile', 'session has expired', 'log in to continue', 'sign in to continue'].some((marker) => text.includes(marker));
   }
 
   function connectionFailure() {

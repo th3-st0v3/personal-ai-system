@@ -392,6 +392,10 @@ def route_chat(
         operation_id = adapter.new_session()
         print(f"New chat operation: {operation_id}")
         replacement_url = valid_chat_url(getattr(adapter, "last_chat_url", None))
+        if replacement_url == known_url:
+            # Never accept the previous conversation identity as proof that a
+            # replacement chat was created. Reconcile by the exact new-chat operation.
+            replacement_url = None
         if replacement_url is None:
             replacement_url = recover_replacement_chat_url(adapter, operation_id)
         if replacement_url:

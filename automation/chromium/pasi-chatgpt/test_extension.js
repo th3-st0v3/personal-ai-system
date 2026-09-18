@@ -41,7 +41,7 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /const operation = payload\?\.operation;/);
   assert.match(content, /if \(operation\.status === 'completed'\)/);
   assert.match(content, /typeof operation\.response_text === 'string'/);
-  assert.match(content, /operation\.response_text_available === true/);
+  assert.match(content, /payload\?\.operation\?\.response_text_available === true/);
   assert.match(content, /Boolean\(responseText\.trim\(\)\)/);
   assert.match(content, /await finishOperation\(stored\.operation_id, responseText, true\)/);
   assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
@@ -108,7 +108,7 @@ test('native recovery companion preserves response text without blocking complet
   assert.match(recovery, /CHAT_RECOVERED_RETRY/);
   assert.match(recovery, /operation_type: 'new_chat'/);
   assert.match(recovery, /response_text: bounded/);
-  assert.match(recovery, /void report\('chatgpt_response'/);
+  assert.match(recovery, /await report\('chatgpt_response'/);
   assert.match(recovery, /current\.status === 'failed'/);
 });
 
@@ -234,6 +234,6 @@ test('background watchdog rate-limits missing-tab recreation after browser creat
 
 test('background watchdog clears a stale creation cooldown after the exact tab is restored', () => {
   assert.match(background, /if \(!matchingTab\) \{/);
-  assert.match(background, /await chrome\.storage\.local\.remove\(`create:\$\{targetChatUrl\}`);/);
+  assert.match(background, /await chrome\.storage\.local\.remove\(`create:\$\{targetChatUrl\}`\);/);
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });

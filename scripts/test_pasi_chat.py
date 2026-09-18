@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import tempfile
 import unittest
+from typing import cast
 from pathlib import Path
 
 from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
 from automation.computer_use.contracts import AIResponse
+from automation.computer_use.chatgpt import ChatGPTAdapter
 from scripts.pasi_chat import (
     PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL,
     PUBLIC_REPOSITORY_URL,
@@ -178,7 +180,10 @@ class TestPasiChat(unittest.TestCase):
         handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
         self.assertEqual(known_url, "https://chatgpt.com/c/new")
         self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/new")
-        self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
+        history = handoff.get("chat_url_history")
+        assert isinstance(history, list)
+        assert history and isinstance(history[-1], dict)
+        self.assertEqual(history[-1]["reason"], "verified_new_chat_session")
 
     def test_new_session_reconciles_delayed_replacement_chat_identity(self) -> None:
         adapter = DelayedReplacementURLChatAdapter({
@@ -191,7 +196,10 @@ class TestPasiChat(unittest.TestCase):
         handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
         self.assertEqual(known_url, "https://chatgpt.com/c/delayed")
         self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/delayed")
-        self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
+        history = handoff.get("chat_url_history")
+        assert isinstance(history, list)
+        assert history and isinstance(history[-1], dict)
+        self.assertEqual(history[-1]["reason"], "verified_new_chat_session")
 
     def test_new_session_does_not_reuse_stale_chat_identity(self) -> None:
         adapter = StaleReplacementURLChatAdapter({
@@ -204,7 +212,10 @@ class TestPasiChat(unittest.TestCase):
         handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
         self.assertIsNone(known_url)
         self.assertIsNone(handoff["chat_url"])
-        self.assertFalse(any(entry.get("reason") == "verified_new_chat_session" for entry in handoff.get("chat_url_history", [])))
+        history = handoff.get("chat_url_history")
+        if not isinstance(history, list):
+            history = []
+        self.assertFalse(any(isinstance(entry, dict) and entry.get("reason") == "verified_new_chat_session" for entry in history))
 
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
@@ -264,7 +275,7 @@ class TestPasiChat(unittest.TestCase):
             response_available=False,
         )
         adapter = Adapter()
-        repaired = repair_response_capture(adapter, initial)
+        repaired = repair_response_capture(cast(ChatGPTAdapter, adapter), initial)
         self.assertEqual(repaired.text, "recovered response")
         self.assertEqual(adapter.calls, 1)
 

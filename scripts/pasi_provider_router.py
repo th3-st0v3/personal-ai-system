@@ -261,14 +261,26 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
         except urllib.error.HTTPError as exc:
             if provider == "openrouter" and exc.code == 429 and OPENROUTER_429_RETRY_MAX > 0:
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                try:
-                    delay = min(float(retry_after), OPENROUTER_429_MAX_DELAY) if retry_after is not None else None
-                except (TypeError, ValueError):
-                    delay = None
+                delay: float | None = None
+                if retry_after is not None:
+                    try:
+                        requested_delay = float(retry_after)
+                    except (TypeError, ValueError):
+                        requested_delay = None
+                    if requested_delay is not None and requested_delay > OPENROUTER_429_MAX_DELAY:
+                        # A provider asking for a delay longer than PASI's bounded
+                        # fallback window should not block the next provider.
+                        errors.append(
+                            f"{provider}: HTTP 429 Retry-After {requested_delay:g}s exceeds "
+                            f"the {OPENROUTER_429_MAX_DELAY:g}s retry bound"
+                        )
+                        continue
+                    if requested_delay is not None:
+                        delay = requested_delay
                 if delay is None:
-                    # Some rate-limit responses omit Retry-After. Use one short,
-                    # bounded retry rather than immediately abandoning the fallback
-                    # path, while still preserving the global timeout budget.
+                    # Some rate-limit responses omit or invalidate Retry-After. Use
+                    # one short, bounded retry rather than blocking the fallback path,
+                    # while still preserving the global timeout budget.
                     delay = 1.0
                 if delay >= 0:
                     remaining_after_delay = timeout - (time.monotonic() - started) - delay
