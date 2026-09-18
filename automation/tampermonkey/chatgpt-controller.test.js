@@ -7,8 +7,8 @@ const controllerPath = path.join(__dirname, 'chatgpt-controller.user.js');
 const source = fs.readFileSync(controllerPath, 'utf8');
 
 test('controller declares the current hardened version', () => {
-    assert.match(source, /@version\s+2\.4\.12/);
-    assert.match(source, /CONTROLLER_VERSION = ['"]2\.4\.12['"]/);
+    assert.match(source, /@version\s+2\.4\.11/);
+    assert.match(source, /CONTROLLER_VERSION = ['"]2\.4\.11['"]/);
 });
 
 test('controller supports conditional reasoning selection', () => {
