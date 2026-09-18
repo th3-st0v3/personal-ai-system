@@ -632,6 +632,18 @@
             // Keep the active marker so the next controller start can reconcile again.
             return;
           }
+        } else if (!generating()) {
+          const baseline = typeof stored?.baseline === 'string' ? stored.baseline : '';
+          const visibleResponse = latestAssistant();
+          const visibleFingerprint = fingerprint();
+          if (visibleResponse && visibleFingerprint !== baseline) {
+            try {
+              await finishOperation(stored.operation_id, visibleResponse, true);
+            } catch (_) {
+              // Keep the active marker so recovery.js can retry against the same operation.
+              return;
+            }
+          }
         }
         localStorage.removeItem(ACTIVE_KEY);
       } else if (operation.status === 'failed' || operation.status === 'cancelled') {
