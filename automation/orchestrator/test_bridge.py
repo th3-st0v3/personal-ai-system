@@ -5,6 +5,8 @@ from http.client import HTTPConnection, RemoteDisconnected
 
 import pytest
 
+from automation.orchestrator import bridge as bridge_module
+from automation.orchestrator.bridge import _bridge_access_log_should_emit
 from automation.orchestrator.bridge import BridgeHTTPServer, BridgeRequestHandler, BridgeState
 from automation.orchestrator.operation_lifecycle import InvalidOperationTransition
 from automation.orchestrator.state import StateManager
@@ -73,14 +75,17 @@ def post_queue(
     return response.status, body
 
 
-def test_bridge_suppresses_successful_http_access_log_noise(capsys: pytest.CaptureFixture[str]) -> None:
-    handler = object.__new__(BridgeRequestHandler)
+def test_bridge_module_resolves_from_repository() -> None:
+    assert Path(bridge_module.__file__).resolve() == (Path(__file__).parent / "bridge.py").resolve()
 
-    handler.log_message('"%s" %s %s', 'GET /health HTTP/1.1', '200', '42')
-    assert capsys.readouterr().out == ""
 
-    handler.log_message('"%s" %s %s', 'GET /health HTTP/1.1', '503', '42')
-    assert "[Bridge]" in capsys.readouterr().out
+def test_bridge_suppresses_successful_http_access_log_noise() -> None:
+    assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 200 42') is False
+    assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 204 0') is False
+    assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 304 0') is False
+    assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 400 42') is True
+    assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 503 42') is True
+    assert _bridge_access_log_should_emit('malformed access log') is True
 
 
 def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:

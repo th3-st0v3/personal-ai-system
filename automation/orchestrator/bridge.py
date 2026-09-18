@@ -532,6 +532,15 @@ class BridgeHTTPServer(ThreadingHTTPServer):
     bridge_state: BridgeState
 
 
+def _bridge_access_log_should_emit(message: str) -> bool:
+    """Return true only for non-success HTTP access responses."""
+    try:
+        status_code = int(message.rsplit(" ", 2)[-2])
+    except (ValueError, IndexError):
+        return True
+    return not (0 < status_code < 400)
+
+
 class BridgeRequestHandler(BaseHTTPRequestHandler):
     """
     Small localhost HTTP API consumed by the Tampermonkey
@@ -541,16 +550,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     """
 
     server_version = "PersonalAIChatBridge/1.0"
-
-    def log_message(self, format: str, *args: object) -> None:
-        """Keep successful request traffic out of the long-lived bridge log."""
-        try:
-            status_code = int(str(args[1])) if len(args) > 1 else 0
-        except (TypeError, ValueError):
-            status_code = 0
-        if 0 < status_code < 400:
-            return
-        print("[Bridge] " + format % args, flush=True)
 
     @property
     def bridge_state(self) -> BridgeState:
@@ -1262,10 +1261,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         format_string: str,
         *args: Any,
     ) -> None:
-        print(
-            "[Bridge] "
-            + format_string % args
-        )
+        """Keep successful request traffic out of the long-lived bridge log."""
+        message = format_string % args
+        if not _bridge_access_log_should_emit(message):
+            return
+        print("[Bridge] " + message, flush=True)
 
 
 class ChatGPTBridge:
