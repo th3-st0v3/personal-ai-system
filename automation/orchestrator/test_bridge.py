@@ -100,6 +100,56 @@ def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
     assert completed["response_text_available"] is True
 
 
+
+
+def test_completed_operation_repairs_response_after_state_observation_overwrites_latest(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "preserve response evidence")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+    bridge.heartbeat(operation.operation_id)
+
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:50:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/preserve",
+                "response_text": "response persisted before a later heartbeat",
+                "response_text_available": True,
+            },
+        }
+    )
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:50:01Z",
+            "data": {
+                "kind": "chatgpt_state",
+                "chat_url": "https://chatgpt.com/c/preserve",
+                "chat_exhausted": False,
+            },
+        }
+    )
+
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/preserve",
+    )
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["response_text_available"] is True
+    assert completed["response_text"] == "response persisted before a later heartbeat"
+
+    latest = bridge.get_operation(operation.operation_id)
+    assert latest is not None
+    assert latest["response_text_available"] is True
+    assert latest["response_text"] == "response persisted before a later heartbeat"
+    assert latest["response_source"] == "browser_observation"
+
+
 def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("test", "empty")
