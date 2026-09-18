@@ -378,9 +378,11 @@
       return;
     }
 
+    // Never finalize a response while ChatGPT is still generating; the DOM can
+    // expose a partial assistant message during reload/recovery races.
     const response = latestAssistant();
     const currentFingerprint = fingerprint();
-    if (response && currentFingerprint !== String(state.baseline || '')) {
+    if (!generating() && response && currentFingerprint !== String(state.baseline || '')) {
       if (await finishExisting(operationId, response, typeof current.chat_url === 'string' ? current.chat_url : '')) {
         clearRecoveryState();
         return true;
