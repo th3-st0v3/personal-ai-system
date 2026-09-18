@@ -75,11 +75,13 @@ class TestProviderRouter(unittest.TestCase):
         def fake_openrouter(prompt: str, timeout: float) -> str:
             calls.append(timeout)
             if len(calls) == 1:
+                headers = Message()
+                headers["Retry-After"] = "1"
                 raise urllib.error.HTTPError(
                     "https://openrouter.ai/api/v1/chat/completions",
                     429,
                     "rate limited",
-                    Message({"Retry-After": "1"}),
+                    headers,
                     None,
                 )
             return "retry response"
@@ -151,11 +153,13 @@ class TestProviderRouter(unittest.TestCase):
     def test_openrouter_429_does_not_sleep_past_fallback_budget(self) -> None:
         import urllib.error
 
+        headers = Message()
+        headers["Retry-After"] = "30"
         error = urllib.error.HTTPError(
             "https://openrouter.ai/api/v1/chat/completions",
             429,
             "rate limited",
-            Message({"Retry-After": "30"}),
+            headers,
             None,
         )
         with patch.object(pasi_provider_router, "providers_available", return_value=["openrouter", "ollama"]):
