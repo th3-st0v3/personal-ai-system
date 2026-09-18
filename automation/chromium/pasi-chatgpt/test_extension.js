@@ -66,7 +66,7 @@ test('native completion persists response text before bounded acknowledgement re
   assert.match(content, /\/operation\?operation_id=/);
   assert.match(content, /status === 'completed'/);
   assert.match(content, /response_text_available === true/);
-  assert.match(content, /typeof payload\\?\\.operation\\?\\.response_text === 'string'/);
+  assert.match(content, /typeof payload\?\.operation\?\.response_text === 'string'/);
   assert.match(content, /Boolean\\(payload\\.operation\\.response_text\\.trim\\(\\)\\)/);
 });
 
