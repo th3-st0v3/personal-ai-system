@@ -4,6 +4,7 @@
   const BRIDGE = 'http://127.0.0.1:8765';
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
+  const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const POLL_MS = 2000;
   const GENERATION_TIMEOUT_MS = 25 * 60 * 1000;
   const RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS;
@@ -316,10 +317,22 @@
     const payload = response.json();
     const newOperationId = payload?.operation?.operation_id;
     if (!newOperationId) throw new Error('new_chat queue did not return an operation id');
+    const recoveryState = readRecoveryState();
+    if (recoveryState) {
+      writeRecoveryState({ ...recoveryState, [RECOVERY_OPERATION_KEY]: newOperationId });
+    }
     const started = Date.now();
     while (Date.now() - started < MAX_NEW_CHAT_WAIT_MS) {
       const state = await operation(newOperationId);
-      if (state?.status === 'completed') return newOperationId;
+      if (state?.status === 'completed') {
+        const latestRecoveryState = readRecoveryState();
+        if (latestRecoveryState) {
+          const nextState = { ...latestRecoveryState };
+          delete nextState[RECOVERY_OPERATION_KEY];
+          writeRecoveryState(nextState);
+        }
+        return newOperationId;
+      }
       if (state?.status === 'failed' || state?.status === 'cancelled') throw new Error(state.error || 'new_chat recovery operation failed');
       await sleep(500);
     }
@@ -327,6 +340,9 @@
   }
 
   async function preserveOrReload(operationId, state) {
+    const current = await operation(operationId);
+    if (!current) return false;
+
     if (securityChallenge()) {
       await report('chatgpt_recovery', { phase: 'blocked_security_challenge', operation_id: operationId, recovery_action: 'manual_intervention_required' });
       return false;

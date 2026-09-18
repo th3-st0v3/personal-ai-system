@@ -18,6 +18,8 @@ test('recovery preserves a verified response and includes response text in compl
   assert.match(source, /location\.reload\(\)/);
   assert.match(source, /queueNewChat/);
   assert.match(source, /operation_type: 'new_chat'/);
+  assert.match(source, /RECOVERY_OPERATION_KEY = 'recovery_operation_id'/);
+  assert.match(source, /recoveryState, \[RECOVERY_OPERATION_KEY\]/);
   assert.match(source, /CHAT_RECOVERED_RETRY/);
   assert.match(source, /grace_wait/);
 });
@@ -71,4 +73,11 @@ test('monitoring recovery keeps the normal bounded reload path before reloaded-s
   assert.match(source, /if \(state\.phase === 'monitoring'\)/);
   assert.match(source, /await preserveOrReload\(state\.operation_id, state\)/);
   assert.match(source, /await handleReloadRecovery\(state\)/);
+});
+
+
+test('recovery refresh handling reads the current operation before using persisted response state', () => {
+  assert.match(source, /const current = await operation\(operationId\)/);
+  assert.match(source, /if \(!current\) return false/);
+  assert.match(source, /finishPersistedResponse\(current\)/);
 });

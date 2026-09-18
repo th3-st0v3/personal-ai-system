@@ -74,7 +74,28 @@ class BridgeState:
 
         return operation
 
-    def claim_next_operation(self) -> dict[str, Any] | None:
+    def claim_operation(
+        self,
+        operation_id: str,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self.state_manager.load_queue()
+
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                if item.get("status") != "queued":
+                    return None
+
+                validate_transition("queued", "claimed")
+                item["status"] = "claimed"
+                item["claimed_at"] = time.time()
+                self.state_manager.save_queue(queue)
+                return dict(item)
+
+        return None
+
+  def claim_next_operation(self) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
 
@@ -627,6 +648,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            if path == "/chat/claim":
+                self._claim(payload)
+                return
+
             if path == "/browser/observation":
                 self._browser_observation(payload)
                 return
@@ -668,6 +693,28 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 },
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+
+    def _claim(
+        self,
+        payload: dict[str, Any],
+    ) -> None:
+        operation_id = payload.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            self._send_json(
+                {"error": "operation_id is required."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        operation = self.bridge_state.claim_operation(operation_id)
+        if operation is None:
+            self._send_json(
+                {"error": "Operation is not queued."},
+                HTTPStatus.CONFLICT,
+            )
+            return
+
+        self._send_json({"operation": operation})
 
     def _browser_observation(
         self,

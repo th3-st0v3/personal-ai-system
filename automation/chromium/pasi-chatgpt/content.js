@@ -13,6 +13,7 @@
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
+  const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const MAX_CONTEXT_AUTO_RECOVERIES = 1;
   let activeOperationId = null;
   let processing = false;
@@ -517,10 +518,28 @@
     } catch (_) {}
   }
 
-  async function poll() {
-    if (processing || activeOperationId !== null || localStorage.getItem(RECOVERY_KEY)) return;
+  function recoveryOperationId() {
     try {
-      const response = await bridge('/next-operation');
+      const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
+      const value = state?.[RECOVERY_OPERATION_KEY];
+      return typeof value === 'string' && value.trim() ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function poll() {
+    if (processing || activeOperationId !== null) return;
+    try {
+      const recoveryOperation = recoveryOperationId();
+      if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
+
+      const response = recoveryOperation
+        ? await bridge('/chat/claim', {
+            method: 'POST',
+            body: { operation_id: recoveryOperation }
+          })
+        : await bridge('/next-operation');
       if (!response.ok) return;
       const payload = response.json();
       if (payload?.operation) await processOperation(payload.operation);

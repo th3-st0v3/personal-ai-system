@@ -615,3 +615,19 @@ def test_context_exhaustion_is_requeued_for_one_bounded_fresh_chat(tmp_path: Pat
     assert recovered["status"] == "queued"
     assert recovered["retry_count"] == 1
     assert recovered["last_retry_error"] == "CHAT_EXHAUSTED: conversation context is exhausted"
+
+
+def test_claim_operation_targets_exact_queued_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("new_chat", "")
+    second = bridge.queue_operation("prompt", "do not consume me")
+
+    claimed = bridge.claim_operation(second.operation_id)
+
+    assert claimed is not None
+    assert claimed["operation_id"] == second.operation_id
+    assert claimed["status"] == "claimed"
+
+    first_state = bridge.get_operation(first.operation_id)
+    assert first_state is not None
+    assert first_state["status"] == "queued"

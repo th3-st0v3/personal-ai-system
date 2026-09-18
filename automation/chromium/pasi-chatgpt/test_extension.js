@@ -55,7 +55,7 @@ test('native completion persists response text before bounded acknowledgement re
   assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: Boolean\(responseText\)/);
-  assert.match(content, /void reportObservation\('chatgpt_response'/);
+  assert.match(content, /await reportObservation\('chatgpt_response'/);
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
   assert.match(content, /status === 'completed'/);
@@ -129,4 +129,12 @@ test('background bounded reload helper retains per-tab refresh budget', () => {
 
 test('native controller pauses ordinary queue polling while a recovery state is active', () => {
   assert.match(content, /processing \|\| activeOperationId !== null \|\| localStorage\.getItem\(RECOVERY_KEY\)/);
+});
+
+
+test('native recovery claims only the persisted recovery operation instead of consuming ordinary queue order', () => {
+  assert.match(content, /const RECOVERY_OPERATION_KEY = 'recovery_operation_id'/);
+  assert.match(content, /recoveryOperationId\(\)/);
+  assert.match(content, /\/chat\/claim/);
+  assert.match(content, /body: \{ operation_id: recoveryOperation \}/);
 });
