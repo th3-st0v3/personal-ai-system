@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -113,6 +114,18 @@ def save_handoff(payload: Mapping[str, object]) -> None:
     temporary = SESSION_STATE_PATH.with_suffix(".json.tmp")
     temporary.write_text(text + "\n", encoding="utf-8")
     temporary.replace(SESSION_STATE_PATH)
+
+
+def task_fingerprint(task: str) -> str:
+    return hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+
+
+def pending_operation_for_task(handoff: Mapping[str, object], task: str) -> str | None:
+    operation_id = handoff.get("active_operation_id")
+    fingerprint = handoff.get("active_task_fingerprint")
+    if not isinstance(operation_id, str) or not operation_id.strip() or fingerprint != task_fingerprint(task):
+        return None
+    return operation_id
 
 
 def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> str:
@@ -424,8 +437,15 @@ def main() -> int:
         # Persist the verified session/context checkpoint before prompt submission so a
         # process interruption cannot discard the replacement chat identity.
         save_handoff(handoff)
-        prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
-        print(f"Prompt operation: {prompt_operation}")
+        pending_operation = pending_operation_for_task(handoff, task)
+        if pending_operation:
+            prompt_operation = pending_operation
+            print(f"Resuming persisted ChatGPT operation: {prompt_operation}")
+        else:
+            prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            handoff.update({"active_operation_id": prompt_operation, "active_task_fingerprint": task_fingerprint(task)})
+            save_handoff(handoff)
+            print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
         response = repair_response_capture(adapter, response)
         if response.completion == "error" and response.chat_exhausted:
@@ -439,6 +459,8 @@ def main() -> int:
             # can resume from the verified new conversation instead of the exhausted one.
             save_handoff(handoff)
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            handoff.update({"active_operation_id": retry_operation, "active_task_fingerprint": task_fingerprint(task)})
+            save_handoff(handoff)
             print(f"Retry prompt operation: {retry_operation}")
             response = adapter.wait_for_completion(retry_operation)
             response = repair_response_capture(adapter, response)
@@ -484,6 +506,8 @@ def main() -> int:
         record_chat_change(handoff, current_handoff_url, latest_chat_url, "completion_observed_chat_change")
     if latest_chat_url:
         handoff["chat_url"] = latest_chat_url
+    handoff.pop("active_operation_id", None)
+    handoff.pop("active_task_fingerprint", None)
     handoff.update({"chat_exhausted": response.chat_exhausted, "summary": summary, "controller_update_signal": update_signal})
     save_handoff(handoff)
     return 0 if response_capture_succeeded(response) else 1
