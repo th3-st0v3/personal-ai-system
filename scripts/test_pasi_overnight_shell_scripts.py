@@ -30,7 +30,6 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             '--worktree "$WORKTREE"',
             '--branch "$BRANCH"',
             'http://127.0.0.1:8765/health',
-            'scripts/pasi_pull_shark_status.py',
             'http://127.0.0.1:8766/health',
             'automation.orchestrator.bridge',
             'pasi_controller_server.py',

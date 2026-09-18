@@ -27,13 +27,6 @@ if [[ -f "$STATE_FILE" ]]; then
     fi
 fi
 
-printf '\n--- PULL SHARK ---\n'
-if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
-    "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_pull_shark_status.py" || true
-else
-    python3 "$REPO_ROOT/scripts/pasi_pull_shark_status.py" || true
-fi
-
 printf '\nServices:\n'
 curl -fsS http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
 printf '\n'
