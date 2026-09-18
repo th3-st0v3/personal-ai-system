@@ -34,7 +34,7 @@ class ObservationFailingTransport(FakeTransport):
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         if path == "/browser/observation":
             self.requests.append((method, path, payload))
-            raise ChatGPTAdapterError("injected observation failure")
+            raise ChatGPTAdapterError("injected browser-response failure")
         return super().request(method, path, payload)
 
 
@@ -164,7 +164,7 @@ class DelayedObservationTransport(FakeTransport):
         if path.startswith("/operation?"):
             self.operation_reads += 1
             return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed"}}
-        if path == "/browser/observation":
+        if path == "/browser/response":
             self.observation_reads += 1
             if self.observation_reads <= self.delay_cycles:
                 return {"observation": None}
@@ -314,7 +314,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "persisted answer")
 
-    def test_completed_prompt_consumes_live_browser_response(self) -> None:
+    def test_completed_prompt_consumes_durable_browser_response(self) -> None:
         transport = FakeTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed", "chat_url": "https://chatgpt.com/c/abc"}},
             {"observation": {"data": {"kind": "chatgpt_response", "chat_url": "https://chatgpt.com/c/abc", "response_text": "live answer", "response_text_available": True}}},
@@ -345,9 +345,9 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.completion, "complete")
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "late answer")
-        self.assertEqual([path for _, path, _ in transport.requests], ["/operation?operation_id=op-1", "/browser/observation", "/operation?operation_id=op-1"])
+        self.assertEqual([path for _, path, _ in transport.requests], ["/operation?operation_id=op-1", "/browser/response", "/operation?operation_id=op-1"])
 
-    def test_failed_prompt_recovers_verified_browser_response_after_completion_ack_loss(self) -> None:
+    def test_failed_prompt_recovers_verified_durable_response_after_completion_ack_loss(self) -> None:
         transport = FakeTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "PASI_NATIVE: bridge completion failed: HTTP 502"}},
             {"observation": {"data": {"kind": "chatgpt_response", "chat_url": "https://chatgpt.com/c/abc", "response_text": "answer survived acknowledgement failure", "response_text_available": True}}},
@@ -358,7 +358,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.text, "answer survived acknowledgement failure")
         self.assertEqual(response.chat_url, "https://chatgpt.com/c/abc")
 
-    def test_failed_prompt_rechecks_delayed_browser_response_and_rejects_other_operation(self) -> None:
+    def test_failed_prompt_rechecks_delayed_durable_response_and_rejects_other_operation(self) -> None:
         class DelayedAckTransport(FakeTransport):
             def __init__(self) -> None:
                 super().__init__([])
