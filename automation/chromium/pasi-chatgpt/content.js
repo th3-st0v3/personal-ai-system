@@ -444,6 +444,9 @@
   }
 
   async function finishOperation(operationId, responseText = '') {
+    if (typeof responseText !== 'string' || !responseText.trim()) {
+      throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
+    }
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
