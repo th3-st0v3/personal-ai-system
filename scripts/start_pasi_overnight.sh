@@ -12,11 +12,30 @@ fi
 
 mkdir -p "$REPO_ROOT/.runtime/overnight"
 LOCK_FILE="$REPO_ROOT/.runtime/overnight/start.lock"
+START_PID_FILE="$REPO_ROOT/.runtime/overnight/start.pid"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-    printf 'PASI overnight start is already in progress.\n'
+    if [[ -f "$START_PID_FILE" ]]; then
+        start_pid="$(cat "$START_PID_FILE" 2>/dev/null || true)"
+        if [[ "$start_pid" =~ ^[0-9]+$ ]] && kill -0 "$start_pid" 2>/dev/null; then
+            printf 'PASI overnight start is already in progress (launcher PID %s).\n' "$start_pid"
+        else
+            rm -f "$START_PID_FILE"
+            printf 'PASI overnight start lock is currently held, but its launcher PID is stale or missing.\n'
+        fi
+    else
+        printf 'PASI overnight start lock is currently held by another launcher.\n'
+    fi
     exit 1
 fi
+
+printf '%s\n' "$" > "$START_PID_FILE"
+cleanup_start_pid() {
+    if [[ -f "$START_PID_FILE" ]] && [[ "$(cat "$START_PID_FILE" 2>/dev/null || true)" == "$" ]]; then
+        rm -f "$START_PID_FILE"
+    fi
+}
+trap cleanup_start_pid EXIT
 
 if [[ -f "$REPO_ROOT/.runtime/overnight/runner.pid" ]]; then
     pid="$(cat "$REPO_ROOT/.runtime/overnight/runner.pid" 2>/dev/null || true)"
