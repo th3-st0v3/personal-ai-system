@@ -37,6 +37,14 @@ class TestPasiPullSharkStatus(unittest.TestCase):
         self.assertEqual(result.merged_prs_observed, 84)
         self.assertEqual(result.scope, "th3-st0v3/personal-ai-system")
 
+    def test_merged_count_defaults_to_account_wide_query(self) -> None:
+        with patch.object(status, "_run", return_value=(0, "85\n")) as run:
+            self.assertEqual(status._merged_count("th3-st0v3"), 85)
+        command = run.call_args.args[0]
+        self.assertIn("is:pr is:merged author:th3-st0v3", command[-2])
+        self.assertNotIn("repo:", command[-2])
+
+
 
 if __name__ == "__main__":
     unittest.main()
