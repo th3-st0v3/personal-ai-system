@@ -268,8 +268,15 @@
     async function waitForSendButton() { return waitFor(findSendButton, SEND_TIMEOUT_MS); }
     function findSendButton() { return firstVisible(['button[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]', 'button[type="submit"]'], true) || findVisibleLabeledAny(['send prompt', 'send message', 'send'], ['button', '[role="button"]'], true); }
 
+    function authRequiredVisible() {
+        var text = normalize(document.body ? document.body.innerText : '');
+        var markers = ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'];
+        for (var i = 0; i < markers.length; i += 1) if (text.indexOf(markers[i]) !== -1) return true;
+        return false;
+    }
+
     async function ensurePromptSubmissionReady() {
-        if (isAuthRequiredVisible()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required.');
+        if (authRequiredVisible()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required.');
         if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports conversation/context exhaustion.');
         if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
         if (thinkingEnabled() !== true) await selectReasoningMode('thinking');
