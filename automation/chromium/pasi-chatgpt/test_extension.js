@@ -70,6 +70,16 @@ test('native prompt submission re-verifies Thinking before sending', () => {
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
 });
 
+test('native prompt submission re-checks auth, exhaustion, and Thinking at the send boundary', () => {
+  assert.match(content, /async function ensurePromptSubmissionReady\(\)/);
+  assert.match(content, /if \(authRequired\(\)\) throw new Error\('CHAT_AUTH_REQUIRED/);
+  assert.match(content, /if \(contextExhausted\(\)\) throw new Error\('CHAT_EXHAUSTED/);
+  assert.match(content, /if \(usageLimited\(\)\) throw new Error\('CHAT_USAGE_LIMITED/);
+  assert.match(content, /if \(thinkingEnabled\(\) !== true\) await selectThinking\(\)/);
+  assert.match(content, /if \(thinkingEnabled\(\) !== true\) throw new Error\('PASI_NATIVE: Thinking state could not be verified before prompt submission/);
+  assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(\)/);
+});
+
 test('native prompt submission requires explicit user-message acknowledgement', () => {
   assert.match(content, /SUBMISSION_ACK_MS = 2500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
