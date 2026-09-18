@@ -141,6 +141,12 @@ class ChatGPTAdapter(AIAdapter):
         observation = payload.get("observation")
         return observation if isinstance(observation, Mapping) else None
 
+    def read_browser_response_observation(self) -> Mapping[str, Any] | None:
+        """Read the durable latest response record, independent of transient page state."""
+        payload = self.transport.request("GET", "/browser/response")
+        observation = payload.get("observation")
+        return observation if isinstance(observation, Mapping) else None
+
     def wait_for_completion(self, operation_id: str, timeout_seconds: float | None = None) -> AIResponse:
         limit = self.max_wait_seconds if timeout_seconds is None else timeout_seconds
         if limit <= 0:
@@ -151,8 +157,39 @@ class ChatGPTAdapter(AIAdapter):
             if response.completion in {"complete", "error", "interrupted"}:
                 return response
             if time.monotonic() - started >= limit:
+                recovered = self._reconcile_browser_response(operation_id, response)
+                if recovered is not None:
+                    return recovered
                 return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
             time.sleep(self.poll_interval_seconds)
+
+    def _reconcile_browser_response(self, operation_id: str, response: AIResponse) -> AIResponse | None:
+        """Recover a late operation-bound response without resubmitting the prompt."""
+        try:
+            observation = self.read_browser_response_observation()
+        except ChatGPTAdapterError:
+            return None
+        data = observation.get("data") if isinstance(observation, Mapping) else None
+        if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_response":
+            return None
+        if data.get("active_operation_id") != operation_id:
+            return None
+        text = data.get("response_text")
+        if not isinstance(text, str) or not text.strip():
+            return None
+        chat_url = data.get("chat_url")
+        return AIResponse(
+            response_id=f"{operation_id}:browser-response",
+            session_id=self.session_id,
+            provider=self.provider,
+            operation_id=operation_id,
+            text=text,
+            completion="complete",
+            response_available=True,
+            chat_url=chat_url if isinstance(chat_url, str) else response.chat_url,
+            error=response.error,
+            chat_exhausted=bool(data.get("chat_exhausted") is True),
+        )
 
     def _queue(self, operation_type: str, prompt: str) -> Mapping[str, Any]:
         payload = self.transport.request("POST", "/queue", {"operation_type": operation_type, "prompt": prompt})
