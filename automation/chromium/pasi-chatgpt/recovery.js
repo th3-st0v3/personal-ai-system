@@ -13,6 +13,7 @@
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
   const MAX_CONTEXT_RECOVERIES = 1;
   const MISSING_OPERATION_GRACE_MS = 60 * 1000;
+  const MISSING_OPERATION_REPORT_MS = 10 * 1000;
   const RECOVERY_VERSION = '1.0.6';
   let inspecting = false;
 
@@ -498,16 +499,23 @@
       const current = await operation(state.operation_id);
       if (!current) {
         const missingSince = Number(state.missing_operation_since_ms || Date.now());
-        if (!state.missing_operation_since_ms) {
-          writeRecoveryState({ ...state, missing_operation_since_ms: missingSince });
+        const now = Date.now();
+        const lastReported = Number(state.missing_operation_last_report_ms || 0);
+        const nextState = { ...state };
+        if (!state.missing_operation_since_ms) nextState.missing_operation_since_ms = missingSince;
+        if (!lastReported || now - lastReported >= MISSING_OPERATION_REPORT_MS) {
+          nextState.missing_operation_last_report_ms = now;
+          writeRecoveryState(nextState);
+          await report('chatgpt_recovery', {
+            phase: 'operation_lookup_unavailable',
+            operation_id: state.operation_id,
+            recovery_action: 'wait_for_operation_state',
+            missing_operation_age_ms: now - missingSince,
+            grace_ms: MISSING_OPERATION_GRACE_MS
+          });
+        } else if (!state.missing_operation_since_ms) {
+          writeRecoveryState(nextState);
         }
-        await report('chatgpt_recovery', {
-          phase: 'operation_lookup_unavailable',
-          operation_id: state.operation_id,
-          recovery_action: 'wait_for_operation_state',
-          missing_operation_age_ms: Date.now() - missingSince,
-          grace_ms: MISSING_OPERATION_GRACE_MS
-        });
         return;
       }
       if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
