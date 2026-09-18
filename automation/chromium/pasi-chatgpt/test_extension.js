@@ -211,7 +211,10 @@ test('background watchdog requires an active operation and exact chat identity b
   assert.match(background, /if \(typeof health\.data\.active_operation_id !== 'string' \|\| !health\.data\.active_operation_id\.trim\(\)\) return/);
   assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
   assert.match(background, /if \(!matchingTab\) \{/);
-  assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
+  assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
+  assert.match(background, /async function createCooldown\(targetChatUrl\)/);
+  assert.match(background, /await markCreateAttempt\(targetChatUrl\)/);
+  assert.match(background, /try \{\s*await chrome\.tabs\.create\(\{ url: targetChatUrl \}\);\s*\} catch/);
   assert.match(background, /Never substitute another ChatGPT tab/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
@@ -222,4 +225,13 @@ test('background watchdog recreates only the verified conversation when its tab 
   assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
   assert.match(background, /Never substitute another ChatGPT tab/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
+});
+
+
+test('background watchdog rate-limits missing-tab recreation after browser creation failures', () => {
+  assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
+  assert.match(background, /const key = `create:\$\{targetChatUrl\}`/);
+  assert.match(background, /if \(await createCooldown\(targetChatUrl\)\) return/);
+  assert.match(background, /await markCreateAttempt\(targetChatUrl\)/);
+  assert.match(background, /try \{\s*await chrome\.tabs\.create\(\{ url: targetChatUrl \}\);\s*\} catch \(_\)/);
 });
