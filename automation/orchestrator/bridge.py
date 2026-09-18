@@ -383,17 +383,24 @@ class BridgeState:
             return None
 
         normalized: dict[str, str] = {}
+        if any(key not in {"reasoning_mode", "github_repository"} for key in value):
+            return None
 
         reasoning_mode = value.get("reasoning_mode")
-        if isinstance(reasoning_mode, str):
+        if "reasoning_mode" in value:
+            if not isinstance(reasoning_mode, str):
+                return None
             reasoning_mode = reasoning_mode.strip().lower()
-            if reasoning_mode in {"thinking", "think"}:
-                normalized["reasoning_mode"] = "thinking"
+            if reasoning_mode not in {"thinking", "think"}:
+                return None
+            normalized["reasoning_mode"] = "thinking"
 
         repository = value.get("github_repository")
-        if isinstance(repository, str):
+        if "github_repository" in value:
+            if not isinstance(repository, str):
+                return None
             repository = repository.strip()
-            if (
+            if not (
                 len(repository) <= MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS
                 and repository.count("/") == 1
                 and all(
@@ -402,7 +409,8 @@ class BridgeState:
                     for part in repository.split("/", 1)
                 )
             ):
-                normalized["github_repository"] = repository
+                return None
+            normalized["github_repository"] = repository
 
         return normalized or None
 
