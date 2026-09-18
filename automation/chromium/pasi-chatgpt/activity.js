@@ -3,7 +3,7 @@
 
   const ACTIVE_KEY = 'pasi:active-operation';
   const HOST_ID = 'pasi-activity-indicator';
-  const POLL_MS = 250;
+  const POLL_MS = 2000;
   const STYLE = `
     :host { all: initial; }
     .shell {
