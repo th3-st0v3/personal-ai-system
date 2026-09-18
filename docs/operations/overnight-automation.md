@@ -87,6 +87,14 @@ when its evidence or research establishes that another automation/computer-use/r
 
 The scheduler never treats “approval is required” as a reason to sit idle. When an action cannot be performed safely under the active preapproval/authorization policy, it is recorded and the runner continues where it can.
 
+### Pull Shark objective
+
+GitHub Pull Shark is a secondary repository-health objective for the unattended engineering loop. The long-term target is the Gold tier at 1,024 eligible merged pull requests. Current PASI work should reach that target through legitimate engineering throughput rather than artificial activity.
+
+The scheduler should prefer one independently reviewable, independently valuable change per task/PR when the work naturally permits that boundary. Examples include a verified bug fix, focused regression test, documentation correction, bounded refactor, or narrowly scoped capability. When a large task contains several independent changes, finish the highest-value atomic slice and carry the next slice forward as a separate task/PR.
+
+Do not create empty, cosmetic, duplicate, no-op, or intentionally fragmented PRs solely to raise the count. Do not split a cohesive safety-critical change when doing so would reduce correctness, recovery continuity, or verification quality. The existing risk gates remain authoritative: standard-risk verified PRs may use the existing auto-merge path, while high-risk controller, browser, security-boundary, provider-routing, and workflow changes remain human-review gated.
+
 ## One-command overnight run
 
 The detached launcher defaults to 12 hours:
