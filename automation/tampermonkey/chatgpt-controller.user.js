@@ -244,6 +244,8 @@
     }
 
     async function startPrompt(operation) {
+        await selectReasoningMode('thinking');
+        reasoningMode = 'thinking';
         if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports conversation/context exhaustion.');
         if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
         var composer = await waitForComposer();
