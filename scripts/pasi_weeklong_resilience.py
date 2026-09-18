@@ -97,7 +97,8 @@ def _repair_prompt(task: str, response: str, failure: str, state: Any | None = N
         phase="engineering_os",
         current_task=task,
     )
-    continuation = supervisor.continuation_directive(repair_state, task)
+    continuation_builder = getattr(supervisor, "continuation_directive")
+    continuation = continuation_builder(repair_state, task)
     return f"""PASI RESPONSE REPAIR REQUEST
 
 The engineering task itself is still active. Do not restart it or abandon the work.
