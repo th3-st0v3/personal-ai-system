@@ -68,10 +68,10 @@ class UrllibBridgeTransport:
         return result
 
 
-@dataclass
 COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
 
 
+@dataclass
 class ChatGPTAdapter(AIAdapter):
     """Semantic ChatGPT adapter built on the existing local bridge."""
 
