@@ -138,6 +138,7 @@ class WebApplication:
         user: dict[str, object] | None,
         token: str | None,
         actor_id: str,
+        client_ip: str | None,
     ) -> tuple[int, object] | None:
         if method == "GET" and path == "/api/health":
             return 200, {"status": "ok"}
@@ -159,7 +160,12 @@ class WebApplication:
         if method == "POST" and path == "/api/auth/login":
             connection = db.get_connection()
             try:
-                session, login_user = auth_service.login(connection, data["email"], data["password"])
+                session, login_user = auth_service.login(
+                    connection,
+                    data["email"],
+                    data["password"],
+                    client_ip=client_ip,
+                )
             finally:
                 connection.close()
             return 200, {
@@ -537,9 +543,19 @@ class WebApplication:
             token = self._session_token(environ or {})
             user = self._current_user(token)
             actor_id = str(user["id"]) if user else "local"
+            client_ip = str((environ or {}).get("REMOTE_ADDR", "")).strip() or None
             data = {str(key): value for key, value in raw_data.items()}
 
-            result = self._handle_root_routes(method, path, query, data, user, token, actor_id)
+            result = self._handle_root_routes(
+                method,
+                path,
+                query,
+                data,
+                user,
+                token,
+                actor_id,
+                client_ip,
+            )
             if result is None:
                 result = self._handle_chat_routes(method, path, query, data)
             if result is None:
@@ -553,8 +569,11 @@ class WebApplication:
             return self._json(403, {"error": str(exc) or "Permission denied"})
         except (KeyError, ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError, binascii.Error) as exc:
             return self._json(400, {"error": str(exc) or "Invalid request"})
-        except Exception as exc:
-            return self._json(500, {"error": str(exc) or "Internal server error"})
+        except Exception:
+            return self._json(
+                500,
+                {"error": "Internal server error", "code": "internal_server_error"},
+            )
 
     @classmethod
     def _kind(cls, value: str) -> str:
