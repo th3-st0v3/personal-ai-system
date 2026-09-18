@@ -10,6 +10,9 @@ from typing import cast
 
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 SESSION_TOKEN_BYTES = 32
+LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCKOUT_SECONDS = 15 * 60
 
 
 def _columns(connection: sqlite3.Connection) -> set[str]:
@@ -41,6 +44,14 @@ def initialize(connection: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
         CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            throttle_key TEXT PRIMARY KEY,
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            first_failed_at REAL NOT NULL,
+            last_failed_at REAL NOT NULL,
+            locked_until REAL NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_login_attempts_lock ON login_attempts(locked_until);
     """)
     columns = _columns(connection)
     migrations = {
@@ -83,6 +94,78 @@ def _require_credentials(email: str, password: str) -> tuple[str, str]:
     return email, password
 
 
+def _login_throttle_keys(email: str, client_ip: str | None) -> tuple[str, ...]:
+    keys = [f"email:{email}"]
+    normalized_ip = str(client_ip or "").strip()
+    if normalized_ip:
+        keys.append(f"ip:{normalized_ip}")
+    return tuple(keys)
+
+
+def _login_throttle_locked(
+    connection: sqlite3.Connection,
+    keys: tuple[str, ...],
+    now: float,
+) -> bool:
+    for key in keys:
+        row = connection.execute(
+            "SELECT failure_count,first_failed_at,locked_until FROM login_attempts WHERE throttle_key=?",
+            (key,),
+        ).fetchone()
+        if row is None:
+            continue
+        failure_count = int(row[0])
+        first_failed_at = float(row[1])
+        locked_until = float(row[2])
+        if first_failed_at + LOGIN_FAILURE_WINDOW_SECONDS <= now:
+            connection.execute(
+                "DELETE FROM login_attempts WHERE throttle_key=?",
+                (key,),
+            )
+            continue
+        if locked_until > now or failure_count >= LOGIN_MAX_FAILURES:
+            return True
+    return False
+
+
+def _record_login_failure(
+    connection: sqlite3.Connection,
+    keys: tuple[str, ...],
+    now: float,
+) -> None:
+    for key in keys:
+        row = connection.execute(
+            "SELECT failure_count,first_failed_at FROM login_attempts WHERE throttle_key=?",
+            (key,),
+        ).fetchone()
+        if row is None or float(row[1]) + LOGIN_FAILURE_WINDOW_SECONDS <= now:
+            connection.execute(
+                "INSERT OR REPLACE INTO login_attempts(throttle_key,failure_count,first_failed_at,last_failed_at,locked_until) VALUES(?,?,?,?,?)",
+                (key, 1, now, now, 0),
+            )
+            continue
+        failure_count = int(row[0]) + 1
+        locked_until = (
+            now + LOGIN_LOCKOUT_SECONDS
+            if failure_count >= LOGIN_MAX_FAILURES
+            else 0
+        )
+        connection.execute(
+            "UPDATE login_attempts SET failure_count=?,last_failed_at=?,locked_until=? WHERE throttle_key=?",
+            (failure_count, now, locked_until, key),
+        )
+    connection.commit()
+
+
+def _clear_login_failures(connection: sqlite3.Connection, keys: tuple[str, ...]) -> None:
+    for key in keys:
+        connection.execute(
+            "DELETE FROM login_attempts WHERE throttle_key=?",
+            (key,),
+        )
+    connection.commit()
+
+
 def _issue_session(connection: sqlite3.Connection, user_id: int, *, rotated_from: str | None = None) -> str:
     token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
     now = _now()
@@ -109,13 +192,24 @@ def signup(connection: sqlite3.Connection, email: str, password: str, display_na
     return {"id": cursor.lastrowid, "email": email, "display_name": name[:80]}
 
 
-def login(connection: sqlite3.Connection, email: str, password: str) -> tuple[str, dict[str, object]]:
+def login(
+    connection: sqlite3.Connection,
+    email: str,
+    password: str,
+    client_ip: str | None = None,
+) -> tuple[str, dict[str, object]]:
     email, password = _require_credentials(email, password)
+    throttle_keys = _login_throttle_keys(email, client_ip)
+    now = _now()
+    if _login_throttle_locked(connection, throttle_keys, now):
+        connection.commit()
+        raise ValueError("Email or password is incorrect.")
     row = connection.execute(
         "SELECT id,email,name,display_name,password_salt,password_hash,status FROM users WHERE email=?",
         (email,),
     ).fetchone()
     if row is None:
+        _record_login_failure(connection, throttle_keys, now)
         raise ValueError("Email or password is incorrect.")
     if str(row[6]).casefold() != "active":
         raise ValueError("This account is not active.")
@@ -124,7 +218,9 @@ def login(connection: sqlite3.Connection, email: str, password: str) -> tuple[st
     except (TypeError, ValueError):
         valid = False
     if not valid:
+        _record_login_failure(connection, throttle_keys, now)
         raise ValueError("Email or password is incorrect.")
+    _clear_login_failures(connection, throttle_keys)
     token = _issue_session(connection, int(row[0]))
     return token, {"id": row[0], "email": row[1], "display_name": row[3] or row[2] or "User"}
 
@@ -199,4 +295,4 @@ def purge_expired_sessions(connection: sqlite3.Connection) -> int:
     return cursor.rowcount
 
 
-__all__ = ["SESSION_TTL_SECONDS", "initialize", "signup", "login", "rotate_session", "logout", "current_user", "purge_expired_sessions"]
+__all__ = ["SESSION_TTL_SECONDS", "LOGIN_FAILURE_WINDOW_SECONDS", "LOGIN_MAX_FAILURES", "LOGIN_LOCKOUT_SECONDS", "initialize", "signup", "login", "rotate_session", "logout", "current_user", "purge_expired_sessions"]
