@@ -2,7 +2,7 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const CONTROLLER_VERSION = '2.4.11';
+  const CONTROLLER_VERSION = '2.4.12';
   const POLL_MS = 250;
   const HEALTH_MS = 5000;
   const DOM_POLL_MS = 100;
@@ -296,7 +296,8 @@
     if (!control || disabled(control)) throw new Error('PASI_NATIVE: Thinking control unavailable');
     control.click();
     await sleep(CLICK_SETTLE_MS);
-    if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified');
+    const thinkingVerified = await waitFor(() => thinkingEnabled() === true ? true : null, 3000);
+    if (!thinkingVerified) throw new Error('PASI_NATIVE: Thinking state could not be verified');
     reasoningMode = 'thinking';
   }
 
