@@ -266,6 +266,9 @@ class ChatGPTAdapter(AIAdapter):
                 if kind == "chatgpt_response":
                     observed_text = data.get("response_text")
                     observed_available = data.get("response_text_available") is True
+                    observed_url = data.get("chat_url")
+                    if chat_url is None and isinstance(observed_url, str) and observed_url.strip():
+                        chat_url = observed_url
                     if isinstance(observed_text, str) and observed_text.strip():
                         text = observed_text
                         response_available = observed_available or bool(observed_text.strip())
@@ -274,9 +277,6 @@ class ChatGPTAdapter(AIAdapter):
                         if completion_ack_lost:
                             completion = "complete"
                         break
-                    observed_url = data.get("chat_url")
-                    if chat_url is None and isinstance(observed_url, str):
-                        chat_url = observed_url
                     chat_exhausted = chat_exhausted or data.get("chat_exhausted") is True
                 elif kind == "chatgpt_state":
                     state_url = data.get("chat_url")
