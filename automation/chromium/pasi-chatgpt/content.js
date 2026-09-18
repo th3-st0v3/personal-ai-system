@@ -3,8 +3,8 @@
 
   const BRIDGE = 'http://127.0.0.1:8765';
   const CONTROLLER_VERSION = '2.4.11';
-  const POLL_MS = 250;
-  const HEALTH_MS = 5000;
+  const POLL_MS = 2000;
+  const HEALTH_MS = 15000;
   const DOM_POLL_MS = 100;
   const CLICK_SETTLE_MS = 250;
   const RESPONSE_SETTLE_MS = 200;
