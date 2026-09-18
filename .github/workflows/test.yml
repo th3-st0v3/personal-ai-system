@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [main, beta-foundation]
+    branches: [main, beta-foundation, 'pasi/overnight-*']
   pull_request:
     branches: [main]
 
