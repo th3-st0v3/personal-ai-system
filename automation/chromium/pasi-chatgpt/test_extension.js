@@ -37,6 +37,16 @@ test('native content controller uses standard fetch instead of GM APIs', () => {
   assert.match(content, /operation\.operation_type/);
 });
 
+test('native controller reconciles completed interrupted operations before clearing restart state', () => {
+  assert.match(content, /const operation = payload\?\.operation;/);
+  assert.match(content, /if \(operation\.status === 'completed'\)/);
+  assert.match(content, /typeof operation\.response_text === 'string'/);
+  assert.match(content, /operation\.response_text_available === true/);
+  assert.match(content, /Boolean\(responseText\.trim\(\)\)/);
+  assert.match(content, /await finishOperation\(stored\.operation_id, responseText, true\)/);
+  assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
+});
+
 test('native controller reports health and preserves interrupted-operation recovery', () => {
   assert.match(content, /chatgpt_health/);
   assert.match(content, /chatgpt_chat_changed/);
