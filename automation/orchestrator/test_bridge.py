@@ -100,8 +100,6 @@ def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
     assert completed["response_text_available"] is True
 
 
-
-
 def test_completed_operation_repairs_response_after_state_observation_overwrites_latest(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "preserve response evidence")
