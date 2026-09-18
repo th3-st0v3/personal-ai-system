@@ -127,7 +127,44 @@ def save_handoff(payload: Mapping[str, object]) -> None:
         }
         if "summary" in safe:
             minimal["summary"] = str(safe["summary"])[-4_000:]
+        history = safe.get("chat_url_history")
+        if isinstance(history, list):
+            compact_history: list[dict[str, str]] = []
+            for entry in history[-MAX_CHAT_HISTORY:]:
+                if not isinstance(entry, Mapping):
+                    continue
+                compact_entry: dict[str, str] = {}
+                for key in ("previous_url", "new_url", "reason"):
+                    value = entry.get(key)
+                    if isinstance(value, str):
+                        compact_entry[key] = value[:500]
+                if compact_entry:
+                    compact_history.append(compact_entry)
+            if compact_history:
+                minimal["chat_url_history"] = compact_history[-4:]
+        if "summary" in safe:
+            minimal["summary"] = str(safe["summary"])[-4_000:]
         text = json.dumps(minimal, indent=2, ensure_ascii=False)
+        if len(text) > MAX_HANDOFF_CHARS:
+            # Operation identity is more important than optional diagnostic history.
+            minimal.pop("chat_url_history", None)
+            minimal.pop("summary", None)
+            text = json.dumps(minimal, separators=(",", ":"), ensure_ascii=False)
+        # Keep the byte/character envelope deterministic even after optional fields
+        # have been removed. Compact JSON leaves enough room for the recovery-critical
+        # operation identity under the normal handoff limit.
+        if len(text) > MAX_HANDOFF_CHARS:
+            identity_only = {
+                key: minimal[key]
+                for key in (
+                    "chat_url",
+                    "active_operation_id",
+                    "active_task_fingerprint",
+                    "active_operation_chat_url",
+                )
+                if key in minimal
+            }
+            text = json.dumps(identity_only, separators=(",", ":"), ensure_ascii=False)
     temporary = SESSION_STATE_PATH.with_suffix(".json.tmp")
     temporary.write_text(text + "\n", encoding="utf-8")
     temporary.replace(SESSION_STATE_PATH)
