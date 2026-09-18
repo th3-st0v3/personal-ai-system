@@ -148,7 +148,7 @@
   }
 
   function thinkingEnabled() {
-    const selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [data-state="on"], [data-state="active"]');
+    const selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [aria-checked="true"], [aria-current="true"], [data-state="on"], [data-state="active"]');
     for (const element of selected) {
       if (visible(element) && label(element).includes('thinking')) return true;
     }
