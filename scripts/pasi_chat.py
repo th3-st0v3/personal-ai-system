@@ -575,6 +575,7 @@ def main() -> int:
                 handoff["context_source"] = "github_app_fallback"
                 fallback_prompt = build_prompt(task, compact_repo_state(root), handoff) + "\n\nPUBLIC RETRIEVAL FALLBACK:\nThe public repository path did not provide usable repository evidence. Use the connected GitHub app now to retrieve the exact requested repository material, preserve the existing task context, and return the corrected answer/completion contract. Do not create a new conversation."
                 fallback_operation = adapter.submit_prompt(fallback_prompt)
+                prompt_operation = fallback_operation
                 checkpoint_active_operation(handoff, fallback_operation, task)
                 save_handoff(handoff)
                 print(f"GitHub fallback prompt operation: {fallback_operation}")
