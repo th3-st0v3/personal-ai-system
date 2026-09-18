@@ -214,7 +214,11 @@ class ChatGPTAdapter(AIAdapter):
                 if not isinstance(data, Mapping):
                     continue
                 observed_operation_id = data.get("active_operation_id")
-                if observed_operation_id is not None and observed_operation_id != operation_id:
+                # Response observations are only trustworthy when the controller binds
+                # them to the operation being reconciled. The controller contract emits
+                # this id for every response observation; accepting an unbound response
+                # could consume stale output from another chat after a reload.
+                if observed_operation_id != operation_id:
                     continue
                 kind = data.get("kind")
                 if kind == "chatgpt_response":
