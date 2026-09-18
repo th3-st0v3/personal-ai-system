@@ -29,12 +29,26 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             'BRANCH="${PASI_OVERNIGHT_BRANCH:-pasi/overnight-',
             '--worktree "$WORKTREE"',
             '--branch "$BRANCH"',
+            'START_PID_FILE="$RUNTIME_DIR/start.pid"',
             'http://127.0.0.1:8765/health',
             'http://127.0.0.1:8766/health',
             'automation.orchestrator.bridge',
             'pasi_controller_server.py',
         ):
             self.assertIn(required, script)
+
+    def test_startup_launcher_tracks_start_pid_for_recovery(self) -> None:
+        for name in ("start_pasi_overnight.sh", "start_pasi_168h.sh"):
+            script = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+            self.assertIn("start.pid", script)
+            self.assertIn("cleanup_start_pid", script)
+
+        stop_script = (ROOT / "scripts" / "stop_pasi_overnight.sh").read_text(encoding="utf-8")
+        self.assertIn("START_PID_FILE", stop_script)
+        self.assertIn("start_pasi_168h.sh", stop_script)
+
+        status_script = (ROOT / "scripts" / "status_pasi_overnight.sh").read_text(encoding="utf-8")
+        self.assertIn("Startup launcher: ACTIVE", status_script)
 
     def test_launchers_do_not_leak_start_lock_to_detached_children(self) -> None:
         for name in ("start_pasi_overnight.sh", "start_pasi_168h.sh"):
