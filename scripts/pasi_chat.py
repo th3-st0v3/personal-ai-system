@@ -107,7 +107,25 @@ def save_handoff(payload: Mapping[str, object]) -> None:
         safe.pop("context_source", None)
     text = json.dumps(safe, indent=2, ensure_ascii=False)
     if len(text) > MAX_HANDOFF_CHARS:
-        # Preserve recovery-critical operation identity even when optional handoff\n        # metadata pushes the serialized state over the size budget. Dropping these\n        # fields can turn an interrupted accepted prompt into a duplicate submission.\n        minimal = {\n            key: safe[key]\n            for key in (\n                "chat_url",\n                "chat_exhausted",\n                "github_attached",\n                "reasoning_mode",\n                "context_source",\n                "chat_url_history",\n                "active_operation_id",\n                "active_task_fingerprint",\n                "active_operation_chat_url",\n            )\n            if key in safe\n        }\n        if "summary" in safe:
+        # Preserve recovery-critical operation identity even when optional handoff
+        # metadata pushes the serialized state over the size budget. Dropping these
+        # fields can turn an interrupted accepted prompt into a duplicate submission.
+        minimal = {
+            key: safe[key]
+            for key in (
+                "chat_url",
+                "chat_exhausted",
+                "github_attached",
+                "reasoning_mode",
+                "context_source",
+                "chat_url_history",
+                "active_operation_id",
+                "active_task_fingerprint",
+                "active_operation_chat_url",
+            )
+            if key in safe
+        }
+        if "summary" in safe:
             minimal["summary"] = str(safe["summary"])[-4_000:]
         text = json.dumps(minimal, indent=2, ensure_ascii=False)
     temporary = SESSION_STATE_PATH.with_suffix(".json.tmp")
