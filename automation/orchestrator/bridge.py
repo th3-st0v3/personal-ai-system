@@ -19,6 +19,7 @@ PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 50_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
 MAX_ERROR_CHARS = 2_000
+MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -150,11 +151,13 @@ class BridgeState:
         self,
         operation_id: str,
         error: str,
+        recovery_context: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         if self._is_transient_browser_error(error):
             return self._retry_operation(
                 operation_id=operation_id,
                 error=error,
+                recovery_context=recovery_context,
             )
 
         return self._update_operation(
@@ -320,6 +323,7 @@ class BridgeState:
         self,
         operation_id: str,
         error: str,
+        recovery_context: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
@@ -356,6 +360,8 @@ class BridgeState:
                 item["status"] = "queued"
                 item["retry_count"] = retry_count + 1
                 item["last_retry_error"] = error[:MAX_ERROR_CHARS]
+                if item.get("operation_type") == "prompt" and recovery_context:
+                    item["recovery_context"] = dict(recovery_context)
                 item["requeued_at"] = time.time()
                 self.state_manager.save_queue(queue)
                 return item
@@ -368,6 +374,37 @@ class BridgeState:
             error.startswith(prefix)
             for prefix in _TRANSIENT_BROWSER_ERROR_PREFIXES
         )
+
+    @staticmethod
+    def _normalize_recovery_context(
+        value: object,
+    ) -> dict[str, str] | None:
+        if not isinstance(value, dict):
+            return None
+
+        normalized: dict[str, str] = {}
+
+        reasoning_mode = value.get("reasoning_mode")
+        if isinstance(reasoning_mode, str):
+            reasoning_mode = reasoning_mode.strip().lower()
+            if reasoning_mode in {"thinking", "think"}:
+                normalized["reasoning_mode"] = "thinking"
+
+        repository = value.get("github_repository")
+        if isinstance(repository, str):
+            repository = repository.strip()
+            if (
+                len(repository) <= MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS
+                and repository.count("/") == 1
+                and all(
+                    part
+                    and not any(char.isspace() for char in part)
+                    for part in repository.split("/", 1)
+                )
+            ):
+                normalized["github_repository"] = repository
+
+        return normalized or None
 
     def _update_operation(
         self,
@@ -1018,10 +1055,26 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        recovery_context = payload.get("recovery_context")
+        if recovery_context is not None:
+            recovery_context = self.bridge_state._normalize_recovery_context(
+                recovery_context
+            )
+            if recovery_context is None:
+                self._send_json(
+                    {
+                        "error":
+                            "recovery_context is invalid."
+                    },
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+
         operation = (
             self.bridge_state.fail_operation(
                 operation_id=operation_id,
                 error=error,
+                recovery_context=recovery_context,
             )
         )
 
