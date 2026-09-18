@@ -133,6 +133,15 @@ test('retry-ready recovery clears only its recovery marker once the verified ope
 });
 
 
+test('recovery throttles repeated missing-operation reports without clearing persisted recovery state', () => {
+  assert.match(source, /MISSING_OPERATION_REPORT_MS = 10 \* 1000/);
+  assert.match(source, /missing_operation_last_report_ms/);
+  assert.match(source, /now - lastReported >= MISSING_OPERATION_REPORT_MS/);
+  assert.match(source, /operation_lookup_unavailable/);
+  assert.match(source, /wait_for_operation_state/);
+  assert.match(source, /if \(!current\) \{/);
+});
+
 test('recovery serializes inspection so a slow recovery cannot overlap and duplicate recovery work', () => {
   assert.match(source, /let inspecting = false/);
   assert.match(source, /async function runInspection\(\)/);
