@@ -15,10 +15,12 @@
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const MAX_CONTEXT_AUTO_RECOVERIES = 1;
+  const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
   let processing = false;
   let reasoningMode = null;
   let githubAttached = false;
+  let githubRepository = null;
   let lastKnownChatUrl = null;
 
   async function bridge(path, options = {}) {
@@ -174,6 +176,20 @@
     return `${userMessages().length}:${assistantMessages().length}:${fingerprint()}`;
   }
 
+  function recoveryContext() {
+    const context = {};
+    if (reasoningMode === 'thinking') context.reasoning_mode = 'thinking';
+    if (
+      githubAttached &&
+      typeof githubRepository === 'string' &&
+      githubRepository.length <= MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS &&
+      /^[^/\s]+\/[^/\s]+$/.test(githubRepository)
+    ) {
+      context.github_repository = githubRepository;
+    }
+    return Object.keys(context).length ? context : null;
+  }
+
   async function reportObservation(kind, data) {
     try {
       await bridge('/browser/observation', {
@@ -200,6 +216,7 @@
       }
       if (!processing) {
         githubAttached = false;
+        githubRepository = null;
         reasoningMode = null;
       }
       lastKnownChatUrl = currentUrl;
@@ -262,6 +279,7 @@
     if (previousChat && (!current || current === previousChat)) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
     reasoningMode = null;
     githubAttached = false;
+    githubRepository = null;
     lastKnownChatUrl = current;
   }
 
@@ -298,6 +316,29 @@
     await sleep(CLICK_SETTLE_MS);
     if (normalize(document.body?.innerText || '').includes('github needs to be connected')) throw new Error('PASI_NATIVE: GitHub connection unavailable');
     githubAttached = true;
+    githubRepository = repository;
+  }
+
+  async function restoreRecoveryContext(context) {
+    if (!context || typeof context !== 'object') return;
+
+    const reasoning = normalize(context.reasoning_mode);
+    if (reasoning) {
+      if (reasoning !== 'thinking' && reasoning !== 'think') {
+        throw new Error('PASI_NATIVE: unsupported recovery reasoning mode');
+      }
+      if (thinkingEnabled() !== true) await selectThinking();
+    }
+
+    const repository = String(context.github_repository || '').trim();
+    if (!repository) return;
+    if (repository.length > MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS || !/^[^/\s]+\/[^/\s]+$/.test(repository)) {
+      throw new Error('PASI_NATIVE: invalid recovery GitHub repository');
+    }
+    if (githubAttached && githubRepository !== repository) {
+      throw new Error('PASI_NATIVE: recovery GitHub context conflicts with the current attachment');
+    }
+    if (!githubAttached) await attachGithub(repository);
   }
 
   function assistants() { return assistantMessages(); }
@@ -394,6 +435,7 @@
       started_ms: Date.parse(startedAt) || Date.now(),
       baseline: fingerprint(),
       chat_url: chatUrl(),
+      recovery_context: recoveryContext(),
       reload_count: 0,
       phase: 'context_exhausted',
       error: String(error?.message || error)
@@ -450,7 +492,15 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify({ operation_id: operation.operation_id, operation_type: operation.operation_type, started_at: new Date().toISOString(), chat_url: chatUrl() }));
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: new Date().toISOString(),
+      chat_url: chatUrl(),
+      reasoning_mode: reasoningMode,
+      github_attached: githubAttached,
+      github_repository: githubRepository
+    }));
     let finalized = false;
     try {
       switch (operation.operation_type) {
@@ -458,6 +508,7 @@
         case 'select_reasoning': await selectThinking(); break;
         case 'attach_github': await attachGithub(operation.prompt); break;
         case 'prompt': {
+          await restoreRecoveryContext(operation.recovery_context);
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
           const box = await waitFor(composer, TIMEOUTS.composer);
