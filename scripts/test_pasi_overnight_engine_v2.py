@@ -72,6 +72,22 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
         self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
 
+    def test_failed_task_is_excluded_before_next_selection(self) -> None:
+        now = datetime.now(timezone.utc)
+        failed = engine.AUTOMATION_TASKS[0]
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="failed-task-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=failed,
+            recent_tasks=[failed],
+        )
+        self.assertEqual(engine.choose_next_task(state, ""), engine.AUTOMATION_TASKS[1])
+
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
