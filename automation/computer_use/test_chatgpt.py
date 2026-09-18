@@ -112,6 +112,29 @@ class CompletionTests(unittest.TestCase):
             self.assertEqual(detector.detect([observation(item)]), "unknown")
 
 
+class DurableResponseTransportTests(unittest.TestCase):
+    def test_reads_durable_browser_response_endpoint(self) -> None:
+        transport = FakeTransport(
+            [
+                {
+                    "observation": {
+                        "data": {
+                            "kind": "chatgpt_response",
+                            "active_operation_id": "op-1",
+                            "response_text": "durable answer",
+                        }
+                    }
+                }
+            ]
+        )
+        adapter = ChatGPTAdapter(transport=transport)
+        result = adapter.read_browser_response_observation()
+
+        self.assertEqual(result["data"]["active_operation_id"], "op-1")
+        self.assertEqual(result["data"]["response_text"], "durable answer")
+        self.assertEqual(transport.requests[0][1], "/browser/response")
+
+
 class BridgeTransportTests(unittest.TestCase):
     def test_accepts_expected_localhost_url(self) -> None:
         self.assertEqual(UrllibBridgeTransport("http://127.0.0.1:8765").base_url, "http://127.0.0.1:8765")
