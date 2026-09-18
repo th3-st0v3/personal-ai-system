@@ -436,6 +436,49 @@ def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
         assert not thread.is_alive()
 
 
+def test_http_prompt_completion_derives_availability_from_nonblank_text(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "derive response availability")
+        claimed = bridge.claim_next_operation()
+        assert claimed is not None
+        bridge.heartbeat(operation.operation_id)
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps(
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/derived",
+                "response_text": "response evidence is present",
+                "response_text_available": False,
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/finished",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+
+        assert response.status == 200
+        assert body["operation"]["status"] == "completed"
+        assert body["operation"]["response_text"] == "response evidence is present"
+        assert body["operation"]["response_text_available"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_http_prompt_completion_requires_verified_nonblank_response(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
