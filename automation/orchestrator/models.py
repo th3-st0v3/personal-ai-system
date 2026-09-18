@@ -72,6 +72,7 @@ class ChatOperation:
     operation_id: str
     operation_type: str
     prompt: str
+    idempotency_key: str | None = None
 
     status: str = "queued"
 
