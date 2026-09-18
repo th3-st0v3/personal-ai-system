@@ -265,7 +265,12 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
                     delay = min(float(retry_after), OPENROUTER_429_MAX_DELAY) if retry_after is not None else None
                 except (TypeError, ValueError):
                     delay = None
-                if delay is not None and delay >= 0:
+                if delay is None:
+                    # Some rate-limit responses omit Retry-After. Use one short,
+                    # bounded retry rather than immediately abandoning the fallback
+                    # path, while still preserving the global timeout budget.
+                    delay = 1.0
+                if delay >= 0:
                     remaining_after_delay = timeout - (time.monotonic() - started) - delay
                     if remaining_after_delay > 5:
                         if delay:
