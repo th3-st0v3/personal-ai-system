@@ -104,11 +104,34 @@ class CalculationApplication:
         _, _, validated = self._validated_inputs(model_key, inputs)
         return expand_trace(calculations.calculate_detailed(model_key, **validated))
 
+    @staticmethod
+    def _record_from_trace(
+        trace: CalculationTrace,
+        method: MethodVersion,
+        parameters: tuple[CalculationParameter, ...],
+    ) -> CalculationRecord:
+        return CalculationRecord(
+            calculation_type=trace.key,
+            inputs=trace.inputs,
+            units={
+                parameter.name: parameter.default_unit or ""
+                for parameter in parameters
+            },
+            assumptions=trace.assumptions,
+            method=trace.equation,
+            result=trace.result,
+            result_unit=trace.result_unit,
+            source="deterministic calculation library",
+            method_version=method.version,
+        )
+
     def run(self, model_key: str, inputs: Mapping[str, object]) -> CalculationRecord:
         trace = self.run_trace(model_key, inputs)
-        method = self.get_method(model_key)
-        parameters = self.get_parameters(model_key)
-        return CalculationRecord(calculation_type=trace.key, inputs=trace.inputs, units={parameter.name: parameter.default_unit or "" for parameter in parameters}, assumptions=trace.assumptions, method=trace.equation, result=trace.result, result_unit=trace.result_unit, source="deterministic calculation library", method_version=method.version)
+        return self._record_from_trace(
+            trace,
+            self.get_method(model_key),
+            self.get_parameters(model_key),
+        )
 
     def workload_spec(self, model_key: str, inputs: Mapping[str, object]) -> WorkloadSpec:
         """Build a reproducible workload definition for one deterministic calculation."""
@@ -160,12 +183,21 @@ class CalculationApplication:
         )
         return record, manifest
 
-    def run_and_save(self, model_key: str, inputs: Mapping[str, object]) -> tuple[int, CalculationRecord]:
-        record = self.run(model_key, inputs)
+    def run_and_save(
+        self,
+        model_key: str,
+        inputs: Mapping[str, object],
+    ) -> tuple[int, CalculationRecord, CalculationTrace]:
+        trace = self.run_trace(model_key, inputs)
+        record = self._record_from_trace(
+            trace,
+            self.get_method(model_key),
+            self.get_parameters(model_key),
+        )
         calculation_id = db.save_calculation_record(record)
         if calculation_id is None:
             raise RuntimeError("Database did not return a calculation record ID.")
-        return int(calculation_id), record
+        return int(calculation_id), record, trace
 
 
 __all__ = ["CalculationApplication"]
