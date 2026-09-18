@@ -79,7 +79,7 @@ start_service() {
     # Close the launcher's flock descriptor in the child before exec. Without
     # this, long-lived services inherit fd 9 and keep start.lock held after the
     # launcher exits, falsely reporting that a run is still starting.
-    nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$@" >>"$log_file" 2>&1 < /dev/null &
+    nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$@" < /dev/null &
 }
 
 # The direct PASI ChatGPT Controller 2.4.x talks to this localhost bridge.
@@ -124,7 +124,7 @@ fi
 log_file="$RUNTIME_DIR/runner.log"
 # Close the launcher's flock descriptor in the detached runner as well so the
 # lock protects startup only and is not retained for the lifetime of the run.
-nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" \
+nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$PYTHON" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" \
     --hours 168 \
     --worktree "$WORKTREE" \
     --branch "$BRANCH" \
