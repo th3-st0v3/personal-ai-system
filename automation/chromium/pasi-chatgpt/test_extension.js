@@ -148,3 +148,11 @@ test('native prompt retries restore only the validated requested conversational 
   assert.match(content, /recovery_context: recoveryContext\(\)/);
   assert.match(content, /recovery GitHub context conflicts with the current attachment/);
 });
+
+
+test('native recovery exact-claims the original prompt retry and clears its resume marker on completion', () => {
+  assert.match(content, /RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id'/);
+  assert.match(content, /state\?\.\[RECOVERY_OPERATION_KEY\] \|\| state\?\.\[RECOVERY_RESUME_OPERATION_KEY\]/);
+  assert.match(content, /function recoveryResumeOperationId\(\)/);
+  assert.match(content, /localStorage\.removeItem\(RECOVERY_KEY\)/);
+});
