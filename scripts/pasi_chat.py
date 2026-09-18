@@ -27,6 +27,7 @@ PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL = PUBLIC_REPOSITORY_URL + "/tree/main"
 CHAT_URL_PATTERN = re.compile(r"^https://chatgpt\.com/c/")
 MAX_HANDOFF_CHARS = 12_000
 MAX_CHAT_HISTORY = 20
+TERMINAL_COMPLETIONS = frozenset({"complete", "error", "interrupted"})
 CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
 CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
 RESPONSE_CAPTURE_REPAIR_ATTEMPTS = 1
@@ -175,16 +176,29 @@ def task_fingerprint(task: str) -> str:
 def pending_operation_for_task(handoff: Mapping[str, object], task: str) -> str | None:
     operation_id = handoff.get("active_operation_id")
     fingerprint = handoff.get("active_task_fingerprint")
-    chat_url = handoff.get("active_operation_chat_url")
     if (
         not isinstance(operation_id, str)
         or not operation_id.strip()
         or fingerprint != task_fingerprint(task)
-        or not valid_chat_url(chat_url)
-        or valid_chat_url(handoff.get("chat_url")) != chat_url
     ):
         return None
     return operation_id
+
+
+def checkpoint_active_operation(handoff: dict[str, object], operation_id: str, task: str) -> None:
+    if not isinstance(operation_id, str) or not operation_id.strip():
+        raise ValueError("active ChatGPT operation ID is required")
+    handoff.update({
+        "active_operation_id": operation_id,
+        "active_task_fingerprint": task_fingerprint(task),
+        "active_operation_chat_url": handoff.get("chat_url"),
+    })
+
+
+def clear_active_operation(handoff: dict[str, object]) -> None:
+    handoff.pop("active_operation_id", None)
+    handoff.pop("active_task_fingerprint", None)
+    handoff.pop("active_operation_chat_url", None)
 
 
 def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> str:
@@ -331,6 +345,19 @@ def repair_response_capture(adapter: ChatGPTAdapter, response: AIResponse) -> AI
 def response_capture_succeeded(response: AIResponse) -> bool:
     """Only treat a completed response with verified text as a successful run."""
     return response.completion == "complete" and response.response_available and bool(response.text.strip())
+
+
+def reconcile_timed_out_response(adapter: ChatGPTAdapter, operation_id: str, response: AIResponse) -> AIResponse:
+    """Make one bounded final operation read before treating a wait timeout as non-terminal."""
+    if response.completion != "timeout":
+        return response
+    try:
+        reconciled = adapter.read_operation(operation_id)
+    except Exception:
+        return response
+    if reconciled.completion in TERMINAL_COMPLETIONS:
+        return repair_response_capture(adapter, reconciled)
+    return response
 
 
 def valid_chat_url(value: object) -> str | None:
@@ -515,10 +542,11 @@ def main() -> int:
             print(f"Resuming persisted ChatGPT operation: {prompt_operation}")
         else:
             prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
-            handoff.update({"active_operation_id": prompt_operation, "active_task_fingerprint": task_fingerprint(task), "active_operation_chat_url": handoff.get("chat_url")})
+            checkpoint_active_operation(handoff, prompt_operation, task)
             save_handoff(handoff)
             print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
+        response = reconcile_timed_out_response(adapter, prompt_operation, response)
         response = repair_response_capture(adapter, response)
         if response.completion == "error" and response.chat_exhausted:
             print("Current ChatGPT conversation is exhausted; creating one replacement chat and retrying once.")
@@ -531,10 +559,11 @@ def main() -> int:
             # can resume from the verified new conversation instead of the exhausted one.
             save_handoff(handoff)
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
-            handoff.update({"active_operation_id": retry_operation, "active_task_fingerprint": task_fingerprint(task)})
+            checkpoint_active_operation(handoff, retry_operation, task)
             save_handoff(handoff)
             print(f"Retry prompt operation: {retry_operation}")
             response = adapter.wait_for_completion(retry_operation)
+            response = reconcile_timed_out_response(adapter, retry_operation, response)
             response = repair_response_capture(adapter, response)
 
         if args.github == "auto" and response.text and not handoff.get("github_attached") and public_github_context_unavailable(response.text):
@@ -546,15 +575,12 @@ def main() -> int:
                 handoff["context_source"] = "github_app_fallback"
                 fallback_prompt = build_prompt(task, compact_repo_state(root), handoff) + "\n\nPUBLIC RETRIEVAL FALLBACK:\nThe public repository path did not provide usable repository evidence. Use the connected GitHub app now to retrieve the exact requested repository material, preserve the existing task context, and return the corrected answer/completion contract. Do not create a new conversation."
                 fallback_operation = adapter.submit_prompt(fallback_prompt)
-                handoff.update({
-                    "active_operation_id": fallback_operation,
-                    "active_task_fingerprint": task_fingerprint(task),
-                    "active_operation_chat_url": handoff.get("chat_url"),
-                })
+                checkpoint_active_operation(handoff, fallback_operation, task)
                 save_handoff(handoff)
                 print(f"GitHub fallback prompt operation: {fallback_operation}")
                 fallback_response = adapter.wait_for_completion(fallback_operation)
-                response = repair_response_capture(adapter, fallback_response)
+                response = reconcile_timed_out_response(adapter, fallback_operation, fallback_response)
+                response = repair_response_capture(adapter, response)
             except Exception as exc:
                 print(f"warning: automatic GitHub fallback could not be attached or completed: {exc}", file=sys.stderr)
                 handoff["context_source"] = "public_github_fallback_failed"
@@ -584,9 +610,10 @@ def main() -> int:
         record_chat_change(handoff, current_handoff_url, latest_chat_url, "completion_observed_chat_change")
     if latest_chat_url:
         handoff["chat_url"] = latest_chat_url
-    handoff.pop("active_operation_id", None)
-    handoff.pop("active_task_fingerprint", None)
-    handoff.pop("active_operation_chat_url", None)
+    if response.completion in TERMINAL_COMPLETIONS:
+        clear_active_operation(handoff)
+    else:
+        checkpoint_active_operation(handoff, prompt_operation, task)
     handoff.update({"chat_exhausted": response.chat_exhausted, "summary": summary, "controller_update_signal": update_signal})
     save_handoff(handoff)
     return 0 if response_capture_succeeded(response) else 1

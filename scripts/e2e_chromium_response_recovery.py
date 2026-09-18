@@ -23,6 +23,7 @@ BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 8765
 OPERATION_ID = "pasi-e2e-late-response"
 EXPECTED_RESPONSE = "response recovered by the real Chromium controller"
+CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS = 30.0
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
@@ -355,7 +356,11 @@ def main() -> None:
                         }
                     }
                 },
-                timeout=10.0,
+                # Chrome can take longer than the short health-check window to
+                # finish creating a headless session on a loaded CI runner.
+                # Keep this bounded, but do not fail the acceptance test merely
+                # because browser startup is slower than normal.
+                timeout=CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS,
             )
             value = created.get("value")
             if not isinstance(value, dict):
