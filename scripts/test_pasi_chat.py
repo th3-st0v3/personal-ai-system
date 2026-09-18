@@ -47,6 +47,15 @@ class FakeChatAdapter:
         self.state["reasoning_mode"] = mode
 
 
+class StaleReplacementURLChatAdapter(FakeChatAdapter):
+    def new_session(self) -> str:
+        self.calls.append(("new_session", ""))
+        self.state = {"kind": "chatgpt_state", "chat_url": "", "chat_exhausted": False, "github_attached": False}
+        # Simulate a bridge that completes new-chat creation but cannot yet report
+        # the replacement conversation URL.
+        return "op-new"
+
+
 class TestPasiChat(unittest.TestCase):
     def test_build_prompt_uses_public_repo_as_default_and_always_requires_thinking(self) -> None:
         prompt = build_prompt("inspect the bridge", "Repository: https://github.com/example/repo\nWorking tree: clean", {})
@@ -97,6 +106,19 @@ class TestPasiChat(unittest.TestCase):
         self.assertEqual(known_url, "https://chatgpt.com/c/new")
         self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/new")
         self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
+
+    def test_new_session_does_not_reuse_stale_chat_identity(self) -> None:
+        adapter = StaleReplacementURLChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/old",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        adapter.last_chat_url = "https://chatgpt.com/c/old"
+        handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
+        self.assertIsNone(known_url)
+        self.assertIsNone(handoff["chat_url"])
+        self.assertNotIn("https://chatgpt.com/c/old", handoff.get("chat_url_history", []))
 
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
