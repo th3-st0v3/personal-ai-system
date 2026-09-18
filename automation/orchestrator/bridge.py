@@ -1000,6 +1000,13 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        # Treat nonblank response text as the evidence itself. A stale or
+        # partially updated controller may omit the availability flag, but
+        # must not be able to turn already-supplied response text into an
+        # apparently missing response. Blank text remains fail-closed.
+        if isinstance(response_text, str) and response_text.strip():
+            response_text_available = True
+
         existing_operation = self.bridge_state.get_operation(operation_id)
         if existing_operation is None:
             self._send_json(
