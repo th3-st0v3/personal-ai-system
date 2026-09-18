@@ -1015,12 +1015,17 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         if existing_operation.get("operation_type") == "prompt":
-            has_response = (
+            incoming_response_verified = (
                 response_text_available is True
                 and isinstance(response_text, str)
                 and bool(response_text.strip())
             )
-            if not has_response:
+            persisted_response_verified = (
+                existing_operation.get("response_text_available") is True
+                and isinstance(existing_operation.get("response_text"), str)
+                and bool(str(existing_operation.get("response_text")).strip())
+            )
+            if not incoming_response_verified and not persisted_response_verified:
                 self._send_json(
                     {
                         "error": "Prompt completion requires verified nonblank response_text."
