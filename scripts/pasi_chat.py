@@ -142,8 +142,6 @@ def save_handoff(payload: Mapping[str, object]) -> None:
                     compact_history.append(compact_entry)
             if compact_history:
                 minimal["chat_url_history"] = compact_history[-4:]
-        if "summary" in safe:
-            minimal["summary"] = str(safe["summary"])[-4_000:]
         text = json.dumps(minimal, indent=2, ensure_ascii=False)
         if len(text) > MAX_HANDOFF_CHARS:
             # Operation identity is more important than optional diagnostic history.
