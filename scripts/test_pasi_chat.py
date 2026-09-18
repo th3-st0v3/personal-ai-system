@@ -10,6 +10,10 @@ from scripts.pasi_chat import (
     PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL,
     PUBLIC_REPOSITORY_URL,
     build_prompt,
+    checkpoint_active_operation,
+    clear_active_operation,
+    pending_operation_for_task,
+    task_fingerprint,
     controller_observation_is_live,
     needs_github_context,
     process_controller_update_signal,
@@ -80,6 +84,34 @@ class TestPasiChat(unittest.TestCase):
         adapter = FakeChatAdapter()
         with self.assertRaisesRegex(RuntimeError, "browser controller is not reporting a live heartbeat"):
             wait_for_browser_controller(adapter, timeout_seconds=0.2)
+
+    def test_checkpoint_and_clear_active_operation_preserve_exact_identity(self) -> None:
+        task = "continue the timeout repair"
+        handoff: dict[str, object] = {"chat_url": "https://chatgpt.com/c/current"}
+        checkpoint_active_operation(handoff, "op-timeout", task)
+        self.assertEqual(handoff["active_operation_id"], "op-timeout")
+        self.assertEqual(handoff["active_task_fingerprint"], task_fingerprint(task))
+        self.assertEqual(handoff["active_operation_chat_url"], "https://chatgpt.com/c/current")
+        clear_active_operation(handoff)
+        self.assertNotIn("active_operation_id", handoff)
+        self.assertNotIn("active_task_fingerprint", handoff)
+        self.assertNotIn("active_operation_chat_url", handoff)
+
+    def test_pending_operation_is_task_bound_and_tolerates_missing_url(self) -> None:
+        task = "resume the exact operation"
+        handoff = {
+            "active_operation_id": "op-existing",
+            "active_task_fingerprint": task_fingerprint(task),
+            "active_operation_chat_url": "https://chatgpt.com/c/current",
+            "chat_url": "https://chatgpt.com/c/current",
+        }
+        self.assertEqual(pending_operation_for_task(handoff, task), "op-existing")
+        self.assertIsNone(pending_operation_for_task(handoff, "different task"))
+        missing_url = {
+            "active_operation_id": "op-existing",
+            "active_task_fingerprint": task_fingerprint(task),
+        }
+        self.assertEqual(pending_operation_for_task(missing_url, task), "op-existing")
 
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
