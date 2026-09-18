@@ -65,7 +65,8 @@ test('recovery tracks monitoring state across reloads and handles context exhaus
 
 test('recovery never finalizes a partial assistant response during generation', () => {
   assert.match(source, /function generating\(\)/);
-  assert.match(source, /if \(!generating\(\) && response && currentFingerprint/);
+  const guardedFinalizers = source.match(/if \(!generating\(\) && response && currentFingerprint/g) || [];
+  assert.equal(guardedFinalizers.length, 2);
 });
 
 test('recovery preserves response text casing while still normalizing marker checks', () => {
