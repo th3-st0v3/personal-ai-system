@@ -61,7 +61,7 @@ class TestPasiPromote(unittest.TestCase):
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
                 with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
-                    with patch.object(promote, "_existing_pr", return_value=(42, "https://github.com/th3-st0v3/personal-ai-system/pull/42")):
+                    with patch.object(promote, "_branch_pr", return_value=(42, "https://github.com/th3-st0v3/personal-ai-system/pull/42", "OPEN")):
                         with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")):
                             result = promote.promote("abc123", "pasi/test", "task")
         self.assertEqual(result.pr_number, 42)
@@ -72,7 +72,7 @@ class TestPasiPromote(unittest.TestCase):
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
                 with patch.object(promote, "changed_paths", return_value=("automation/tampermonkey/chatgpt-controller.user.js",)):
-                    with patch.object(promote, "_existing_pr", return_value=(43, "https://github.com/th3-st0v3/personal-ai-system/pull/43")):
+                    with patch.object(promote, "_branch_pr", return_value=(43, "https://github.com/th3-st0v3/personal-ai-system/pull/43", "OPEN")):
                         with patch.object(promote, "_enable_auto_merge") as enable:
                             result = promote.promote("abc123", "pasi/test", "task")
         enable.assert_not_called()
