@@ -7,8 +7,8 @@ const controllerPath = path.join(__dirname, 'chatgpt-controller.user.js');
 const source = fs.readFileSync(controllerPath, 'utf8');
 
 test('controller declares the current hardened version', () => {
-    assert.match(source, /@version\s+2\.4\.11/);
-    assert.match(source, /CONTROLLER_VERSION = ['"]2\.4\.11['"]/);
+    assert.match(source, /@version\s+2\.4\.12/);
+    assert.match(source, /CONTROLLER_VERSION = ['"]2\.4\.12['"]/);
 });
 
 test('controller supports conditional reasoning selection', () => {
@@ -96,7 +96,8 @@ test('controller re-verifies Thinking immediately before every prompt', () => {
     assert.match(source, /reasoningMode = ['"]thinking['"]/);
     assert.match(source, /aria-checked="true"/);
     assert.match(source, /aria-current="true"/);
-    assert.match(source, /if \(thinkingEnabled\(\) !== true\) throw new Error/);
+    assert.match(source, /var thinkingVerified = await waitFor\(function \(\) \{ return thinkingEnabled\(\) === true \? true : null; \}, 3000\)/);
+    assert.match(source, /if \(!thinkingVerified\) throw new Error/);
     assert.match(source, /await submitPrompt\(operation\.prompt, baselineUsers\)/);
 });
 
