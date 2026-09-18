@@ -82,6 +82,16 @@ test('controller re-verifies Thinking immediately before every prompt', () => {
     assert.match(source, /await submitPrompt\(operation\.prompt, baselineUsers\)/);
 });
 
+test('controller re-checks auth, exhaustion, and Thinking at the send boundary', () => {
+    assert.match(source, /async function ensurePromptSubmissionReady\(\)/);
+    assert.match(source, /if \(isAuthRequiredVisible\(\)\) throw new Error\('CHAT_AUTH_REQUIRED/);
+    assert.match(source, /if \(isConversationContextExhaustedVisible\(\)\) throw new Error\('CHAT_EXHAUSTED/);
+    assert.match(source, /if \(isUsageLimitedVisible\(\)\) throw new Error\('CHAT_USAGE_LIMITED/);
+    assert.match(source, /if \(thinkingEnabled\(\) !== true\) await selectReasoningMode\(['"]thinking['"]\)/);
+    assert.match(source, /if \(thinkingEnabled\(\) !== true\) throw new Error\('ChatGPT Thinking state could not be verified before prompt submission/);
+    assert.match(source, /await ensurePromptSubmissionReady\(\);[\s\S]*var button = findSendButton\(\)/);
+});
+
 test('controller retains guarded prompt submission with bounded explicit acknowledgement', () => {
     assert.match(source, /SUBMISSION_ACK_MS = 2500/);
     assert.match(source, /SUBMISSION_ATTEMPTS = 3/);
