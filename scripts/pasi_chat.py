@@ -254,6 +254,11 @@ def repair_response_capture(adapter: ChatGPTAdapter, response: AIResponse) -> AI
     return response
 
 
+def response_capture_succeeded(response: AIResponse) -> bool:
+    """Only treat a completed response with verified text as a successful run."""
+    return response.completion == "complete" and response.response_available and bool(response.text.strip())
+
+
 def valid_chat_url(value: object) -> str | None:
     return value if isinstance(value, str) and CHAT_URL_PATTERN.match(value) else None
 
@@ -434,7 +439,7 @@ def main() -> int:
         handoff["chat_url"] = latest_chat_url
     handoff.update({"chat_exhausted": response.chat_exhausted, "summary": summary, "controller_update_signal": update_signal})
     save_handoff(handoff)
-    return 0 if response.completion == "complete" else 1
+    return 0 if response_capture_succeeded(response) else 1
 
 
 if __name__ == "__main__":
