@@ -66,6 +66,54 @@ class TestProviderRouter(unittest.TestCase):
         self.assertEqual(calls[1][0], "openrouter")
         self.assertLess(calls[1][1], 60.0)
 
+    def test_openrouter_429_retry_honors_bounded_retry_after(self) -> None:
+        import urllib.error
+
+        calls = []
+
+        def fake_openrouter(prompt: str, timeout: float) -> str:
+            calls.append(timeout)
+            if len(calls) == 1:
+                raise urllib.error.HTTPError(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    429,
+                    "rate limited",
+                    {"Retry-After": "1"},
+                    None,
+                )
+            return "retry response"
+
+        with patch.object(pasi_provider_router, "providers_available", return_value=["openrouter"]):
+            with patch.object(pasi_provider_router, "make_prompt", return_value="prompt"):
+                with patch.object(pasi_provider_router, "call_openrouter", side_effect=fake_openrouter):
+                    with patch.object(pasi_provider_router.time, "sleep") as sleep:
+                        provider, response = pasi_provider_router.route("task", Path("."), 30.0)
+
+        self.assertEqual((provider, response), ("openrouter", "retry response"))
+        self.assertEqual(len(calls), 2)
+        sleep.assert_called_once_with(1.0)
+
+    def test_openrouter_429_does_not_sleep_past_fallback_budget(self) -> None:
+        import urllib.error
+
+        error = urllib.error.HTTPError(
+            "https://openrouter.ai/api/v1/chat/completions",
+            429,
+            "rate limited",
+            {"Retry-After": "30"},
+            None,
+        )
+        with patch.object(pasi_provider_router, "providers_available", return_value=["openrouter", "ollama"]):
+            with patch.object(pasi_provider_router, "make_prompt", return_value="prompt"):
+                with patch.object(pasi_provider_router, "call_openrouter", side_effect=error):
+                    with patch.object(pasi_provider_router, "call_ollama", return_value="ollama response") as ollama:
+                        with patch.object(pasi_provider_router.time, "sleep") as sleep:
+                            provider, response = pasi_provider_router.route("task", Path("."), 30.0)
+
+        self.assertEqual((provider, response), ("ollama", "ollama response"))
+        sleep.assert_not_called()
+        ollama.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
