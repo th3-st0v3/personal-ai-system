@@ -25,6 +25,13 @@ test('controller supports conditional GitHub attachment', () => {
     assert.match(source, /function findRepositoryPicker\(/);
 });
 
+test('controller defines a bounded GitHub connection failure detector', () => {
+    assert.match(source, /function isGitHubConnectionFailureVisible\(/);
+    assert.match(source, /github connection failed/);
+    assert.match(source, /failed to connect to github/);
+    assert.match(source, /reconnect github/);
+});
+
 test('controller extracts live assistant responses and reports them', () => {
     assert.match(source, /function extractLatestAssistantResponse\(/);
     assert.match(source, /data-message-author-role=\\?"assistant/);
