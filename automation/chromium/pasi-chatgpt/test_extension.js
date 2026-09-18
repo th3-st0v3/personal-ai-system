@@ -10,6 +10,12 @@ const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
+test('native controller and recovery companion have unique recovery declarations', () => {
+  assert.equal((content.match(/const RECOVERY_KEY = 'pasi:chatgpt-recovery';/g) || []).length, 1);
+  assert.equal((content.match(/const MAX_CONTEXT_AUTO_RECOVERIES = 1;/g) || []).length, 1);
+  assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
+});
+
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
@@ -54,7 +60,7 @@ test('native prompt submission requires explicit user-message acknowledgement', 
 test('native completion persists response text before bounded acknowledgement retries', () => {
   assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
   assert.match(content, /\/chat\/finished/);
-  assert.match(content, /response_text_available: Boolean\(responseText\)/);
+  assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
   assert.match(content, /await reportObservation\('chatgpt_response'/);
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
