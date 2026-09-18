@@ -6,6 +6,8 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 PID_FILE="$RUNTIME_DIR/runner.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
+BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
+CONTROLLER_PID_FILE="$RUNTIME_DIR/controller-distribution.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
 
 if [[ -f "$PID_FILE" ]]; then
@@ -43,6 +45,30 @@ if [[ -f "$STATE_FILE" ]]; then
         cat "$STATE_FILE"
     fi
 fi
+
+printf '\nManaged services:\n'
+for spec in \
+    "PASI bridge|$BRIDGE_PID_FILE|pasi_log_router.py" \
+    "PASI controller distribution|$CONTROLLER_PID_FILE|pasi_controller_server.py"; do
+    name="$(printf '%s' "$spec" | cut -d'|' -f1)"
+    pid_file="$(printf '%s' "$spec" | cut -d'|' -f2)"
+    expected="$(printf '%s' "$spec" | cut -d'|' -f3)"
+    if [[ -f "$pid_file" ]]; then
+        pid="$(cat "$pid_file" 2>/dev/null || true)"
+        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+            command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+            if [[ "$command_line" == *"$expected"* ]]; then
+                printf '%s: MANAGED (PID %s)\n' "$name" "$pid"
+            else
+                printf '%s: PID FILE MISMATCH\n' "$name"
+            fi
+        else
+            printf '%s: STALE PID FILE\n' "$name"
+        fi
+    else
+        printf '%s: not managed by this launcher\n' "$name"
+    fi
+done
 
 printf '\nServices:\n'
 curl -fsS http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
