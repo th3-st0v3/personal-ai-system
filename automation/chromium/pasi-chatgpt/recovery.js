@@ -452,11 +452,22 @@
     try {
       await report('chatgpt_recovery', { phase: 'preparing_new_chat', operation_id: operationId, recovery_action: 'queue_new_chat', replacement_reason: reason });
       await queueNewChat();
-      await markRetryableFailure(
+      const accepted = await markRetryableFailure(
         operationId,
         `CHAT_RECOVERED_RETRY: verified ${reason}; a fresh ChatGPT conversation was prepared for the same task.`,
         recoveryContext
       );
+      const afterRetry = await operation(operationId);
+      if (!accepted || afterRetry?.status !== 'queued') {
+        await report('chatgpt_recovery', {
+          phase: 'retry_requeue_not_verified',
+          operation_id: operationId,
+          recovery_action: 'retry_runner',
+          replacement_reason: reason
+        });
+        clearRecoveryState();
+        return;
+      }
       const latestRecoveryState = readRecoveryState();
       if (latestRecoveryState) {
         writeRecoveryState({
