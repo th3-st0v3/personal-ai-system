@@ -254,6 +254,15 @@
     localStorage.removeItem(ACTIVE_KEY);
   }
 
+  async function finishVisibleResponse(operationId, current, baseline) {
+    if (!current || current.operation_type !== 'prompt') return false;
+    if (await finishPersistedResponse(current)) return true;
+    const response = latestAssistant();
+    const currentFingerprint = fingerprint();
+    if (generating() || !response || currentFingerprint === String(baseline || '')) return false;
+    return finishExisting(operationId, response);
+  }
+
   async function handleContextExhausted(state) {
     const operationId = String(state.operation_id || '');
     if (!operationId) return;
@@ -262,6 +271,10 @@
     if (!current) return;
 
     if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
+      if (await finishVisibleResponse(operationId, current, state.baseline)) {
+        clearInterruptedState();
+        return;
+      }
       clearInterruptedState();
       return;
     }
@@ -440,6 +453,10 @@
 
     const current = await operation(operationId);
     if (current?.status === 'completed' || current?.status === 'failed' || current?.status === 'cancelled') {
+      if (await finishVisibleResponse(operationId, current, state.baseline)) {
+        clearRecoveryState();
+        return;
+      }
       clearRecoveryState();
       return;
     }
@@ -553,6 +570,10 @@
         state = recoveredState;
       }
       if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
+        if (await finishVisibleResponse(state.operation_id, current, state.baseline)) {
+          clearInterruptedState();
+          return;
+        }
         clearInterruptedState();
         return;
       }
