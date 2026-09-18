@@ -268,11 +268,20 @@
     async function waitForSendButton() { return waitFor(findSendButton, SEND_TIMEOUT_MS); }
     function findSendButton() { return firstVisible(['button[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]', 'button[type="submit"]'], true) || findVisibleLabeledAny(['send prompt', 'send message', 'send'], ['button', '[role="button"]'], true); }
 
+    async function ensurePromptSubmissionReady() {
+        if (isAuthRequiredVisible()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required.');
+        if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports conversation/context exhaustion.');
+        if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
+        if (thinkingEnabled() !== true) await selectReasoningMode('thinking');
+        if (thinkingEnabled() !== true) throw new Error('ChatGPT Thinking state could not be verified before prompt submission.');
+    }
+
     async function submitPrompt(expected, baselineUserCount) {
         for (var attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
             var composer = findComposer();
             if (!composer) throw new Error('Composer disappeared before submission.');
             if (normalize(readComposerText(composer)).indexOf(normalize(expected)) === -1) throw new Error('PASI: composer lost the requested prompt before submission.');
+            await ensurePromptSubmissionReady();
             var button = findSendButton();
             if (button && !isDisabled(button)) button.click();
             else if (!requestFormSubmit(composer)) dispatchEnter(composer);
