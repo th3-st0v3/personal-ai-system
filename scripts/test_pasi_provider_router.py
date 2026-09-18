@@ -131,11 +131,13 @@ class TestProviderRouter(unittest.TestCase):
         def fake_openrouter(prompt: str, timeout: float) -> str:
             calls.append(timeout)
             if len(calls) == 1:
+                headers = Message()
+                headers["Retry-After"] = "0"
                 raise urllib.error.HTTPError(
                     "https://openrouter.ai/api/v1/chat/completions",
                     429,
                     "rate limited",
-                    Message({"Retry-After": "0"}),
+                    headers,
                     None,
                 )
             return "immediate retry response"
