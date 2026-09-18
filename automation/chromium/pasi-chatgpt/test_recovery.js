@@ -135,6 +135,14 @@ test('retry-ready recovery clears only its recovery marker once the verified ope
   assert.match(source, /phase: 'retry_resume_state_unexpected'/);
 });
 
+test('recovery clears transient missing-operation markers when the operation becomes resolvable again', () => {
+  assert.match(source, /let state = readRecoveryState\(\)/);
+  assert.match(source, /if \(state\.missing_operation_since_ms \|\| state\.missing_operation_last_report_ms\)/);
+  assert.match(source, /delete recoveredState\.missing_operation_since_ms/);
+  assert.match(source, /delete recoveredState\.missing_operation_last_report_ms/);
+  assert.match(source, /state = recoveredState/);
+});
+
 test('recovery throttles repeated missing-operation reports without clearing persisted recovery state', () => {
   assert.match(source, /MISSING_OPERATION_REPORT_MS = 10 \* 1000/);
   assert.match(source, /missing_operation_last_report_ms/);
