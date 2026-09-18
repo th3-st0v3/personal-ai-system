@@ -542,6 +542,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
     server_version = "PersonalAIChatBridge/1.0"
 
+    def log_message(self, format: str, *args: object) -> None:
+        """Keep successful request traffic out of the long-lived bridge log."""
+        try:
+            status_code = int(str(args[1])) if len(args) > 1 else 0
+        except (TypeError, ValueError):
+            status_code = 0
+        if 0 < status_code < 400:
+            return
+        print("[Bridge] " + format % args, flush=True)
+
     @property
     def bridge_state(self) -> BridgeState:
         return self.server.bridge_state  # type: ignore[attr-defined]
