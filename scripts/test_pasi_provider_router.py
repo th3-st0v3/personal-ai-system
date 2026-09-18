@@ -43,6 +43,29 @@ class TestProviderRouter(unittest.TestCase):
     def test_repo_path_remains_a_path_object_for_callers(self) -> None:
         self.assertIsInstance(Path("."), Path)
 
+    def test_stalled_ollama_keeps_fallback_time_for_next_provider(self) -> None:
+        calls = []
+
+        def fake_ollama(prompt: str, timeout: float) -> str:
+            calls.append(("ollama", timeout))
+            raise RuntimeError("Ollama timed out")
+
+        def fake_openrouter(prompt: str, timeout: float) -> str:
+            calls.append(("openrouter", timeout))
+            return "fallback response"
+
+        with patch.object(pasi_provider_router, "providers_available", return_value=["ollama", "openrouter"]):
+            with patch.object(pasi_provider_router, "make_prompt", return_value="prompt"):
+                with patch.object(pasi_provider_router, "call_ollama", side_effect=fake_ollama):
+                    with patch.object(pasi_provider_router, "call_openrouter", side_effect=fake_openrouter):
+                        provider, response = pasi_provider_router.route("task", Path("."), 60.0)
+
+        self.assertEqual((provider, response), ("openrouter", "fallback response"))
+        self.assertEqual(calls[0][0], "ollama")
+        self.assertEqual(calls[0][1], 30.0)
+        self.assertEqual(calls[1][0], "openrouter")
+        self.assertLess(calls[1][1], 60.0)
+
 
 if __name__ == "__main__":
     unittest.main()
