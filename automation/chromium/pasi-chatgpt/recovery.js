@@ -178,11 +178,31 @@
     return false;
   }
 
-  async function markRetryableFailure(operationId, message) {
+  function recoveryContextFromActiveState() {
     try {
+      const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+      if (!stored || typeof stored !== 'object') return null;
+      const context = {};
+      if (stored.reasoning_mode === 'thinking') context.reasoning_mode = 'thinking';
+      const repository = typeof stored.github_repository === 'string'
+        ? stored.github_repository.trim()
+        : '';
+      if (repository && repository.length <= 200 && /^[^/\s]+\/[^/\s]+$/.test(repository)) {
+        context.github_repository = repository;
+      }
+      return Object.keys(context).length ? context : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function markRetryableFailure(operationId, message, recoveryContext = null) {
+    try {
+      const body = { operation_id: operationId, error: message };
+      if (recoveryContext) body.recovery_context = recoveryContext;
       const response = await bridge('/chat/failed', {
         method: 'POST',
-        body: { operation_id: operationId, error: message }
+        body
       });
       return response.ok;
     } catch (_) {
@@ -273,13 +293,15 @@
         recovery_action: 'queue_new_chat',
         replacement_reason: 'context_exhausted'
       });
+      const recoveryContext = state.recovery_context || recoveryContextFromActiveState();
       await queueNewChat();
 
       const beforeRetry = await operation(operationId);
       if (beforeRetry?.status !== 'completed' && beforeRetry?.status !== 'failed' && beforeRetry?.status !== 'cancelled') {
         const accepted = await markRetryableFailure(
           operationId,
-          'CHAT_EXHAUSTED: verified conversation context exhaustion; a fresh chat was prepared for the same operation.'
+          'CHAT_EXHAUSTED: verified conversation context exhaustion; a fresh chat was prepared for the same operation.',
+          recoveryContext
         );
         const afterRetry = await operation(operationId);
         if (!accepted && afterRetry?.status !== 'queued') {
@@ -366,7 +388,13 @@
     const age = Date.now() - startedMs;
     const shouldRecover = connectionFailure() || age >= RECOVERY_TRIGGER_MS;
     if (shouldRecover && Number(state.reload_count || 0) < MAX_RELOADS) {
-      const next = { ...state, reload_count: Number(state.reload_count || 0) + 1, phase: 'reloaded', reload_at: new Date().toISOString() };
+      const next = {
+        ...state,
+        recovery_context: state.recovery_context || recoveryContextFromActiveState(),
+        reload_count: Number(state.reload_count || 0) + 1,
+        phase: 'reloaded',
+        reload_at: new Date().toISOString()
+      };
       writeRecoveryState(next);
       await report('chatgpt_recovery', { phase: 'reloading', operation_id: operationId, recovery_action: 'reload_page', reload_count: next.reload_count, generation_timeout_ms: GENERATION_TIMEOUT_MS });
       location.reload();
@@ -408,10 +436,15 @@
       return;
     }
 
+    const recoveryContext = state.recovery_context || recoveryContextFromActiveState();
     const reason = replacementReason();
     if (!reason) {
       await report('chatgpt_recovery', { phase: 'preserve_current_chat', operation_id: operationId, recovery_action: 'preserve_current_chat', reason: 'no_verified_usage_or_context_exhaustion' });
-      await markRetryableFailure(operationId, 'PASI_NATIVE: browser page reloaded during operation; no verified usage/context exhaustion; current chat preserved for bounded retry.');
+      await markRetryableFailure(
+        operationId,
+        'PASI_NATIVE: browser page reloaded during operation; no verified usage/context exhaustion; current chat preserved for bounded retry.',
+        recoveryContext
+      );
       clearRecoveryState();
       return;
     }
@@ -419,7 +452,11 @@
     try {
       await report('chatgpt_recovery', { phase: 'preparing_new_chat', operation_id: operationId, recovery_action: 'queue_new_chat', replacement_reason: reason });
       await queueNewChat();
-      await markRetryableFailure(operationId, `CHAT_RECOVERED_RETRY: verified ${reason}; a fresh ChatGPT conversation was prepared for the same task.`);
+      await markRetryableFailure(
+        operationId,
+        `CHAT_RECOVERED_RETRY: verified ${reason}; a fresh ChatGPT conversation was prepared for the same task.`,
+        recoveryContext
+      );
       await report('chatgpt_recovery', { phase: 'ready_for_retry', operation_id: operationId, recovery_action: 'fresh_chat_prepared', replacement_reason: reason });
     } catch (error) {
       await markRetryableFailure(operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}`);
@@ -473,7 +510,8 @@
       baseline: fingerprint(),
       reload_count: 0,
       phase: 'monitoring',
-      chat_url: typeof current.chat_url === 'string' ? current.chat_url : location.href
+      chat_url: typeof current.chat_url === 'string' ? current.chat_url : location.href,
+      recovery_context: recoveryContextFromActiveState()
     };
     writeRecoveryState(stateForTimer);
 
