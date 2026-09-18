@@ -621,9 +621,10 @@
 
       if (operation.status === 'completed') {
         const responseText = typeof operation.response_text === 'string' ? operation.response_text : '';
-        const responseAvailable =
-          operation.response_text_available === true &&
-          Boolean(responseText.trim());
+        // Persisted nonblank response text is the evidence. A stale
+        // controller availability flag must not discard it during restart
+        // reconciliation; blank text remains fail-closed.
+        const responseAvailable = Boolean(responseText.trim());
         if (responseAvailable) {
           try {
             await finishOperation(stored.operation_id, responseText, true);
