@@ -147,7 +147,39 @@ class DelayedObservationTransport(FakeTransport):
         raise AssertionError(f"unexpected transport request: {method} {path}")
 
 
+class TransientOperationReadTransport(FakeTransport):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.operation_reads = 0
+
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        if path.startswith("/operation?"):
+            self.operation_reads += 1
+            if self.operation_reads <= 2:
+                raise ChatGPTAdapterError("temporary bridge read failure")
+            return {
+                "operation": {
+                    "operation_id": "op-1",
+                    "operation_type": "prompt",
+                    "status": "completed",
+                    "response_text": "recovered after transient bridge loss",
+                    "response_text_available": True,
+                }
+            }
+        raise AssertionError(f"unexpected transport request: {method} {path}")
+
+
 class ChatGPTAdapterTests(unittest.TestCase):
+    def test_wait_for_completion_retries_transient_operation_read_failures(self) -> None:
+        transport = TransientOperationReadTransport()
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "recovered after transient bridge loss")
+        self.assertEqual(transport.operation_reads, 3)
+
     def test_submit_prompt_queues_prompt_operation(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1"}}])
         adapter = ChatGPTAdapter(transport, session_id="session-1")
