@@ -374,6 +374,14 @@
     return false;
   }
 
+  async function ensurePromptSubmissionReady() {
+    if (authRequired()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
+    if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
+    if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
+    if (thinkingEnabled() !== true) await selectThinking();
+    if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
+  }
+
   async function submitPrompt(expected) {
     const baselineUserCount = userMessages().length;
     for (let attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
@@ -381,6 +389,7 @@
       if (!box) throw new Error('PASI_NATIVE: composer disappeared');
       if (!normalize(readText(box)).includes(normalize(expected))) throw new Error('PASI_NATIVE: composer lost the requested prompt before submission');
 
+      await ensurePromptSubmissionReady();
       const button = await waitForSend();
       if (button && !disabled(button)) {
         button.click();
