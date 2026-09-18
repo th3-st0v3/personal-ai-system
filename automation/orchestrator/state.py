@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -33,16 +34,33 @@ class StateManager:
 
         temporary_path = path.with_suffix(path.suffix + ".tmp")
 
-        with temporary_path.open("w", encoding="utf-8") as file:
-            json.dump(
-                value,
-                file,
-                indent=2,
-                ensure_ascii=False,
-            )
-            file.write("\n")
+        try:
+            with temporary_path.open("w", encoding="utf-8") as file:
+                json.dump(
+                    value,
+                    file,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                file.write("\n")
+                file.flush()
+                os.fsync(file.fileno())
 
-        temporary_path.replace(path)
+            temporary_path.replace(path)
+
+            # Persist the directory entry as well as the file contents so an
+            # unexpected process/host restart cannot acknowledge a queue or
+            # handoff update that is still only in filesystem cache.
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
 
     def read_json(
         self,
