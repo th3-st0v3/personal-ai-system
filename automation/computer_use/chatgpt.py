@@ -129,7 +129,7 @@ class ChatGPTAdapter(AIAdapter):
     def read_response(self) -> AIResponse:
         if self.current_operation_id is None:
             raise ChatGPTAdapterError("no active ChatGPT operation")
-        return self.read_operation(self.current_operation_id)
+        return self.wait_for_completion(self.current_operation_id)
 
     def read_operation(self, operation_id: str) -> AIResponse:
         if not operation_id.strip():
