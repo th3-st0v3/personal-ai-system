@@ -70,6 +70,7 @@ class UrllibBridgeTransport:
 
 COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
 BROWSER_RESPONSE_RECHECK_ATTEMPTS = 4
+BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS = 0.25
 OPERATION_READ_RETRY_ATTEMPTS = 4
 
 
@@ -236,7 +237,7 @@ class ChatGPTAdapter(AIAdapter):
         if should_check_observation:
             # Durable response persistence can lag the completion acknowledgement by a\n            # short scheduling interval. Recheck boundedly for every completed prompt,\n            # not only when the acknowledgement itself was lost. This never resubmits\n            # the prompt or creates a chat and remains fail-closed on missing evidence.\n            attempts = BROWSER_RESPONSE_RECHECK_ATTEMPTS\n            for attempt in range(attempts):
                 if attempt:
-                    time.sleep(min(self.poll_interval_seconds, 0.25))
+                    time.sleep(BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS)
                 try:
                     observation = self.read_browser_response_observation()
                 except ChatGPTAdapterError:
