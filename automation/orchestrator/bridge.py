@@ -551,13 +551,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
     server_version = "PersonalAIChatBridge/1.0"
 
-    def log_message(self, format: str, *args: object) -> None:
-        """Keep successful request traffic out of the long-lived bridge log."""
-        message = format % args
-        if not _bridge_access_log_should_emit(message):
-            return
-        print("[Bridge] " + message, flush=True)
-
     @property
     def bridge_state(self) -> BridgeState:
         return self.server.bridge_state  # type: ignore[attr-defined]
@@ -1268,10 +1261,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         format_string: str,
         *args: Any,
     ) -> None:
-        print(
-            "[Bridge] "
-            + format_string % args
-        )
+        """Keep successful request traffic out of the long-lived bridge log."""
+        message = format_string % args
+        if not _bridge_access_log_should_emit(message):
+            return
+        print("[Bridge] " + message, flush=True)
 
 
 class ChatGPTBridge:
