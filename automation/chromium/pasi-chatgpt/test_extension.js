@@ -81,6 +81,7 @@ test('native prompt submission re-verifies Thinking before sending', () => {
   assert.match(content, /const thinkingVerified = await waitFor\(\(\) => thinkingEnabled\(\) === true \? true : null, 3000\)/);
   assert.match(content, /if \(!thinkingVerified\) throw new Error/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
+  assert.match(content, /const DOM_POLL_MS = 250;/);
 });
 
 test('native prompt submission re-checks auth, exhaustion, and Thinking at the send boundary', () => {
