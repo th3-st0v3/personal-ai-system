@@ -89,3 +89,10 @@ test('recovery carries bounded conversational context into the requeued operatio
   assert.match(source, /state\.recovery_context \|\| recoveryContextFromActiveState\(\)/);
   assert.match(source, /CHAT_EXHAUSTED: verified conversation context exhaustion/);
 });
+
+
+test('recovery marks the original operation for exact resumption after preparing a fresh chat', () => {
+  assert.match(source, /resume_operation_id: operationId/);
+  assert.match(source, /phase: 'retry_ready'/);
+  assert.match(source, /if \(readRecoveryState\(\)\?\.resume_operation_id === operationId\) return/);
+});
