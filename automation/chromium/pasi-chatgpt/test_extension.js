@@ -36,7 +36,7 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /chatgpt_chat_changed/);
   assert.match(content, /conversation_signature/);
   assert.match(content, /localStorage/);
-  assert.match(content, /browser page reloaded during operation/);
+  assert.match(recovery, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
   assert.match(content, /CHAT_USAGE_LIMITED/);
   assert.match(content, /const current = await bridge\(`\/operation\?operation_id=/);
