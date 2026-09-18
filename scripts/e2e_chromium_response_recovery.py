@@ -391,10 +391,33 @@ def main() -> None:
                 raise RuntimeError(f"Chromium fixture did not return browser state: {diagnostics}")
             if browser_state.get("response") != EXPECTED_RESPONSE:
                 raise AssertionError(f"Chromium fixture response mismatch: {browser_state}")
-            if OPERATION_ID not in str(browser_state.get("active", "")):
-                raise AssertionError(f"Chromium fixture recovery marker missing: {browser_state}")
+            if browser_state.get("response") != EXPECTED_RESPONSE:
+                raise AssertionError(f"Chromium fixture response mismatch: {browser_state}")
 
             wait_for_bridge_event(20.0)
+
+            completed_state = driver_request(
+                driver_url,
+                "POST",
+                f"/session/{session_id}/execute/sync",
+                {
+                    "script": """return {
+                      href: location.href,
+                      active: localStorage.getItem("pasi:active-operation")
+                    };""",
+                    "args": [],
+                },
+                timeout=5.0,
+            )
+            final_browser_state = completed_state.get("value")
+            if not isinstance(final_browser_state, dict):
+                raise RuntimeError(
+                    f"Chromium post-recovery state was invalid: {completed_state}"
+                )
+            if final_browser_state.get("active") is not None:
+                raise AssertionError(
+                    f"Chromium recovery marker was not cleared after completion: {final_browser_state}"
+                )
         except Exception as exc:
             try:
                 diagnostic = driver_request(
