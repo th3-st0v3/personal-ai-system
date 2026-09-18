@@ -57,6 +57,40 @@ class TestPasiPromote(unittest.TestCase):
         self.assertEqual(result.pr_number, 44)
         self.assertTrue(result.auto_merge_requested)
 
+    def test_standard_auto_merge_requires_green_checks(self) -> None:
+        with patch.object(promote, "gh_available", return_value=True):
+            with patch.object(promote, "gh_authenticated", return_value=True):
+                with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
+                    with patch.object(promote, "_branch_pr", return_value=(41, "https://github.com/th3-st0v3/personal-ai-system/pull/41", "OPEN")):
+                        with patch.object(promote, "_checks_green", return_value=(False, "test: fail")):
+                            with patch.object(promote, "_enable_auto_merge") as enable:
+                                result = promote.promote("abc123", "pasi/test", "task")
+        enable.assert_not_called()
+        self.assertFalse(result.auto_merge_requested)
+        self.assertIn("withheld until all GitHub checks pass", result.message)
+
+    def test_standard_auto_merge_proceeds_after_green_checks(self) -> None:
+        with patch.object(promote, "gh_available", return_value=True):
+            with patch.object(promote, "gh_authenticated", return_value=True):
+                with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
+                    with patch.object(promote, "_branch_pr", return_value=(42, "https://github.com/th3-st0v3/personal-ai-system/pull/42", "OPEN")):
+                        with patch.object(promote, "_checks_green", return_value=(True, "all 2 reported GitHub checks passed")):
+                            with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")) as enable:
+                                result = promote.promote("abc123", "pasi/test", "task")
+        enable.assert_called_once_with(42)
+        self.assertTrue(result.auto_merge_requested)
+
+    def test_standard_auto_merge_refuses_empty_or_failed_check_sets(self) -> None:
+        with patch.object(promote, "gh_available", return_value=True):
+            with patch.object(promote, "gh_authenticated", return_value=True):
+                with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
+                    with patch.object(promote, "_branch_pr", return_value=(42, "https://github.com/th3-st0v3/personal-ai-system/pull/42", "OPEN")):
+                        with patch.object(promote, "_checks_green", return_value=(False, "no GitHub checks are currently reported for this PR")):
+                            with patch.object(promote, "_enable_auto_merge") as enable:
+                                result = promote.promote("abc123", "pasi/test", "task")
+        enable.assert_not_called()
+        self.assertFalse(result.auto_merge_requested)
+
     def test_existing_pr_gets_auto_merge_for_standard_changes(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
