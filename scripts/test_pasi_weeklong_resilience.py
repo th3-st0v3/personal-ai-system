@@ -27,6 +27,24 @@ class WeeklongResilienceTests(unittest.TestCase):
             )
         )
 
+    def test_repair_prompt_contains_anti_loop_continuation_rule(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = SimpleNamespace(
+            schema_version=2,
+            run_id="repair-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="engineering_os",
+            current_task="Improve task continuation",
+            recent_tasks=["already completed task"],
+        )
+        prompt = resilience._repair_prompt("Improve task continuation", "", "", state)
+        self.assertIn("IF the CURRENT TASK is already satisfied", prompt)
+        self.assertIn("THEN do not re-implement it", prompt)
+        self.assertIn("next incomplete roadmap item", prompt)
+
     def test_recovers_markerless_diff_from_response(self) -> None:
         response = self._complete_prefix() + "\n\nHere is the requested change:\n" + "\n".join(
             (
