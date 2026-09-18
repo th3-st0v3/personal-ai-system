@@ -544,13 +544,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         """Keep successful request traffic out of the long-lived bridge log."""
+        message = format % args
         try:
-            status_code = int(str(args[1])) if len(args) > 1 else 0
-        except (TypeError, ValueError):
+            status_code = int(message.rsplit(" ", 2)[-2])
+        except (ValueError, IndexError):
             status_code = 0
         if 0 < status_code < 400:
             return
-        print("[Bridge] " + format % args, flush=True)
+        print("[Bridge] " + message, flush=True)
 
     @property
     def bridge_state(self) -> BridgeState:
