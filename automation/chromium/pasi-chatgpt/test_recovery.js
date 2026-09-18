@@ -13,6 +13,7 @@ test('recovery uses the requested 25-minute generation ceiling and starts recove
 
 test('recovery can preserve a response, reload once, and prepare a fresh chat for retry', () => {
   assert.match(source, /preserve_response/);
+  assert.match(source, /active_operation_id: operationId/);
   assert.match(source, /location\.reload\(\)/);
   assert.match(source, /queueNewChat/);
   assert.match(source, /operation_type: 'new_chat'/);
