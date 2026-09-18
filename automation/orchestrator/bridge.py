@@ -1008,6 +1008,12 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if existing_operation.get("status") == "completed":
+            # A duplicate acknowledgement must remain idempotent even if a
+            # retried browser request no longer carries the original response.
+            self._send_json({"operation": existing_operation})
+            return
+
         if existing_operation.get("operation_type") == "prompt":
             has_response = (
                 response_text_available is True
