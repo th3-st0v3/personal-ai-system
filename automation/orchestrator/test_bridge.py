@@ -436,6 +436,51 @@ def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
         assert not thread.is_alive()
 
 
+def test_http_prompt_completion_requires_verified_nonblank_response(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "reject blank completion")
+        claimed = bridge.claim_next_operation()
+        assert claimed is not None
+        bridge.heartbeat(operation.operation_id)
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps(
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/blank",
+                "response_text": "   ",
+                "response_text_available": True,
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/finished",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+
+        assert response.status == 409
+        assert "verified nonblank response_text" in body["error"]
+        current = bridge.get_operation(operation.operation_id)
+        assert current is not None
+        assert current["status"] == "generating"
+        assert current["response_text_available"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_http_duplicate_completion_ack_is_idempotent(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
