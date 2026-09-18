@@ -515,7 +515,16 @@
       }
 
       if (state.phase === 'retry_ready') {
-        if (current.status === 'queued' && state.resume_operation_id === state.operation_id) {
+        if (state.resume_operation_id !== state.operation_id) {
+          await report('chatgpt_recovery', {
+            phase: 'retry_resume_marker_invalid',
+            operation_id: state.operation_id,
+            recovery_action: 'retry_runner',
+            observed_status: current.status
+          });
+          return;
+        }
+        if (current.status === 'queued') {
           await report('chatgpt_recovery', {
             phase: 'retry_waiting',
             operation_id: state.operation_id,
@@ -523,8 +532,17 @@
           });
           return;
         }
+        if (current.status === 'running') {
+          clearRecoveryState();
+          await report('chatgpt_recovery', {
+            phase: 'retry_resumed',
+            operation_id: state.operation_id,
+            recovery_action: 'monitor_resumed_operation'
+          });
+          return;
+        }
         await report('chatgpt_recovery', {
-          phase: 'retry_resume_marker_invalid',
+          phase: 'retry_resume_state_unexpected',
           operation_id: state.operation_id,
           recovery_action: 'retry_runner',
           observed_status: current.status
