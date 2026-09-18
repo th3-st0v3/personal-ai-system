@@ -120,7 +120,6 @@ test('background service worker performs bounded stale-tab recovery', () => {
   assert.match(background, /auth_required/);
 });
 
-
 test('native controller defers first context-exhaustion failure to bounded recovery', () => {
   assert.match(content, /RECOVERY_KEY = 'pasi:chatgpt-recovery'/);
   assert.match(content, /MAX_CONTEXT_AUTO_RECOVERIES = 1/);
@@ -136,7 +135,6 @@ test('background watchdog targets the tab matching the reported ChatGPT conversa
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
 
-
 test('background bounded reload helper retains per-tab refresh budget', () => {
   assert.match(background, /async function reloadBoundedTab\(tab\)/);
   assert.match(background, /const budget = await refreshBudget\(tab\.id\)/);
@@ -144,11 +142,9 @@ test('background bounded reload helper retains per-tab refresh budget', () => {
   assert.match(background, /chrome\.tabs\.reload\(tab\.id\)/);
 });
 
-
 test('native controller pauses ordinary queue polling while a recovery state is active', () => {
   assert.match(content, /if \(processing \|\| activeOperationId !== null\) return/);
 });
-
 
 test('native recovery claims only the persisted recovery operation instead of consuming ordinary queue order', () => {
   assert.match(content, /const RECOVERY_OPERATION_KEY = 'recovery_operation_id'/);
@@ -156,7 +152,6 @@ test('native recovery claims only the persisted recovery operation instead of co
   assert.match(content, /\/chat\/claim/);
   assert.match(content, /body: \{ operation_id: recoveryOperation \}/);
 });
-
 
 test('native prompt retries restore only the validated requested conversational context', () => {
   assert.match(content, /let githubRepository = null/);
@@ -166,7 +161,6 @@ test('native prompt retries restore only the validated requested conversational 
   assert.match(content, /recovery_context: recoveryContext\(\)/);
   assert.match(content, /recovery GitHub context conflicts with the current attachment/);
 });
-
 
 test('native recovery exact-claims the original prompt retry and clears its resume marker on completion', () => {
   assert.match(content, /RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id'/);
@@ -206,7 +200,6 @@ test('native controller preserves prompt operations for bounded response recover
   assert.match(content, /finalized = false/);
 });
 
-
 test('background watchdog requires an active operation and exact chat identity before reloading', () => {
   assert.match(background, /if \(typeof health\.data\.active_operation_id !== 'string' \|\| !health\.data\.active_operation_id\.trim\(\)\) return/);
   assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
@@ -219,7 +212,6 @@ test('background watchdog requires an active operation and exact chat identity b
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
 
-
 test('background watchdog recreates only the verified conversation when its tab is missing', () => {
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
@@ -227,11 +219,16 @@ test('background watchdog recreates only the verified conversation when its tab 
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
 
-
 test('background watchdog rate-limits missing-tab recreation after browser creation failures', () => {
   assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
   assert.match(background, /const key = `create:\$\{targetChatUrl\}`/);
   assert.match(background, /if \(await createCooldown\(targetChatUrl\)\) return/);
   assert.match(background, /await markCreateAttempt\(targetChatUrl\)/);
   assert.match(background, /try \{\s*await chrome\.tabs\.create\(\{ url: targetChatUrl \}\);\s*\} catch \(_\)/);
+});
+
+test('background watchdog clears a stale creation cooldown after the exact tab is restored', () => {
+  assert.match(background, /if \(!matchingTab\) \{/);
+  assert.match(background, /await chrome\.storage\.local\.remove\(`create:\$\{targetChatUrl\}`);/);
+  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
