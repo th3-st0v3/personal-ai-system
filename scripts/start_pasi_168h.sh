@@ -14,6 +14,7 @@ PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 LOCK_FILE="$RUNTIME_DIR/start.lock"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
+START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
 CONTROLLER_LOG="$RUNTIME_DIR/controller-distribution.log"
 
@@ -35,9 +36,27 @@ printf '\n=== STARTING 168-HOUR RUN ===\n'
 mkdir -p "$RUNTIME_DIR"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-    printf 'PASI overnight start is already in progress.\n' >&2
+    if [[ -f "$START_PID_FILE" ]]; then
+        start_pid="$(cat "$START_PID_FILE" 2>/dev/null || true)"
+        if [[ "$start_pid" =~ ^[0-9]+$ ]] && kill -0 "$start_pid" 2>/dev/null; then
+            printf 'PASI overnight start is already in progress (launcher PID %s).\n' "$start_pid" >&2
+        else
+            rm -f "$START_PID_FILE"
+            printf 'PASI overnight start lock is currently held, but its launcher PID is stale or missing.\n' >&2
+        fi
+    else
+        printf 'PASI overnight start lock is currently held by another launcher.\n' >&2
+    fi
     exit 1
 fi
+
+printf '%s\n' "$" > "$START_PID_FILE"
+cleanup_start_pid() {
+    if [[ -f "$START_PID_FILE" ]] && [[ "$(cat "$START_PID_FILE" 2>/dev/null || true)" == "$" ]]; then
+        rm -f "$START_PID_FILE"
+    fi
+}
+trap cleanup_start_pid EXIT
 
 if [[ -f "$RUNNER_PID_FILE" ]]; then
     pid="$(cat "$RUNNER_PID_FILE" 2>/dev/null || true)"

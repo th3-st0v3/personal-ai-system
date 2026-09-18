@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 PID_FILE="$RUNTIME_DIR/runner.pid"
+START_PID_FILE="$RUNTIME_DIR/start.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
 
 if [[ -f "$PID_FILE" ]]; then
@@ -16,6 +17,22 @@ if [[ -f "$PID_FILE" ]]; then
     fi
 else
     printf 'Runner: INACTIVE\n'
+fi
+
+if [[ -f "$START_PID_FILE" ]]; then
+    start_pid="$(cat "$START_PID_FILE" 2>/dev/null || true)"
+    if [[ "$start_pid" =~ ^[0-9]+$ ]] && kill -0 "$start_pid" 2>/dev/null; then
+        command_line="$(ps -p "$start_pid" -o args= 2>/dev/null || true)"
+        if [[ "$command_line" == *"start_pasi_overnight.sh"* || "$command_line" == *"start_pasi_168h.sh"* ]]; then
+            printf 'Startup launcher: ACTIVE (PID %s)\n' "$start_pid"
+        else
+            printf 'Startup launcher: INACTIVE (stale PID file)\n'
+        fi
+    else
+        printf 'Startup launcher: INACTIVE (stale PID file)\n'
+    fi
+else
+    printf 'Startup launcher: INACTIVE\n'
 fi
 
 if [[ -f "$STATE_FILE" ]]; then

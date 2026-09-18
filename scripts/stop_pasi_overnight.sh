@@ -4,9 +4,46 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PID_FILE="$REPO_ROOT/.runtime/overnight/runner.pid"
+START_PID_FILE="$REPO_ROOT/.runtime/overnight/start.pid"
+
+launcher_pid=""
+if [[ -f "$START_PID_FILE" ]]; then
+    candidate="$(cat "$START_PID_FILE" 2>/dev/null || true)"
+    if [[ "$candidate" =~ ^[0-9]+$ ]] && kill -0 "$candidate" 2>/dev/null; then
+        command_line="$(ps -p "$candidate" -o args= 2>/dev/null || true)"
+        if [[ "$command_line" == *"start_pasi_overnight.sh"* || "$command_line" == *"start_pasi_168h.sh"* ]]; then
+            launcher_pid="$candidate"
+        else
+            rm -f "$START_PID_FILE"
+        fi
+    else
+        rm -f "$START_PID_FILE"
+    fi
+fi
+
+if [[ -n "$launcher_pid" ]]; then
+    kill -TERM "$launcher_pid" 2>/dev/null || true
+    printf 'Requested graceful stop for PASI startup launcher PID %s.\n' "$launcher_pid"
+    for _ in {1..10}; do
+        if ! kill -0 "$launcher_pid" 2>/dev/null; then
+            rm -f "$START_PID_FILE"
+            printf 'PASI startup launcher stopped cleanly.\n'
+            launcher_pid=""
+            break
+        fi
+        sleep 1
+    done
+    if [[ -n "$launcher_pid" ]]; then
+        kill -KILL "$launcher_pid" 2>/dev/null || true
+        rm -f "$START_PID_FILE"
+        printf 'PASI startup launcher required forced termination.\n'
+    fi
+fi
 
 if [[ ! -f "$PID_FILE" ]]; then
-    printf 'PASI overnight runner is not active.\n'
+    if [[ -z "$launcher_pid" ]]; then
+        printf 'PASI overnight runner is not active.\n'
+    fi
     exit 0
 fi
 
