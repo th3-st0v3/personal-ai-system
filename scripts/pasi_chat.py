@@ -27,6 +27,7 @@ MAX_HANDOFF_CHARS = 12_000
 MAX_CHAT_HISTORY = 20
 CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
 CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
+RESPONSE_CAPTURE_REPAIR_ATTEMPTS = 1
 _PUBLIC_GITHUB_FAILURE_PHRASES = (
     "i can't access the github repository",
     "i cannot access the github repository",
@@ -237,6 +238,21 @@ def wait_for_browser_controller(
     raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
 
 
+def repair_response_capture(adapter: ChatGPTAdapter, response: object) -> object:
+    """Perform one bounded second read when completion succeeded without text."""
+    if getattr(response, "completion", None) != "complete" or getattr(response, "response_available", False):
+        return response
+    for _ in range(RESPONSE_CAPTURE_REPAIR_ATTEMPTS):
+        try:
+            repaired = adapter.read_response()
+        except Exception:
+            continue
+        if repaired.completion != "complete" or repaired.response_available:
+            return repaired
+        response = repaired
+    return response
+
+
 def valid_chat_url(value: object) -> str | None:
     return value if isinstance(value, str) and CHAT_URL_PATTERN.match(value) else None
 
@@ -361,6 +377,7 @@ def main() -> int:
         prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
         print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
+        response = repair_response_capture(adapter, response)
         if response.completion == "error" and response.chat_exhausted:
             print("Current ChatGPT conversation is exhausted; creating one replacement chat and retrying once.")
             previous_url = valid_chat_url(handoff.get("chat_url"))
@@ -371,6 +388,7 @@ def main() -> int:
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
             print(f"Retry prompt operation: {retry_operation}")
             response = adapter.wait_for_completion(retry_operation)
+            response = repair_response_capture(adapter, response)
 
         if args.github == "auto" and response.text and not handoff.get("github_attached") and public_github_context_unavailable(response.text):
             print("Public GitHub retrieval appears unavailable; switching to the connected ChatGPT GitHub app in the same conversation.")
@@ -383,7 +401,7 @@ def main() -> int:
                 fallback_operation = adapter.submit_prompt(fallback_prompt)
                 print(f"GitHub fallback prompt operation: {fallback_operation}")
                 fallback_response = adapter.wait_for_completion(fallback_operation)
-                response = fallback_response
+                response = repair_response_capture(adapter, fallback_response)
             except Exception as exc:
                 print(f"warning: automatic GitHub fallback could not be attached or completed: {exc}", file=sys.stderr)
                 handoff["context_source"] = "public_github_fallback_failed"
