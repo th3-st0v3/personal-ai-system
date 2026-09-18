@@ -202,6 +202,15 @@ class ChatGPTAdapterTests(unittest.TestCase):
         adapter.new_session()
         self.assertEqual(adapter.last_chat_url, "https://chatgpt.com/c/recovered")
 
+    def test_new_session_clears_stale_chat_url_when_reconciliation_fails(self) -> None:
+        transport = ObservationFailingTransport([
+            {"operation": {"operation_id": "op-new"}},
+            {"operation": {"operation_id": "op-new", "status": "completed"}},
+        ])
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, last_chat_url="https://chatgpt.com/c/old")
+        self.assertEqual(adapter.new_session(), "op-new")
+        self.assertIsNone(adapter.last_chat_url)
+
     def test_attach_github_repository_queues_semantic_attachment_operation(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-github"}}, {"operation": {"operation_id": "op-github", "status": "completed"}}])
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
