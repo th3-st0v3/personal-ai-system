@@ -370,7 +370,7 @@ def continuation_directive(state: OvernightState, task: str) -> str:
 - A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
 - After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
 - IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
-- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: ongoing and provide the required patch.
+- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: changed and provide the required patch.
 - IF the listed roadmap items are already covered by verified recent work, THEN revisit the repository for the next concrete gap and make that the next task instead of repeating an old task.
 - After any successful completion or bounded failure, continue automatically to the next incomplete roadmap task until the run deadline or an explicit operator stop; do not terminate merely because one task or one provider path finished.
 ROADMAP PHASE: {state.phase}
