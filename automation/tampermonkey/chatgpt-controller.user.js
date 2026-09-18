@@ -380,6 +380,34 @@
         return false;
     }
 
+    function isGitHubConnectionFailureVisible() {
+        var bodyText = normalize(document.body ? document.body.innerText : '');
+        var markers = [
+            'github connection failed',
+            'github connection error',
+            'failed to connect to github',
+            'could not connect to github',
+            'unable to connect to github',
+            'github connection is unavailable',
+            'github access is unavailable',
+            'github access failed',
+            'github authentication required',
+            'github authentication failed',
+            'reconnect github',
+            'connect your github account',
+            'github app connection failed'
+        ];
+        for (var i = 0; i < markers.length; i += 1) if (bodyText.indexOf(markers[i]) !== -1) return true;
+
+        var alerts = document.querySelectorAll('[role="alert"], [role="dialog"]');
+        for (var j = 0; j < alerts.length; j += 1) {
+            if (!isVisible(alerts[j])) continue;
+            var alertText = normalize(alerts[j].innerText || alerts[j].textContent || '');
+            for (var k = 0; k < markers.length; k += 1) if (alertText.indexOf(markers[k]) !== -1) return true;
+        }
+        return false;
+    }
+
     function completionProgress(responseText) {
         var text = typeof responseText === 'string' ? responseText : '';
         var statusMatch = text.match(/^PASI_RESULT_STATUS:\\s*(.+)$/m);
