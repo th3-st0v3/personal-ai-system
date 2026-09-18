@@ -533,12 +533,13 @@
           });
           return;
         }
-        if (current.status === 'running') {
+        if (['claimed', 'generating', 'running'].includes(current.status)) {
           clearRecoveryState();
           await report('chatgpt_recovery', {
             phase: 'retry_resumed',
             operation_id: state.operation_id,
-            recovery_action: 'monitor_resumed_operation'
+            recovery_action: 'monitor_resumed_operation',
+            observed_status: current.status
           });
           return;
         }
