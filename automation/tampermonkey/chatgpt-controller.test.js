@@ -32,6 +32,16 @@ test('controller extracts live assistant responses and reports them', () => {
     assert.match(source, /response_text_available: true/);
 });
 
+test('controller reports the roadmap completion and repository progress markers', () => {
+    assert.match(source, /function completionProgress\(responseText\)/);
+    assert.match(source, /PASI_RESULT_STATUS:/);
+    assert.match(source, /PASI_RESULT_REPOSITORY_PROGRESS:/);
+    assert.match(source, /PASI_RESULT_NEXT_TASK:/);
+    assert.match(source, /completion_status: progress\.completion_status/);
+    assert.match(source, /repository_progress: progress\.repository_progress/);
+    assert.match(source, /next_task: progress\.next_task/);
+});
+
 test('controller sends the verified response directly with completion acknowledgement', () => {
     assert.match(source, /await reportResponseObservation\(response\)/);
     assert.match(source, /await reportFinished\(operation\.operation_id, response\)/);
