@@ -290,7 +290,11 @@ class ChatGPTAdapterTests(unittest.TestCase):
         )
 
     def test_new_session_queues_new_chat_and_requires_verified_completion(self) -> None:
-        transport = FakeTransport([{"operation": {"operation_id": "op-new"}}, {"operation": {"operation_id": "op-new", "status": "completed"}}])
+        transport = FakeTransport([
+            {"operation": {"operation_id": "op-new"}},
+            {"operation": {"operation_id": "op-new", "status": "completed"}},
+            {"observation": None},
+        ])
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
         self.assertEqual(adapter.new_session(), "op-new")
         self.assertEqual(transport.requests[0][2], {"operation_type": "new_chat", "prompt": ""})
@@ -376,7 +380,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
     def test_completed_prompt_consumes_durable_browser_response(self) -> None:
         transport = FakeTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed", "chat_url": "https://chatgpt.com/c/abc"}},
-            {"observation": {"data": {"kind": "chatgpt_response", "chat_url": "https://chatgpt.com/c/abc", "response_text": "live answer", "response_text_available": True}}},
+            {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "op-1", "chat_url": "https://chatgpt.com/c/abc", "response_text": "live answer", "response_text_available": True}}},
             {"observation": {"data": {"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/abc", "chat_exhausted": False}}},
         ])
         response = ChatGPTAdapter(transport, session_id="session-1").read_operation("op-1")
@@ -412,12 +416,22 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.completion, "complete")
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "late answer")
-        self.assertEqual([path for _, path, _ in transport.requests], ["/operation?operation_id=op-1", "/browser/response", "/operation?operation_id=op-1"])
+        self.assertEqual(
+            [path for _, path, _ in transport.requests],
+            [
+                "/operation?operation_id=op-1",
+                "/browser/response",
+                "/browser/response",
+                "/browser/response",
+                "/browser/response",
+                "/operation?operation_id=op-1",
+            ],
+        )
 
     def test_failed_prompt_recovers_verified_durable_response_after_completion_ack_loss(self) -> None:
         transport = FakeTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "PASI_NATIVE: bridge completion failed: HTTP 502"}},
-            {"observation": {"data": {"kind": "chatgpt_response", "chat_url": "https://chatgpt.com/c/abc", "response_text": "answer survived acknowledgement failure", "response_text_available": True}}},
+            {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "op-1", "chat_url": "https://chatgpt.com/c/abc", "response_text": "answer survived acknowledgement failure", "response_text_available": True}}},
         ])
         response = ChatGPTAdapter(transport, session_id="session-1").read_operation("op-1")
         self.assertEqual(response.completion, "complete")
