@@ -170,6 +170,23 @@ def task_fingerprint(task: str) -> str:
     return hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
 
 
+def checkpoint_active_operation(handoff: dict[str, object], operation_id: str, task: str) -> None:
+    if not isinstance(operation_id, str) or not operation_id.strip():
+        raise ValueError("active ChatGPT operation ID is required")
+    handoff.update({
+        "active_operation_id": operation_id,
+        "active_task_fingerprint": task_fingerprint(task),
+        "active_operation_chat_url": handoff.get("chat_url"),
+    })
+
+
+def clear_active_operation(handoff: dict[str, object]) -> None:
+    if response.completion in {"complete", "error", "interrupted"}:
+        clear_active_operation(handoff)
+    else:
+        checkpoint_active_operation(handoff, prompt_operation, task)
+
+
 def pending_operation_for_task(handoff: Mapping[str, object], task: str) -> str | None:
     operation_id = handoff.get("active_operation_id")
     fingerprint = handoff.get("active_task_fingerprint")
@@ -509,7 +526,7 @@ def main() -> int:
             print(f"Resuming persisted ChatGPT operation: {prompt_operation}")
         else:
             prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
-            handoff.update({"active_operation_id": prompt_operation, "active_task_fingerprint": task_fingerprint(task), "active_operation_chat_url": handoff.get("chat_url")})
+            checkpoint_active_operation(handoff, prompt_operation, task)
             save_handoff(handoff)
             print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
@@ -525,7 +542,7 @@ def main() -> int:
             # can resume from the verified new conversation instead of the exhausted one.
             save_handoff(handoff)
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
-            handoff.update({"active_operation_id": retry_operation, "active_task_fingerprint": task_fingerprint(task)})
+            checkpoint_active_operation(handoff, retry_operation, task)
             save_handoff(handoff)
             print(f"Retry prompt operation: {retry_operation}")
             response = adapter.wait_for_completion(retry_operation)
