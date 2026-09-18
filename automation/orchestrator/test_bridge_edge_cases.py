@@ -78,7 +78,7 @@ def test_http_finished_rejects_prompt_without_verified_response(
         persisted = bridge.get_operation(operation.operation_id)
         assert persisted is not None
         assert persisted["status"] == "generating"
-        assert "response_text" not in persisted
+        assert persisted.get("response_text_available") is False
     finally:
         stop_server(server, thread)
 
