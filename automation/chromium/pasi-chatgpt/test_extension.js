@@ -163,6 +163,12 @@ test('native prompt completion refuses an empty response payload while non-promp
   assert.match(content, /await finishOperation\(operation\.operation_id\);/);
 });
 
+test('native prompt submission tolerates corrupt active recovery state', () => {
+  assert.match(content, /let activeState = \{\};/);
+  assert.match(content, /try \{\s*activeState = JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\) \|\| '\{\}'\);/);
+  assert.match(content, /catch \(_\) \{\}/);
+});
+
 test('native response recovery keeps the pre-prompt baseline after a timeout', () => {
   assert.match(content, /const baseline = fingerprint\(\);/);
   assert.match(content, /localStorage\.setItem\(ACTIVE_KEY, JSON\.stringify\(\{ \.\.\.activeState, baseline \}\)\);/);
