@@ -23,20 +23,30 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
-      - name: Install Chromium for minimized browser acceptance test
+      - name: Validate browser acceptance prerequisites
         run: |
-          if command -v chromium >/dev/null 2>&1; then
+          if command -v google-chrome-stable >/dev/null 2>&1; then
+            google-chrome-stable --version
+          elif command -v google-chrome >/dev/null 2>&1; then
+            google-chrome --version
+          elif command -v chromium >/dev/null 2>&1; then
             chromium --version
           elif command -v chromium-browser >/dev/null 2>&1; then
             chromium-browser --version
-          elif command -v google-chrome >/dev/null 2>&1; then
-            google-chrome --version
-          elif command -v google-chrome-stable >/dev/null 2>&1; then
-            google-chrome-stable --version
           else
             sudo apt-get update
             sudo apt-get install -y chromium
             chromium --version
+          fi
+          if command -v chromedriver >/dev/null 2>&1; then
+            chromedriver --version
+          elif [ -x "$CHROMEWEBDRIVER/chromedriver" ]; then
+            "$CHROMEWEBDRIVER/chromedriver" --version
+          elif [ -x /usr/local/share/chromedriver-linux64/chromedriver ]; then
+            /usr/local/share/chromedriver-linux64/chromedriver --version
+          else
+            echo "ChromeDriver prerequisite not found" >&2
+            exit 1
           fi
       - name: Validate unattended launcher shell scripts
         run: |
