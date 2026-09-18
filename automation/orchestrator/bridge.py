@@ -156,6 +156,9 @@ class BridgeState:
     ) -> dict[str, Any]:
         with self.lock:
             self._persist_verified_response_observation(observation)
+            data = observation.get("data")
+            if isinstance(data, dict) and data.get("kind") == "chatgpt_response":
+                self.state_manager.save_browser_response(observation)
             self.state_manager.save_browser_results(
                 observation
             )
@@ -260,7 +263,7 @@ class BridgeState:
         if item.get("response_text_available") is True:
             return False
 
-        observation = self.state_manager.load_browser_results()
+        observation = self.state_manager.load_browser_response()
         if not isinstance(observation, dict):
             return False
 
