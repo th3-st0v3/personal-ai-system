@@ -96,3 +96,10 @@ test('recovery marks the original operation for exact resumption after preparing
   assert.match(source, /phase: 'retry_ready'/);
   assert.match(source, /if \(readRecoveryState\(\)\?\.resume_operation_id === operationId\) return/);
 });
+
+
+test('reload recovery verifies the original operation is queued before leaving an exact resume marker', () => {
+  assert.match(source, /const afterRetry = await operation\(operationId\)/);
+  assert.match(source, /if \(!accepted \|\| afterRetry\?\.status !== 'queued'\)/);
+  assert.match(source, /phase: 'retry_requeue_not_verified'/);
+});
