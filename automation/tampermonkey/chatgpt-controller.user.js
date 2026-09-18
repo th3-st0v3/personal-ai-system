@@ -516,7 +516,7 @@
     function isChatUrl(url) { return /^https:\/\/chatgpt\.com\/c\//.test(String(url || '')); }
     function chatUrl() { return isChatUrl(window.location.href) ? window.location.href : null; }
     function thinkingEnabled() {
-        var selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [data-state="on"], [data-state="active"]');
+        var selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [aria-checked="true"], [aria-current="true"], [data-state="on"], [data-state="active"]');
         for (var i = 0; i < selected.length; i += 1) if (isVisible(selected[i]) && normalize(getLabel(selected[i])).indexOf('thinking') !== -1) return true;
         return null;
     }
