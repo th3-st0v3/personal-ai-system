@@ -23,6 +23,7 @@ BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 8765
 OPERATION_ID = "pasi-e2e-late-response"
 EXPECTED_RESPONSE = "response recovered by the real Chromium controller"
+CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS = 30.0
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
