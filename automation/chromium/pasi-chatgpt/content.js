@@ -566,7 +566,10 @@
 
       const responseRecoveryEligible =
         operation.operation_type === 'prompt' &&
-        errorMessage.startsWith('PASI_NATIVE: response text unavailable;');
+        (
+          errorMessage.startsWith('PASI_NATIVE: response text unavailable;') ||
+          errorMessage.startsWith('PASI_NATIVE: ChatGPT generation timed out')
+        );
 
       if (contextRecoveryEligible) {
         rememberContextRecovery(operation, error);
