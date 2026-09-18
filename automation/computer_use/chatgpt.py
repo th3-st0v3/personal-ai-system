@@ -70,6 +70,7 @@ class UrllibBridgeTransport:
 
 COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
 BROWSER_RESPONSE_RECHECK_ATTEMPTS = 4
+OPERATION_READ_RETRY_ATTEMPTS = 4
 
 
 @dataclass
@@ -156,8 +157,17 @@ class ChatGPTAdapter(AIAdapter):
         if limit <= 0:
             raise ValueError("timeout_seconds must be positive")
         started = time.monotonic()
+        read_failures = 0
         while True:
-            response = self.read_operation(operation_id)
+            try:
+                response = self.read_operation(operation_id)
+                read_failures = 0
+            except ChatGPTAdapterError:
+                read_failures += 1
+                if read_failures >= OPERATION_READ_RETRY_ATTEMPTS or time.monotonic() - started >= limit:
+                    raise
+                time.sleep(min(self.poll_interval_seconds, 0.25))
+                continue
             if response.completion in {"complete", "error", "interrupted"}:
                 if response.completion == "complete" and recover_response_text and not response.response_available:
                     return self._recheck_completed_response(operation_id, response)
