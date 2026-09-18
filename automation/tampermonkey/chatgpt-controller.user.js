@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.8
+// @version      2.4.9
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,7 +12,7 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var CONTROLLER_VERSION = '2.4.8';
+    var CONTROLLER_VERSION = '2.4.9';
     var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
     var DOM_POLL_INTERVAL_MS = 100;
@@ -414,7 +414,7 @@
                 var current = await bridgeRequest('/operation?operation_id=' + encodeURIComponent(operationId));
                 if (current.ok) {
                     var payload = await current.json();
-                    if (payload && payload.operation && payload.operation.status === 'completed') return;
+                    if (payload && payload.operation && payload.operation.status === 'completed' && payload.operation.response_text_available === true && typeof payload.operation.response_text === 'string' && Boolean(payload.operation.response_text.trim())) return;
                 }
             } catch (_) {}
             if (attempt < 3) await sleep(150);
