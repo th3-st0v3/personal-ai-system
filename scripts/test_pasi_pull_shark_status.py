@@ -41,8 +41,9 @@ class TestPasiPullSharkStatus(unittest.TestCase):
         with patch.object(status, "_run", return_value=(0, "85\n")) as run:
             self.assertEqual(status._merged_count("th3-st0v3"), 85)
         command = run.call_args.args[0]
-        self.assertIn("is:pr is:merged author:th3-st0v3", command[-2])
-        self.assertNotIn("repo:", command[-2])
+        query_arg = next((argument for argument in command if argument.startswith("q=")), "")
+        self.assertIn("is:pr is:merged author:th3-st0v3", query_arg)
+        self.assertNotIn("repo:", query_arg)
 
 
 
