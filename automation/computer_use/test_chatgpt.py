@@ -267,6 +267,8 @@ class ChatGPTAdapterTests(unittest.TestCase):
                     self.observation_reads += 1
                     if self.observation_reads == 1:
                         return {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "other-op", "response_text": "wrong chat", "response_text_available": True}}}
+                    if self.observation_reads == 2:
+                        return {"observation": {"data": {"kind": "chatgpt_response", "response_text": "unbound stale response", "response_text_available": True}}}
                     if self.observation_reads < 4:
                         return {"observation": None}
                     return {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "op-1", "response_text": "delayed owned response", "response_text_available": True}}}
