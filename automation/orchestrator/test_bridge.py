@@ -267,6 +267,33 @@ def test_browser_response_observation_persists_to_matching_prompt(tmp_path: Path
     assert current["chat_url"] == "https://chatgpt.com/c/observe"
 
 
+def test_browser_response_observation_derives_availability_from_nonblank_text(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "observe stale availability")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-17T21:51:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/stale-flag",
+                "response_text": "response evidence with stale flag",
+                "response_text_available": False,
+            },
+        }
+    )
+
+    current = bridge.get_operation(operation.operation_id)
+    assert current is not None
+    assert current["response_text"] == "response evidence with stale flag"
+    assert current["response_text_available"] is True
+    assert current["response_source"] == "browser_observation"
+
+
 def test_mismatched_browser_response_does_not_attach_to_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "do not attach")
