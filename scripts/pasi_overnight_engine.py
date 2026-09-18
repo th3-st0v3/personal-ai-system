@@ -44,6 +44,7 @@ MARKERS = {
     "ux": re.compile(r"^PASI_RESULT_UX:\s*(.+)$", re.MULTILINE),
     "backend": re.compile(r"^PASI_RESULT_BACKEND:\s*(.+)$", re.MULTILINE),
     "evidence": re.compile(r"^PASI_RESULT_EVIDENCE:\s*(.+)$", re.MULTILINE),
+    "repository_progress": re.compile(r"^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$", re.MULTILINE),
 }
 
 BACKLOG = (
@@ -292,6 +293,27 @@ def completion_contract_is_satisfied(status: str, values: dict[str, str]) -> boo
     )
 
 
+def repository_worktree_is_clean(worktree: Path) -> bool:
+    code, status = command(["git", "status", "--porcelain", "--untracked-files=all"], worktree, timeout=30.0)
+    return code == 0 and not status.strip()
+
+
+def no_change_completion_is_satisfied(
+    worktree: Path,
+    status: str,
+    next_task: str,
+    patch: str,
+    values: dict[str, str],
+) -> bool:
+    return (
+        completion_contract_is_satisfied(status, values)
+        and not patch
+        and values.get("repository_progress", "").lower() == "stopped"
+        and bool(next_task.strip())
+        and repository_worktree_is_clean(worktree)
+    )
+
+
 def continuation_directive(state: RunnerState, task: str) -> str:
     roadmap = "\n".join(f"- {item}" for item in BACKLOG)
     recent = "\n".join(f"- {item}" for item in state.recent_tasks[-8:]) or "- none recorded"
@@ -301,6 +323,8 @@ def continuation_directive(state: RunnerState, task: str) -> str:
 - IF the CURRENT TASK is not yet satisfied, THEN continue it and use a materially different approach when PREVIOUS FAILURE EVIDENCE shows the prior approach failed.
 - A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
 - After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
+- IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
+- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: ongoing and provide the required patch.
 - IF the listed roadmap items are already covered by verified recent work, THEN revisit the repository for the next concrete gap and make that the next task instead of repeating an old task.
 - Never wait for an additional human instruction merely because the current task completed; the persisted runner state is the continuation authority.
 ROADMAP:
@@ -341,6 +365,7 @@ PASI_RESULT_RESEARCH: performed|not_applicable
 PASI_RESULT_UX: verified|not_applicable
 PASI_RESULT_BACKEND: verified|not_applicable
 PASI_RESULT_EVIDENCE: concise tests/verification evidence
+PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped
 PASI_RESULT_ALLOW_DELETE: true|false
 PASI_RESULT_PATCH_BEGIN
 <one unified git diff, plain text only; do not wrap the diff in Markdown code fences or add prose inside the patch markers>
@@ -450,6 +475,23 @@ def run(state: RunnerState, *, push: bool) -> None:
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract_is_satisfied(status, values)
             log_event("task_response", task_number=state.task_number, attempt=state.current_attempt, status=status, contract_ok=contract_ok, summary=summary, evidence=values)
+            if contract_ok and no_change_completion_is_satisfied(
+                Path(state.worktree), status, next_task, patch, values
+            ):
+                state.completed_tasks += 1
+                state.last_result = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
+                state.next_task = choose_next_task(state, next_task)
+                state.current_attempt = 0
+                save_state(state)
+                log_event(
+                    "task_completed_no_change",
+                    task_number=state.task_number,
+                    reason="task already satisfied and repository remained clean",
+                    next_task=state.next_task,
+                )
+                finished = True
+                failure = ""
+                break
             if not patch or not contract_ok:
                 failure = summary or "completion contract not satisfied or implementation patch missing"
                 continue

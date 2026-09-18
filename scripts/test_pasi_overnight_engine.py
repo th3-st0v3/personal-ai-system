@@ -3,10 +3,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.pasi_overnight_engine import (
     RunnerState,
     build_prompt,
+    no_change_completion_is_satisfied,
     choose_next_task,
     completion_contract_is_satisfied,
     parse_response,
@@ -39,6 +41,7 @@ PASI_RESULT_RESEARCH: performed
 PASI_RESULT_UX: not_applicable
 PASI_RESULT_BACKEND: verified
 PASI_RESULT_EVIDENCE: pytest passed
+PASI_RESULT_REPOSITORY_PROGRESS: changed
 PASI_RESULT_ALLOW_DELETE: false
 PASI_RESULT_PATCH_BEGIN
 diff --git a/example.txt b/example.txt
@@ -56,6 +59,7 @@ PASI_RESULT_PATCH_END
         self.assertIn("diff --git a/example.txt b/example.txt", patch)
         self.assertFalse(allow_delete)
         self.assertEqual(values["backend"], "verified")
+        self.assertEqual(values["repository_progress"], "changed")
 
     def test_parse_response_normalizes_markdown_wrapped_patch(self) -> None:
         response = """PASI_RESULT_STATUS: complete
@@ -67,6 +71,7 @@ PASI_RESULT_RESEARCH: performed
 PASI_RESULT_UX: not_applicable
 PASI_RESULT_BACKEND: verified
 PASI_RESULT_EVIDENCE: pytest passed
+PASI_RESULT_REPOSITORY_PROGRESS: changed
 PASI_RESULT_ALLOW_DELETE: false
 PASI_RESULT_PATCH_BEGIN
 ```diff
@@ -166,6 +171,32 @@ new file mode 120000
         self.assertIn("THEN do not re-implement it", prompt)
         self.assertIn("next incomplete roadmap item", prompt)
         self.assertIn("RECENT TASKS:", prompt)
+        self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
+        self.assertIn("empty patch", prompt)
+
+    def test_no_change_completion_requires_stopped_progress_and_clean_repository(self) -> None:
+        values = {
+            "requirements": "complete",
+            "limitations": "handled",
+            "research": "not_applicable",
+            "ux": "not_applicable",
+            "backend": "verified",
+            "evidence": "repository inspection confirms the roadmap item is already satisfied",
+            "repository_progress": "stopped",
+        }
+        with patch("scripts.pasi_overnight_engine.repository_worktree_is_clean", return_value=True):
+            self.assertTrue(
+                no_change_completion_is_satisfied(
+                    Path.cwd(), "complete", "next roadmap task", "", values
+                )
+            )
+        values["repository_progress"] = "changed"
+        with patch("scripts.pasi_overnight_engine.repository_worktree_is_clean", return_value=True):
+            self.assertFalse(
+                no_change_completion_is_satisfied(
+                    Path.cwd(), "complete", "next roadmap task", "", values
+                )
+            )
 
     def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
         state = RunnerState(

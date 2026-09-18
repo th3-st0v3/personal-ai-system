@@ -23,6 +23,7 @@ class WeeklongResilienceTests(unittest.TestCase):
                 "PASI_RESULT_UX: not_applicable",
                 "PASI_RESULT_BACKEND: verified",
                 "PASI_RESULT_EVIDENCE: python -m unittest scripts.test_pasi_weeklong_resilience",
+                "PASI_RESULT_REPOSITORY_PROGRESS: changed",
                 "PASI_RESULT_ALLOW_DELETE: false",
             )
         )
@@ -44,6 +45,7 @@ class WeeklongResilienceTests(unittest.TestCase):
         self.assertIn("IF the CURRENT TASK is already satisfied", prompt)
         self.assertIn("THEN do not re-implement it", prompt)
         self.assertIn("next incomplete roadmap item", prompt)
+        self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: stopped", prompt)
 
     def test_recovers_markerless_diff_from_response(self) -> None:
         response = self._complete_prefix() + "\n\nHere is the requested change:\n" + "\n".join(
@@ -77,7 +79,15 @@ class WeeklongResilienceTests(unittest.TestCase):
         self.assertNotIn("```", parsed[3])
         self.assertTrue(resilience._contract_valid(parsed))
 
-    def test_rejects_completion_without_patch(self) -> None:
+    def test_accepts_conditional_no_change_completion(self) -> None:
+        response = self._complete_prefix().replace(
+            "PASI_RESULT_REPOSITORY_PROGRESS: changed",
+            "PASI_RESULT_REPOSITORY_PROGRESS: stopped",
+        ) + "\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END\n"
+        parsed = resilience._parsed_response(response, legacy.parse_response)
+        self.assertTrue(resilience._contract_valid(parsed))
+
+    def test_rejects_no_change_completion_without_stop_marker(self) -> None:
         response = self._complete_prefix() + "\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END\n"
         parsed = resilience._parsed_response(response, legacy.parse_response)
         self.assertFalse(resilience._contract_valid(parsed))
