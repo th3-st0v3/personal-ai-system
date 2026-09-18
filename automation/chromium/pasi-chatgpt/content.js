@@ -144,7 +144,7 @@
 
   function authRequired() {
     const text = normalize(document.body?.innerText || '');
-    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired'].some((marker) => text.includes(marker));
+    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
   }
 
   function thinkingEnabled() {
