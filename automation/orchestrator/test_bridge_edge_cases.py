@@ -126,3 +126,46 @@ def test_http_finished_rejects_terminal_operation_transition(
         assert persisted["response_text"] == "first completion"
     finally:
         stop_server(server, thread)
+
+
+def test_http_finished_accepts_persisted_verified_response_when_retry_payload_is_blank(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    server, thread = start_server(bridge)
+
+    try:
+        operation = bridge.queue_operation("prompt", "response observed before acknowledgement")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        observation = {
+            "schema_version": "1.0",
+            "captured_at": 123.0,
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/persisted-response",
+                "response_text": "verified browser response",
+                "response_text_available": True,
+            },
+        }
+        bridge.save_browser_observation(observation)
+
+        status, body = post_json(
+            server,
+            "/chat/finished",
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/persisted-response",
+                "response_text": "",
+                "response_text_available": False,
+            },
+        )
+
+        assert status == 200
+        assert body["operation"]["status"] == "completed"
+        assert body["operation"]["response_text"] == "verified browser response"
+        assert body["operation"]["response_text_available"] is True
+    finally:
+        stop_server(server, thread)
