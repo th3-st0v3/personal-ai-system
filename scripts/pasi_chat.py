@@ -546,6 +546,7 @@ def main() -> int:
             # can resume from the verified new conversation instead of the exhausted one.
             save_handoff(handoff)
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            prompt_operation = retry_operation
             checkpoint_active_operation(handoff, retry_operation, task)
             save_handoff(handoff)
             print(f"Retry prompt operation: {retry_operation}")
@@ -561,6 +562,7 @@ def main() -> int:
                 handoff["context_source"] = "github_app_fallback"
                 fallback_prompt = build_prompt(task, compact_repo_state(root), handoff) + "\n\nPUBLIC RETRIEVAL FALLBACK:\nThe public repository path did not provide usable repository evidence. Use the connected GitHub app now to retrieve the exact requested repository material, preserve the existing task context, and return the corrected answer/completion contract. Do not create a new conversation."
                 fallback_operation = adapter.submit_prompt(fallback_prompt)
+                prompt_operation = fallback_operation
                 handoff.update({
                     "active_operation_id": fallback_operation,
                     "active_task_fingerprint": task_fingerprint(task),
