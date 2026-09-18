@@ -147,56 +147,28 @@
     } catch (_) {}
   }
 
-  async function finishExisting(operationId, responseText, knownChatUrl = '') {
-    const bounded = responseText.slice(0, 50000);
+  async function finishExisting(operationId, responseText) {
+    const bounded = String(responseText || '').slice(0, 50000);
+    const available = Boolean(bounded.trim());
+    if (!available) return false;
+
     await report('chatgpt_response', {
       response_text: bounded,
-      response_text_available: Boolean(bounded.trim()),
+      response_text_available: true,
       chat_exhausted: contextExhausted(),
-      provider_usage_limited: usageLimited(),
       recovery_action: 'preserve_response'
     });
-    const body = {
-      operation_id: operationId,
-      chat_url: knownChatUrl || location.href,
-      response_text: bounded,
-      response_text_available: Boolean(bounded.trim())
-    };
-    let lastError = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const finished = await bridge('/chat/finished', { method: 'POST', body });
-        if (finished.ok) return true;
-        lastError = new Error(`bridge completion failed: HTTP ${finished.status}`);
-      } catch (error) {
-        lastError = error;
-      }
-      try {
-        const current = await operation(operationId);
-        if (current?.status === 'completed') return true;
-      } catch (_) {}
-      if (attempt < 3) await sleep(150);
-    }
-    await report('chatgpt_recovery', { phase: 'completion_ack_failed', operation_id: operationId, recovery_action: 'retry_runner', error: String(lastError?.message || lastError || 'unknown error') });
-    return false;
-  }
 
-  function recoveryContextFromActiveState() {
-    try {
-      const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
-      if (!stored || typeof stored !== 'object') return null;
-      const context = {};
-      if (stored.reasoning_mode === 'thinking') context.reasoning_mode = 'thinking';
-      const repository = typeof stored.github_repository === 'string'
-        ? stored.github_repository.trim()
-        : '';
-      if (repository && repository.length <= 200 && /^[^/\s]+\/[^/\s]+$/.test(repository)) {
-        context.github_repository = repository;
+    const finished = await bridge('/chat/finished', {
+      method: 'POST',
+      body: {
+        operation_id: operationId,
+        chat_url: location.href,
+        response_text: bounded,
+        response_text_available: true
       }
-      return Object.keys(context).length ? context : null;
-    } catch (_) {
-      return null;
-    }
+    });
+    return finished.ok;
   }
 
   async function markRetryableFailure(operationId, message, recoveryContext = null) {
