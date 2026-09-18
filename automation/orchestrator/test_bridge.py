@@ -34,6 +34,25 @@ def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: 
     assert bridge.get_status()["history_size"] == 2
 
 
+def test_queue_idempotency_survives_bridge_restart(tmp_path: Path) -> None:
+    first_bridge = make_bridge(tmp_path)
+    first = first_bridge.queue_operation(
+        "prompt",
+        "resume after restart",
+        idempotency_key="restart-key",
+    )
+
+    restarted_bridge = make_bridge(tmp_path)
+    duplicate = restarted_bridge.queue_operation(
+        "prompt",
+        "resume after restart",
+        idempotency_key="restart-key",
+    )
+
+    assert duplicate.operation_id == first.operation_id
+    assert restarted_bridge.get_status()["history_size"] == 1
+
+
 def test_queue_idempotency_does_not_cross_prompt_or_operation_type(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     first = bridge.queue_operation("prompt", "first", idempotency_key="shared")
