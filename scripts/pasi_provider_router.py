@@ -23,6 +23,7 @@ MAX_CONTEXT_CHARS = 60_000
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_PROMPT_CHARS = 90_000
 OLLAMA_DISCOVERY_TIMEOUT = 2.0
+OLLAMA_REQUEST_TIMEOUT = 30.0
 
 SYSTEM_PROMPT = """You are a provider-fallback engineering assistant for Personal AI System.
 You are operating only because the primary ChatGPT browser path is unavailable or needs a recovery path.
@@ -243,6 +244,10 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
         if remaining <= 5:
             break
         limit = min(per_provider, remaining)
+        if provider == "ollama":
+            # Keep a stalled local daemon from consuming the entire fallback window.
+            # A short bounded attempt preserves time for remote/local alternatives.
+            limit = min(limit, OLLAMA_REQUEST_TIMEOUT)
         try:
             if provider == "ollama":
                 return provider, call_ollama(prompt, limit)
