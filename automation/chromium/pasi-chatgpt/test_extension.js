@@ -205,3 +205,12 @@ test('native controller preserves prompt operations for bounded response recover
   assert.match(content, /rememberResponseRecovery\(operation, error\)/);
   assert.match(content, /finalized = false/);
 });
+
+
+test('background watchdog requires an active operation and exact chat identity before reloading', () => {
+  assert.match(background, /if \(typeof health\.data\.active_operation_id !== 'string' \|\| !health\.data\.active_operation_id\.trim\(\)\) return/);
+  assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
+  assert.match(background, /if \(!matchingTab\) return/);
+  assert.match(background, /Never refresh an unrelated ChatGPT tab/);
+  assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
+});
