@@ -53,7 +53,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         timestamp = now.isoformat()
         current = {
             "kind": "chatgpt_state",
-            "controller_version": "2.4.11",
+            "controller_version": "2.4.12",
             "captured_at": timestamp,
         }
         stale = dict(current, controller_version="2.4.10")
@@ -62,7 +62,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
 
         with mock.patch(
             "scripts.pasi_overnight_engine_v2.expected_controller_version",
-            return_value="2.4.11",
+            return_value="2.4.12",
         ):
             with mock.patch.object(engine, "browser_observation", side_effect=[current, stale, missing]):
                 self.assertTrue(engine.runtime_watchdog_is_live())
