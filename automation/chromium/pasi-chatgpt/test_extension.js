@@ -65,6 +65,9 @@ test('native completion persists response text before bounded acknowledgement re
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
   assert.match(content, /status === 'completed'/);
+  assert.match(content, /response_text_available === true/);
+  assert.match(content, /typeof payload\\?\\.operation\\?\\.response_text === 'string'/);
+  assert.match(content, /Boolean\\(payload\\.operation\\.response_text\\.trim\\(\\)\\)/);
 });
 
 test('native new-chat creation requires a changed conversation identity or genuinely empty chat', () => {
