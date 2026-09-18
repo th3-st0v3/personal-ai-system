@@ -167,6 +167,21 @@ new file mode 120000
         self.assertIn("next incomplete roadmap item", prompt)
         self.assertIn("RECENT TASKS:", prompt)
 
+    def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
+        state = RunnerState(
+            run_id="test",
+            started_at="2026-01-01T00:00:00+00:00",
+            deadline_at="2026-01-01T10:00:00+00:00",
+            worktree=str(Path.cwd()),
+            branch="test",
+            current_task="first",
+            recent_tasks=[],
+        )
+        self.assertEqual(
+            choose_next_task(state, "invented task outside roadmap"),
+            "Audit the ChatGPT computer-use control path end to end and remove avoidable polling, duplicated state, and brittle browser assumptions while preserving current tests and safety boundaries.",
+        )
+
     def test_choose_next_task_avoids_recent_duplicates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state = RunnerState(
