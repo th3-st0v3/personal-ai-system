@@ -14,7 +14,7 @@ test('recovery uses the requested 25-minute generation ceiling and starts recove
 test('recovery preserves a verified response and includes response text in completion persistence', () => {
   assert.match(source, /preserve_response/);
   assert.match(source, /response_text: bounded/);
-  assert.match(source, /response_text_available: Boolean\(bounded\)/);
+  assert.match(source, /response_text_available: true/);
   assert.match(source, /location\.reload\(\)/);
   assert.match(source, /queueNewChat/);
   assert.match(source, /operation_type: 'new_chat'/);
@@ -52,7 +52,6 @@ test('recovery does not consume ordinary queue work directly', () => {
   assert.doesNotMatch(source, /\/next-operation/);
 });
 
-
 test('recovery tracks monitoring state across reloads and handles context exhaustion separately', () => {
   assert.match(source, /function persistedResponse\(current\)/);
   assert.match(source, /finishPersistedResponse/);
@@ -74,20 +73,17 @@ test('recovery preserves response text casing while still normalizing marker che
   assert.doesNotMatch(source, /const text = normalize\(markdown\[index\]/);
 });
 
-
 test('monitoring recovery keeps the normal bounded reload path before reloaded-state handling', () => {
   assert.match(source, /if \(state\.phase === 'monitoring'\)/);
   assert.match(source, /await preserveOrReload\(state\.operation_id, state\)/);
   assert.match(source, /await handleReloadRecovery\(state\)/);
 });
 
-
 test('recovery refresh handling reads the current operation before using persisted response state', () => {
   assert.match(source, /const current = await operation\(operationId\)/);
   assert.match(source, /if \(!current\) return false/);
   assert.match(source, /finishPersistedResponse\(current\)/);
 });
-
 
 test('recovery carries bounded conversational context into the requeued operation', () => {
   assert.match(source, /function recoveryContextFromActiveState\(\)/);
@@ -96,13 +92,11 @@ test('recovery carries bounded conversational context into the requeued operatio
   assert.match(source, /CHAT_EXHAUSTED: verified conversation context exhaustion/);
 });
 
-
 test('recovery marks the original operation for exact resumption after preparing a fresh chat', () => {
   assert.match(source, /resume_operation_id: operationId/);
   assert.match(source, /phase: 'retry_ready'/);
   assert.match(source, /if \(readRecoveryState\(\)\?\.resume_operation_id === operationId\) return/);
 });
-
 
 test('reload recovery verifies the original operation is queued before leaving an exact resume marker', () => {
   assert.match(source, /const afterRetry = await operation\(operationId\)/);
@@ -117,7 +111,6 @@ test('recovery does not discard persisted recovery state when the bridge tempora
   assert.match(source, /missing_operation_since_ms/);
   assert.match(source, /if \(!current\) \{/);
 });
-
 
 test('retry-ready recovery validates the resume marker before waiting for the queued operation', () => {
   assert.match(source, /if \(state\.phase === 'retry_ready'\)/);
@@ -137,7 +130,6 @@ test('retry-ready recovery clears only its recovery marker once the verified ope
   assert.match(source, /observed_status: current\.status/);
   assert.match(source, /phase: 'retry_resume_state_unexpected'/);
 });
-
 
 test('recovery throttles repeated missing-operation reports without clearing persisted recovery state', () => {
   assert.match(source, /MISSING_OPERATION_REPORT_MS = 10 \* 1000/);
@@ -161,9 +153,9 @@ test('recovery serializes inspection so a slow recovery cannot overlap and dupli
 
 test('response recovery persists observation before completion acknowledgement and requires nonblank evidence', () => {
   assert.match(source, /await report\('chatgpt_response'/);
-  assert.match(source, /response_text_available: Boolean\(bounded\.trim\(\)\)/);
+  assert.match(source, /const available = Boolean\(bounded\.trim\(\)\)/);
+  assert.match(source, /if \(!available\) return false/);
 });
-
 
 test('response recovery sends captured response text with completion acknowledgement', () => {
   assert.match(source, /const bounded = String\(responseText \|\| ''\)\.slice\(0, 50000\)/);
