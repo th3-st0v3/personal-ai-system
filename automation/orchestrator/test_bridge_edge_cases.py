@@ -113,8 +113,8 @@ def test_http_finished_rejects_terminal_operation_transition(
             {
                 "operation_id": operation.operation_id,
                 "chat_url": "https://chatgpt.com/c/terminal",
-                "response_text": "duplicate completion",
-                "response_text_available": True,
+                "response_text": "",
+                "response_text_available": False,
             },
         )
 
