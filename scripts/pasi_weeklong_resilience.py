@@ -52,8 +52,11 @@ def _parsed_response(response: str, original_parse: Any) -> tuple[str, str, str,
 
 
 def _contract_valid(parsed: tuple[str, str, str, str, bool, dict[str, str]]) -> bool:
-    status, _summary, _next_task, patch, _allow_delete, values = parsed
-    return legacy.completion_contract_is_satisfied(status, values) and bool(patch)
+    status, _summary, next_task, patch, _allow_delete, values = parsed
+    contract_ok = legacy.completion_contract_is_satisfied(status, values)
+    if patch:
+        return contract_ok
+    return contract_ok and values.get("repository_progress", "").lower() == "stopped" and bool(next_task.strip())
 
 
 def _archive_response(
@@ -80,7 +83,7 @@ def _archive_response(
 def _contract_instruction() -> str:
     return """
 WEEKLONG RESPONSE CONTRACT:
-Return the PASI completion markers exactly as requested. The patch markers must contain one real unified git diff. Do not use a no-change shortcut. Never claim tests or evidence that were not actually produced.
+Return the PASI completion markers exactly as requested. When repository_progress is changed, the patch markers must contain one real unified git diff. When repository_progress is stopped, an empty patch is allowed only when the task is already satisfied and the repository is clean; never invent a cosmetic patch merely to satisfy the format. Never claim tests or evidence that were not actually produced.
 """
 
 
