@@ -100,6 +100,13 @@ class ChatGPTAdapter(AIAdapter):
             raise ChatGPTAdapterError(f"new ChatGPT session did not complete: {result.completion}")
         if result.chat_url:
             self.last_chat_url = result.chat_url
+        else:
+            observation = self.read_browser_observation()
+            data = observation.get("data") if isinstance(observation, Mapping) else None
+            if isinstance(data, Mapping) and data.get("active_operation_id") == self.current_operation_id:
+                observed_url = data.get("chat_url")
+                if isinstance(observed_url, str) and observed_url.strip():
+                    self.last_chat_url = observed_url
         return self.current_operation_id
 
     def attach_github_repository(self, repository: str) -> str:
