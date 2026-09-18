@@ -93,6 +93,8 @@ class ChatGPTAdapter(AIAdapter):
             raise ValueError("polling bounds must be positive")
 
     def new_session(self) -> str:
+        # Never let a replacement session inherit the identity of the previous chat.
+        self.last_chat_url = None
         operation = self._queue("new_chat", "")
         self.current_operation_id = self._operation_id(operation)
         result = self.wait_for_completion(self.current_operation_id, recover_response_text=False)
@@ -101,7 +103,12 @@ class ChatGPTAdapter(AIAdapter):
         if result.chat_url:
             self.last_chat_url = result.chat_url
         else:
-            observation = self.read_browser_observation()
+            try:
+                observation = self.read_browser_observation()
+            except ChatGPTAdapterError:
+                # URL observation is optional reconciliation evidence; a transport
+                # failure must not turn a verified new-chat completion into a failure.
+                observation = None
             data = observation.get("data") if isinstance(observation, Mapping) else None
             if isinstance(data, Mapping) and data.get("active_operation_id") == self.current_operation_id:
                 observed_url = data.get("chat_url")
@@ -247,8 +254,7 @@ class ChatGPTAdapter(AIAdapter):
                     if isinstance(observed_text, str) and observed_text.strip():
                         text = observed_text
                         response_available = observed_available or bool(observed_text.strip())
-                        # Browser evidence proves the assistant answered even if the
-                        # completion acknowledgement itself was lost after the server accepted it.
+                        # Browser evidence proves the assistant answered even if the                        # completion acknowledgement itself was lost after the server accepted it.
                         if completion_ack_lost:
                             completion = "complete"
                         break
