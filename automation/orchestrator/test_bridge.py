@@ -498,6 +498,51 @@ def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
         assert not thread.is_alive()
 
 
+def test_http_browser_response_returns_durable_response_after_later_state(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    bridge.save_browser_observation({
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-18T00:00:00Z",
+        "data": {
+            "kind": "chatgpt_response",
+            "active_operation_id": "op-durable-response",
+            "chat_url": "https://chatgpt.com/c/durable",
+            "response_text": "durable response evidence",
+            "response_text_available": True,
+        },
+    })
+    bridge.save_browser_observation({
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-18T00:00:01Z",
+        "data": {
+            "kind": "chatgpt_state",
+            "active_operation_id": "op-durable-response",
+            "chat_url": "https://chatgpt.com/c/durable",
+        },
+    })
+
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request("GET", "/browser/response")
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+
+        assert response.status == 200
+        assert body["observation"]["data"]["kind"] == "chatgpt_response"
+        assert body["observation"]["data"]["active_operation_id"] == "op-durable-response"
+        assert body["observation"]["data"]["response_text"] == "durable response evidence"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_http_prompt_completion_derives_availability_from_nonblank_text(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
