@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -12,7 +13,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -203,12 +206,81 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def find_chromium() -> str:
-    for candidate in ("google-chrome-stable", "google-chrome", "chromium", "chromium-browser"):
+def find_chrome() -> str:
+    for candidate in (
+        "google-chrome-stable",
+        "google-chrome",
+        "chromium",
+        "chromium-browser",
+    ):
         path = shutil.which(candidate)
         if path:
             return path
-    raise RuntimeError("Chromium binary not found")
+    raise RuntimeError("Chrome/Chromium binary not found")
+
+
+def find_chromedriver() -> str:
+    env_path = os.environ.get("CHROMEWEBDRIVER", "").strip()
+    candidates = [
+        shutil.which("chromedriver"),
+        "/usr/local/bin/chromedriver",
+        "/usr/bin/chromedriver",
+    ]
+    if env_path:
+        candidates.extend(
+            [
+                env_path,
+                str(Path(env_path) / "chromedriver"),
+                str(Path(env_path) / "chromedriver-linux64" / "chromedriver"),
+            ]
+        )
+    candidates.append("/usr/local/share/chromedriver-linux64/chromedriver")
+
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    raise RuntimeError("ChromeDriver binary not found")
+
+
+def driver_request(
+    base_url: str,
+    method: str,
+    path: str,
+    payload: dict | None = None,
+    timeout: float = 5.0,
+) -> dict:
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(
+        base_url + path,
+        data=body,
+        headers={"Content-Type": "application/json"} if body is not None else {},
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"ChromeDriver {method} {path} returned HTTP {exc.code}: {detail}"
+        ) from exc
+    except (URLError, TimeoutError) as exc:
+        raise RuntimeError(f"ChromeDriver {method} {path} failed: {exc}") from exc
+
+
+def wait_for_driver(base_url: str, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            payload = driver_request(base_url, "GET", "/status", timeout=2.0)
+            if payload.get("value", {}).get("ready") is True:
+                return
+            last_error = RuntimeError(f"ChromeDriver not ready: {payload}")
+        except Exception as exc:  # pragma: no cover - diagnostic retry loop
+            last_error = exc
+        time.sleep(0.1)
+    raise RuntimeError(f"ChromeDriver did not become ready: {last_error}")
 
 
 def wait_for_bridge_event(timeout: float) -> None:
@@ -232,38 +304,142 @@ def main() -> None:
     bridge_thread.start()
     fixture_thread.start()
 
-    chromium = find_chromium()
-    with tempfile.TemporaryDirectory(prefix="pasi-chromium-e2e-") as profile_dir:
-        command = [
-            chromium,
-            "--headless=new",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-sync",
-            f"--user-data-dir={profile_dir}",
-            f"http://127.0.0.1:{fixture_port}/fixture",
-        ]
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    driver_port = free_port()
+    chrome_binary = find_chrome()
+    chromedriver_binary = find_chromedriver()
+
+    with (
+        tempfile.TemporaryDirectory(prefix="pasi-chromium-e2e-") as profile_dir,
+        tempfile.NamedTemporaryFile(
+            prefix="pasi-chromedriver-", suffix=".log", delete=False
+        ) as log_file,
+    ):
+        driver_log_path = Path(log_file.name)
+        driver_process = subprocess.Popen(
+            [
+                chromedriver_binary,
+                f"--port={driver_port}",
+                "--host=127.0.0.1",
+                "--log-level=SEVERE",
+            ],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
         )
+
+        driver_url = f"http://127.0.0.1:{driver_port}"
+        session_id: str | None = None
         try:
+            wait_for_driver(driver_url, 10.0)
+            created = driver_request(
+                driver_url,
+                "POST",
+                "/session",
+                {
+                    "capabilities": {
+                        "alwaysMatch": {
+                            "browserName": "chrome",
+                            "goog:chromeOptions": {
+                                "binary": chrome_binary,
+                                "args": [
+                                    "--headless=new",
+                                    "--no-sandbox",
+                                    "--disable-gpu",
+                                    "--disable-dev-shm-usage",
+                                    "--no-first-run",
+                                    "--no-default-browser-check",
+                                    "--disable-sync",
+                                    "--remote-allow-origins=*",
+                                    f"--user-data-dir={profile_dir}",
+                                ],
+                            },
+                        }
+                    }
+                },
+                timeout=10.0,
+            )
+            value = created.get("value")
+            if not isinstance(value, dict):
+                raise RuntimeError(f"ChromeDriver returned invalid session payload: {created}")
+            session_id = value.get("sessionId") or created.get("sessionId")
+            if not isinstance(session_id, str) or not session_id:
+                raise RuntimeError(f"ChromeDriver did not return a session id: {created}")
+
+            driver_request(
+                driver_url,
+                "POST",
+                f"/session/{session_id}/url",
+                {"url": f"http://127.0.0.1:{fixture_port}/fixture"},
+                timeout=10.0,
+            )
+
+            diagnostics = driver_request(
+                driver_url,
+                "POST",
+                f"/session/{session_id}/execute/sync",
+                {
+                    "script": """return {
+                      href: location.href,
+                      active: localStorage.getItem("pasi:active-operation"),
+                      response: document.querySelector('[data-message-author-role="assistant"]')?.innerText || ""
+                    };""",
+                    "args": [],
+                },
+                timeout=5.0,
+            )
+            browser_state = diagnostics.get("value")
+            if not isinstance(browser_state, dict):
+                raise RuntimeError(f"Chromium fixture did not return browser state: {diagnostics}")
+            if browser_state.get("response") != EXPECTED_RESPONSE:
+                raise AssertionError(f"Chromium fixture response mismatch: {browser_state}")
+            if OPERATION_ID not in str(browser_state.get("active", "")):
+                raise AssertionError(f"Chromium fixture recovery marker missing: {browser_state}")
+
             wait_for_bridge_event(20.0)
-        finally:
-            process.terminate()
+        except Exception as exc:
             try:
-                process.wait(timeout=3)
+                diagnostic = driver_request(
+                    driver_url,
+                    "POST",
+                    f"/session/{session_id}/execute/sync",
+                    {"script": "return {href: location.href, body: document.body?.innerText || ''};", "args": []},
+                    timeout=2.0,
+                ) if session_id else None
+            except Exception:
+                diagnostic = None
+            driver_process.terminate()
+            try:
+                driver_process.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=3)
+                driver_process.kill()
+                driver_process.wait(timeout=3)
+            driver_log = driver_log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
+            raise AssertionError(
+                f"Chromium WebDriver acceptance failed: {exc}; "
+                f"browser={diagnostic}; chromedriver_log={driver_log}"
+            ) from exc
+        finally:
+            if session_id:
+                try:
+                    driver_request(
+                        driver_url,
+                        "DELETE",
+                        f"/session/{session_id}",
+                        timeout=3.0,
+                    )
+                except Exception:
+                    pass
+            if driver_process.poll() is None:
+                driver_process.terminate()
+                try:
+                    driver_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    driver_process.kill()
+                    driver_process.wait(timeout=3)
             bridge.shutdown()
             fixture.shutdown()
             bridge.server_close()
             fixture.server_close()
+        driver_log_path.unlink(missing_ok=True)
 
     payload = BridgeHandler.finished_payload
     assert payload is not None
@@ -271,7 +447,7 @@ def main() -> None:
     assert payload["response_text"] == EXPECTED_RESPONSE
     assert payload["response_text_available"] is True
     assert BridgeHandler.observations >= 1
-    print("Minimized Chromium late-response recovery E2E: PASS")
+    print("Minimized Chromium late-response recovery WebDriver E2E: PASS")
 
 
 if __name__ == "__main__":
