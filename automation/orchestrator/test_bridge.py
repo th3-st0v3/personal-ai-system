@@ -16,6 +16,32 @@ def make_bridge(tmp_path: Path) -> BridgeState:
     )
 
 
+def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "same prompt", idempotency_key="key-1")
+    duplicate = bridge.queue_operation("prompt", "same prompt", idempotency_key="key-1")
+    assert duplicate.operation_id == first.operation_id
+    assert bridge.get_status()["history_size"] == 1
+
+    bridge.claim_operation(first.operation_id)
+    duplicate_claimed = bridge.queue_operation("prompt", "same prompt", idempotency_key="key-1")
+    assert duplicate_claimed.operation_id == first.operation_id
+
+    bridge.heartbeat(first.operation_id)
+    bridge.complete_operation(first.operation_id, response_text="finished", response_text_available=True)
+    replay = bridge.queue_operation("prompt", "same prompt", idempotency_key="key-1")
+    assert replay.operation_id != first.operation_id
+    assert bridge.get_status()["history_size"] == 2
+
+
+def test_queue_idempotency_does_not_cross_prompt_or_operation_type(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "first", idempotency_key="shared")
+    second = bridge.queue_operation("prompt", "second", idempotency_key="shared")
+    third = bridge.queue_operation("new_chat", "", idempotency_key="shared")
+    assert len({first.operation_id, second.operation_id, third.operation_id}) == 3
+
+
 def test_operation_lifecycle(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
 
