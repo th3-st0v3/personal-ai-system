@@ -117,6 +117,35 @@ class BridgeTransportTests(unittest.TestCase):
             UrllibBridgeTransport("https://127.0.0.1:8765")
 
 
+class DelayedObservationTransport(FakeTransport):
+    def __init__(self, delay_cycles: int) -> None:
+        super().__init__([])
+        self.delay_cycles = delay_cycles
+        self.operation_reads = 0
+        self.observation_reads = 0
+
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        if path.startswith("/operation?"):
+            self.operation_reads += 1
+            return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed"}}
+        if path == "/browser/observation":
+            self.observation_reads += 1
+            if self.observation_reads <= self.delay_cycles:
+                return {"observation": None}
+            return {
+                "observation": {
+                    "data": {
+                        "kind": "chatgpt_response",
+                        "chat_url": "https://chatgpt.com/c/delayed",
+                        "response_text": "delayed browser response",
+                        "response_text_available": True,
+                    }
+                }
+            }
+        raise AssertionError(f"unexpected transport request: {method} {path}")
+
+
 class ChatGPTAdapterTests(unittest.TestCase):
     def test_submit_prompt_queues_prompt_operation(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1"}}])
@@ -190,6 +219,15 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.text, "live answer")
         self.assertEqual(response.chat_url, "https://chatgpt.com/c/abc")
         self.assertFalse(response.chat_exhausted)
+
+    def test_completed_prompt_rechecks_after_delayed_observation(self) -> None:
+        transport = DelayedObservationTransport(delay_cycles=5)
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "delayed browser response")
+        self.assertGreaterEqual(transport.observation_reads, 6)
 
     def test_completed_prompt_rechecks_after_observation_failure(self) -> None:
         transport = ObservationFailingTransport([
