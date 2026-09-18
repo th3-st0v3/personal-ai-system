@@ -160,7 +160,7 @@
       operation_id: operationId,
       chat_url: knownChatUrl || location.href,
       response_text: bounded,
-      response_text_available: Boolean(bounded)
+      response_text_available: Boolean(bounded.trim())
     };
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
