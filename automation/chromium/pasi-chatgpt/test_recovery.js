@@ -120,3 +120,13 @@ test('retry-ready recovery preserves a verified queued operation instead of re-m
   assert.match(source, /recovery_action: 'wait_for_runner_resume'/);
   assert.match(source, /phase: 'retry_resume_marker_invalid'/);
 });
+
+
+test('retry-ready recovery clears only its recovery marker once the verified operation resumes running', () => {
+  assert.match(source, /if \(state\.resume_operation_id !== state\.operation_id\)/);
+  assert.match(source, /if \(current\.status === 'running'\)/);
+  assert.match(source, /clearRecoveryState\(\);/);
+  assert.match(source, /phase: 'retry_resumed'/);
+  assert.match(source, /recovery_action: 'monitor_resumed_operation'/);
+  assert.match(source, /phase: 'retry_resume_state_unexpected'/);
+});
