@@ -15,6 +15,22 @@ class TestPasiPromote(unittest.TestCase):
         self.assertEqual(promote.classify_risk([".github/workflows/test.yml"]), "high")
 
     def test_standard_changes_are_auto_merge_eligible(self) -> None:
+        self.assertEqual(promote.classify_risk(["docs/readme.md", "scripts/test_example.py"]), "standard")
+
+    def test_missing_gh_is_non_blocking(self) -> None:
+        with patch.object(promote, "gh_available", return_value=False):
+            result = promote.promote("abc123", "pasi/test", "task")
+        self.assertFalse(result.auto_merge_requested)
+        self.assertEqual(result.risk, "unknown")
+        self.assertIn("not installed", result.message)
+
+    def test_missing_gh_auth_is_non_blocking(self) -> None:
+        with patch.object(promote, "gh_available", return_value=True):
+            with patch.object(promote, "gh_authenticated", return_value=False):
+                result = promote.promote("abc123", "pasi/test", "task")
+        self.assertFalse(result.auto_merge_requested)
+        self.assertIn("not authenticated", result.message)
+
     def test_standard_auto_merge_requires_green_checks(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
@@ -48,22 +64,6 @@ class TestPasiPromote(unittest.TestCase):
                                 result = promote.promote("abc123", "pasi/test", "task")
         enable.assert_not_called()
         self.assertFalse(result.auto_merge_requested)
-
-        self.assertEqual(promote.classify_risk(["docs/readme.md", "scripts/test_example.py"]), "standard")
-
-    def test_missing_gh_is_non_blocking(self) -> None:
-        with patch.object(promote, "gh_available", return_value=False):
-            result = promote.promote("abc123", "pasi/test", "task")
-        self.assertFalse(result.auto_merge_requested)
-        self.assertEqual(result.risk, "unknown")
-        self.assertIn("not installed", result.message)
-
-    def test_missing_gh_auth_is_non_blocking(self) -> None:
-        with patch.object(promote, "gh_available", return_value=True):
-            with patch.object(promote, "gh_authenticated", return_value=False):
-                result = promote.promote("abc123", "pasi/test", "task")
-        self.assertFalse(result.auto_merge_requested)
-        self.assertIn("not authenticated", result.message)
 
     def test_open_task_pr_is_reused_across_fresh_branches(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
