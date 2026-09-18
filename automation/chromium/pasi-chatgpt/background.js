@@ -53,10 +53,12 @@ async function reloadBoundedTab(tab) {
 async function inspect() {
   const status = await bridgeJson('/status');
   const payload = await bridgeJson('/browser/observation');
-  if (!status || !payload || !status.queue_size) return;
+  if (!status || !payload) return;
   const health = healthData(payload);
   if (!health) return;
   if (health.data.auth_required === true) return;
+  if (typeof health.data.active_operation_id !== 'string' || !health.data.active_operation_id.trim()) return;
+  if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
   if (observationAge(health.observation) <= STALE_MS) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
@@ -65,19 +67,11 @@ async function inspect() {
   const matchingTab = targetChatUrl
     ? tabs.find((tab) => tab.url === targetChatUrl)
     : null;
-  if (matchingTab) {
-    await reloadBoundedTab(matchingTab);
-    return;
-  }
-  tabs.sort((a, b) => Number(b.lastAccessed || 0) - Number(a.lastAccessed || 0));
-  const tab = tabs[0];
-  if (!tab.id) return;
-
-  const budget = await refreshBudget(tab.id);
-  if (budget.count >= MAX_REFRESHES) return;
-  budget.count += 1;
-  await chrome.storage.local.set({ [`refresh:${tab.id}`]: budget });
-  await chrome.tabs.reload(tab.id);
+  // Never refresh an unrelated ChatGPT tab when the reported conversation is
+  // unavailable. The active operation and exact chat URL are the recovery
+  // binding; falling back to most-recently-used tabs can interrupt another task.
+  if (!matchingTab) return;
+  await reloadBoundedTab(matchingTab);
 }
 
 chrome.runtime.onInstalled.addListener(() => {
