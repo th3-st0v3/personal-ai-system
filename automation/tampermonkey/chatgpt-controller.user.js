@@ -399,7 +399,7 @@
     }
 
     async function reportFinished(operationId, responseText) {
-        var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: Boolean(responseText) };
+        var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()) };
         if (typeof responseText === 'string') body.response_text = responseText.slice(0, 50000);
         var lastError = null;
         for (var attempt = 1; attempt <= 3; attempt += 1) {
