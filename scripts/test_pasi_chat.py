@@ -167,10 +167,18 @@ class TestPasiChat(unittest.TestCase):
         handoff = {
             "active_operation_id": "op-pending",
             "active_task_fingerprint": task_fingerprint(task),
+            "active_operation_chat_url": "https://chatgpt.com/c/current",
+            "chat_url": "https://chatgpt.com/c/current",
         }
         self.assertEqual(pending_operation_for_task(handoff, task), "op-pending")
         self.assertIsNone(pending_operation_for_task(handoff, "different task"))
         self.assertIsNone(pending_operation_for_task({"active_operation_id": "op-pending"}, task))
+        stale_chat = dict(handoff)
+        stale_chat["chat_url"] = "https://chatgpt.com/c/other"
+        self.assertIsNone(pending_operation_for_task(stale_chat, task))
+        missing_chat_binding = dict(handoff)
+        missing_chat_binding.pop("active_operation_chat_url")
+        self.assertIsNone(pending_operation_for_task(missing_chat_binding, task))
 
     def test_repair_response_capture_retries_once_without_resending_prompt(self) -> None:
         class Adapter:
