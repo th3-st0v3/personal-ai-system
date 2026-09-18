@@ -148,7 +148,7 @@
   }
 
   function thinkingEnabled() {
-    const selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [data-state="on"], [data-state="active"]');
+    const selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [aria-checked="true"], [aria-current="true"], [data-state="on"], [data-state="active"]');
     for (const element of selected) {
       if (visible(element) && label(element).includes('thinking')) return true;
     }
@@ -296,7 +296,7 @@
     if (!control || disabled(control)) throw new Error('PASI_NATIVE: Thinking control unavailable');
     control.click();
     await sleep(CLICK_SETTLE_MS);
-    if (thinkingEnabled() === false) throw new Error('PASI_NATIVE: Thinking state could not be verified');
+    if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified');
     reasoningMode = 'thinking';
   }
 
@@ -543,6 +543,8 @@
         case 'attach_github': await attachGithub(operation.prompt); break;
         case 'prompt': {
           await restoreRecoveryContext(operation.recovery_context);
+          await selectThinking();
+          reasoningMode = 'thinking';
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
           const box = await waitFor(composer, TIMEOUTS.composer);

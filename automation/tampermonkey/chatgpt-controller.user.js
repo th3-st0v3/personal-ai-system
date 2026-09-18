@@ -180,7 +180,7 @@
         if (isDisabled(control)) throw new Error('ChatGPT Thinking control is disabled.');
         control.click();
         await sleep(CLICK_SETTLE_MS);
-        if (thinkingEnabled() === false) throw new Error('ChatGPT Thinking state could not be verified.');
+        if (thinkingEnabled() !== true) throw new Error('ChatGPT Thinking state could not be verified.');
     }
 
     function findReasoningControl() { return findVisibleLabeledAny(['thinking', 'think', 'thinking mode'], ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]', 'a']); }
@@ -244,6 +244,8 @@
     }
 
     async function startPrompt(operation) {
+        await selectReasoningMode('thinking');
+        reasoningMode = 'thinking';
         if (isConversationContextExhaustedVisible()) throw new Error('CHAT_EXHAUSTED: ChatGPT reports conversation/context exhaustion.');
         if (isUsageLimitedVisible()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited.');
         var composer = await waitForComposer();
@@ -514,7 +516,7 @@
     function isChatUrl(url) { return /^https:\/\/chatgpt\.com\/c\//.test(String(url || '')); }
     function chatUrl() { return isChatUrl(window.location.href) ? window.location.href : null; }
     function thinkingEnabled() {
-        var selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [data-state="on"], [data-state="active"]');
+        var selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [aria-checked="true"], [aria-current="true"], [data-state="on"], [data-state="active"]');
         for (var i = 0; i < selected.length; i += 1) if (isVisible(selected[i]) && normalize(getLabel(selected[i])).indexOf('thinking') !== -1) return true;
         return null;
     }

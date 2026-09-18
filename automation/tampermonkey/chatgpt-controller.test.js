@@ -73,6 +73,15 @@ test('controller continuously reports state even while an operation is active', 
     assert.match(source, /reason: processing \? 'during_operation' : 'navigation'/);
 });
 
+test('controller re-verifies Thinking immediately before every prompt', () => {
+    assert.match(source, /async function startPrompt\(operation\) \{[\s\S]*?await selectReasoningMode\(['"]thinking['"]\);/);
+    assert.match(source, /reasoningMode = ['"]thinking['"]/);
+    assert.match(source, /aria-checked="true"/);
+    assert.match(source, /aria-current="true"/);
+    assert.match(source, /if \(thinkingEnabled\(\) !== true\) throw new Error/);
+    assert.match(source, /await submitPrompt\(operation\.prompt, baselineUsers\)/);
+});
+
 test('controller retains guarded prompt submission with bounded explicit acknowledgement', () => {
     assert.match(source, /SUBMISSION_ACK_MS = 2500/);
     assert.match(source, /SUBMISSION_ATTEMPTS = 3/);
