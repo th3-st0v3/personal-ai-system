@@ -20,6 +20,7 @@ class StateManager:
         self.retry_state_path = ai_dir / "retry-state.json"
         self.test_results_path = ai_dir / "test-results.json"
         self.browser_results_path = ai_dir / "browser-results.json"
+        self.browser_response_path = ai_dir / "browser-response.json"
         self.context_package_path = ai_dir / "context-package.json"
         self.research_state_path = ai_dir / "research-state.json"
         self.execution_results_path = ai_dir / "execution-results.json"
@@ -152,6 +153,15 @@ class StateManager:
             results,
         )
 
+    def save_browser_response(
+        self,
+        response: dict[str, Any],
+    ) -> None:
+        self.write_json(
+            self.browser_response_path,
+            response,
+        )
+
     def save_context_package(
         self,
         context_package: Any,
@@ -209,6 +219,14 @@ class StateManager:
         return self.require_dict(
             self.browser_results_path,
             self.read_json(self.browser_results_path, {}),
+        )
+
+    def load_browser_response(
+        self,
+    ) -> dict[str, Any]:
+        return self.require_dict(
+            self.browser_response_path,
+            self.read_json(self.browser_response_path, {}),
         )
 
     def save_handoff(
