@@ -214,3 +214,11 @@ test('background watchdog requires an active operation and exact chat identity b
   assert.match(background, /Never refresh an unrelated ChatGPT tab/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
+
+
+test('background watchdog recreates only the verified conversation when its tab is missing', () => {
+  assert.match(background, /if \(!matchingTab\) \{/);
+  assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
+  assert.match(background, /Never substitute another ChatGPT tab/);
+  assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
+});
