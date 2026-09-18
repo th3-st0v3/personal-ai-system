@@ -192,6 +192,16 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(adapter.new_session(), "op-new")
         self.assertEqual(transport.requests[0][2], {"operation_type": "new_chat", "prompt": ""})
 
+    def test_new_session_recovers_chat_url_from_bound_browser_observation(self) -> None:
+        transport = FakeTransport([
+            {"operation": {"operation_id": "op-new"}},
+            {"operation": {"operation_id": "op-new", "status": "completed"}},
+            {"observation": {"data": {"active_operation_id": "op-new", "chat_url": "https://chatgpt.com/c/recovered"}}},
+        ])
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        adapter.new_session()
+        self.assertEqual(adapter.last_chat_url, "https://chatgpt.com/c/recovered")
+
     def test_attach_github_repository_queues_semantic_attachment_operation(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-github"}}, {"operation": {"operation_id": "op-github", "status": "completed"}}])
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
