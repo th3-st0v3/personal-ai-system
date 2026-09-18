@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import tempfile
 import unittest
-from typing import Any, cast
+from typing import cast
 from pathlib import Path
 
 from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
