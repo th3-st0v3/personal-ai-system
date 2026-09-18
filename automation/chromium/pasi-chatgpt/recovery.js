@@ -54,13 +54,36 @@
     }
   }
 
+  function recoveryContextFromActiveState() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+      const context = stored?.recovery_context;
+      if (!context || typeof context !== 'object') return null;
+
+      const normalized = {};
+      if (typeof context.reasoning_mode === 'string') {
+        const mode = context.reasoning_mode.trim().toLowerCase();
+        if (mode === 'thinking' || mode === 'think') normalized.reasoning_mode = 'thinking';
+      }
+      if (typeof context.github_repository === 'string') {
+        const repository = context.github_repository.trim();
+        if (/^[^/\\s]+\/[^/\\s]+$/.test(repository) && repository.length <= 200) {
+          normalized.github_repository = repository;
+        }
+      }
+      return Object.keys(normalized).length ? normalized : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function generating() {
     return Boolean(document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label*="Stop"]'));
   }
 
   function securityChallenge() {
     const text = normalize(document.body?.innerText || '');
-    return ['verify you\'re human', 'captcha', 'cloudflare', 'security check', 'turnstile', 'session has expired', 'log in to continue', 'sign in to continue'].some((marker) => text.includes(marker));
+    return ['verify you\\'re human', 'captcha', 'cloudflare', 'security check', 'turnstile', 'session has expired', 'log in to continue', 'sign in to continue'].some((marker) => text.includes(marker));
   }
 
   function connectionFailure() {
@@ -153,6 +176,7 @@
     if (!available) return false;
 
     await report('chatgpt_response', {
+      active_operation_id: operationId,
       response_text: bounded,
       response_text_available: true,
       chat_exhausted: contextExhausted(),
@@ -197,8 +221,7 @@
   async function finishPersistedResponse(current) {
     const response = persistedResponse(current);
     if (!response) return false;
-    const knownChatUrl = typeof current.chat_url === 'string' ? current.chat_url : '';
-    return finishExisting(current.operation_id, response, knownChatUrl);
+    return finishExisting(current.operation_id, response);
   }
 
   function clearInterruptedState() {
@@ -350,8 +373,6 @@
       return;
     }
 
-    // Never finalize a response while ChatGPT is still generating; the DOM can
-    // expose a partial assistant message during reload/recovery races.
     if (usageLimited()) {
       await report('chatgpt_recovery', { phase: 'usage_limited', operation_id: operationId, recovery_action: 'retry_runner_after_provider_limit' });
       await markRetryableFailure(operationId, 'CHAT_USAGE_LIMITED: ChatGPT reported a usage limit; PASI will not delete or replace the conversation solely because usage is exhausted.');
@@ -362,7 +383,7 @@
     const response = latestAssistant();
     const currentFingerprint = fingerprint();
     if (!generating() && response && currentFingerprint !== String(state.baseline || '')) {
-      if (await finishExisting(operationId, response, typeof current.chat_url === 'string' ? current.chat_url : '')) {
+      if (await finishExisting(operationId, response)) {
         clearRecoveryState();
         return true;
       }
@@ -578,7 +599,7 @@
     const stateForTimer = {
       operation_id: operationId,
       started_ms: startedMs,
-      baseline: typeof state?.baseline === 'string' ? state.baseline : fingerprint(),
+      baseline: fingerprint(),
       chat_url: location.href,
       reload_count: 0,
       phase: 'monitoring',
