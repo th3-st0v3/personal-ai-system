@@ -79,6 +79,7 @@ class ChatOperation:
     error: str | None = None
     response_text: str = ""
     response_text_available: bool = False
+    recovery_context: dict[str, Any] | None = None
 
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
