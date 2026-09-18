@@ -16,6 +16,10 @@ from scripts.pasi_chat import (
     public_github_context_unavailable,
     route_chat,
     wait_for_browser_controller,
+    task_fingerprint,
+    pending_operation_for_task,
+    checkpoint_active_operation,
+    clear_active_operation,
 )
 
 
@@ -100,6 +104,38 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(public_github_context_unavailable("The public GitHub link is not accessible here."))
         self.assertFalse(public_github_context_unavailable("I inspected the public repository and found the bridge implementation."))
         self.assertFalse(public_github_context_unavailable("GitHub is useful for source control."))
+
+    def test_exact_pending_operation_is_reused_before_chat_routing(self) -> None:
+        task = "repair the timeout path"
+        adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False})
+        handoff = {
+            "chat_url": "https://chatgpt.com/c/existing",
+            "active_operation_id": "op-pending",
+            "active_task_fingerprint": task_fingerprint(task),
+        }
+        updated, chat_url = route_chat(adapter, handoff, task, "th3-st0v3/personal-ai-system", "auto")
+        self.assertEqual(chat_url, "https://chatgpt.com/c/existing")
+        self.assertEqual(updated["active_operation_id"], "op-pending")
+        self.assertNotIn(("new_session", ""), adapter.calls)
+        self.assertNotIn(("select_reasoning", "thinking"), adapter.calls)
+
+    def test_pending_operation_is_task_scoped(self) -> None:
+        task = "repair the timeout path"
+        handoff = {"active_operation_id": "op-pending", "active_task_fingerprint": task_fingerprint(task)}
+        self.assertEqual(pending_operation_for_task(handoff, task), "op-pending")
+        self.assertIsNone(pending_operation_for_task(handoff, "different task"))
+
+    def test_checkpoint_and_clear_preserve_exact_operation_identity(self) -> None:
+        task = "checkpoint timeout operation"
+        handoff = {"chat_url": "https://chatgpt.com/c/current"}
+        checkpoint_active_operation(handoff, "op-timeout", task)
+        self.assertEqual(handoff["active_operation_id"], "op-timeout")
+        self.assertEqual(handoff["active_task_fingerprint"], task_fingerprint(task))
+        self.assertEqual(handoff["active_operation_chat_url"], "https://chatgpt.com/c/current")
+        clear_active_operation(handoff)
+        self.assertNotIn("active_operation_id", handoff)
+        self.assertNotIn("active_task_fingerprint", handoff)
+        self.assertNotIn("active_operation_chat_url", handoff)
 
     def test_reuses_existing_chat_and_enables_thinking(self) -> None:
         adapter = FakeChatAdapter({"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/existing", "chat_exhausted": False, "github_attached": False})
