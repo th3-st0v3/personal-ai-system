@@ -74,6 +74,18 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(text, "")
         self.assertFalse(available)
 
+    def test_completed_with_persisted_response_ignores_stale_availability_flag(self) -> None:
+        state, text, available = completion_from_operation(
+            {
+                "status": "completed",
+                "response_text": "response text persisted by the browser",
+                "response_text_available": False,
+            }
+        )
+        self.assertEqual(state, "complete")
+        self.assertEqual(text, "response text persisted by the browser")
+        self.assertTrue(available)
+
     def test_completed_with_verified_response_is_complete_and_available(self) -> None:
         state, text, available = completion_from_operation({"status": "completed", "response_text": "answer", "response_text_available": True})
         self.assertEqual(state, "complete")
