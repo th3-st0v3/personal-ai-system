@@ -190,14 +190,18 @@ def clear_active_operation(handoff: dict[str, object]) -> None:
 def pending_operation_for_task(handoff: Mapping[str, object], task: str) -> str | None:
     operation_id = handoff.get("active_operation_id")
     fingerprint = handoff.get("active_task_fingerprint")
-    chat_url = handoff.get("active_operation_chat_url")
+    bound_url = handoff.get("active_operation_chat_url")
+    current_url = valid_chat_url(handoff.get("chat_url"))
     if (
         not isinstance(operation_id, str)
         or not operation_id.strip()
         or fingerprint != task_fingerprint(task)
-        or not valid_chat_url(chat_url)
-        or valid_chat_url(handoff.get("chat_url")) != chat_url
     ):
+        return None
+    if bound_url not in (None, "") and not valid_chat_url(bound_url):
+        return None
+    valid_bound_url = valid_chat_url(bound_url)
+    if valid_bound_url and current_url and valid_bound_url != current_url:
         return None
     return operation_id
 
