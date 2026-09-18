@@ -20,7 +20,7 @@ def _number(source: str, name: str) -> int:
 def test_tampermonkey_controller_has_fast_poll_budget_and_recovery_state() -> None:
     source = _read(TAMPERMONKEY)
 
-    assert "@version      2.4.8" in source
+    assert "@version      2.4.9" in source
     assert _number(source, "POLL_INTERVAL_MS") <= 250
     assert _number(source, "DOM_POLL_INTERVAL_MS") <= 100
     assert _number(source, "RETRY_DELAY_MS") <= 150
