@@ -5,6 +5,7 @@ from http.client import HTTPConnection, RemoteDisconnected
 
 import pytest
 
+from automation.orchestrator import bridge as bridge_module
 from automation.orchestrator.bridge import BridgeHTTPServer, BridgeRequestHandler, BridgeState
 from automation.orchestrator.operation_lifecycle import InvalidOperationTransition
 from automation.orchestrator.state import StateManager
@@ -71,6 +72,10 @@ def post_queue(
     body = json.loads(response.read().decode("utf-8"))
     connection.close()
     return response.status, body
+
+
+def test_bridge_module_resolves_from_repository() -> None:
+    assert Path(bridge_module.__file__).resolve() == (Path(__file__).parent / "bridge.py").resolve()
 
 
 def test_bridge_suppresses_successful_http_access_log_noise(capsys: pytest.CaptureFixture[str]) -> None:
