@@ -210,8 +210,9 @@ test('native controller preserves prompt operations for bounded response recover
 test('background watchdog requires an active operation and exact chat identity before reloading', () => {
   assert.match(background, /if \(typeof health\.data\.active_operation_id !== 'string' \|\| !health\.data\.active_operation_id\.trim\(\)\) return/);
   assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
-  assert.match(background, /if \(!matchingTab\) return/);
-  assert.match(background, /Never refresh an unrelated ChatGPT tab/);
+  assert.match(background, /if \(!matchingTab\) \{/);
+  assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
+  assert.match(background, /Never substitute another ChatGPT tab/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
 
