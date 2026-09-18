@@ -313,8 +313,15 @@ def route_chat(
             print("Creating a new ChatGPT conversation because no usable conversation is known.")
         operation_id = adapter.new_session()
         print(f"New chat operation: {operation_id}")
-        handoff.update({"chat_url": None, "chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
-        known_url = None
+        replacement_url = valid_chat_url(getattr(adapter, "last_chat_url", None))
+        if replacement_url:
+            record_chat_change(handoff, known_url, replacement_url, "verified_new_chat_session")
+            handoff["chat_url"] = replacement_url
+            known_url = replacement_url
+        else:
+            handoff["chat_url"] = None
+            known_url = None
+        handoff.update({"chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
     else:
         print(f"Reusing ChatGPT conversation: {known_url}")
 
