@@ -254,7 +254,8 @@ class ChatGPTAdapter(AIAdapter):
                     if isinstance(observed_text, str) and observed_text.strip():
                         text = observed_text
                         response_available = observed_available or bool(observed_text.strip())
-                        # Browser evidence proves the assistant answered even if the                        # completion acknowledgement itself was lost after the server accepted it.
+                        # Browser evidence proves the assistant answered even if the
+                        # completion acknowledgement itself was lost after the server accepted it.
                         if completion_ack_lost:
                             completion = "complete"
                         break
