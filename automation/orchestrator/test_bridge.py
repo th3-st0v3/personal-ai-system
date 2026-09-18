@@ -16,6 +16,63 @@ def make_bridge(tmp_path: Path) -> BridgeState:
     )
 
 
+
+
+class DropFirstQueueResponseHandler(BridgeRequestHandler):
+    """Drop the first /queue response after the bridge has persisted the operation."""
+
+    dropped = False
+
+    def _send_json(
+        self,
+        payload: dict,
+        status: int = 200,
+    ) -> None:
+        if self.path == "/queue" and not self.__class__.dropped:
+            self.__class__.dropped = True
+            self.close_connection = True
+            try:
+                self.connection.shutdown(2)
+            except OSError:
+                pass
+            try:
+                self.connection.close()
+            except OSError:
+                pass
+            return
+        super()._send_json(payload, status)
+
+
+def post_queue(
+    server: BridgeHTTPServer,
+    operation_type: str,
+    prompt: str,
+    idempotency_key: str,
+) -> tuple[int, dict]:
+    connection = HTTPConnection(
+        "127.0.0.1",
+        server.server_address[1],
+        timeout=2,
+    )
+    payload = json.dumps(
+        {
+            "operation_type": operation_type,
+            "prompt": prompt,
+            "idempotency_key": idempotency_key,
+        }
+    ).encode("utf-8")
+    connection.request(
+        "POST",
+        "/queue",
+        body=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    response = connection.getresponse()
+    body = json.loads(response.read().decode("utf-8"))
+    connection.close()
+    return response.status, body
+
+
 def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     first = bridge.queue_operation("prompt", "same prompt", idempotency_key="key-1")
@@ -59,6 +116,74 @@ def test_queue_idempotency_does_not_cross_prompt_or_operation_type(tmp_path: Pat
     second = bridge.queue_operation("prompt", "second", idempotency_key="shared")
     third = bridge.queue_operation("new_chat", "", idempotency_key="shared")
     assert len({first.operation_id, second.operation_id, third.operation_id}) == 3
+
+
+def test_http_queue_response_loss_is_recovered_without_duplicate_operation(tmp_path: Path) -> None:
+    DropFirstQueueResponseHandler.dropped = False
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), DropFirstQueueResponseHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    operation_type = "prompt"
+    prompt = "recover after HTTP response loss"
+    idempotency_key = "post-queue-crash-key"
+
+    try:
+        connection = HTTPConnection(
+            "127.0.0.1",
+            server.server_address[1],
+            timeout=2,
+        )
+        payload = json.dumps(
+            {
+                "operation_type": operation_type,
+                "prompt": prompt,
+                "idempotency_key": idempotency_key,
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/queue",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with pytest.raises(Exception):
+            connection.getresponse()
+        connection.close()
+        assert DropFirstQueueResponseHandler.dropped is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+    restarted_bridge = make_bridge(tmp_path)
+    restarted_server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    restarted_server.bridge_state = restarted_bridge
+    restarted_thread = threading.Thread(target=restarted_server.serve_forever, daemon=True)
+    restarted_thread.start()
+
+    try:
+        status, body = post_queue(
+            restarted_server,
+            operation_type,
+            prompt,
+            idempotency_key,
+        )
+        assert status == 201
+        assert body["operation"]["operation_id"]
+        assert restarted_bridge.get_status()["history_size"] == 1
+        persisted = restarted_bridge.get_operation(body["operation"]["operation_id"])
+        assert persisted == body["operation"]
+        assert persisted["idempotency_key"] == idempotency_key
+        assert persisted["prompt"] == prompt
+    finally:
+        restarted_server.shutdown()
+        restarted_server.server_close()
+        restarted_thread.join(timeout=2)
+        assert not restarted_thread.is_alive()
 
 
 def test_operation_lifecycle(tmp_path: Path) -> None:
