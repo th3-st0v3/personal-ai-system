@@ -31,8 +31,12 @@ class RepeatingTransport(FakeTransport):
 
 
 class ObservationFailingTransport(FakeTransport):
+    def __init__(self, responses: list[Mapping[str, Any]], fail_path: str = "/browser/response") -> None:
+        super().__init__(responses)
+        self.fail_path = fail_path
+
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
-        if path == "/browser/observation":
+        if path == self.fail_path:
             self.requests.append((method, path, payload))
             raise ChatGPTAdapterError("injected browser-response failure")
         return super().request(method, path, payload)
@@ -368,7 +372,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
                 self.requests.append((method, path, payload))
                 if path.startswith("/operation?"):
                     return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "PASI_NATIVE: bridge completion failed: HTTP 502"}}
-                if path == "/browser/observation":
+                if path == "/browser/response":
                     self.observation_reads += 1
                     if self.observation_reads == 1:
                         return {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "other-op", "response_text": "wrong chat", "response_text_available": True}}}
