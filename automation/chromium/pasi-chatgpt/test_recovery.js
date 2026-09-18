@@ -103,3 +103,11 @@ test('reload recovery verifies the original operation is queued before leaving a
   assert.match(source, /if \(!accepted \|\| afterRetry\?\.status !== 'queued'\)/);
   assert.match(source, /phase: 'retry_requeue_not_verified'/);
 });
+
+test('recovery does not discard persisted recovery state when the bridge temporarily cannot resolve an operation', () => {
+  assert.match(source, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
+  assert.match(source, /phase: 'operation_lookup_unavailable'/);
+  assert.match(source, /recovery_action: 'wait_for_operation_state'/);
+  assert.match(source, /missing_operation_since_ms/);
+  assert.match(source, /if \(!current\) \{/);
+});
