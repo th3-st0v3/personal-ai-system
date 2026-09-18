@@ -183,16 +183,32 @@
       recovery_action: 'preserve_response'
     });
 
-    const finished = await bridge('/chat/finished', {
-      method: 'POST',
-      body: {
-        operation_id: operationId,
-        chat_url: location.href,
-        response_text: bounded,
-        response_text_available: true
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const finished = await bridge('/chat/finished', {
+          method: 'POST',
+          body: {
+            operation_id: operationId,
+            chat_url: location.href,
+            response_text: bounded,
+            response_text_available: true
+          }
+        });
+        if (finished.ok) return true;
+        lastError = new Error(`bridge completion failed: HTTP ${finished.status}`);
+      } catch (error) {
+        lastError = error;
       }
+      if (attempt < 3) await sleep(Math.min(POLL_MS, 500));
+    }
+    await report('chatgpt_recovery', {
+      phase: 'completion_ack_failed',
+      operation_id: operationId,
+      recovery_action: 'retry_runner',
+      error: String(lastError?.message || lastError || 'unknown completion acknowledgement failure')
     });
-    return finished.ok;
+    return false;
   }
 
   async function markRetryableFailure(operationId, message, recoveryContext = null) {
