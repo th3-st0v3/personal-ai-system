@@ -409,6 +409,16 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(response_capture_succeeded(complete))
         self.assertFalse(response_capture_succeeded(missing_text))
 
+    def test_fallback_prompt_becomes_the_active_operation_for_nonterminal_checkpointing(self) -> None:
+        source = Path(__file__).resolve().parent / "pasi_chat.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn(
+            "fallback_operation = adapter.submit_prompt(fallback_prompt)\n"
+            "                prompt_operation = fallback_operation\n"
+            "                checkpoint_active_operation(handoff, fallback_operation, task)",
+            text,
+        )
+
     def test_controller_update_signal_requires_explicit_structured_signal(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
