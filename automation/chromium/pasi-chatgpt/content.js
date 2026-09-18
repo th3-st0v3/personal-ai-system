@@ -518,7 +518,7 @@
   }
 
   async function poll() {
-    if (processing || activeOperationId !== null) return;
+    if (processing || activeOperationId !== null || localStorage.getItem(RECOVERY_KEY)) return;
     try {
       const response = await bridge('/next-operation');
       if (!response.ok) return;
