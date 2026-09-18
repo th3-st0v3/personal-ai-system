@@ -25,6 +25,7 @@ HIGH_RISK_PATH_PREFIXES = (
     "scripts/pasi_controller_server.py",
     "scripts/pasi_chat_guard.py",
     "scripts/pasi_provider_router.py",
+    "scripts/pasi_promote.py",
     "scripts/pasi_overnight_engine.py",
     "scripts/pasi_overnight_engine_v2.py",
     "scripts/pasi_overnight_hardening.py",
@@ -157,6 +158,35 @@ def _create_pr(branch: str, title: str, body: str) -> tuple[int, str]:
     return number, url
 
 
+def _checks_green(pr_number: int) -> tuple[bool, str]:
+    code, output = _run(
+        ["gh", "pr", "checks", str(pr_number), "--json", "name,bucket,workflow,event"],
+        timeout=30.0,
+    )
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return False, "GitHub checks did not return parseable JSON"
+
+    if not isinstance(payload, list) or not payload:
+        return False, "no GitHub checks are currently reported for this PR"
+
+    non_passing = []
+    for check in payload:
+        if not isinstance(check, dict):
+            return False, "GitHub returned a malformed check record"
+        if check.get("bucket") != "pass":
+            non_passing.append(
+                f"{check.get('name', 'unnamed')}: {check.get('bucket', 'unknown')}"
+            )
+
+    if code != 0 or non_passing:
+        detail = ", ".join(non_passing[:10]) or f"gh pr checks exited with {code}"
+        return False, detail
+
+    return True, f"all {len(payload)} reported GitHub checks passed"
+
+
 def _enable_auto_merge(pr_number: int) -> tuple[bool, str]:
     code, output = _run(["gh", "pr", "merge", str(pr_number), "--squash", "--auto", "--delete-branch"], timeout=45.0)
     return code == 0, output
@@ -206,10 +236,34 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
         return PromotionResult(branch, None, pr_url, risk, False, "PR was created but its numeric id could not be parsed")
 
     if risk == "standard" and auto_merge_standard:
+        checks_ok, checks_message = _checks_green(pr_number)
+        if not checks_ok:
+            return PromotionResult(
+                branch,
+                pr_number,
+                pr_url,
+                risk,
+                False,
+                f"standard-risk PR created; auto-merge withheld until all GitHub checks pass: {checks_message[-2_000:]}",
+            )
         merged, output = _enable_auto_merge(pr_number)
         if merged:
-            return PromotionResult(branch, pr_number, pr_url, risk, True, "standard-risk PR created and auto-merge requested; GitHub will wait for required checks")
-        return PromotionResult(branch, pr_number, pr_url, risk, False, f"standard-risk PR created; auto-merge request was not accepted: {output[-2_000:]}")
+            return PromotionResult(
+                branch,
+                pr_number,
+                pr_url,
+                risk,
+                True,
+                f"standard-risk PR created after verified checks ({checks_message}); auto-merge requested",
+            )
+        return PromotionResult(
+            branch,
+            pr_number,
+            pr_url,
+            risk,
+            False,
+            f"standard-risk PR created; auto-merge request was not accepted: {output[-2_000:]}",
+        )
 
     return PromotionResult(branch, pr_number, pr_url, risk, False, "high-risk PR created for human review")
 
