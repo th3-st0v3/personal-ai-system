@@ -55,9 +55,10 @@ def run(command: list[str], log_path: Path, max_bytes: int, backups: int) -> int
     )
 
     assert process.stdout is not None
+    stdout = process.stdout
     log = log_path.open("ab", buffering=0)
     try:
-        for chunk in iter(lambda: process.stdout.readline(), b""):
+        for chunk in iter(lambda: stdout.readline(), b""):
             offset = 0
             while offset < len(chunk):
                 if current_size >= max_bytes:
