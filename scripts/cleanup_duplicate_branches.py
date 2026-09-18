@@ -127,6 +127,11 @@ def _list_closed_pr_heads(*, token: str) -> Mapping[str, frozenset[str]]:
             head = item.get("head")
             if not isinstance(head, dict):
                 continue
+            head_repo = head.get("repo")
+            if isinstance(head_repo, dict):
+                repo_name = str(head_repo.get("full_name", "")).strip()
+                if repo_name and repo_name != _repository():
+                    continue
             ref = str(head.get("ref", "")).strip()
             sha = str(head.get("sha", "")).strip()
             if ref and sha:
