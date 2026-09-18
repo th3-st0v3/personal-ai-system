@@ -1034,6 +1034,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+        if (
+            not (
+                response_text_available is True
+                and isinstance(response_text, str)
+                and bool(response_text.strip())
+            )
+            and existing_operation.get("response_text_available") is True
+        ):
+            # Preserve verified response evidence already persisted by the
+            # browser observation path when the acknowledgement is retried
+            # without its original response payload.
+            response_text = existing_operation.get("response_text")
+            response_text_available = True
+
         try:
             operation = self.bridge_state.complete_operation(
                 operation_id=operation_id,
