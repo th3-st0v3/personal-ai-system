@@ -23,6 +23,9 @@ from scripts.pasi_chat import (
     wait_for_browser_controller,
     repair_response_capture,
     response_capture_succeeded,
+    checkpoint_active_operation,
+    clear_active_operation,
+    reconcile_timed_out_response,
 )
 
 
@@ -292,7 +295,65 @@ class TestPasiChat(unittest.TestCase):
         self.assertIsNone(pending_operation_for_task(stale_chat, task))
         missing_chat_binding = dict(handoff)
         missing_chat_binding.pop("active_operation_chat_url")
-        self.assertIsNone(pending_operation_for_task(missing_chat_binding, task))
+        self.assertEqual(pending_operation_for_task(missing_chat_binding, task), "op-pending")
+        missing_chat_url = dict(missing_chat_binding)
+        missing_chat_url.pop("chat_url")
+        self.assertEqual(pending_operation_for_task(missing_chat_url, task), "op-pending")
+
+    def test_pending_operation_uses_exact_task_identity_without_requiring_chat_url(self) -> None:
+        task = "resume after url observation loss"
+        handoff = {
+            "active_operation_id": "op-pending",
+            "active_task_fingerprint": task_fingerprint(task),
+        }
+        self.assertEqual(pending_operation_for_task(handoff, task), "op-pending")
+        self.assertIsNone(pending_operation_for_task(handoff, "different task"))
+        self.assertIsNone(pending_operation_for_task({"active_operation_id": "op-pending"}, task))
+
+    def test_checkpoint_and_clear_active_operation_preserve_recovery_identity(self) -> None:
+        task = "checkpoint timeout operation"
+        handoff = {"chat_url": "https://chatgpt.com/c/current"}
+        checkpoint_active_operation(handoff, "op-timeout", task)
+        self.assertEqual(handoff["active_operation_id"], "op-timeout")
+        self.assertEqual(handoff["active_task_fingerprint"], task_fingerprint(task))
+        self.assertEqual(handoff["active_operation_chat_url"], "https://chatgpt.com/c/current")
+        clear_active_operation(handoff)
+        self.assertNotIn("active_operation_id", handoff)
+        self.assertNotIn("active_task_fingerprint", handoff)
+        self.assertNotIn("active_operation_chat_url", handoff)
+
+    def test_reconcile_timed_out_response_consumes_one_final_operation_read(self) -> None:
+        class Adapter:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def read_operation(self, operation_id: str) -> AIResponse:
+                self.calls += 1
+                self.assertEqual(operation_id, "op-timeout")
+                return AIResponse(
+                    response_id="response-1",
+                    session_id="session-1",
+                    provider="chatgpt",
+                    operation_id=operation_id,
+                    text="late response",
+                    completion="complete",
+                    response_available=True,
+                )
+
+        timeout = AIResponse(
+            response_id="response-timeout",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-timeout",
+            text="",
+            completion="timeout",
+            response_available=False,
+        )
+        adapter = Adapter()
+        reconciled = reconcile_timed_out_response(cast(ChatGPTAdapter, adapter), "op-timeout", timeout)
+        self.assertEqual(reconciled.completion, "complete")
+        self.assertEqual(reconciled.text, "late response")
+        self.assertEqual(adapter.calls, 1)
 
     def test_repair_response_capture_retries_once_without_resending_prompt(self) -> None:
         class Adapter:
