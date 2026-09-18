@@ -43,7 +43,11 @@ async function refreshBudget(tabId) {
 async function reloadBoundedTab(tab) {
   if (!tab || typeof tab.id !== 'number') return;
 
-  await reloadBoundedTab(tab);
+  const budget = await refreshBudget(tab.id);
+  if (budget.count >= MAX_REFRESHES) return;
+  budget.count += 1;
+  await chrome.storage.local.set({ [`refresh:${tab.id}`]: budget });
+  await chrome.tabs.reload(tab.id);
 }
 
 async function inspect() {

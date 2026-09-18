@@ -117,3 +117,11 @@ test('background watchdog targets the tab matching the reported ChatGPT conversa
   assert.match(background, /tabs\.find\(\(tab\) => tab\.url === targetChatUrl\)/);
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
+
+
+test('background bounded reload helper retains per-tab refresh budget', () => {
+  assert.match(background, /async function reloadBoundedTab\(tab\)/);
+  assert.match(background, /const budget = await refreshBudget\(tab\.id\)/);
+  assert.match(background, /chrome\.storage\.local\.set/);
+  assert.match(background, /chrome\.tabs\.reload\(tab\.id\)/);
+});
