@@ -2,7 +2,7 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const CONTROLLER_VERSION = '2.4.9';
+  const CONTROLLER_VERSION = '2.4.10';
   const POLL_MS = 250;
   const HEALTH_MS = 5000;
   const DOM_POLL_MS = 100;
