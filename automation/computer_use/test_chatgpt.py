@@ -206,6 +206,15 @@ class TransientOperationReadTransport(FakeTransport):
 
 
 class ChatGPTAdapterTests(unittest.TestCase):
+    def test_completed_prompt_rechecks_delayed_durable_response(self) -> None:
+        transport = DelayedObservationTransport(delay_cycles=2)
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "delayed browser response")
+        self.assertEqual(transport.observation_reads, 3)
+
     def test_wait_for_completion_retries_transient_operation_read_failures(self) -> None:
         transport = TransientOperationReadTransport()
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
