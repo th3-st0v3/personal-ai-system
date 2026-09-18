@@ -14,6 +14,8 @@ from scripts.pasi_chat import (
     controller_observation_is_live,
     needs_github_context,
     process_controller_update_signal,
+    pending_operation_for_task,
+    task_fingerprint,
     public_github_context_unavailable,
     route_chat,
     wait_for_browser_controller,
@@ -159,6 +161,16 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(public_github_context_unavailable("PASI_PUBLIC_GITHUB_UNAVAILABLE: true"))
         self.assertTrue(public_github_context_unavailable("I can't access the GitHub repository"))
         self.assertFalse(public_github_context_unavailable("I reviewed the GitHub repository and found the bug."))
+
+    def test_pending_operation_is_bound_to_exact_task_fingerprint(self) -> None:
+        task = "continue the task"
+        handoff = {
+            "active_operation_id": "op-pending",
+            "active_task_fingerprint": task_fingerprint(task),
+        }
+        self.assertEqual(pending_operation_for_task(handoff, task), "op-pending")
+        self.assertIsNone(pending_operation_for_task(handoff, "different task"))
+        self.assertIsNone(pending_operation_for_task({"active_operation_id": "op-pending"}, task))
 
     def test_repair_response_capture_retries_once_without_resending_prompt(self) -> None:
         class Adapter:
