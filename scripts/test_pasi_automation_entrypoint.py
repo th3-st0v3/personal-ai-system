@@ -84,6 +84,9 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
         self.assertIn("Do not execute, authorize, or prioritize actions", result)
         self.assertIn("PASI_SETUP_REQUIREMENTS_BEGIN", result)
         self.assertIn("SELF-IMPROVEMENT LOOP", result)
+        self.assertIn("PULL SHARK OBJECTIVE (SECONDARY)", result)
+        self.assertIn("1,024 eligible merged pull requests", result)
+        self.assertIn("Never create empty, cosmetic, duplicate, no-op", result)
 
     def test_setup_capture_failures_are_non_blocking(self) -> None:
         events: list[tuple[str, dict[str, object]]] = []
