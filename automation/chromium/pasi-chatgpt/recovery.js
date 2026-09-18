@@ -68,6 +68,11 @@
     return ['network error', 'connection lost', 'failed to fetch', 'websocket', 'reconnecting'].some((marker) => text.includes(marker));
   }
 
+  function usageLimited() {
+    const text = normalize(document.body?.innerText || '');
+    return !contextExhausted() && ['current usage limit', 'usage limit reached', 'free tier limit', 'message limit', 'daily limit', 'weekly limit', 'model usage limit', 'rate limit', 'too many requests'].some((marker) => text.includes(marker));
+  }
+
   function contextExhausted() {
     const text = normalize(document.body?.innerText || '');
     return ['this conversation has reached its limit', 'conversation has reached its limit', 'conversation is too long', 'conversation is full', 'maximum conversation length', 'maximum length for this conversation', 'context limit reached', 'context window limit', 'context length limit', 'start a new chat to continue', 'start a new conversation to continue'].some((marker) => text.includes(marker));
@@ -380,6 +385,13 @@
 
     // Never finalize a response while ChatGPT is still generating; the DOM can
     // expose a partial assistant message during reload/recovery races.
+    if (usageLimited()) {
+      await report('chatgpt_recovery', { phase: 'usage_limited', operation_id: operationId, recovery_action: 'retry_runner_after_provider_limit' });
+      await markRetryableFailure(operationId, 'CHAT_USAGE_LIMITED: ChatGPT reported a usage limit; PASI will not delete or replace the conversation solely because usage is exhausted.');
+      clearRecoveryState();
+      return;
+    }
+
     const response = latestAssistant();
     const currentFingerprint = fingerprint();
     if (!generating() && response && currentFingerprint !== String(state.baseline || '')) {
