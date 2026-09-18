@@ -514,6 +514,24 @@
         return;
       }
 
+      if (state.phase === 'retry_ready') {
+        if (current.status === 'queued' && state.resume_operation_id === state.operation_id) {
+          await report('chatgpt_recovery', {
+            phase: 'retry_waiting',
+            operation_id: state.operation_id,
+            recovery_action: 'wait_for_runner_resume'
+          });
+          return;
+        }
+        await report('chatgpt_recovery', {
+          phase: 'retry_resume_marker_invalid',
+          operation_id: state.operation_id,
+          recovery_action: 'retry_runner',
+          observed_status: current.status
+        });
+        return;
+      }
+
       if (state.phase === 'monitoring') {
         const startedMs = Number(state.started_ms || Date.parse(current.created_at || '') || Date.now());
         if (Date.now() - startedMs < RECOVERY_TRIGGER_MS && !connectionFailure()) return;
