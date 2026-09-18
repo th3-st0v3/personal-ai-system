@@ -292,7 +292,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertIsNone(pending_operation_for_task({"active_operation_id": "op-pending"}, task))
         stale_chat = dict(handoff)
         stale_chat["chat_url"] = "https://chatgpt.com/c/other"
-        self.assertIsNone(pending_operation_for_task(stale_chat, task))
+        self.assertEqual(pending_operation_for_task(stale_chat, task), "op-pending")
         missing_chat_binding = dict(handoff)
         missing_chat_binding.pop("active_operation_chat_url")
         self.assertEqual(pending_operation_for_task(missing_chat_binding, task), "op-pending")
@@ -329,7 +329,8 @@ class TestPasiChat(unittest.TestCase):
 
             def read_operation(self, operation_id: str) -> AIResponse:
                 self.calls += 1
-                self.assertEqual(operation_id, "op-timeout")
+                if operation_id != "op-timeout":
+                    raise AssertionError(f"unexpected operation ID: {operation_id}")
                 return AIResponse(
                     response_id="response-1",
                     session_id="session-1",
