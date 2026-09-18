@@ -148,6 +148,34 @@ class BridgeState:
 
         return None
 
+    def persist_response_evidence(
+        self,
+        operation_id: str,
+        chat_url: str | None,
+        response_text: str,
+    ) -> dict[str, Any] | None:
+        """Attach verified response evidence without changing terminal status."""
+        bounded_response = response_text[:MAX_RESPONSE_TEXT_CHARS]
+        if not bounded_response.strip():
+            return None
+        with self.lock:
+            queue = self.state_manager.load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id or item.get("operation_type") != "prompt":
+                    continue
+                current = item.get("response_text")
+                if item.get("response_text_available") is True and isinstance(current, str) and current.strip():
+                    return dict(item)
+                item["response_text"] = bounded_response
+                item["response_text_available"] = True
+                if isinstance(chat_url, str):
+                    item["chat_url"] = chat_url
+                item["response_source"] = "completion_ack"
+                item["response_observed_at"] = time.time()
+                self.state_manager.save_queue(queue)
+                return dict(item)
+        return None
+
     def complete_operation(
         self,
         operation_id: str,
@@ -1064,18 +1092,25 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        incoming_response_verified = (
+            response_text_available is True
+            and isinstance(response_text, str)
+            and bool(response_text.strip())
+        )
         if existing_operation.get("status") == "completed":
-            # A duplicate acknowledgement must remain idempotent even if a
-            # retried browser request no longer carries the original response.
+            # A duplicate acknowledgement is idempotent. A later verified
+            # response payload is still valid evidence when the original
+            # terminal state was persisted without response text.
+            if existing_operation.get("operation_type") == "prompt" and incoming_response_verified:
+                existing_operation = self.bridge_state.persist_response_evidence(
+                    operation_id,
+                    chat_url,
+                    response_text or "",
+                ) or existing_operation
             self._send_json({"operation": existing_operation})
             return
 
         if existing_operation.get("operation_type") == "prompt":
-            incoming_response_verified = (
-                response_text_available is True
-                and isinstance(response_text, str)
-                and bool(response_text.strip())
-            )
             persisted_response_verified = (
                 existing_operation.get("response_text_available") is True
                 and isinstance(existing_operation.get("response_text"), str)
