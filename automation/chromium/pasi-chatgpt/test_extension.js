@@ -64,6 +64,7 @@ test('native prompt submission re-verifies Thinking before sending', () => {
   assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
   assert.match(content, /await selectThinking\(\)/);
   assert.match(content, /reasoningMode = 'thinking'/);
+  assert.match(content, /if \(thinkingEnabled\(\) !== true\) throw new Error/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
 });
 
