@@ -158,3 +158,8 @@ test('recovery serializes inspection so a slow recovery cannot overlap and dupli
   assert.match(source, /setInterval\(\(\) => \{ runInspection\(\)\.catch\(\(\) => \{\}\); \}, POLL_MS\)/);
   assert.match(source, /await runInspection\(\)/);
 });
+
+test('response recovery persists observation before completion acknowledgement and requires nonblank evidence', () => {
+  assert.match(source, /await report\\('chatgpt_response'/);
+  assert.match(source, /response_text_available: Boolean\\(bounded\\.trim\\(\\)\\)/);
+});
