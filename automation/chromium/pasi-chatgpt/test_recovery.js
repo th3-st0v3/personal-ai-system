@@ -167,3 +167,10 @@ test('response recovery sends captured response text with completion acknowledge
   assert.match(source, /response_text: bounded/);
   assert.match(source, /response_text_available: true/);
 });
+
+test('response recovery retries a lost completion acknowledgement within a bounded budget', () => {
+  assert.match(source, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
+  assert.match(source, /if \(finished\.ok\) return true/);
+  assert.match(source, /if \(attempt < 3\) await sleep\(Math\.min\(POLL_MS, 500\)\)/);
+  assert.match(source, /phase: 'completion_ack_failed'/);
+});
