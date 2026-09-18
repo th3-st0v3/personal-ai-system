@@ -198,8 +198,41 @@ class ChatGPTAdapter(AIAdapter):
                     return self._recheck_completed_response(operation_id, response)
                 return response
             if time.monotonic() - started >= limit:
+                recovered = self._reconcile_timed_out_response(operation_id, response)
+                if recovered is not None:
+                    return recovered
                 return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
             time.sleep(self.poll_interval_seconds)
+
+    def _reconcile_timed_out_response(self, operation_id: str, response: AIResponse) -> AIResponse | None:
+        """Recover a late response only when durable browser evidence names this operation."""
+        if response.completion not in {"generating", "timeout"}:
+            return None
+        try:
+            observation = self.read_browser_response_observation()
+        except ChatGPTAdapterError:
+            return None
+        data = observation.get("data") if isinstance(observation, Mapping) else None
+        if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_response":
+            return None
+        if data.get("active_operation_id") != operation_id:
+            return None
+        text = data.get("response_text")
+        if not isinstance(text, str) or not text.strip():
+            return None
+        chat_url = _optional_string(data.get("chat_url")) or response.chat_url
+        return AIResponse(
+            response_id=f"{operation_id}:timeout-reconciled",
+            session_id=self.session_id,
+            provider=self.provider,
+            operation_id=operation_id,
+            text=text,
+            completion="complete",
+            response_available=True,
+            chat_url=chat_url,
+            error=response.error,
+            chat_exhausted=data.get("chat_exhausted") is True,
+        )
 
     def _recheck_completed_response(self, operation_id: str, response: AIResponse) -> AIResponse:
         latest = response
