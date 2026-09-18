@@ -233,7 +233,10 @@ class ChatGPTAdapterTests(unittest.TestCase):
         transport = FakeTransport([{"operation": {"operation_id": "op-1"}}])
         adapter = ChatGPTAdapter(transport, session_id="session-1")
         self.assertEqual(adapter.submit_prompt("inspect this"), "op-1")
-        self.assertEqual(transport.requests[0], ("POST", "/queue", {"operation_type": "prompt", "prompt": "inspect this"}))
+        self.assertEqual(transport.requests[0][0:2], ("POST", "/queue"))
+        self.assertEqual(transport.requests[0][2]["operation_type"], "prompt")
+        self.assertEqual(transport.requests[0][2]["prompt"], "inspect this")
+        self.assertEqual(len(transport.requests[0][2]["idempotency_key"]), 64)
 
     def test_new_session_queues_new_chat_and_requires_verified_completion(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-new"}}, {"operation": {"operation_id": "op-new", "status": "completed"}}])
