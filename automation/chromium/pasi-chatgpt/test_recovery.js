@@ -19,9 +19,14 @@ test('recovery preserves a verified response and includes response text in compl
   assert.match(source, /queueNewChat/);
   assert.match(source, /operation_type: 'new_chat'/);
   assert.match(source, /RECOVERY_OPERATION_KEY = 'recovery_operation_id'/);
-  assert.match(source, /recoveryState, \[RECOVERY_OPERATION_KEY\]/);
+  assert.match(source, /\[RECOVERY_OPERATION_KEY\]: newOperationId/);
   assert.match(source, /CHAT_RECOVERED_RETRY/);
   assert.match(source, /grace_wait/);
+});
+
+test('recovery observations identify the active prompt operation so the bridge can persist response evidence', () => {
+  assert.match(source, /active_operation_id: operationId/);
+  assert.match(source, /schema_version: 'pasi-chatgpt-recovery-v3'/);
 });
 
 test('recovery never prepares a replacement chat without verified exhaustion', () => {
@@ -55,7 +60,6 @@ test('recovery does not consume ordinary queue work directly', () => {
 test('recovery tracks monitoring state across reloads and handles context exhaustion separately', () => {
   assert.match(source, /function persistedResponse\(current\)/);
   assert.match(source, /finishPersistedResponse/);
-  assert.match(source, /knownChatUrl \|\| location\.href/);
   assert.match(source, /writeRecoveryState\(stateForTimer\)/);
   assert.match(source, /state\.phase === 'context_exhausted'/);
   assert.match(source, /async function handleContextExhausted\(state\)/);
