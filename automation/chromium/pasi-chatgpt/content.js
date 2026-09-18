@@ -2,7 +2,7 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const CONTROLLER_VERSION = '2.4.7';
+  const CONTROLLER_VERSION = '2.4.10';
   const POLL_MS = 250;
   const HEALTH_MS = 5000;
   const DOM_POLL_MS = 100;
@@ -12,10 +12,16 @@
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
+  const RECOVERY_KEY = 'pasi:chatgpt-recovery';
+  const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
+  const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
+  const MAX_CONTEXT_AUTO_RECOVERIES = 1;
+  const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
   let processing = false;
   let reasoningMode = null;
   let githubAttached = false;
+  let githubRepository = null;
   let lastKnownChatUrl = null;
 
   async function bridge(path, options = {}) {
@@ -138,7 +144,7 @@
 
   function authRequired() {
     const text = normalize(document.body?.innerText || '');
-    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired'].some((marker) => text.includes(marker));
+    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
   }
 
   function thinkingEnabled() {
@@ -171,6 +177,20 @@
     return `${userMessages().length}:${assistantMessages().length}:${fingerprint()}`;
   }
 
+  function recoveryContext() {
+    const context = {};
+    if (reasoningMode === 'thinking') context.reasoning_mode = 'thinking';
+    if (
+      githubAttached &&
+      typeof githubRepository === 'string' &&
+      githubRepository.length <= MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS &&
+      /^[^/\s]+\/[^/\s]+$/.test(githubRepository)
+    ) {
+      context.github_repository = githubRepository;
+    }
+    return Object.keys(context).length ? context : null;
+  }
+
   async function reportObservation(kind, data) {
     try {
       await bridge('/browser/observation', {
@@ -197,6 +217,7 @@
       }
       if (!processing) {
         githubAttached = false;
+        githubRepository = null;
         reasoningMode = null;
       }
       lastKnownChatUrl = currentUrl;
@@ -259,6 +280,7 @@
     if (previousChat && (!current || current === previousChat)) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
     reasoningMode = null;
     githubAttached = false;
+    githubRepository = null;
     lastKnownChatUrl = current;
   }
 
@@ -295,6 +317,29 @@
     await sleep(CLICK_SETTLE_MS);
     if (normalize(document.body?.innerText || '').includes('github needs to be connected')) throw new Error('PASI_NATIVE: GitHub connection unavailable');
     githubAttached = true;
+    githubRepository = repository;
+  }
+
+  async function restoreRecoveryContext(context) {
+    if (!context || typeof context !== 'object') return;
+
+    const reasoning = normalize(context.reasoning_mode);
+    if (reasoning) {
+      if (reasoning !== 'thinking' && reasoning !== 'think') {
+        throw new Error('PASI_NATIVE: unsupported recovery reasoning mode');
+      }
+      if (thinkingEnabled() !== true) await selectThinking();
+    }
+
+    const repository = String(context.github_repository || '').trim();
+    if (!repository) return;
+    if (repository.length > MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS || !/^[^/\s]+\/[^/\s]+$/.test(repository)) {
+      throw new Error('PASI_NATIVE: invalid recovery GitHub repository');
+    }
+    if (githubAttached && githubRepository !== repository) {
+      throw new Error('PASI_NATIVE: recovery GitHub context conflicts with the current attachment');
+    }
+    if (!githubAttached) await attachGithub(repository);
   }
 
   function assistants() { return assistantMessages(); }
@@ -374,14 +419,66 @@
     throw new Error('PASI_NATIVE: ChatGPT generation timed out');
   }
 
-  async function finishOperation(operationId, responseText = '') {
+  function rememberContextRecovery(operation, error) {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+    } catch (_) {}
+
+    const startedAt = typeof stored?.started_at === 'string'
+      ? stored.started_at
+      : new Date().toISOString();
+
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: startedAt,
+      started_ms: Date.parse(startedAt) || Date.now(),
+      baseline: fingerprint(),
+      chat_url: chatUrl(),
+      recovery_context: recoveryContext(),
+      reload_count: 0,
+      phase: 'context_exhausted',
+      error: String(error?.message || error)
+    }));
+  }
+
+  function rememberResponseRecovery(operation, error) {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+    } catch (_) {}
+
+    const startedAt = typeof stored?.started_at === 'string'
+      ? stored.started_at
+      : new Date().toISOString();
+
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: startedAt,
+      started_ms: Date.parse(startedAt) || Date.now(),
+      baseline: typeof stored?.baseline === 'string' ? stored.baseline : fingerprint(),
+      chat_url: chatUrl(),
+      recovery_context: recoveryContext(),
+      reload_count: 0,
+      phase: 'monitoring',
+      error: String(error?.message || error),
+      response_recovery: true
+    }));
+  }
+
+  async function finishOperation(operationId, responseText = '', requireResponseText = false) {
+    if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
+      throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
+    }
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
       response_text: responseText.slice(0, 50000),
-      response_text_available: Boolean(responseText)
+      response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
-    void reportObservation('chatgpt_response', {
+    await reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
       response_text: body.response_text,
       response_text_available: body.response_text_available,
@@ -404,7 +501,12 @@
       try {
         const operation = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
         const payload = operation.ok ? operation.json() : null;
-        if (payload?.operation?.status === 'completed') return;
+        if (
+          payload?.operation?.status === 'completed' &&
+          payload?.operation?.response_text_available === true &&
+          typeof payload?.operation?.response_text === 'string' &&
+          Boolean(payload.operation.response_text.trim())
+        ) return;
       } catch (_) {}
 
       if (attempt < 3) await sleep(150);
@@ -424,7 +526,15 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify({ operation_id: operation.operation_id, operation_type: operation.operation_type, started_at: new Date().toISOString(), chat_url: chatUrl() }));
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: new Date().toISOString(),
+      chat_url: chatUrl(),
+      reasoning_mode: reasoningMode,
+      github_attached: githubAttached,
+      github_repository: githubRepository
+    }));
     let finalized = false;
     try {
       switch (operation.operation_type) {
@@ -432,18 +542,24 @@
         case 'select_reasoning': await selectThinking(); break;
         case 'attach_github': await attachGithub(operation.prompt); break;
         case 'prompt': {
+          await restoreRecoveryContext(operation.recovery_context);
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
           const box = await waitFor(composer, TIMEOUTS.composer);
           if (!box) throw new Error('PASI_NATIVE: composer unavailable');
           const baseline = fingerprint();
+          let activeState = {};
+          try {
+            activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+          } catch (_) {}
+          localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           setText(box, '');
           insertText(box, operation.prompt);
           const send = await waitForSend();
           if (!send) throw new Error('PASI_NATIVE: send control unavailable');
           await submitPrompt(operation.prompt);
           const response = await waitForResponse(baseline);
-          await finishOperation(operation.operation_id, response);
+          await finishOperation(operation.operation_id, response, true);
           finalized = true;
           return;
         }
@@ -452,12 +568,44 @@
       await finishOperation(operation.operation_id);
       finalized = true;
     } catch (error) {
-      finalized = await failOperation(operation.operation_id, error);
+      const errorMessage = String(error?.message || error);
+      const contextRecoveryEligible =
+        operation.operation_type === 'prompt' &&
+        errorMessage.startsWith('CHAT_EXHAUSTED:') &&
+        Number(operation.retry_count || 0) < MAX_CONTEXT_AUTO_RECOVERIES;
+
+      const responseRecoveryEligible =
+        operation.operation_type === 'prompt' &&
+        (
+          errorMessage.startsWith('PASI_NATIVE: response text unavailable;') ||
+          errorMessage.startsWith('PASI_NATIVE: ChatGPT generation timed out')
+        );
+
+      if (contextRecoveryEligible) {
+        rememberContextRecovery(operation, error);
+        finalized = false;
+      } else if (responseRecoveryEligible) {
+        rememberResponseRecovery(operation, error);
+        finalized = false;
+      } else {
+        const failure = (
+          errorMessage.startsWith('CHAT_EXHAUSTED:') &&
+          Number(operation.retry_count || 0) >= MAX_CONTEXT_AUTO_RECOVERIES
+        )
+          ? new Error('PASI_NATIVE: context recovery exhausted: ' + errorMessage)
+          : error;
+        finalized = await failOperation(operation.operation_id, failure);
+      }
       throw error;
     } finally {
       activeOperationId = null;
       processing = false;
-      if (finalized) localStorage.removeItem(ACTIVE_KEY);
+      if (finalized) {
+        localStorage.removeItem(ACTIVE_KEY);
+        if (recoveryResumeOperationId() === operation.operation_id) {
+          localStorage.removeItem(RECOVERY_KEY);
+        }
+      }
       await reportHealth();
     }
   }
@@ -468,18 +616,75 @@
       if (!stored?.operation_id) return;
       const current = await bridge(`/operation?operation_id=${encodeURIComponent(stored.operation_id)}`);
       const payload = current.ok ? current.json() : null;
-      if (payload?.operation?.status === 'completed' || payload?.operation?.status === 'failed' || payload?.operation?.status === 'cancelled') {
+      const operation = payload?.operation;
+      if (!operation) return;
+
+      if (operation.status === 'completed') {
+        const responseText = typeof operation.response_text === 'string' ? operation.response_text : '';
+        // Persisted nonblank response text is the evidence. A stale
+        // controller availability flag must not discard it during restart
+        // reconciliation; blank text remains fail-closed.
+        const responseAvailable = Boolean(responseText.trim());
+        if (responseAvailable) {
+          try {
+            await finishOperation(stored.operation_id, responseText, true);
+          } catch (_) {
+            // Keep the active marker so the next controller start can reconcile again.
+            return;
+          }
+        }
+        localStorage.removeItem(ACTIVE_KEY);
+      } else if (operation.status === 'failed' || operation.status === 'cancelled') {
         localStorage.removeItem(ACTIVE_KEY);
       }
       // Preserve non-terminal operations for the dedicated bounded recovery companion.
     } catch (_) {}
   }
 
+  function recoveryOperationId() {
+    try {
+      const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
+      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY];
+      return typeof value === 'string' && value.trim() ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function recoveryResumeOperationId() {
+    try {
+      const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
+      const value = state?.[RECOVERY_RESUME_OPERATION_KEY];
+      return typeof value === 'string' && value.trim() ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   async function poll() {
     if (processing || activeOperationId !== null) return;
     try {
-      const response = await bridge('/next-operation');
-      if (!response.ok) return;
+      const recoveryOperation = recoveryOperationId();
+      if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
+
+      const response = recoveryOperation
+        ? await bridge('/chat/claim', {
+            method: 'POST',
+            body: { operation_id: recoveryOperation }
+          })
+        : await bridge('/next-operation');
+      if (!response.ok) {
+        if (recoveryOperation) {
+          try {
+            const current = await bridge(`/operation?operation_id=${encodeURIComponent(recoveryOperation)}`);
+            const operation = current.ok ? current.json().operation : null;
+            if (operation && ['completed', 'failed', 'cancelled'].includes(operation.status)) {
+              localStorage.removeItem(RECOVERY_KEY);
+            }
+          } catch (_) {}
+        }
+        return;
+      }
       const payload = response.json();
       if (payload?.operation) await processOperation(payload.operation);
     } catch (error) {

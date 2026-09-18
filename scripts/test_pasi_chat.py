@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
+from automation.computer_use.contracts import AIResponse
 from scripts.pasi_chat import (
     PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL,
     PUBLIC_REPOSITORY_URL,
@@ -13,9 +14,13 @@ from scripts.pasi_chat import (
     controller_observation_is_live,
     needs_github_context,
     process_controller_update_signal,
+    pending_operation_for_task,
+    task_fingerprint,
     public_github_context_unavailable,
     route_chat,
     wait_for_browser_controller,
+    repair_response_capture,
+    response_capture_succeeded,
 )
 
 
@@ -23,6 +28,7 @@ class FakeChatAdapter:
     def __init__(self, state: dict[str, object] | None = None) -> None:
         self.state = state or {}
         self.calls: list[tuple[str, str]] = []
+        self.last_chat_url: str | None = None
 
     def read_browser_observation(self) -> dict[str, object]:
         return {"data": dict(self.state)} if self.state else {}
@@ -30,6 +36,7 @@ class FakeChatAdapter:
     def new_session(self) -> str:
         self.calls.append(("new_session", ""))
         self.state = {"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/new", "chat_exhausted": False, "github_attached": False}
+        self.last_chat_url = "https://chatgpt.com/c/new"
         return "op-new"
 
     def attach_github_repository(self, repository: str) -> str:
@@ -40,6 +47,29 @@ class FakeChatAdapter:
     def select_reasoning_mode(self, mode: str) -> None:
         self.calls.append(("select_reasoning", mode))
         self.state["reasoning_mode"] = mode
+
+
+class StaleReplacementURLChatAdapter(FakeChatAdapter):
+    def new_session(self) -> str:
+        self.calls.append(("new_session", ""))
+        self.state = {"kind": "chatgpt_state", "chat_url": "", "chat_exhausted": False, "github_attached": False}
+        # Simulate a bridge that completes new-chat creation but cannot yet report
+        # the replacement conversation URL.
+        return "op-new"
+
+
+class DelayedReplacementURLChatAdapter(StaleReplacementURLChatAdapter):
+    def __init__(self, state: dict[str, object] | None = None) -> None:
+        super().__init__(state)
+        self.observation_reads = 0
+
+    def read_browser_observation(self) -> dict[str, object]:
+        self.observation_reads += 1
+        if self.observation_reads < 2:
+            return {"data": dict(self.state)}
+        self.state["active_operation_id"] = "op-new"
+        self.state["chat_url"] = "https://chatgpt.com/c/delayed"
+        return {"data": dict(self.state)}
 
 
 class TestPasiChat(unittest.TestCase):
@@ -81,6 +111,101 @@ class TestPasiChat(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "browser controller is not reporting a live heartbeat"):
             wait_for_browser_controller(adapter, timeout_seconds=0.2)
 
+    def test_compact_handoff_preserves_pending_operation_identity(self) -> None:
+        import scripts.pasi_chat as pasi_chat
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            original_path = pasi_chat.SESSION_STATE_PATH
+            original_limit = pasi_chat.MAX_HANDOFF_CHARS
+            try:
+                pasi_chat.SESSION_STATE_PATH = root / "session.json"
+                pasi_chat.MAX_HANDOFF_CHARS = 200
+                handoff = {
+                    "chat_url": "https://chatgpt.com/c/current",
+                    "chat_exhausted": False,
+                    "active_operation_id": "op-pending",
+                    "active_task_fingerprint": task_fingerprint("resume compact state"),
+                    "active_operation_chat_url": "https://chatgpt.com/c/current",
+                    "summary": "x" * 6000,
+                    "chat_url_history": [{"previous_url": "https://chatgpt.com/c/a", "new_url": "https://chatgpt.com/c/b", "reason": "test"}] * 20,
+                }
+                pasi_chat.save_handoff(handoff)
+                persisted = pasi_chat.load_handoff()
+                self.assertEqual(persisted["active_operation_id"], "op-pending")
+                self.assertEqual(persisted["active_task_fingerprint"], handoff["active_task_fingerprint"])
+                self.assertEqual(persisted["active_operation_chat_url"], handoff["active_operation_chat_url"])
+            finally:
+                pasi_chat.SESSION_STATE_PATH = original_path
+                pasi_chat.MAX_HANDOFF_CHARS = original_limit
+
+    def test_pending_operation_prevents_replacement_routing(self) -> None:
+        task = "resume without creating another chat"
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/current",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        handoff = {
+            "active_operation_id": "op-pending",
+            "active_task_fingerprint": task_fingerprint(task),
+            "active_operation_chat_url": "https://chatgpt.com/c/current",
+            "chat_url": "https://chatgpt.com/c/current",
+            "chat_exhausted": True,
+        }
+
+        routed, known_url = route_chat(
+            adapter,
+            handoff,
+            task,
+            "th3-st0v3/personal-ai-system",
+            "auto",
+        )
+
+        self.assertEqual(known_url, "https://chatgpt.com/c/current")
+        self.assertEqual(routed["active_operation_id"], "op-pending")
+        self.assertFalse(any(call[0] == "new_session" for call in adapter.calls))
+        self.assertFalse(any(call[0] == "select_reasoning" for call in adapter.calls))
+
+    def test_new_session_preserves_verified_chat_identity(self) -> None:
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/old",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
+        self.assertEqual(known_url, "https://chatgpt.com/c/new")
+        self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/new")
+        self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
+
+    def test_new_session_reconciles_delayed_replacement_chat_identity(self) -> None:
+        adapter = DelayedReplacementURLChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/old",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        adapter.last_chat_url = "https://chatgpt.com/c/old"
+        handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
+        self.assertEqual(known_url, "https://chatgpt.com/c/delayed")
+        self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/delayed")
+        self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
+
+    def test_new_session_does_not_reuse_stale_chat_identity(self) -> None:
+        adapter = StaleReplacementURLChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/old",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        adapter.last_chat_url = "https://chatgpt.com/c/old"
+        handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
+        self.assertIsNone(known_url)
+        self.assertIsNone(handoff["chat_url"])
+        self.assertFalse(any(entry.get("reason") == "verified_new_chat_session" for entry in handoff.get("chat_url_history", [])))
+
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
         self.assertFalse(needs_github_context("update automation/tampermonkey/chatgpt-controller.user.js"))
@@ -93,6 +218,77 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(public_github_context_unavailable("PASI_PUBLIC_GITHUB_UNAVAILABLE: true"))
         self.assertTrue(public_github_context_unavailable("I can't access the GitHub repository"))
         self.assertFalse(public_github_context_unavailable("I reviewed the GitHub repository and found the bug."))
+
+    def test_pending_operation_is_bound_to_exact_task_fingerprint(self) -> None:
+        task = "continue the task"
+        handoff = {
+            "active_operation_id": "op-pending",
+            "active_task_fingerprint": task_fingerprint(task),
+            "active_operation_chat_url": "https://chatgpt.com/c/current",
+            "chat_url": "https://chatgpt.com/c/current",
+        }
+        self.assertEqual(pending_operation_for_task(handoff, task), "op-pending")
+        self.assertIsNone(pending_operation_for_task(handoff, "different task"))
+        self.assertIsNone(pending_operation_for_task({"active_operation_id": "op-pending"}, task))
+        stale_chat = dict(handoff)
+        stale_chat["chat_url"] = "https://chatgpt.com/c/other"
+        self.assertIsNone(pending_operation_for_task(stale_chat, task))
+        missing_chat_binding = dict(handoff)
+        missing_chat_binding.pop("active_operation_chat_url")
+        self.assertIsNone(pending_operation_for_task(missing_chat_binding, task))
+
+    def test_repair_response_capture_retries_once_without_resending_prompt(self) -> None:
+        class Adapter:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def read_response(self) -> AIResponse:
+                self.calls += 1
+                return AIResponse(
+                    response_id="response-1",
+                    session_id="session-1",
+                    provider="chatgpt",
+                    operation_id="op-1",
+                    text="recovered response",
+                    completion="complete",
+                    response_available=True,
+                )
+
+        initial = AIResponse(
+            response_id="response-0",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-1",
+            text="",
+            completion="complete",
+            response_available=False,
+        )
+        adapter = Adapter()
+        repaired = repair_response_capture(adapter, initial)
+        self.assertEqual(repaired.text, "recovered response")
+        self.assertEqual(adapter.calls, 1)
+
+    def test_response_capture_succeeded_requires_verified_nonblank_text(self) -> None:
+        complete = AIResponse(
+            response_id="response-1",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-1",
+            text="verified response",
+            completion="complete",
+            response_available=True,
+        )
+        missing_text = AIResponse(
+            response_id="response-2",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-2",
+            text="",
+            completion="complete",
+            response_available=False,
+        )
+        self.assertTrue(response_capture_succeeded(complete))
+        self.assertFalse(response_capture_succeeded(missing_text))
 
     def test_controller_update_signal_requires_explicit_structured_signal(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

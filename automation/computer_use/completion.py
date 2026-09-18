@@ -27,10 +27,9 @@ def completion_from_operation(
     status = status.strip().lower()
     text = operation.get("response_text")
     response_text = text if isinstance(text, str) else ""
-    response_available = (
-        operation.get("response_text_available") is True
-        and bool(response_text.strip())
-    )
+    # Nonblank persisted response text is itself verified payload evidence;
+    # tolerate a stale availability flag left by an older controller revision.
+    response_available = bool(response_text.strip())
 
     if status == "failed":
         return "error", response_text, response_available

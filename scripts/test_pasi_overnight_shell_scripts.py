@@ -42,6 +42,30 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             self.assertIn("exec 9>&-", script)
             self.assertIn("nohup bash -c", script)
 
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc is required for fd inheritance regression")
+    def test_lock_closing_wrapper_really_closes_fd_9(self) -> None:
+        lock_path = ROOT / ".runtime" / "overnight" / "test-start.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("w") as lock:
+            import os
+
+            os.set_inheritable(lock.fileno(), True)
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    'exec 9>&3; exec 3>&-; nohup bash -c \'exec 9>&-; exec "$@"\' _ sleep 2 >/dev/null 2>&1 & echo $!',
+                ],
+                pass_fds=(lock.fileno(),),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            child_pid = int(result.stdout.strip())
+            fd_path = Path("/proc") / str(child_pid) / "fd" / "9"
+            self.assertFalse(fd_path.exists())
+            subprocess.run(["kill", str(child_pid)], check=False)
+
 
 if __name__ == "__main__":
     unittest.main()

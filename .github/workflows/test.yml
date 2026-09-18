@@ -2,9 +2,10 @@ name: test
 
 on:
   push:
-    branches: [main, beta-foundation]
+    branches: [main, beta-foundation, 'pasi/overnight-*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -32,6 +33,10 @@ jobs:
         run: python -c 'import scripts.pasi_extended_runtime_entrypoint, scripts.pasi_weeklong_resilience; print("extended runtime import contract OK")'
       - name: Run canonical validation suite
         run: bash scripts/check_all.sh
+      - name: Run targeted computer-use regression suites
+        run: |
+          python -m pytest -q automation/orchestrator/test_bridge.py automation/computer_use/test_chatgpt.py scripts/test_pasi_chat.py
+          node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js
       - name: Run Tampermonkey controller contract tests
         run: node --test automation/tampermonkey/chatgpt-controller.test.js
       - name: Run Tampermonkey controller loader contract tests

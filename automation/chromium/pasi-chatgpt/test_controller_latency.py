@@ -20,7 +20,7 @@ def _number(source: str, name: str) -> int:
 def test_tampermonkey_controller_has_fast_poll_budget_and_recovery_state() -> None:
     source = _read(TAMPERMONKEY)
 
-    assert "@version      2.4.8" in source
+    assert "@version      2.4.9" in source
     assert _number(source, "POLL_INTERVAL_MS") <= 250
     assert _number(source, "DOM_POLL_INTERVAL_MS") <= 100
     assert _number(source, "RETRY_DELAY_MS") <= 150
@@ -57,3 +57,6 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "session has expired" in native
     assert "CHAT_EXHAUSTED" in native
     assert "reportHealth" in native
+    assert "payload?.operation?.status === 'completed'" in native
+    assert "payload?.operation?.response_text_available === true" in native
+    assert "Boolean(payload.operation.response_text.trim())" in native

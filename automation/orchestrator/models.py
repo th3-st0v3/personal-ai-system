@@ -72,6 +72,7 @@ class ChatOperation:
     operation_id: str
     operation_type: str
     prompt: str
+    idempotency_key: str | None = None
 
     status: str = "queued"
 
@@ -79,6 +80,7 @@ class ChatOperation:
     error: str | None = None
     response_text: str = ""
     response_text_available: bool = False
+    recovery_context: dict[str, Any] | None = None
 
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)

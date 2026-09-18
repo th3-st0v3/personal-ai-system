@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass
@@ -69,6 +70,9 @@ class UrllibBridgeTransport:
 
 
 COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
+BROWSER_RESPONSE_RECHECK_ATTEMPTS = 4
+BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS = 0.25
+OPERATION_READ_RETRY_ATTEMPTS = 4
 
 
 @dataclass
@@ -80,6 +84,7 @@ class ChatGPTAdapter(AIAdapter):
     poll_interval_seconds: float = 0.25
     max_wait_seconds: float = 3600.0
     current_operation_id: str | None = None
+    last_chat_url: str | None = None
 
     provider: str = "chatgpt"
 
@@ -90,11 +95,27 @@ class ChatGPTAdapter(AIAdapter):
             raise ValueError("polling bounds must be positive")
 
     def new_session(self) -> str:
+        # Never let a replacement session inherit the identity of the previous chat.
+        self.last_chat_url = None
         operation = self._queue("new_chat", "")
         self.current_operation_id = self._operation_id(operation)
         result = self.wait_for_completion(self.current_operation_id, recover_response_text=False)
         if result.completion != "complete":
             raise ChatGPTAdapterError(f"new ChatGPT session did not complete: {result.completion}")
+        if result.chat_url:
+            self.last_chat_url = result.chat_url
+        else:
+            try:
+                observation = self.read_browser_observation()
+            except ChatGPTAdapterError:
+                # URL observation is optional reconciliation evidence; a transport
+                # failure must not turn a verified new-chat completion into a failure.
+                observation = None
+            data = observation.get("data") if isinstance(observation, Mapping) else None
+            if isinstance(data, Mapping) and data.get("active_operation_id") == self.current_operation_id:
+                observed_url = data.get("chat_url")
+                if isinstance(observed_url, str) and observed_url.strip():
+                    self.last_chat_url = observed_url
         return self.current_operation_id
 
     def attach_github_repository(self, repository: str) -> str:
@@ -121,14 +142,15 @@ class ChatGPTAdapter(AIAdapter):
     def submit_prompt(self, prompt: str) -> str:
         if not prompt.strip():
             raise ValueError("prompt is required")
-        operation_id = self._operation_id(self._queue("prompt", prompt))
+        idempotency_key = hashlib.sha256(f"{self.session_id}\0{prompt.strip()}".encode("utf-8")).hexdigest()
+        operation_id = self._operation_id(self._queue("prompt", prompt, idempotency_key=idempotency_key))
         self.current_operation_id = operation_id
         return operation_id
 
     def read_response(self) -> AIResponse:
         if self.current_operation_id is None:
             raise ChatGPTAdapterError("no active ChatGPT operation")
-        return self.read_operation(self.current_operation_id)
+        return self.wait_for_completion(self.current_operation_id)
 
     def read_operation(self, operation_id: str) -> AIResponse:
         if not operation_id.strip():
@@ -143,6 +165,11 @@ class ChatGPTAdapter(AIAdapter):
         payload = self.transport.request("GET", "/browser/observation")
         observation = payload.get("observation")
         return observation if isinstance(observation, Mapping) else None
+    def read_browser_response_observation(self) -> Mapping[str, Any] | None:
+        """Read the durable response record instead of the latest transient state."""
+        payload = self.transport.request("GET", "/browser/response")
+        observation = payload.get("observation")
+        return observation if isinstance(observation, Mapping) else None
 
     def wait_for_completion(
         self,
@@ -155,8 +182,17 @@ class ChatGPTAdapter(AIAdapter):
         if limit <= 0:
             raise ValueError("timeout_seconds must be positive")
         started = time.monotonic()
+        read_failures = 0
         while True:
-            response = self.read_operation(operation_id)
+            try:
+                response = self.read_operation(operation_id)
+                read_failures = 0
+            except ChatGPTAdapterError:
+                read_failures += 1
+                if read_failures >= OPERATION_READ_RETRY_ATTEMPTS or time.monotonic() - started >= limit:
+                    raise
+                time.sleep(min(self.poll_interval_seconds, 0.25))
+                continue
             if response.completion in {"complete", "error", "interrupted"}:
                 if response.completion == "complete" and recover_response_text and not response.response_available:
                     return self._recheck_completed_response(operation_id, response)
@@ -178,8 +214,11 @@ class ChatGPTAdapter(AIAdapter):
                 return latest
         return latest
 
-    def _queue(self, operation_type: str, prompt: str) -> Mapping[str, Any]:
-        payload = self.transport.request("POST", "/queue", {"operation_type": operation_type, "prompt": prompt})
+    def _queue(self, operation_type: str, prompt: str, *, idempotency_key: str | None = None) -> Mapping[str, Any]:
+        body: dict[str, Any] = {"operation_type": operation_type, "prompt": prompt}
+        if idempotency_key is not None:
+            body["idempotency_key"] = idempotency_key
+        payload = self.transport.request("POST", "/queue", body)
         operation = payload.get("operation")
         if not isinstance(operation, Mapping):
             raise ChatGPTAdapterError("bridge response did not contain an operation")
@@ -201,12 +240,23 @@ class ChatGPTAdapter(AIAdapter):
         should_check_observation = operation.get("operation_type") == "prompt" and not response_available and (completion == "complete" or completion_ack_lost)
 
         if should_check_observation:
-            try:
-                observation = self.read_browser_observation()
-            except ChatGPTAdapterError:
-                observation = None
-            data = observation.get("data") if isinstance(observation, Mapping) else None
-            if isinstance(data, Mapping):
+            # Durable response persistence can lag the completion acknowledgement by a\n            # short scheduling interval. Recheck boundedly for every completed prompt,\n            # not only when the acknowledgement itself was lost. This never resubmits\n            # the prompt or creates a chat and remains fail-closed on missing evidence.\n            attempts = BROWSER_RESPONSE_RECHECK_ATTEMPTS\n            for attempt in range(attempts):
+                if attempt:
+                    time.sleep(BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS)
+                try:
+                    observation = self.read_browser_response_observation()
+                except ChatGPTAdapterError:
+                    continue
+                data = observation.get("data") if isinstance(observation, Mapping) else None
+                if not isinstance(data, Mapping):
+                    continue
+                observed_operation_id = data.get("active_operation_id")
+                # Response observations are only trustworthy when the controller binds
+                # them to the operation being reconciled. The controller contract emits
+                # this id for every response observation; accepting an unbound response
+                # could consume stale output from another chat after a reload.
+                if observed_operation_id != operation_id:
+                    continue
                 kind = data.get("kind")
                 if kind == "chatgpt_response":
                     observed_text = data.get("response_text")
@@ -218,6 +268,7 @@ class ChatGPTAdapter(AIAdapter):
                         # completion acknowledgement itself was lost after the server accepted it.
                         if completion_ack_lost:
                             completion = "complete"
+                        break
                     observed_url = data.get("chat_url")
                     if chat_url is None and isinstance(observed_url, str):
                         chat_url = observed_url

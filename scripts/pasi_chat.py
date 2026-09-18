@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -16,6 +17,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from automation.computer_use.chatgpt import ChatGPTAdapter, UrllibBridgeTransport
+from automation.computer_use.contracts import AIResponse
 from automation.orchestrator.controller_update import evaluate_controller_update, read_last_synced_version, write_update_request
 
 RUNTIME_DIR = REPOSITORY_ROOT / ".runtime" / "chatgpt"
@@ -27,6 +29,9 @@ MAX_HANDOFF_CHARS = 12_000
 MAX_CHAT_HISTORY = 20
 CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
 CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
+RESPONSE_CAPTURE_REPAIR_ATTEMPTS = 1
+NEW_SESSION_URL_RECONCILE_ATTEMPTS = 6
+NEW_SESSION_URL_RECONCILE_INTERVAL_SECONDS = 0.5
 _PUBLIC_GITHUB_FAILURE_PHRASES = (
     "i can't access the github repository",
     "i cannot access the github repository",
@@ -102,13 +107,31 @@ def save_handoff(payload: Mapping[str, object]) -> None:
         safe.pop("context_source", None)
     text = json.dumps(safe, indent=2, ensure_ascii=False)
     if len(text) > MAX_HANDOFF_CHARS:
-        minimal = {key: safe[key] for key in ("chat_url", "chat_exhausted", "github_attached", "reasoning_mode", "context_source", "chat_url_history") if key in safe}
-        if "summary" in safe:
+        # Preserve recovery-critical operation identity even when optional handoff\n        # metadata pushes the serialized state over the size budget. Dropping these\n        # fields can turn an interrupted accepted prompt into a duplicate submission.\n        minimal = {\n            key: safe[key]\n            for key in (\n                "chat_url",\n                "chat_exhausted",\n                "github_attached",\n                "reasoning_mode",\n                "context_source",\n                "chat_url_history",\n                "active_operation_id",\n                "active_task_fingerprint",\n                "active_operation_chat_url",\n            )\n            if key in safe\n        }\n        if "summary" in safe:
             minimal["summary"] = str(safe["summary"])[-4_000:]
         text = json.dumps(minimal, indent=2, ensure_ascii=False)
     temporary = SESSION_STATE_PATH.with_suffix(".json.tmp")
     temporary.write_text(text + "\n", encoding="utf-8")
     temporary.replace(SESSION_STATE_PATH)
+
+
+def task_fingerprint(task: str) -> str:
+    return hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+
+
+def pending_operation_for_task(handoff: Mapping[str, object], task: str) -> str | None:
+    operation_id = handoff.get("active_operation_id")
+    fingerprint = handoff.get("active_task_fingerprint")
+    chat_url = handoff.get("active_operation_chat_url")
+    if (
+        not isinstance(operation_id, str)
+        or not operation_id.strip()
+        or fingerprint != task_fingerprint(task)
+        or not valid_chat_url(chat_url)
+        or valid_chat_url(handoff.get("chat_url")) != chat_url
+    ):
+        return None
+    return operation_id
 
 
 def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> str:
@@ -237,8 +260,58 @@ def wait_for_browser_controller(
     raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
 
 
+def repair_response_capture(adapter: ChatGPTAdapter, response: AIResponse) -> AIResponse:
+    """Perform one bounded second read when completion succeeded without text."""
+    if getattr(response, "completion", None) != "complete" or getattr(response, "response_available", False):
+        return response
+    for _ in range(RESPONSE_CAPTURE_REPAIR_ATTEMPTS):
+        try:
+            repaired = adapter.read_response()
+        except Exception:
+            continue
+        if repaired.completion != "complete" or repaired.response_available:
+            return repaired
+        response = repaired
+    return response
+
+
+def response_capture_succeeded(response: AIResponse) -> bool:
+    """Only treat a completed response with verified text as a successful run."""
+    return response.completion == "complete" and response.response_available and bool(response.text.strip())
+
+
 def valid_chat_url(value: object) -> str | None:
     return value if isinstance(value, str) and CHAT_URL_PATTERN.match(value) else None
+
+
+def recover_replacement_chat_url(
+    adapter: ChatGPTRoutingAdapter,
+    operation_id: str,
+    *,
+    attempts: int = NEW_SESSION_URL_RECONCILE_ATTEMPTS,
+    interval_seconds: float = NEW_SESSION_URL_RECONCILE_INTERVAL_SECONDS,
+) -> str | None:
+    """Recover a delayed replacement URL without accepting stale browser state."""
+    if attempts <= 0 or interval_seconds < 0 or not operation_id.strip():
+        return None
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(interval_seconds)
+        try:
+            observation = adapter.read_browser_observation()
+        except Exception:
+            continue
+        if not isinstance(observation, Mapping):
+            continue
+        data = observation.get("data")
+        if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
+            continue
+        if data.get("active_operation_id") != operation_id:
+            continue
+        replacement_url = valid_chat_url(data.get("chat_url"))
+        if replacement_url:
+            return replacement_url
+    return None
 
 
 def record_chat_change(handoff: dict[str, object], previous_url: str | None, new_url: str | None, reason: str) -> None:
@@ -265,6 +338,15 @@ def route_chat(
     repository: str,
     github_mode: str,
 ) -> tuple[dict[str, object], str | None]:
+    # A persisted exact-task operation means the prompt was already queued.
+    # Resume it before any routing/replacement logic can create a new chat.
+    pending_operation = pending_operation_for_task(handoff, task)
+    if pending_operation:
+        known_url = valid_chat_url(handoff.get("chat_url"))
+        if known_url:
+            print(f"Resuming persisted ChatGPT operation: {pending_operation}")
+        return handoff, known_url
+
     state = browser_state(adapter)
     observed_url = valid_chat_url(state.get("chat_url"))
     known_url = valid_chat_url(handoff.get("chat_url"))
@@ -291,8 +373,17 @@ def route_chat(
             print("Creating a new ChatGPT conversation because no usable conversation is known.")
         operation_id = adapter.new_session()
         print(f"New chat operation: {operation_id}")
-        handoff.update({"chat_url": None, "chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
-        known_url = None
+        replacement_url = valid_chat_url(getattr(adapter, "last_chat_url", None))
+        if replacement_url is None:
+            replacement_url = recover_replacement_chat_url(adapter, operation_id)
+        if replacement_url:
+            record_chat_change(handoff, known_url, replacement_url, "verified_new_chat_session")
+            handoff["chat_url"] = replacement_url
+            known_url = replacement_url
+        else:
+            handoff["chat_url"] = None
+            known_url = None
+        handoff.update({"chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
     else:
         print(f"Reusing ChatGPT conversation: {known_url}")
 
@@ -358,9 +449,20 @@ def main() -> int:
         print("Checking for a live PASI ChatGPT browser controller...")
         wait_for_browser_controller(adapter, timeout_seconds=min(args.timeout, CONTROLLER_LIVENESS_TIMEOUT_SECONDS))
         handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
-        prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
-        print(f"Prompt operation: {prompt_operation}")
+        # Persist the verified session/context checkpoint before prompt submission so a
+        # process interruption cannot discard the replacement chat identity.
+        save_handoff(handoff)
+        pending_operation = pending_operation_for_task(handoff, task)
+        if pending_operation:
+            prompt_operation = pending_operation
+            print(f"Resuming persisted ChatGPT operation: {prompt_operation}")
+        else:
+            prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            handoff.update({"active_operation_id": prompt_operation, "active_task_fingerprint": task_fingerprint(task), "active_operation_chat_url": handoff.get("chat_url")})
+            save_handoff(handoff)
+            print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
+        response = repair_response_capture(adapter, response)
         if response.completion == "error" and response.chat_exhausted:
             print("Current ChatGPT conversation is exhausted; creating one replacement chat and retrying once.")
             previous_url = valid_chat_url(handoff.get("chat_url"))
@@ -368,9 +470,15 @@ def main() -> int:
                 record_chat_change(handoff, previous_url, None, "verified_prompt_exhaustion")
             handoff.update({"chat_exhausted": True, "chat_url": None, "github_attached": False, "reasoning_mode": None})
             handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
+            # Checkpoint the replacement session before retrying so another interruption
+            # can resume from the verified new conversation instead of the exhausted one.
+            save_handoff(handoff)
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            handoff.update({"active_operation_id": retry_operation, "active_task_fingerprint": task_fingerprint(task)})
+            save_handoff(handoff)
             print(f"Retry prompt operation: {retry_operation}")
             response = adapter.wait_for_completion(retry_operation)
+            response = repair_response_capture(adapter, response)
 
         if args.github == "auto" and response.text and not handoff.get("github_attached") and public_github_context_unavailable(response.text):
             print("Public GitHub retrieval appears unavailable; switching to the connected ChatGPT GitHub app in the same conversation.")
@@ -381,9 +489,15 @@ def main() -> int:
                 handoff["context_source"] = "github_app_fallback"
                 fallback_prompt = build_prompt(task, compact_repo_state(root), handoff) + "\n\nPUBLIC RETRIEVAL FALLBACK:\nThe public repository path did not provide usable repository evidence. Use the connected GitHub app now to retrieve the exact requested repository material, preserve the existing task context, and return the corrected answer/completion contract. Do not create a new conversation."
                 fallback_operation = adapter.submit_prompt(fallback_prompt)
+                handoff.update({
+                    "active_operation_id": fallback_operation,
+                    "active_task_fingerprint": task_fingerprint(task),
+                    "active_operation_chat_url": handoff.get("chat_url"),
+                })
+                save_handoff(handoff)
                 print(f"GitHub fallback prompt operation: {fallback_operation}")
                 fallback_response = adapter.wait_for_completion(fallback_operation)
-                response = fallback_response
+                response = repair_response_capture(adapter, fallback_response)
             except Exception as exc:
                 print(f"warning: automatic GitHub fallback could not be attached or completed: {exc}", file=sys.stderr)
                 handoff["context_source"] = "public_github_fallback_failed"
@@ -413,9 +527,12 @@ def main() -> int:
         record_chat_change(handoff, current_handoff_url, latest_chat_url, "completion_observed_chat_change")
     if latest_chat_url:
         handoff["chat_url"] = latest_chat_url
+    handoff.pop("active_operation_id", None)
+    handoff.pop("active_task_fingerprint", None)
+    handoff.pop("active_operation_chat_url", None)
     handoff.update({"chat_exhausted": response.chat_exhausted, "summary": summary, "controller_update_signal": update_signal})
     save_handoff(handoff)
-    return 0 if response.completion == "complete" else 1
+    return 0 if response_capture_succeeded(response) else 1
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ const ALARM = 'pasi-watchdog';
 const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
 const STALE_MS = 30 * 1000;
+const CREATE_RETRY_MS = 60 * 1000;
 
 async function bridgeJson(path) {
   const controller = new AbortController();
@@ -40,26 +41,58 @@ async function refreshBudget(tabId) {
   return stored;
 }
 
-async function inspect() {
-  const status = await bridgeJson('/status');
-  const payload = await bridgeJson('/browser/observation');
-  if (!status || !payload || !status.queue_size) return;
-  const health = healthData(payload);
-  if (!health) return;
-  if (health.data.auth_required === true) return;
-  if (observationAge(health.observation) <= STALE_MS) return;
+async function createCooldown(targetChatUrl) {
+  const key = `create:${targetChatUrl}`;
+  const stored = (await chrome.storage.local.get(key))[key];
+  if (!stored || Date.now() - stored > CREATE_RETRY_MS) return false;
+  return true;
+}
 
-  const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
-  if (!tabs.length) return;
-  tabs.sort((a, b) => Number(b.lastAccessed || 0) - Number(a.lastAccessed || 0));
-  const tab = tabs[0];
-  if (!tab.id) return;
+async function markCreateAttempt(targetChatUrl) {
+  await chrome.storage.local.set({ [`create:${targetChatUrl}`]: Date.now() });
+}
+
+async function reloadBoundedTab(tab) {
+  if (!tab || typeof tab.id !== 'number') return;
 
   const budget = await refreshBudget(tab.id);
   if (budget.count >= MAX_REFRESHES) return;
   budget.count += 1;
   await chrome.storage.local.set({ [`refresh:${tab.id}`]: budget });
   await chrome.tabs.reload(tab.id);
+}
+
+async function inspect() {
+  const status = await bridgeJson('/status');
+  const payload = await bridgeJson('/browser/observation');
+  if (!status || !payload) return;
+  const health = healthData(payload);
+  if (!health) return;
+  if (health.data.auth_required === true) return;
+  if (typeof health.data.active_operation_id !== 'string' || !health.data.active_operation_id.trim()) return;
+  if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
+  if (observationAge(health.observation) <= STALE_MS) return;
+
+  const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
+  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
+  const matchingTab = targetChatUrl
+    ? tabs.find((tab) => tab.url === targetChatUrl)
+    : null;
+  // If the exact conversation tab is gone, recreate only the verified target
+  // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
+  if (!matchingTab) {
+    if (await createCooldown(targetChatUrl)) return;
+    await markCreateAttempt(targetChatUrl);
+    try {
+      await chrome.tabs.create({ url: targetChatUrl });
+    } catch (_) {
+      // Keep the cooldown so a transient browser rejection does not create
+      // repeated tabs on every watchdog alarm.
+    }
+    return;
+  }
+  await chrome.storage.local.remove(`create:${targetChatUrl}`);
+  await reloadBoundedTab(matchingTab);
 }
 
 chrome.runtime.onInstalled.addListener(() => {

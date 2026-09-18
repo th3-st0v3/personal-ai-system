@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from typing import Any, Mapping
 
 from automation.computer_use.chatgpt import ChatGPTAdapter, ChatGPTAdapterError, UrllibBridgeTransport
@@ -20,6 +21,36 @@ class FakeTransport:
         return self.responses.pop(0)
 
 
+class PostQueueCrashTransport(FakeTransport):
+    """Simulate a bridge accepting a queue request before the client loses the response."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.accepted_operation: dict[str, Any] | None = None
+        self.crash_after_accept = True
+        self.queue_requests = 0
+
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        if method == "POST" and path == "/queue":
+            self.queue_requests += 1
+            if self.accepted_operation is None:
+                if payload is None:
+                    raise AssertionError("queue payload is required")
+                self.accepted_operation = {
+                    "operation_id": "op-after-queue-crash",
+                    "operation_type": payload["operation_type"],
+                    "prompt": payload["prompt"],
+                    "idempotency_key": payload["idempotency_key"],
+                    "status": "queued",
+                }
+            if self.crash_after_accept:
+                self.crash_after_accept = False
+                raise ConnectionError("simulated response loss after queue acceptance")
+            return {"operation": dict(self.accepted_operation)}
+        raise AssertionError(f"unexpected transport request: {method} {path}")
+
+
 class RepeatingTransport(FakeTransport):
     def __init__(self, response: Mapping[str, Any]) -> None:
         super().__init__([response])
@@ -31,10 +62,14 @@ class RepeatingTransport(FakeTransport):
 
 
 class ObservationFailingTransport(FakeTransport):
+    def __init__(self, responses: list[Mapping[str, Any]], fail_path: str = "/browser/response") -> None:
+        super().__init__(responses)
+        self.fail_path = fail_path
+
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
-        if path == "/browser/observation":
+        if path == self.fail_path:
             self.requests.append((method, path, payload))
-            raise ChatGPTAdapterError("injected observation failure")
+            raise ChatGPTAdapterError("injected browser-response failure")
         return super().request(method, path, payload)
 
 
@@ -74,6 +109,18 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(text, "")
         self.assertFalse(available)
 
+    def test_completed_with_persisted_response_ignores_stale_availability_flag(self) -> None:
+        state, text, available = completion_from_operation(
+            {
+                "status": "completed",
+                "response_text": "response text persisted by the browser",
+                "response_text_available": False,
+            }
+        )
+        self.assertEqual(state, "complete")
+        self.assertEqual(text, "response text persisted by the browser")
+        self.assertTrue(available)
+
     def test_completed_with_verified_response_is_complete_and_available(self) -> None:
         state, text, available = completion_from_operation({"status": "completed", "response_text": "answer", "response_text_available": True})
         self.assertEqual(state, "complete")
@@ -98,6 +145,29 @@ class CompletionTests(unittest.TestCase):
         detector = ChatGPTCompletionDetector()
         for item in ({}, {"operation": {}}, {"browser": {}}):
             self.assertEqual(detector.detect([observation(item)]), "unknown")
+
+
+class DurableResponseTransportTests(unittest.TestCase):
+    def test_reads_durable_browser_response_endpoint(self) -> None:
+        transport = FakeTransport(
+            [
+                {
+                    "observation": {
+                        "data": {
+                            "kind": "chatgpt_response",
+                            "active_operation_id": "op-1",
+                            "response_text": "durable answer",
+                        }
+                    }
+                }
+            ]
+        )
+        adapter = ChatGPTAdapter(transport=transport, session_id="test-session")
+        result = adapter.read_browser_response_observation()
+
+        self.assertEqual(result["data"]["active_operation_id"], "op-1")
+        self.assertEqual(result["data"]["response_text"], "durable answer")
+        self.assertEqual(transport.requests[0][1], "/browser/response")
 
 
 class BridgeTransportTests(unittest.TestCase):
@@ -129,7 +199,7 @@ class DelayedObservationTransport(FakeTransport):
         if path.startswith("/operation?"):
             self.operation_reads += 1
             return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed"}}
-        if path == "/browser/observation":
+        if path == "/browser/response":
             self.observation_reads += 1
             if self.observation_reads <= self.delay_cycles:
                 return {"observation": None}
@@ -147,18 +217,102 @@ class DelayedObservationTransport(FakeTransport):
         raise AssertionError(f"unexpected transport request: {method} {path}")
 
 
+class TransientOperationReadTransport(FakeTransport):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.operation_reads = 0
+
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        if path.startswith("/operation?"):
+            self.operation_reads += 1
+            if self.operation_reads <= 2:
+                raise ChatGPTAdapterError("temporary bridge read failure")
+            return {
+                "operation": {
+                    "operation_id": "op-1",
+                    "operation_type": "prompt",
+                    "status": "completed",
+                    "response_text": "recovered after transient bridge loss",
+                    "response_text_available": True,
+                }
+            }
+        raise AssertionError(f"unexpected transport request: {method} {path}")
+
+
 class ChatGPTAdapterTests(unittest.TestCase):
+    def test_completed_prompt_rechecks_delayed_durable_response(self) -> None:
+        transport = DelayedObservationTransport(delay_cycles=2)
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "delayed browser response")
+        self.assertEqual(transport.observation_reads, 3)
+
+    def test_wait_for_completion_retries_transient_operation_read_failures(self) -> None:
+        transport = TransientOperationReadTransport()
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "recovered after transient bridge loss")
+        self.assertEqual(transport.operation_reads, 3)
+
     def test_submit_prompt_queues_prompt_operation(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1"}}])
         adapter = ChatGPTAdapter(transport, session_id="session-1")
         self.assertEqual(adapter.submit_prompt("inspect this"), "op-1")
-        self.assertEqual(transport.requests[0], ("POST", "/queue", {"operation_type": "prompt", "prompt": "inspect this"}))
+        self.assertEqual(transport.requests[0][0:2], ("POST", "/queue"))
+        self.assertEqual(transport.requests[0][2]["operation_type"], "prompt")
+        self.assertEqual(transport.requests[0][2]["prompt"], "inspect this")
+        self.assertEqual(len(transport.requests[0][2]["idempotency_key"]), 64)
+
+    def test_submit_prompt_recovers_same_operation_after_post_queue_crash(self) -> None:
+        transport = PostQueueCrashTransport()
+        first_adapter = ChatGPTAdapter(transport, session_id="session-1")
+        with self.assertRaises(ConnectionError):
+            first_adapter.submit_prompt("recover without duplicate submission")
+
+        restarted_adapter = ChatGPTAdapter(transport, session_id="session-1")
+        self.assertEqual(
+            restarted_adapter.submit_prompt("recover without duplicate submission"),
+            "op-after-queue-crash",
+        )
+        self.assertEqual(transport.queue_requests, 2)
+        self.assertEqual(
+            transport.requests[0][2]["idempotency_key"],
+            transport.requests[1][2]["idempotency_key"],
+        )
+        self.assertEqual(
+            transport.requests[0][2]["prompt"],
+            transport.requests[1][2]["prompt"],
+        )
 
     def test_new_session_queues_new_chat_and_requires_verified_completion(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-new"}}, {"operation": {"operation_id": "op-new", "status": "completed"}}])
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
         self.assertEqual(adapter.new_session(), "op-new")
         self.assertEqual(transport.requests[0][2], {"operation_type": "new_chat", "prompt": ""})
+
+    def test_new_session_recovers_chat_url_from_bound_browser_observation(self) -> None:
+        transport = FakeTransport([
+            {"operation": {"operation_id": "op-new"}},
+            {"operation": {"operation_id": "op-new", "status": "completed"}},
+            {"observation": {"data": {"active_operation_id": "op-new", "chat_url": "https://chatgpt.com/c/recovered"}}},
+        ])
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        adapter.new_session()
+        self.assertEqual(adapter.last_chat_url, "https://chatgpt.com/c/recovered")
+
+    def test_new_session_clears_stale_chat_url_when_reconciliation_fails(self) -> None:
+        transport = ObservationFailingTransport([
+            {"operation": {"operation_id": "op-new"}},
+            {"operation": {"operation_id": "op-new", "status": "completed"}},
+        ], fail_path="/browser/observation")
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, last_chat_url="https://chatgpt.com/c/old")
+        self.assertEqual(adapter.new_session(), "op-new")
+        self.assertIsNone(adapter.last_chat_url)
 
     def test_attach_github_repository_queues_semantic_attachment_operation(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-github"}}, {"operation": {"operation_id": "op-github", "status": "completed"}}])
@@ -178,6 +332,16 @@ class ChatGPTAdapterTests(unittest.TestCase):
     def test_read_response_requires_active_operation(self) -> None:
         with self.assertRaises(ChatGPTAdapterError):
             ChatGPTAdapter(FakeTransport([]), session_id="session-1").read_response()
+
+    def test_read_response_reconciles_delayed_browser_text(self) -> None:
+        transport = DelayedObservationTransport(delay_cycles=2)
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        adapter.current_operation_id = "op-1"
+        response = adapter.read_response()
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "delayed browser response")
+        self.assertGreaterEqual(transport.observation_reads, 3)
 
     def test_read_operation_scopes_query_parameter(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op/a", "status": "generating"}}])
@@ -209,7 +373,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "persisted answer")
 
-    def test_completed_prompt_consumes_live_browser_response(self) -> None:
+    def test_completed_prompt_consumes_durable_browser_response(self) -> None:
         transport = FakeTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed", "chat_url": "https://chatgpt.com/c/abc"}},
             {"observation": {"data": {"kind": "chatgpt_response", "chat_url": "https://chatgpt.com/c/abc", "response_text": "live answer", "response_text_available": True}}},
@@ -222,13 +386,21 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertFalse(response.chat_exhausted)
 
     def test_completed_prompt_rechecks_after_delayed_observation(self) -> None:
-        transport = DelayedObservationTransport(delay_cycles=5)
+        transport = DelayedObservationTransport(delay_cycles=2)
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
         response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
         self.assertEqual(response.completion, "complete")
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "delayed browser response")
-        self.assertGreaterEqual(transport.observation_reads, 6)
+        self.assertEqual(transport.observation_reads, 3)
+
+    def test_completed_prompt_recheck_uses_bounded_scheduling_interval(self) -> None:
+        transport = DelayedObservationTransport(delay_cycles=2)
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        with patch("automation.computer_use.chatgpt.time.sleep") as sleep:
+            response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.text, "delayed browser response")
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.25,), (0.25,)])
 
     def test_completed_prompt_rechecks_after_observation_failure(self) -> None:
         transport = ObservationFailingTransport([
@@ -240,9 +412,9 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.completion, "complete")
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "late answer")
-        self.assertEqual([path for _, path, _ in transport.requests], ["/operation?operation_id=op-1", "/browser/observation", "/operation?operation_id=op-1"])
+        self.assertEqual([path for _, path, _ in transport.requests], ["/operation?operation_id=op-1", "/browser/response", "/operation?operation_id=op-1"])
 
-    def test_failed_prompt_recovers_verified_browser_response_after_completion_ack_loss(self) -> None:
+    def test_failed_prompt_recovers_verified_durable_response_after_completion_ack_loss(self) -> None:
         transport = FakeTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "PASI_NATIVE: bridge completion failed: HTTP 502"}},
             {"observation": {"data": {"kind": "chatgpt_response", "chat_url": "https://chatgpt.com/c/abc", "response_text": "answer survived acknowledgement failure", "response_text_available": True}}},
@@ -252,6 +424,33 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "answer survived acknowledgement failure")
         self.assertEqual(response.chat_url, "https://chatgpt.com/c/abc")
+
+    def test_failed_prompt_rechecks_delayed_durable_response_and_rejects_other_operation(self) -> None:
+        class DelayedAckTransport(FakeTransport):
+            def __init__(self) -> None:
+                super().__init__([])
+                self.observation_reads = 0
+
+            def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+                self.requests.append((method, path, payload))
+                if path.startswith("/operation?"):
+                    return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "PASI_NATIVE: bridge completion failed: HTTP 502"}}
+                if path == "/browser/response":
+                    self.observation_reads += 1
+                    if self.observation_reads == 1:
+                        return {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "other-op", "response_text": "wrong chat", "response_text_available": True}}}
+                    if self.observation_reads == 2:
+                        return {"observation": {"data": {"kind": "chatgpt_response", "response_text": "unbound stale response", "response_text_available": True}}}
+                    if self.observation_reads < 4:
+                        return {"observation": None}
+                    return {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "op-1", "response_text": "delayed owned response", "response_text_available": True}}}
+                raise AssertionError(f"unexpected transport request: {method} {path}")
+
+        transport = DelayedAckTransport()
+        response = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001).read_operation("op-1")
+        self.assertEqual(response.completion, "complete")
+        self.assertEqual(response.text, "delayed owned response")
+        self.assertEqual(transport.observation_reads, 4)
 
     def test_failed_prompt_exposes_chat_exhaustion(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "CHAT_EXHAUSTED: usage limit"}}])

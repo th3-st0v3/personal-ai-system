@@ -19,6 +19,8 @@ PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 50_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
 MAX_ERROR_CHARS = 2_000
+MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
+MAX_IDEMPOTENCY_KEY_CHARS = 128
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -31,6 +33,7 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "PASI_NATIVE: browser page reloaded during operation",
     "PASI: browser page reloaded during operation",
     "PASI_NATIVE: bridge completion failed",
+    "CHAT_EXHAUSTED:",
     "PASI_NATIVE: new chat did not reach a verified ready state",
     "PASI_NATIVE: new chat control did not change conversation identity",
     "PASI_NATIVE: prompt submission could not be verified after bounded attempts",
@@ -56,22 +59,58 @@ class BridgeState:
         self,
         operation_type: str,
         prompt: str,
+        idempotency_key: str | None = None,
     ) -> ChatOperation:
-        operation = ChatOperation(
-            operation_id=self._new_operation_id(),
-            operation_type=operation_type,
-            prompt=prompt,
-            status="queued",
-        )
+        if idempotency_key is not None:
+            if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS:
+                raise ValueError("idempotency_key must be a nonblank bounded string")
 
         with self.lock:
             queue = self.state_manager.load_queue()
+            if idempotency_key is not None:
+                for item in queue:
+                    if (
+                        item.get("idempotency_key") == idempotency_key
+                        and item.get("operation_type") == operation_type
+                        and item.get("prompt") == prompt
+                        and item.get("status") not in {"completed", "failed", "cancelled"}
+                    ):
+                        fields = ChatOperation.__dataclass_fields__
+                        return ChatOperation(**{key: item[key] for key in fields if key in item})
+
+            operation = ChatOperation(
+                operation_id=self._new_operation_id(),
+                operation_type=operation_type,
+                prompt=prompt,
+                idempotency_key=idempotency_key,
+                status="queued",
+            )
             item = operation.to_dict()
             item["retry_count"] = 0
             queue.append(item)
             self.state_manager.save_queue(queue)
+            return operation
 
-        return operation
+    def claim_operation(
+        self,
+        operation_id: str,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self.state_manager.load_queue()
+
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                if item.get("status") != "queued":
+                    return None
+
+                validate_transition("queued", "claimed")
+                item["status"] = "claimed"
+                item["claimed_at"] = time.time()
+                self.state_manager.save_queue(queue)
+                return dict(item)
+
+        return None
 
     def claim_next_operation(self) -> dict[str, Any] | None:
         with self.lock:
@@ -128,11 +167,13 @@ class BridgeState:
         self,
         operation_id: str,
         error: str,
+        recovery_context: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         if self._is_transient_browser_error(error):
             return self._retry_operation(
                 operation_id=operation_id,
                 error=error,
+                recovery_context=recovery_context,
             )
 
         return self._update_operation(
@@ -164,6 +205,13 @@ class BridgeState:
             )
 
         return observation
+
+    def get_browser_response(
+        self,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            response = self.state_manager.load_browser_response()
+            return response if response else None
 
     def get_browser_observation(
         self,
@@ -229,8 +277,13 @@ class BridgeState:
             return
         if not isinstance(response_text, str) or len(response_text) > MAX_RESPONSE_TEXT_CHARS:
             return
-        if response_text_available is not True or not response_text.strip():
+        # Nonblank response text is the persisted evidence. A stale controller
+        # may report the legacy availability flag incorrectly, but that flag
+        # must not discard an already-bound response. Blank text remains
+        # fail-closed.
+        if not response_text.strip():
             return
+        response_text_available = True
 
         queue = self.state_manager.load_queue()
         for item in queue:
@@ -274,10 +327,11 @@ class BridgeState:
             return False
 
         response_text = data.get("response_text")
+        # Nonblank, operation-bound response text is the evidence. Do not let
+        # a stale controller availability flag hide already-captured text.
         if (
             not isinstance(response_text, str)
             or len(response_text) > MAX_RESPONSE_TEXT_CHARS
-            or data.get("response_text_available") is not True
             or not response_text.strip()
         ):
             return False
@@ -298,6 +352,7 @@ class BridgeState:
         self,
         operation_id: str,
         error: str,
+        recovery_context: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
@@ -334,6 +389,8 @@ class BridgeState:
                 item["status"] = "queued"
                 item["retry_count"] = retry_count + 1
                 item["last_retry_error"] = error[:MAX_ERROR_CHARS]
+                if item.get("operation_type") == "prompt" and recovery_context:
+                    item["recovery_context"] = dict(recovery_context)
                 item["requeued_at"] = time.time()
                 self.state_manager.save_queue(queue)
                 return item
@@ -346,6 +403,45 @@ class BridgeState:
             error.startswith(prefix)
             for prefix in _TRANSIENT_BROWSER_ERROR_PREFIXES
         )
+
+    @staticmethod
+    def _normalize_recovery_context(
+        value: object,
+    ) -> dict[str, str] | None:
+        if not isinstance(value, dict):
+            return None
+
+        normalized: dict[str, str] = {}
+        if any(key not in {"reasoning_mode", "github_repository"} for key in value):
+            return None
+
+        reasoning_mode = value.get("reasoning_mode")
+        if "reasoning_mode" in value:
+            if not isinstance(reasoning_mode, str):
+                return None
+            reasoning_mode = reasoning_mode.strip().lower()
+            if reasoning_mode not in {"thinking", "think"}:
+                return None
+            normalized["reasoning_mode"] = "thinking"
+
+        repository = value.get("github_repository")
+        if "github_repository" in value:
+            if not isinstance(repository, str):
+                return None
+            repository = repository.strip()
+            if not (
+                len(repository) <= MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS
+                and repository.count("/") == 1
+                and all(
+                    part
+                    and not any(char.isspace() for char in part)
+                    for part in repository.split("/", 1)
+                )
+            ):
+                return None
+            normalized["github_repository"] = repository
+
+        return normalized or None
 
     def _update_operation(
         self,
@@ -558,6 +654,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/browser/response":
+            response = self.bridge_state.get_browser_response()
+
+            self._send_json(
+                {
+                    "observation": response
+                }
+            )
+            return
+
         if path == "/operation":
             operation_ids = parse_qs(parsed.query).get("operation_id", [])
             operation_id = operation_ids[0] if operation_ids else ""
@@ -626,6 +732,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            if path == "/chat/claim":
+                self._claim(payload)
+                return
+
             if path == "/browser/observation":
                 self._browser_observation(payload)
                 return
@@ -667,6 +777,28 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 },
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+
+    def _claim(
+        self,
+        payload: dict[str, Any],
+    ) -> None:
+        operation_id = payload.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            self._send_json(
+                {"error": "operation_id is required."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        operation = self.bridge_state.claim_operation(operation_id)
+        if operation is None:
+            self._send_json(
+                {"error": "Operation is not queued."},
+                HTTPStatus.CONFLICT,
+            )
+            return
+
+        self._send_json({"operation": operation})
 
     def _browser_observation(
         self,
@@ -731,6 +863,15 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "prompt"
         )
 
+        idempotency_key = payload.get("idempotency_key")
+        if idempotency_key is not None and (
+            not isinstance(idempotency_key, str)
+            or not idempotency_key.strip()
+            or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS
+        ):
+            self._send_json({"error": "idempotency_key must be a nonblank bounded string."}, HTTPStatus.BAD_REQUEST)
+            return
+
         if not isinstance(
             operation_type,
             str,
@@ -771,6 +912,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self.bridge_state.queue_operation(
                 operation_type=operation_type,
                 prompt=prompt,
+                idempotency_key=idempotency_key,
             )
         )
 
@@ -907,14 +1049,75 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        operation = (
-            self.bridge_state.complete_operation(
+        # Treat nonblank response text as the evidence itself. A stale or
+        # partially updated controller may omit the availability flag, but
+        # must not be able to turn already-supplied response text into an
+        # apparently missing response. Blank text remains fail-closed.
+        if isinstance(response_text, str) and response_text.strip():
+            response_text_available = True
+
+        existing_operation = self.bridge_state.get_operation(operation_id)
+        if existing_operation is None:
+            self._send_json(
+                {"error": "Operation not found."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+
+        if existing_operation.get("status") == "completed":
+            # A duplicate acknowledgement must remain idempotent even if a
+            # retried browser request no longer carries the original response.
+            self._send_json({"operation": existing_operation})
+            return
+
+        if existing_operation.get("operation_type") == "prompt":
+            incoming_response_verified = (
+                response_text_available is True
+                and isinstance(response_text, str)
+                and bool(response_text.strip())
+            )
+            persisted_response_verified = (
+                existing_operation.get("response_text_available") is True
+                and isinstance(existing_operation.get("response_text"), str)
+                and bool(str(existing_operation.get("response_text")).strip())
+            )
+            if not incoming_response_verified and not persisted_response_verified:
+                self._send_json(
+                    {
+                        "error": "Prompt completion requires verified nonblank response_text."
+                    },
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
+        if (
+            not (
+                response_text_available is True
+                and isinstance(response_text, str)
+                and bool(response_text.strip())
+            )
+            and existing_operation.get("response_text_available") is True
+        ):
+            # Preserve verified response evidence already persisted by the
+            # browser observation path when the acknowledgement is retried
+            # without its original response payload.
+            response_text = existing_operation.get("response_text")
+            response_text_available = True
+
+        try:
+            operation = self.bridge_state.complete_operation(
                 operation_id=operation_id,
                 chat_url=chat_url,
                 response_text=response_text,
                 response_text_available=response_text_available,
             )
-        )
+        except InvalidOperationTransition:
+            # Completion acknowledgements are retried by the browser controller.
+            # Once an operation is durably completed, return its persisted state
+            # instead of turning a duplicate acknowledgement into a recovery loop.
+            operation = self.bridge_state.get_operation(operation_id)
+            if operation is None or operation.get("status") != "completed":
+                raise
 
         if operation is None:
             self._send_json(
@@ -970,10 +1173,26 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        recovery_context = payload.get("recovery_context")
+        if recovery_context is not None:
+            recovery_context = self.bridge_state._normalize_recovery_context(
+                recovery_context
+            )
+            if recovery_context is None:
+                self._send_json(
+                    {
+                        "error":
+                            "recovery_context is invalid."
+                    },
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+
         operation = (
             self.bridge_state.fail_operation(
                 operation_id=operation_id,
                 error=error,
+                recovery_context=recovery_context,
             )
         )
 

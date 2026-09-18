@@ -51,14 +51,14 @@ def stop_server(server: BridgeHTTPServer, thread: threading.Thread) -> None:
     assert not thread.is_alive()
 
 
-def test_http_finished_forces_whitespace_response_unavailable(
+def test_http_finished_rejects_prompt_without_verified_response(
     tmp_path: Path,
 ) -> None:
     bridge = make_bridge(tmp_path)
     server, thread = start_server(bridge)
 
     try:
-        operation = bridge.queue_operation("prompt", "whitespace")
+        operation = bridge.queue_operation("prompt", "response required")
         bridge.claim_next_operation()
         bridge.heartbeat(operation.operation_id)
 
@@ -67,18 +67,18 @@ def test_http_finished_forces_whitespace_response_unavailable(
             "/chat/finished",
             {
                 "operation_id": operation.operation_id,
-                "chat_url": "https://chatgpt.com/c/whitespace",
+                "chat_url": "https://chatgpt.com/c/no-response",
                 "response_text": "   ",
                 "response_text_available": True,
             },
         )
 
-        assert status == 200
-        assert body["operation"]["status"] == "completed"
-        assert body["operation"]["response_text"] == "   "
-        assert body["operation"]["response_text_available"] is False
+        assert status == 409
+        assert body["error"] == "Prompt completion requires verified nonblank response_text."
         persisted = bridge.get_operation(operation.operation_id)
-        assert persisted == body["operation"]
+        assert persisted is not None
+        assert persisted["status"] == "generating"
+        assert persisted.get("response_text_available") is False
     finally:
         stop_server(server, thread)
 
@@ -113,16 +113,59 @@ def test_http_finished_rejects_terminal_operation_transition(
             {
                 "operation_id": operation.operation_id,
                 "chat_url": "https://chatgpt.com/c/terminal",
-                "response_text": "duplicate completion",
-                "response_text_available": True,
+                "response_text": "",
+                "response_text_available": False,
             },
         )
 
-        assert retry_status == 409
-        assert "Unsupported operation transition" in retry_body["error"]
+        assert retry_status == 200
+        assert retry_body["operation"]["status"] == "completed"
         persisted = bridge.get_operation(operation.operation_id)
         assert persisted is not None
         assert persisted["status"] == "completed"
         assert persisted["response_text"] == "first completion"
+    finally:
+        stop_server(server, thread)
+
+
+def test_http_finished_accepts_persisted_verified_response_when_retry_payload_is_blank(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    server, thread = start_server(bridge)
+
+    try:
+        operation = bridge.queue_operation("prompt", "response observed before acknowledgement")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        observation = {
+            "schema_version": "1.0",
+            "captured_at": 123.0,
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/persisted-response",
+                "response_text": "verified browser response",
+                "response_text_available": True,
+            },
+        }
+        bridge.save_browser_observation(observation)
+
+        status, body = post_json(
+            server,
+            "/chat/finished",
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/persisted-response",
+                "response_text": "",
+                "response_text_available": False,
+            },
+        )
+
+        assert status == 200
+        assert body["operation"]["status"] == "completed"
+        assert body["operation"]["response_text"] == "verified browser response"
+        assert body["operation"]["response_text_available"] is True
     finally:
         stop_server(server, thread)
