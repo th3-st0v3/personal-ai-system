@@ -18,6 +18,7 @@ from scripts.pasi_chat import (
     route_chat,
     wait_for_browser_controller,
     repair_response_capture,
+    response_capture_succeeded,
 )
 
 
@@ -126,6 +127,28 @@ class TestPasiChat(unittest.TestCase):
         repaired = repair_response_capture(adapter, initial)
         self.assertEqual(repaired.text, "recovered response")
         self.assertEqual(adapter.calls, 1)
+
+    def test_response_capture_succeeded_requires_verified_nonblank_text(self) -> None:
+        complete = AIResponse(
+            response_id="response-1",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-1",
+            text="verified response",
+            completion="complete",
+            response_available=True,
+        )
+        missing_text = AIResponse(
+            response_id="response-2",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-2",
+            text="",
+            completion="complete",
+            response_available=False,
+        )
+        self.assertTrue(response_capture_succeeded(complete))
+        self.assertFalse(response_capture_succeeded(missing_text))
 
     def test_controller_update_signal_requires_explicit_structured_signal(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
