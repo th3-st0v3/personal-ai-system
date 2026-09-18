@@ -74,6 +74,26 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         )
         self.assertEqual(plan.deletions, ())
 
+    def test_fully_merged_branch_is_safe_to_delete(self) -> None:
+        branches = (BranchRef("feature/merged", "main-tip"),)
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset(),
+            merged_pr_heads={},
+            fully_merged_branches=frozenset({"feature/merged"}),
+        )
+        self.assertEqual([item.name for item in plan.deletions], ["feature/merged"])
+
+    def test_fully_merged_open_pr_head_is_preserved(self) -> None:
+        branches = (BranchRef("feature/open", "main-tip"),)
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset({"feature/open"}),
+            merged_pr_heads={},
+            fully_merged_branches=frozenset({"feature/open"}),
+        )
+        self.assertEqual(plan.deletions, ())
+
     def test_open_pr_head_is_never_deleted(self) -> None:
         branches = (
             BranchRef("pasi/feature", "abc"),
