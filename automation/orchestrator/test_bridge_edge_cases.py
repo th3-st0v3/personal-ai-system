@@ -169,3 +169,50 @@ def test_http_finished_accepts_persisted_verified_response_when_retry_payload_is
         assert body["operation"]["response_text_available"] is True
     finally:
         stop_server(server, thread)
+
+
+def test_http_finished_duplicate_terminal_completion_can_persist_late_verified_response(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    server, thread = start_server(bridge)
+
+    try:
+        operation = bridge.queue_operation("prompt", "late response after terminal acknowledgement")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        first_status, first_body = post_json(
+            server,
+            "/chat/finished",
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/late-terminal",
+            },
+        )
+        assert first_status == 409
+        assert first_body["error"] == "Prompt completion requires verified nonblank response_text."
+
+        completed = bridge.complete_operation(operation.operation_id, chat_url="https://chatgpt.com/c/late-terminal")
+        assert completed is not None
+        assert completed["status"] == "completed"
+        assert completed["response_text_available"] is False
+
+        retry_status, retry_body = post_json(
+            server,
+            "/chat/finished",
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/late-terminal",
+                "response_text": "response arrived after terminal acknowledgement",
+                "response_text_available": True,
+            },
+        )
+
+        assert retry_status == 200
+        assert retry_body["operation"]["status"] == "completed"
+        assert retry_body["operation"]["response_text"] == "response arrived after terminal acknowledgement"
+        assert retry_body["operation"]["response_text_available"] is True
+        assert retry_body["operation"]["response_source"] == "completion_ack"
+    finally:
+        stop_server(server, thread)
