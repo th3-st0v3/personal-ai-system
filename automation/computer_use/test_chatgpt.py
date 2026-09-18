@@ -21,6 +21,36 @@ class FakeTransport:
         return self.responses.pop(0)
 
 
+class PostQueueCrashTransport(FakeTransport):
+    """Simulate a bridge accepting a queue request before the client loses the response."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.accepted_operation: dict[str, Any] | None = None
+        self.crash_after_accept = True
+        self.queue_requests = 0
+
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        if method == "POST" and path == "/queue":
+            self.queue_requests += 1
+            if self.accepted_operation is None:
+                if payload is None:
+                    raise AssertionError("queue payload is required")
+                self.accepted_operation = {
+                    "operation_id": "op-after-queue-crash",
+                    "operation_type": payload["operation_type"],
+                    "prompt": payload["prompt"],
+                    "idempotency_key": payload["idempotency_key"],
+                    "status": "queued",
+                }
+            if self.crash_after_accept:
+                self.crash_after_accept = False
+                raise ConnectionError("simulated response loss after queue acceptance")
+            return {"operation": dict(self.accepted_operation)}
+        raise AssertionError(f"unexpected transport request: {method} {path}")
+
+
 class RepeatingTransport(FakeTransport):
     def __init__(self, response: Mapping[str, Any]) -> None:
         super().__init__([response])
@@ -237,6 +267,27 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(transport.requests[0][2]["operation_type"], "prompt")
         self.assertEqual(transport.requests[0][2]["prompt"], "inspect this")
         self.assertEqual(len(transport.requests[0][2]["idempotency_key"]), 64)
+
+    def test_submit_prompt_recovers_same_operation_after_post_queue_crash(self) -> None:
+        transport = PostQueueCrashTransport()
+        first_adapter = ChatGPTAdapter(transport, session_id="session-1")
+        with self.assertRaises(ConnectionError):
+            first_adapter.submit_prompt("recover without duplicate submission")
+
+        restarted_adapter = ChatGPTAdapter(transport, session_id="session-1")
+        self.assertEqual(
+            restarted_adapter.submit_prompt("recover without duplicate submission"),
+            "op-after-queue-crash",
+        )
+        self.assertEqual(transport.queue_requests, 2)
+        self.assertEqual(
+            transport.requests[0][2]["idempotency_key"],
+            transport.requests[1][2]["idempotency_key"],
+        )
+        self.assertEqual(
+            transport.requests[0][2]["prompt"],
+            transport.requests[1][2]["prompt"],
+        )
 
     def test_new_session_queues_new_chat_and_requires_verified_completion(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-new"}}, {"operation": {"operation_id": "op-new", "status": "completed"}}])
