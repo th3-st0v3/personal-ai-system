@@ -253,6 +253,31 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.text, "answer survived acknowledgement failure")
         self.assertEqual(response.chat_url, "https://chatgpt.com/c/abc")
 
+    def test_failed_prompt_rechecks_delayed_browser_response_and_rejects_other_operation(self) -> None:
+        class DelayedAckTransport(FakeTransport):
+            def __init__(self) -> None:
+                super().__init__([])
+                self.observation_reads = 0
+
+            def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+                self.requests.append((method, path, payload))
+                if path.startswith("/operation?"):
+                    return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "PASI_NATIVE: bridge completion failed: HTTP 502"}}
+                if path == "/browser/observation":
+                    self.observation_reads += 1
+                    if self.observation_reads == 1:
+                        return {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "other-op", "response_text": "wrong chat", "response_text_available": True}}}
+                    if self.observation_reads < 4:
+                        return {"observation": None}
+                    return {"observation": {"data": {"kind": "chatgpt_response", "active_operation_id": "op-1", "response_text": "delayed owned response", "response_text_available": True}}}
+                raise AssertionError(f"unexpected transport request: {method} {path}")
+
+        transport = DelayedAckTransport()
+        response = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001).read_operation("op-1")
+        self.assertEqual(response.completion, "complete")
+        self.assertEqual(response.text, "delayed owned response")
+        self.assertEqual(transport.observation_reads, 4)
+
     def test_failed_prompt_exposes_chat_exhaustion(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "failed", "error": "CHAT_EXHAUSTED: usage limit"}}])
         response = ChatGPTAdapter(transport, session_id="session-1").read_operation("op-1")
