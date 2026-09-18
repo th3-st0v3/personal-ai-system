@@ -149,7 +149,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             with mock.patch.object(engine, "browser_observation", return_value=None):
                 with mock.patch.object(engine, "runtime_watchdog_is_live", side_effect=watchdog_results):
                     with mock.patch.object(engine, "log_event"):
-                        with mock.patch.object(engine.time, "sleep"):
+                        with mock.patch("time.sleep"):
                             self.assertTrue(engine.standby_until_ready(state))
 
         self.assertEqual(service_checks, ["checked", "checked"])
