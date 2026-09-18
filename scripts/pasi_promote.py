@@ -26,6 +26,7 @@ HIGH_RISK_PATH_PREFIXES = (
     "scripts/pasi_chat_guard.py",
     "scripts/pasi_provider_router.py",
     "scripts/pasi_promote.py",
+    "automation/orchestrator/",
     "scripts/pasi_overnight_engine.py",
     "scripts/pasi_overnight_engine_v2.py",
     "scripts/pasi_overnight_hardening.py",
