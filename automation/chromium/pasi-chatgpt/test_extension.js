@@ -30,7 +30,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
 });
 
 test('native controller reports roadmap completion and repository progress markers', () => {
-  assert.match(content, /const CONTROLLER_VERSION = ['"]2\.4\.11['"]/);
+  assert.match(content, /const CONTROLLER_VERSION = ['"]2\.4\.12['"]/);
   assert.match(content, /function completionProgress\(responseText\)/);
   assert.match(content, /PASI_RESULT_STATUS:/);
   assert.match(content, /PASI_RESULT_REPOSITORY_PROGRESS:/);
@@ -78,7 +78,8 @@ test('native prompt submission re-verifies Thinking before sending', () => {
   assert.match(content, /reasoningMode = 'thinking'/);
   assert.match(content, /aria-checked="true"/);
   assert.match(content, /aria-current="true"/);
-  assert.match(content, /if \(thinkingEnabled\(\) !== true\) throw new Error/);
+  assert.match(content, /const thinkingVerified = await waitFor\(\(\) => thinkingEnabled\(\) === true \? true : null, 3000\)/);
+  assert.match(content, /if \(!thinkingVerified\) throw new Error/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
 });
 
