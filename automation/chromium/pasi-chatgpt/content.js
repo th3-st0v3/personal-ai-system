@@ -14,6 +14,7 @@
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
+  const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
   const MAX_CONTEXT_AUTO_RECOVERIES = 1;
   const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
@@ -551,7 +552,12 @@
     } finally {
       activeOperationId = null;
       processing = false;
-      if (finalized) localStorage.removeItem(ACTIVE_KEY);
+      if (finalized) {
+        localStorage.removeItem(ACTIVE_KEY);
+        if (recoveryResumeOperationId() === operation.operation_id) {
+          localStorage.removeItem(RECOVERY_KEY);
+        }
+      }
       await reportHealth();
     }
   }
@@ -572,7 +578,17 @@
   function recoveryOperationId() {
     try {
       const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
-      const value = state?.[RECOVERY_OPERATION_KEY];
+      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY];
+      return typeof value === 'string' && value.trim() ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function recoveryResumeOperationId() {
+    try {
+      const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
+      const value = state?.[RECOVERY_RESUME_OPERATION_KEY];
       return typeof value === 'string' && value.trim() ? value : null;
     } catch (_) {
       return null;
@@ -591,7 +607,18 @@
             body: { operation_id: recoveryOperation }
           })
         : await bridge('/next-operation');
-      if (!response.ok) return;
+      if (!response.ok) {
+        if (recoveryOperation) {
+          try {
+            const current = await bridge(`/operation?operation_id=${encodeURIComponent(recoveryOperation)}`);
+            const operation = current.ok ? current.json().operation : null;
+            if (operation && ['completed', 'failed', 'cancelled'].includes(operation.status)) {
+              localStorage.removeItem(RECOVERY_KEY);
+            }
+          } catch (_) {}
+        }
+        return;
+      }
       const payload = response.json();
       if (payload?.operation) await processOperation(payload.operation);
     } catch (error) {
