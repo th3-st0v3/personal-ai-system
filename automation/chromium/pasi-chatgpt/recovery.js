@@ -199,7 +199,6 @@
         const acknowledged = await operation(operationId);
         if (
           acknowledged?.status === 'completed' &&
-          acknowledged?.response_text_available === true &&
           typeof acknowledged?.response_text === 'string' &&
           Boolean(acknowledged.response_text.trim())
         ) {
@@ -237,7 +236,6 @@
   function persistedResponse(current) {
     const text = current?.response_text;
     return (
-      current?.response_text_available === true &&
       typeof text === 'string' &&
       Boolean(text.trim())
     ) ? text : '';
