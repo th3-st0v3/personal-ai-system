@@ -17,6 +17,7 @@ test('native controller and recovery companion have unique recovery declarations
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
+  assert.equal(manifest.version, '1.1.1');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.ok(manifest.permissions.includes('alarms'));
@@ -26,6 +27,17 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
   assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js', 'recovery.js']);
+});
+
+test('native controller reports roadmap completion and repository progress markers', () => {
+  assert.match(content, /const CONTROLLER_VERSION = ['"]2\\.4\\.11['"]/);
+  assert.match(content, /function completionProgress\(responseText\)/);
+  assert.match(content, /PASI_RESULT_STATUS:/);
+  assert.match(content, /PASI_RESULT_REPOSITORY_PROGRESS:/);
+  assert.match(content, /PASI_RESULT_NEXT_TASK:/);
+  assert.match(content, /completion_status: statusMatch/);
+  assert.match(content, /repository_progress: progressMatch/);
+  assert.match(content, /next_task: nextTaskMatch/);
 });
 
 test('native content controller uses standard fetch instead of GM APIs', () => {
