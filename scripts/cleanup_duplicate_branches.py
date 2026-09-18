@@ -137,6 +137,45 @@ def _list_closed_pr_heads(*, token: str) -> Mapping[str, frozenset[str]]:
     return {name: frozenset(shas) for name, shas in heads.items()}
 
 
+def list_branches_fully_merged_into_default(
+    branches: Iterable[BranchRef],
+    *,
+    token: str,
+    open_pr_heads: frozenset[str],
+    keep_branches: frozenset[str],
+    default_branch: str = DEFAULT_BRANCH,
+) -> frozenset[str]:
+    merged: set[str] = set()
+    for branch in branches:
+        if (
+            branch.name == default_branch
+            or branch.name in open_pr_heads
+            or branch.name in keep_branches
+        ):
+            continue
+        encoded_branch = urllib.parse.quote(branch.name, safe="")
+        encoded_base = urllib.parse.quote(default_branch, safe="")
+        payload = _request_json(
+            f"compare/{encoded_base}...{encoded_branch}",
+            token=token,
+        )
+        if not isinstance(payload, dict):
+            raise BranchCleanupError(
+                f"GitHub compare response was not an object for {branch.name}"
+            )
+        ahead_by = payload.get("ahead_by")
+        status = payload.get("status")
+        if isinstance(ahead_by, bool) or not isinstance(ahead_by, int):
+            raise BranchCleanupError(
+                f"GitHub compare response lacked a valid ahead_by for {branch.name}"
+            )
+        # ahead_by == 0 means the branch tip is identical to or contained in
+        # default_branch. Deleting the ref cannot remove its commits from main.
+        if ahead_by == 0 and status in {"behind", "identical"}:
+            merged.add(branch.name)
+    return frozenset(merged)
+
+
 def list_open_pr_heads(*, token: str) -> frozenset[str]:
     heads: set[str] = set()
     page = 1
@@ -178,6 +217,7 @@ def build_cleanup_plan(
     *,
     open_pr_heads: frozenset[str],
     merged_pr_heads: Mapping[str, frozenset[str]],
+    fully_merged_branches: frozenset[str] = frozenset(),
     default_branch: str = DEFAULT_BRANCH,
     keep_branches: frozenset[str] = frozenset(),
 ) -> CleanupPlan:
@@ -240,6 +280,17 @@ def build_cleanup_plan(
         if branch.sha in merged_shas:
             deletions.setdefault(branch_name, branch)
 
+    # A branch tip already contained in main is safe to remove even when the
+    # branch did not come from a merged PR, because its commits remain reachable
+    # from main after the ref is deleted.
+    for branch_name in fully_merged_branches:
+        branch = branch_by_name.get(branch_name)
+        if branch is None:
+            continue
+        if branch_name == default_branch or branch_name in open_pr_heads or branch_name in keep_branches:
+            continue
+        deletions.setdefault(branch_name, branch)
+
     deletions_tuple = tuple(sorted(deletions.values(), key=lambda item: (item.name, item.sha)))
     keepers = tuple(sorted(keep.values(), key=lambda item: item.name))
     return CleanupPlan(keepers=keepers, deletions=deletions_tuple)
@@ -264,10 +315,17 @@ def cleanup(
     branches = list_branches(token=token)
     open_heads = list_open_pr_heads(token=token)
     merged_heads = _list_closed_pr_heads(token=token)
+    fully_merged = list_branches_fully_merged_into_default(
+        branches,
+        token=token,
+        open_pr_heads=open_heads,
+        keep_branches=keep_branches,
+    )
     plan = build_cleanup_plan(
         branches,
         open_pr_heads=open_heads,
         merged_pr_heads=merged_heads,
+        fully_merged_branches=fully_merged,
         keep_branches=keep_branches,
     )
     merged_to_delete = (
