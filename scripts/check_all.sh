@@ -69,7 +69,8 @@ if [[ -f "$REPO_ROOT/.venv/bin/activate" ]]; then
     source "$REPO_ROOT/.venv/bin/activate"
 fi
 
-export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$PYTHONPATH${PYTHONPATH:+:}$REPO_ROOT/src"
 
 run_check() {
     local name="$1"
