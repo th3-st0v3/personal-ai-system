@@ -124,10 +124,11 @@ test('retry-ready recovery validates the resume marker before waiting for the qu
 
 test('retry-ready recovery clears only its recovery marker once the verified operation resumes running', () => {
   assert.match(source, /if \(state\.resume_operation_id !== state\.operation_id\)/);
-  assert.match(source, /if \(current\.status === 'running'\)/);
+  assert.match(source, /\['claimed', 'generating', 'running'\]\.includes\(current\.status\)/);
   assert.match(source, /clearRecoveryState\(\);/);
   assert.match(source, /phase: 'retry_resumed'/);
   assert.match(source, /recovery_action: 'monitor_resumed_operation'/);
+  assert.match(source, /observed_status: current\.status/);
   assert.match(source, /phase: 'retry_resume_state_unexpected'/);
 });
 
