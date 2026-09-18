@@ -501,7 +501,12 @@
       try {
         const operation = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
         const payload = operation.ok ? operation.json() : null;
-        if (payload?.operation?.status === 'completed') return;
+        if (
+          payload?.operation?.status === 'completed' &&
+          payload?.operation?.response_text_available === true &&
+          typeof payload?.operation?.response_text === 'string' &&
+          Boolean(payload.operation.response_text.trim())
+        ) return;
       } catch (_) {}
 
       if (attempt < 3) await sleep(150);
