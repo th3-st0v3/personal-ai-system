@@ -169,6 +169,11 @@ test('native recovery exact-claims the original prompt retry and clears its resu
   assert.match(content, /localStorage\.removeItem\(RECOVERY_KEY\)/);
 });
 
+test('native restart reconciliation trusts nonblank persisted response text over stale availability flags', () => {
+  assert.match(content, /const responseAvailable = Boolean\(responseText\.trim\(\)\);/);
+  assert.doesNotMatch(content, /operation\.response_text_available === true &&\s+Boolean\(responseText\.trim\(\)\)/);
+});
+
 test('native prompt completion refuses an empty response payload while non-prompt operations may complete without one', () => {
   assert.match(content, /async function finishOperation\(operationId, responseText = '', requireResponseText = false\)/);
   assert.match(content, /if \(requireResponseText && \(typeof responseText !== 'string' \|\| !responseText\.trim\(\)\)\)/);
