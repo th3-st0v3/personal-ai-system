@@ -443,8 +443,8 @@
     }));
   }
 
-  async function finishOperation(operationId, responseText = '') {
-    if (typeof responseText !== 'string' || !responseText.trim()) {
+  async function finishOperation(operationId, responseText = '', requireResponseText = false) {
+    if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
       throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
     }
     const body = {
@@ -524,7 +524,7 @@
           if (!send) throw new Error('PASI_NATIVE: send control unavailable');
           await submitPrompt(operation.prompt);
           const response = await waitForResponse(baseline);
-          await finishOperation(operation.operation_id, response);
+          await finishOperation(operation.operation_id, response, true);
           finalized = true;
           return;
         }
