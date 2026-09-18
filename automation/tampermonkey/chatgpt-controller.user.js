@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.11
+// @version      2.4.12
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,7 +12,7 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var CONTROLLER_VERSION = '2.4.11';
+    var CONTROLLER_VERSION = '2.4.12';
     var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
     var DOM_POLL_INTERVAL_MS = 100;
@@ -180,7 +180,8 @@
         if (isDisabled(control)) throw new Error('ChatGPT Thinking control is disabled.');
         control.click();
         await sleep(CLICK_SETTLE_MS);
-        if (thinkingEnabled() !== true) throw new Error('ChatGPT Thinking state could not be verified.');
+        var thinkingVerified = await waitFor(function () { return thinkingEnabled() === true ? true : null; }, 3000);
+        if (!thinkingVerified) throw new Error('ChatGPT Thinking state could not be verified.');
     }
 
     function findReasoningControl() { return findVisibleLabeledAny(['thinking', 'think', 'thinking mode'], ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]', 'a']); }
