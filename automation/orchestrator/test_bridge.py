@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 import threading
-from http.client import HTTPConnection
+from http.client import HTTPConnection, RemoteDisconnected
 
 import pytest
 
@@ -149,7 +149,7 @@ def test_http_queue_response_loss_is_recovered_without_duplicate_operation(tmp_p
             body=payload,
             headers={"Content-Type": "application/json"},
         )
-        with pytest.raises(Exception):
+        with pytest.raises(RemoteDisconnected):
             connection.getresponse()
         connection.close()
         assert DropFirstQueueResponseHandler.dropped is True
