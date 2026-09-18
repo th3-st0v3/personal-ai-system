@@ -138,3 +138,13 @@ test('native recovery claims only the persisted recovery operation instead of co
   assert.match(content, /\/chat\/claim/);
   assert.match(content, /body: \{ operation_id: recoveryOperation \}/);
 });
+
+
+test('native prompt retries restore only the validated requested conversational context', () => {
+  assert.match(content, /let githubRepository = null/);
+  assert.match(content, /function recoveryContext\(\)/);
+  assert.match(content, /async function restoreRecoveryContext\(context\)/);
+  assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
+  assert.match(content, /recovery_context: recoveryContext\(\)/);
+  assert.match(content, /recovery GitHub context conflicts with the current attachment/);
+});
