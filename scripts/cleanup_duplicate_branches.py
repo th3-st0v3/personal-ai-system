@@ -8,7 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Mapping
 
 API_VERSION = "2022-11-28"
 DEFAULT_BRANCH = "main"
@@ -111,6 +111,32 @@ def list_branches(*, token: str) -> tuple[BranchRef, ...]:
     return tuple(branches)
 
 
+def _list_closed_pr_heads(*, token: str) -> Mapping[str, frozenset[str]]:
+    heads: dict[str, set[str]] = {}
+    page = 1
+    while True:
+        payload = _request_json(
+            f"pulls?state=closed&per_page=100&page={page}",
+            token=token,
+        )
+        if not isinstance(payload, list):
+            raise BranchCleanupError("GitHub pull-request response was not a list")
+        for item in payload:
+            if not isinstance(item, dict) or not item.get("merged_at"):
+                continue
+            head = item.get("head")
+            if not isinstance(head, dict):
+                continue
+            ref = str(head.get("ref", "")).strip()
+            sha = str(head.get("sha", "")).strip()
+            if ref and sha:
+                heads.setdefault(ref, set()).add(sha)
+        if len(payload) < 100:
+            break
+        page += 1
+    return {name: frozenset(shas) for name, shas in heads.items()}
+
+
 def list_open_pr_heads(*, token: str) -> frozenset[str]:
     heads: set[str] = set()
     page = 1
@@ -135,37 +161,12 @@ def list_open_pr_heads(*, token: str) -> frozenset[str]:
     return frozenset(heads)
 
 
-def list_merged_pr_heads(*, token: str) -> frozenset[str]:
-    heads: set[str] = set()
-    page = 1
-    while True:
-        payload = _request_json(
-            f"pulls?state=closed&per_page=100&page={page}",
-            token=token,
-        )
-        if not isinstance(payload, list):
-            raise BranchCleanupError("GitHub pull-request response was not a list")
-        for item in payload:
-            if not isinstance(item, dict) or not item.get("merged_at"):
-                continue
-            head = item.get("head")
-            if isinstance(head, dict):
-                ref = str(head.get("ref", "")).strip()
-                if ref:
-                    heads.add(ref)
-        if len(payload) < 100:
-            break
-        page += 1
-    return frozenset(heads)
-
-
 def is_disposable_name(branch_name: str) -> bool:
     return bool(DISPOSABLE_SUFFIX_RE.search(branch_name.rstrip("/")))
 
 
-def _keeper_key(branch: BranchRef, merged_heads: frozenset[str]) -> tuple[int, int, int, str]:
+def _keeper_key(branch: BranchRef) -> tuple[int, int, str]:
     return (
-        1 if branch.name in merged_heads else 0,
         1 if not is_disposable_name(branch.name) else 0,
         -len(branch.name),
         branch.name,
@@ -176,16 +177,18 @@ def build_cleanup_plan(
     branches: Iterable[BranchRef],
     *,
     open_pr_heads: frozenset[str],
-    merged_pr_heads: frozenset[str],
+    merged_pr_heads: Mapping[str, frozenset[str]],
     default_branch: str = DEFAULT_BRANCH,
     keep_branches: frozenset[str] = frozenset(),
 ) -> CleanupPlan:
     grouped: dict[str, list[BranchRef]] = {}
+    branch_by_name = {}
     for branch in branches:
         grouped.setdefault(branch.sha, []).append(branch)
+        branch_by_name[branch.name] = branch
 
     keep: dict[str, BranchRef] = {}
-    deletions: list[BranchRef] = []
+    deletions: dict[str, BranchRef] = {}
 
     for group in grouped.values():
         if len(group) < 2:
@@ -206,22 +209,38 @@ def build_cleanup_plan(
             for branch in group
             if branch.name in keep_branches or branch.name == default_branch
         ]
-        if forced_keepers:
-            keeper = sorted(forced_keepers, key=lambda item: item.name)[0]
-        else:
-            keeper = max(group, key=lambda item: _keeper_key(item, merged_pr_heads))
-
+        keeper = (
+            sorted(forced_keepers, key=lambda item: item.name)[0]
+            if forced_keepers
+            else max(group, key=_keeper_key)
+        )
         keep[keeper.name] = keeper
+
         for branch in group:
             if branch.name == keeper.name:
                 continue
             if branch.name == default_branch or branch.name in open_pr_heads or branch.name in keep_branches:
                 continue
-            deletions.append(branch)
+            deletions[branch.name] = branch
 
-    deletions.sort(key=lambda item: (item.name, item.sha))
+    # A branch whose current tip is exactly the head commit of a merged PR has
+    # no newer work on that ref. It can be removed safely unless it is explicitly
+    # kept, is main, or currently backs another open PR. A branch that advanced
+    # after merge is not deleted.
+    for branch_name, merged_shas in merged_pr_heads.items():
+        branch = branch_by_name.get(branch_name)
+        if branch is None:
+            continue
+        if branch_name in keep or branch_name in keep_branches:
+            continue
+        if branch_name == default_branch or branch_name in open_pr_heads:
+            continue
+        if branch.sha in merged_shas:
+            deletions.setdefault(branch_name, branch)
+
+    deletions_tuple = tuple(sorted(deletions.values(), key=lambda item: (item.name, item.sha)))
     keepers = tuple(sorted(keep.values(), key=lambda item: item.name))
-    return CleanupPlan(keepers=keepers, deletions=tuple(deletions))
+    return CleanupPlan(keepers=keepers, deletions=deletions_tuple)
 
 
 def can_delete_merged_branch(
@@ -242,7 +261,7 @@ def cleanup(
     token = _token()
     branches = list_branches(token=token)
     open_heads = list_open_pr_heads(token=token)
-    merged_heads = list_merged_pr_heads(token=token)
+    merged_heads = _list_closed_pr_heads(token=token)
     plan = build_cleanup_plan(
         branches,
         open_pr_heads=open_heads,
@@ -255,7 +274,7 @@ def cleanup(
     if not dry_run:
         for branch in plan.deletions:
             _delete_ref(branch.name, token=token)
-        if merged_to_delete:
+        if merged_to_delete and merged_to_delete not in {item.name for item in plan.deletions}:
             _delete_ref(merged_to_delete, token=token)
     return CleanupPlan(
         keepers=plan.keepers,
@@ -266,7 +285,7 @@ def cleanup(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Delete exact-duplicate Git branches while preserving main and open PR heads; merged PR heads may be removed explicitly."
+        description="Delete exact-duplicate branches and safely stale merged-PR heads while preserving main and open PR heads."
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--keep", action="append", default=[])
@@ -285,7 +304,7 @@ def main() -> int:
         return 1
 
     selected = [{"name": item.name, "sha": item.sha} for item in plan.deletions]
-    if plan.merged_branch:
+    if plan.merged_branch and plan.merged_branch not in {item["name"] for item in selected}:
         selected.append({"name": plan.merged_branch, "sha": "merged-pr-head"})
     deleted = [] if args.dry_run else selected
 
