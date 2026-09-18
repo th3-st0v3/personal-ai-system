@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from typing import Any, Mapping
 
 from automation.computer_use.chatgpt import ChatGPTAdapter, ChatGPTAdapterError, UrllibBridgeTransport
@@ -338,6 +339,14 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "delayed browser response")
         self.assertEqual(transport.observation_reads, 3)
+
+    def test_completed_prompt_recheck_uses_bounded_scheduling_interval(self) -> None:
+        transport = DelayedObservationTransport(delay_cycles=2)
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        with patch("automation.computer_use.chatgpt.time.sleep") as sleep:
+            response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.text, "delayed browser response")
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.25,), (0.25,)])
 
     def test_completed_prompt_rechecks_after_observation_failure(self) -> None:
         transport = ObservationFailingTransport([
