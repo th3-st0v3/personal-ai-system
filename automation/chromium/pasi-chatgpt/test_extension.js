@@ -128,6 +128,7 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /prefers-reduced-motion: reduce/);
   assert.match(activity, /const state = isGenerating \? 'Thinking' : sawGeneration \? 'Finishing' : 'Working'/);
   assert.match(activity, /label\.textContent = `PASI · \$\{state\}`/);
+  assert.match(activity, /const POLL_MS = 2000;/);
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
