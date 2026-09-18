@@ -428,7 +428,7 @@
 
     const response = latestAssistant();
     const currentFingerprint = fingerprint();
-    if (response && currentFingerprint !== String(state.baseline || '')) {
+    if (!generating() && response && currentFingerprint !== String(state.baseline || '')) {
       if (await finishExisting(operationId, response)) {
         clearRecoveryState();
         return;
