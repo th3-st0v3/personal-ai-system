@@ -2,9 +2,9 @@ name: test
 
 on:
   push:
-    branches: [main, beta-foundation, 'pasi/overnight-*']
+    branches: [main, beta-foundation, 'pasi/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'pasi/**']
   workflow_dispatch:
 
 jobs:

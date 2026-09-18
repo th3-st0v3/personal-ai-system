@@ -359,6 +359,27 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
     return legacy.completion_contract_is_satisfied(status, values)
 
 
+def continuation_directive(state: OvernightState, task: str) -> str:
+    candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
+    roadmap = "\n".join(f"- {item}" for item in candidates)
+    recent = "\n".join(f"- {item}" for item in state.recent_tasks[-12:]) or "- none recorded"
+    return f"""TASK CONTINUATION / ANTI-LOOP POLICY:
+- First inspect the current repository state and recent commits before deciding whether the CURRENT TASK is still incomplete.
+- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it, do not make cosmetic duplicate changes, and do not ask the human what to do next; immediately work on the next incomplete roadmap item below.
+- IF the CURRENT TASK is not yet satisfied, THEN continue it and use a materially different approach when PREVIOUS FAILURE EVIDENCE shows the prior approach failed.
+- A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
+- After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
+- IF the listed roadmap items are already covered by verified recent work, THEN revisit the repository for the next concrete gap and make that the next task instead of repeating an old task.
+- After any successful completion or bounded failure, continue automatically to the next incomplete roadmap task until the run deadline or an explicit operator stop; do not terminate merely because one task or one provider path finished.
+ROADMAP PHASE: {state.phase}
+ROADMAP:
+{roadmap}
+RECENT TASKS:
+{recent}
+
+CURRENT TASK:
+{task}"""
+
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
     previous = f"\nPREVIOUS FAILURE EVIDENCE:\n{failure[-12_000:]}\n" if failure else ""
     return f"""You are the implementation engineer inside an unattended PASI overnight coding run.
@@ -376,6 +397,8 @@ RUN CONTEXT:
 - Thinking is required for every ChatGPT task.
 - Public GitHub repository is the default context source.
 - OpenRouter, Perplexity, OpenCode, and direct HTTPS research are permitted fallback evidence/model sources when ChatGPT is unavailable.
+
+{continuation_directive(state, task)}
 
 AUTOMATION OBJECTIVE:
 Keep progressing without getting trapped by a dead ChatGPT tab, transient provider limit, stale controller, repeated failed approach, or unavailable optional provider. Stand by and retry boundedly when recovery is possible; change strategy when the same failure repeats.
@@ -405,8 +428,10 @@ The patch must apply with git apply, modify only repository files, and contain n
 def choose_next_task(state: OvernightState, suggested: str) -> str:
     candidate = re.sub(r"\s+", " ", suggested).strip()
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
-    if candidate and candidate.casefold() not in {item.casefold() for item in state.recent_tasks[-12:]}:
-        return candidate
+    configured = {item.casefold(): item for item in candidates}
+    recent = {item.casefold() for item in state.recent_tasks[-12:]}
+    if candidate.casefold() in configured and candidate.casefold() not in recent:
+        return configured[candidate.casefold()]
     return choose_unique(candidates, state)
 
 
@@ -572,11 +597,14 @@ def run(state: OvernightState, *, push: bool) -> None:
             finished = True
             break
         if not finished:
+            failed_task = state.current_task
             state.failed_tasks += 1
             state.last_result = failure or "bounded retry budget exhausted"
+            state.recent_tasks.append(failed_task)
+            state.recent_tasks = state.recent_tasks[-12:]
             state.current_task = choose_next_task(state, "")
             save_state(state)
-            log_event("task_failed", phase=state.phase, task_number=state.task_number, error=state.last_result[-6000:])
+            log_event("task_failed", phase=state.phase, task_number=state.task_number, failed_task=failed_task, next_task=state.current_task, error=state.last_result[-6000:])
             failure = state.last_result
 
 

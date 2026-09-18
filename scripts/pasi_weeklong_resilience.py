@@ -84,9 +84,21 @@ Return the PASI completion markers exactly as requested. The patch markers must 
 """
 
 
-def _repair_prompt(task: str, response: str, failure: str) -> str:
+def _repair_prompt(task: str, response: str, failure: str, state: Any | None = None) -> str:
     evidence = response[-8_000:] if response else "[no response captured]"
     prior = failure[-4_000:] if failure else "[no previous failure evidence]"
+    repair_state = state or supervisor.OvernightState(
+        schema_version=2,
+        run_id="repair",
+        started_at="",
+        deadline_at="9999-12-31T23:59:59+00:00",
+        worktree="",
+        branch="",
+        phase="engineering_os",
+        current_task=task,
+    )
+    continuation_builder = getattr(supervisor, "continuation_directive")
+    continuation = continuation_builder(repair_state, task)
     return f"""PASI RESPONSE REPAIR REQUEST
 
 The engineering task itself is still active. Do not restart it or abandon the work.
@@ -95,6 +107,8 @@ TASK:
 {task}
 
 The previous response did not satisfy PASI's machine-readable completion contract. Continue from the existing conversation/repository state and produce the final result now.
+
+{continuation}
 
 REQUIRED OUTPUT:
 PASI_RESULT_STATUS: complete|needs_revision|blocked
@@ -122,7 +136,7 @@ Do not claim tests, edits, or evidence that you did not actually perform. Keep a
 
 
 def _invoke_repair(task: str, state: Any, response: str, failure: str) -> tuple[int, str]:
-    prompt = _repair_prompt(task, response, failure)
+    prompt = _repair_prompt(task, response, failure, state)
     return supervisor.command(
         [
             sys.executable,

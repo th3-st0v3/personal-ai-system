@@ -47,11 +47,64 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             )
         )
 
+    def test_build_prompt_contains_anti_loop_continuation_rule(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="prompt-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="engineering_os",
+            current_task="Improve task continuation",
+            recent_tasks=["already completed task"],
+        )
+        prompt = engine.build_prompt(state.current_task, state)
+        self.assertIn("IF the CURRENT TASK is already satisfied", prompt)
+        self.assertIn("THEN do not re-implement it", prompt)
+        self.assertIn("next incomplete roadmap item", prompt)
+        self.assertIn("RECENT TASKS:", prompt)
+
+    def test_failed_task_is_excluded_before_next_selection(self) -> None:
+        now = datetime.now(timezone.utc)
+        failed = engine.AUTOMATION_TASKS[0]
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="failed-task-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=failed,
+            recent_tasks=[failed],
+        )
+        self.assertEqual(engine.choose_next_task(state, ""), engine.AUTOMATION_TASKS[1])
+
     def test_provider_conditions_are_distinct_from_chat_completion_failures(self) -> None:
         self.assertEqual(engine.provider_condition(90, "CHAT_USAGE_LIMITED: provider limit"), "provider_usage_limit")
         self.assertEqual(engine.provider_condition(91, "CHAT_AUTH_REQUIRED: login"), "auth_required")
         self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
         self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
+
+    def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="non-roadmap-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            recent_tasks=[],
+        )
+        self.assertEqual(
+            engine.choose_next_task(state, "invented task outside roadmap"),
+            engine.AUTOMATION_TASKS[0],
+        )
 
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
         now = datetime.now(timezone.utc)

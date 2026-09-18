@@ -292,6 +292,25 @@ def completion_contract_is_satisfied(status: str, values: dict[str, str]) -> boo
     )
 
 
+def continuation_directive(state: RunnerState, task: str) -> str:
+    roadmap = "\n".join(f"- {item}" for item in BACKLOG)
+    recent = "\n".join(f"- {item}" for item in state.recent_tasks[-8:]) or "- none recorded"
+    return f"""TASK CONTINUATION / ANTI-LOOP POLICY:
+- First inspect the current repository state and recent commits before deciding whether the CURRENT TASK is still incomplete.
+- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it, do not make cosmetic duplicate changes, and do not ask the human what to do next; immediately work on the next incomplete roadmap item below.
+- IF the CURRENT TASK is not yet satisfied, THEN continue it and use a materially different approach when PREVIOUS FAILURE EVIDENCE shows the prior approach failed.
+- A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
+- After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
+- IF the listed roadmap items are already covered by verified recent work, THEN revisit the repository for the next concrete gap and make that the next task instead of repeating an old task.
+- Never wait for an additional human instruction merely because the current task completed; the persisted runner state is the continuation authority.
+ROADMAP:
+{roadmap}
+RECENT TASKS:
+{recent}
+
+CURRENT TASK:
+{task}"""
+
 def build_prompt(task: str, state: RunnerState, failure: str = "") -> str:
     previous = f"\nPREVIOUS FAILURE EVIDENCE:\n{failure[-12_000:]}\n" if failure else ""
     return f"""You are the implementation engineer inside an unattended PASI overnight coding run.
@@ -306,6 +325,8 @@ RUN CONTEXT:
 - Branch: {state.branch}
 - Worktree: isolated and controlled by PASI
 - The repository is private; use the connected GitHub app when source/history context is required.
+
+{continuation_directive(state, task)}
 
 COMPLETION CONTRACT:
 Do not mark complete until every stated requirement is implemented; relevant limitations have a concrete workaround or are genuinely not applicable; useful additional research/features have been implemented when appropriate; UX is working and aesthetically coherent or not applicable; backend behavior is working or not applicable; and reproducible evidence supports the result.
@@ -332,8 +353,9 @@ The patch must apply with git apply, modify only repository files, and contain n
 def choose_next_task(state: RunnerState, suggested: str) -> str:
     candidate = re.sub(r"\s+", " ", suggested).strip()
     recent = {item.lower() for item in state.recent_tasks[-8:]}
-    if candidate and candidate.lower() not in recent:
-        return candidate
+    configured = {item.lower(): item for item in BACKLOG}
+    if candidate and candidate.lower() in configured and candidate.lower() not in recent:
+        return configured[candidate.lower()]
     for fallback in BACKLOG:
         if fallback.lower() not in recent:
             return fallback
