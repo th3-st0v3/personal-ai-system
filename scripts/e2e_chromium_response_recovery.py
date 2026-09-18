@@ -204,7 +204,7 @@ def free_port() -> int:
 
 
 def find_chromium() -> str:
-    for candidate in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+    for candidate in ("google-chrome-stable", "google-chrome", "chromium", "chromium-browser"):
         path = shutil.which(candidate)
         if path:
             return path
@@ -252,7 +252,7 @@ def main() -> None:
             stderr=subprocess.DEVNULL,
         )
         try:
-            wait_for_bridge_event(8.0)
+            wait_for_bridge_event(20.0)
         finally:
             process.terminate()
             try:
