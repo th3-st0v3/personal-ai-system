@@ -13,7 +13,8 @@
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
   const MAX_CONTEXT_RECOVERIES = 1;
   const MISSING_OPERATION_GRACE_MS = 60 * 1000;
-  const RECOVERY_VERSION = '1.0.5';
+  const RECOVERY_VERSION = '1.0.6';
+  let inspecting = false;
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const compact = (value) => String(value || '').replace(/\s+/g, ' ').trim();
@@ -600,10 +601,20 @@
     await preserveOrReload(operationId, stateForTimer);
   }
 
+  async function runInspection() {
+    if (inspecting) return;
+    inspecting = true;
+    try {
+      await inspect();
+    } finally {
+      inspecting = false;
+    }
+  }
+
   async function start() {
     await report('chatgpt_recovery', { phase: 'started', recovery_action: 'monitor', generation_timeout_ms: GENERATION_TIMEOUT_MS, recovery_grace_ms: RECOVERY_GRACE_MS });
-    setInterval(() => { inspect().catch(() => {}); }, POLL_MS);
-    await inspect();
+    setInterval(() => { runInspection().catch(() => {}); }, POLL_MS);
+    await runInspection();
   }
 
   start().catch(() => {});
