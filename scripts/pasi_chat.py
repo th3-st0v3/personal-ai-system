@@ -385,7 +385,6 @@ def main() -> int:
                 checkpoint_active_operation(handoff, fallback_operation, task)
                 save_handoff(handoff)
                 print(f"GitHub fallback prompt operation: {fallback_operation}")
-                response_operation = fallback_operation
                 fallback_response = adapter.wait_for_completion(fallback_operation)
                 response = fallback_response
             except Exception as exc:
