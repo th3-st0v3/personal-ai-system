@@ -1000,6 +1000,29 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        existing_operation = self.bridge_state.get_operation(operation_id)
+        if existing_operation is None:
+            self._send_json(
+                {"error": "Operation not found."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+
+        if existing_operation.get("operation_type") == "prompt":
+            has_response = (
+                response_text_available is True
+                and isinstance(response_text, str)
+                and bool(response_text.strip())
+            )
+            if not has_response:
+                self._send_json(
+                    {
+                        "error": "Prompt completion requires verified nonblank response_text."
+                    },
+                    HTTPStatus.CONFLICT,
+                )
+                return
+
         try:
             operation = self.bridge_state.complete_operation(
                 operation_id=operation_id,
