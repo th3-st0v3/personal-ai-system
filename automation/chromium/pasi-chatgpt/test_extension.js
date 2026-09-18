@@ -59,6 +59,14 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
 });
 
+test('native prompt submission re-verifies Thinking before sending', () => {
+  assert.match(content, /case 'prompt': \{/);
+  assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
+  assert.match(content, /await selectThinking\(\)/);
+  assert.match(content, /reasoningMode = 'thinking'/);
+  assert.match(content, /await submitPrompt\(operation\.prompt\)/);
+});
+
 test('native prompt submission requires explicit user-message acknowledgement', () => {
   assert.match(content, /SUBMISSION_ACK_MS = 2500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
