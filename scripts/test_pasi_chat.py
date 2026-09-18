@@ -26,6 +26,7 @@ class FakeChatAdapter:
     def __init__(self, state: dict[str, object] | None = None) -> None:
         self.state = state or {}
         self.calls: list[tuple[str, str]] = []
+        self.last_chat_url: str | None = None
 
     def read_browser_observation(self) -> dict[str, object]:
         return {"data": dict(self.state)} if self.state else {}
@@ -33,6 +34,7 @@ class FakeChatAdapter:
     def new_session(self) -> str:
         self.calls.append(("new_session", ""))
         self.state = {"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/new", "chat_exhausted": False, "github_attached": False}
+        self.last_chat_url = "https://chatgpt.com/c/new"
         return "op-new"
 
     def attach_github_repository(self, repository: str) -> str:
@@ -83,6 +85,18 @@ class TestPasiChat(unittest.TestCase):
         adapter = FakeChatAdapter()
         with self.assertRaisesRegex(RuntimeError, "browser controller is not reporting a live heartbeat"):
             wait_for_browser_controller(adapter, timeout_seconds=0.2)
+
+    def test_new_session_preserves_verified_chat_identity(self) -> None:
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/old",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
+        self.assertEqual(known_url, "https://chatgpt.com/c/new")
+        self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/new")
+        self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
 
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
