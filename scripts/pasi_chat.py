@@ -421,6 +421,9 @@ def main() -> int:
         print("Checking for a live PASI ChatGPT browser controller...")
         wait_for_browser_controller(adapter, timeout_seconds=min(args.timeout, CONTROLLER_LIVENESS_TIMEOUT_SECONDS))
         handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
+        # Persist the verified session/context checkpoint before prompt submission so a
+        # process interruption cannot discard the replacement chat identity.
+        save_handoff(handoff)
         prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
         print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
@@ -432,6 +435,9 @@ def main() -> int:
                 record_chat_change(handoff, previous_url, None, "verified_prompt_exhaustion")
             handoff.update({"chat_exhausted": True, "chat_url": None, "github_attached": False, "reasoning_mode": None})
             handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
+            # Checkpoint the replacement session before retrying so another interruption
+            # can resume from the verified new conversation instead of the exhausted one.
+            save_handoff(handoff)
             retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
             print(f"Retry prompt operation: {retry_operation}")
             response = adapter.wait_for_completion(retry_operation)
