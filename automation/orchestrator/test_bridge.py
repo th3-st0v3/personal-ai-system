@@ -436,6 +436,59 @@ def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
         assert not thread.is_alive()
 
 
+def test_http_duplicate_completion_ack_is_idempotent(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "duplicate ack")
+        claimed = bridge.claim_next_operation()
+        assert claimed is not None
+        bridge.heartbeat(operation.operation_id)
+
+        def post_completion(response_text: str) -> tuple[int, dict]:
+            connection = HTTPConnection(
+                "127.0.0.1",
+                server.server_address[1],
+                timeout=2,
+            )
+            payload = json.dumps(
+                {
+                    "operation_id": operation.operation_id,
+                    "chat_url": "https://chatgpt.com/c/idempotent",
+                    "response_text": response_text,
+                    "response_text_available": True,
+                }
+            ).encode("utf-8")
+            connection.request(
+                "POST",
+                "/chat/finished",
+                body=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            body = json.loads(response.read().decode("utf-8"))
+            connection.close()
+            return response.status, body
+
+        first_status, first_body = post_completion("authoritative response")
+        second_status, second_body = post_completion("stale duplicate response")
+
+        assert first_status == 200
+        assert second_status == 200
+        assert second_body["operation"] == first_body["operation"]
+        assert second_body["operation"]["response_text"] == "authoritative response"
+        assert bridge.get_operation(operation.operation_id) == first_body["operation"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_http_transient_failure_requeues_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
