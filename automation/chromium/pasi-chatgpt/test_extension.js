@@ -234,6 +234,6 @@ test('background watchdog rate-limits missing-tab recreation after browser creat
 
 test('background watchdog clears a stale creation cooldown after the exact tab is restored', () => {
   assert.match(background, /if \(!matchingTab\) \{/);
-  assert.match(background, /await chrome\.storage\.local\.remove\(`create:\$\{targetChatUrl\}`);/);
+  assert.match(background, /await chrome\.storage\.local\.remove\(`create:\$\{targetChatUrl\}`\);/);
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
