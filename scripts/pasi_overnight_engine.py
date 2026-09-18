@@ -353,8 +353,9 @@ The patch must apply with git apply, modify only repository files, and contain n
 def choose_next_task(state: RunnerState, suggested: str) -> str:
     candidate = re.sub(r"\s+", " ", suggested).strip()
     recent = {item.lower() for item in state.recent_tasks[-8:]}
-    if candidate and candidate.lower() not in recent:
-        return candidate
+    configured = {item.lower(): item for item in BACKLOG}
+    if candidate and candidate.lower() in configured and candidate.lower() not in recent:
+        return configured[candidate.lower()]
     for fallback in BACKLOG:
         if fallback.lower() not in recent:
             return fallback
