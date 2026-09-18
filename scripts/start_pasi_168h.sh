@@ -32,6 +32,13 @@ printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
 "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
 printf '\n=== STARTING 168-HOUR RUN ===\n'
 
+printf '\n--- PULL SHARK ---\n'
+if [[ -x "$PYTHON" ]]; then
+    "$PYTHON" "$REPO_ROOT/scripts/pasi_pull_shark_status.py" || true
+else
+    python3 "$REPO_ROOT/scripts/pasi_pull_shark_status.py" || true
+fi
+
 mkdir -p "$RUNTIME_DIR"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
