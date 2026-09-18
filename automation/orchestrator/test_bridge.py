@@ -73,6 +73,16 @@ def post_queue(
     return response.status, body
 
 
+def test_bridge_suppresses_successful_http_access_log_noise(capsys: pytest.CaptureFixture[str]) -> None:
+    handler = object.__new__(BridgeRequestHandler)
+
+    handler.log_message('"%s" %s %s', 'GET /health HTTP/1.1', '200', '42')
+    assert capsys.readouterr().out == ""
+
+    handler.log_message('"%s" %s %s', 'GET /health HTTP/1.1', '503', '42')
+    assert "[Bridge]" in capsys.readouterr().out
+
+
 def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     first = bridge.queue_operation("prompt", "same prompt", idempotency_key="key-1")

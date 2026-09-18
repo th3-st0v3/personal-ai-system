@@ -24,7 +24,8 @@ test('watchdog reports authentication challenges and Thinking state without chan
     assert.doesNotMatch(source, /\.click\(\)/);
 });
 
-test('watchdog continuously samples runtime health', () => {
+test('watchdog samples runtime health on a bounded cadence', () => {
+    assert.match(source, /var INTERVAL_MS = 20000;/);
     assert.match(source, /setInterval\(sample, INTERVAL_MS\)/);
     assert.match(source, /kind: 'chatgpt_health'/);
     assert.match(source, /captured_at/);
