@@ -212,7 +212,7 @@ def build_cleanup_plan(
         keeper = (
             sorted(forced_keepers, key=lambda item: item.name)[0]
             if forced_keepers
-            else max(group, key=_keeper_key)
+            else max(eligible, key=_keeper_key)
         )
         keep[keeper.name] = keeper
 
