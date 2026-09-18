@@ -8,7 +8,7 @@ from scripts import pasi_pull_shark_status as status
 
 class TestPasiPullSharkStatus(unittest.TestCase):
     def test_calculate_status_reports_next_target_and_remaining(self) -> None:
-        result = status.calculate_status("th3-st0v3/personal-ai-system", "th3-st0v3", 84)
+        result = status.calculate_status("GitHub search scope for authenticated account", "th3-st0v3", 84)
         self.assertEqual(result.next_target, 128)
         self.assertEqual(result.remaining_to_next_target, 44)
         self.assertEqual(result.tier_reached, "16 merged PRs")
@@ -19,14 +19,31 @@ class TestPasiPullSharkStatus(unittest.TestCase):
         self.assertEqual(result.remaining_to_next_target, 0)
         self.assertEqual(result.tier_reached, "1024 merged PRs")
 
-    def test_collect_status_uses_authenticated_login_by_default(self) -> None:
+    def test_collect_status_uses_account_wide_search_by_default(self) -> None:
+        with patch.object(status.shutil, "which", return_value="/usr/bin/gh"):
+            with patch.object(status, "_login", return_value="th3-st0v3"):
+                with patch.object(status, "_merged_count", return_value=85) as count:
+                    result = status.collect_status()
+        count.assert_called_once_with("th3-st0v3", None)
+        self.assertEqual(result.merged_prs_observed, 85)
+        self.assertEqual(result.author, "th3-st0v3")
+
+    def test_collect_status_can_restrict_search_to_repository(self) -> None:
         with patch.object(status.shutil, "which", return_value="/usr/bin/gh"):
             with patch.object(status, "_login", return_value="th3-st0v3"):
                 with patch.object(status, "_merged_count", return_value=84) as count:
                     result = status.collect_status("th3-st0v3/personal-ai-system")
-        count.assert_called_once_with("th3-st0v3/personal-ai-system", "th3-st0v3")
+        count.assert_called_once_with("th3-st0v3", "th3-st0v3/personal-ai-system")
         self.assertEqual(result.merged_prs_observed, 84)
-        self.assertEqual(result.author, "th3-st0v3")
+        self.assertEqual(result.scope, "th3-st0v3/personal-ai-system")
+
+    def test_merged_count_defaults_to_account_wide_query(self) -> None:
+        with patch.object(status, "_run", return_value=(0, "85\n")) as run:
+            self.assertEqual(status._merged_count("th3-st0v3"), 85)
+        command = run.call_args.args[0]
+        self.assertIn("is:pr is:merged author:th3-st0v3", command[-2])
+        self.assertNotIn("repo:", command[-2])
+
 
 
 if __name__ == "__main__":

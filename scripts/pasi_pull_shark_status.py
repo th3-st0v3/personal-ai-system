@@ -12,7 +12,7 @@ TARGETS = (2, 16, 128, 1024)
 
 @dataclass(frozen=True)
 class PullSharkStatus:
-    repository: str
+    scope: str
     author: str
     merged_prs_observed: int
     next_target: int | None
@@ -35,8 +35,10 @@ def _login() -> str:
     return output.splitlines()[-1].strip()
 
 
-def _merged_count(repository: str, author: str) -> int:
-    query = f"repo:{repository} is:pr is:merged author:{author}"
+def _merged_count(author: str, repository: str | None = None) -> int:
+    query = f"is:pr is:merged author:{author}"
+    if repository:
+        query = f"repo:{repository} {query}"
     code, output = _run(["gh", "api", "search/issues", "-f", f"q={query}", "--jq", ".total_count"])
     if code != 0:
         raise RuntimeError(f"could not query merged pull requests: {output}")
@@ -46,24 +48,26 @@ def _merged_count(repository: str, author: str) -> int:
         raise RuntimeError(f"GitHub returned an invalid merged PR count: {output}") from exc
 
 
-def calculate_status(repository: str, author: str, merged_prs_observed: int) -> PullSharkStatus:
+def calculate_status(scope: str, author: str, merged_prs_observed: int) -> PullSharkStatus:
     reached = [target for target in TARGETS if merged_prs_observed >= target]
     next_target = next((target for target in TARGETS if merged_prs_observed < target), None)
     tier_reached = f"{max(reached)} merged PRs" if reached else "below 2 merged PRs"
     remaining = 0 if next_target is None else next_target - merged_prs_observed
-    return PullSharkStatus(repository, author, merged_prs_observed, next_target, remaining, tier_reached)
+    return PullSharkStatus(scope, author, merged_prs_observed, next_target, remaining, tier_reached)
 
 
-def collect_status(repository: str, author: str | None = None) -> PullSharkStatus:
+def collect_status(repository: str | None = None, author: str | None = None) -> PullSharkStatus:
     if shutil.which("gh") is None:
         raise RuntimeError("GitHub CLI is not installed")
     resolved_author = author or _login()
-    return calculate_status(repository, resolved_author, _merged_count(repository, resolved_author))
+    count = _merged_count(resolved_author, repository)
+    scope = repository or "GitHub search scope for authenticated account"
+    return calculate_status(scope, resolved_author, count)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Report account-authored merged PR progress for one PASI repository.")
-    parser.add_argument("--repo", default="th3-st0v3/personal-ai-system", help="GitHub repository in owner/name form.")
+    parser = argparse.ArgumentParser(description="Report account-authored merged PR progress; optionally restrict it to a repository.")
+    parser.add_argument("--repo", default="", help="Optional GitHub repository in owner/name form.")
     parser.add_argument("--author", default="", help="GitHub login; defaults to the authenticated gh account.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -75,19 +79,19 @@ def main() -> int:
         return 1
 
     payload = {
-        "repository": status.repository,
+        "scope": status.scope,
         "author": status.author,
         "merged_prs_observed": status.merged_prs_observed,
         "next_target": status.next_target,
         "remaining_to_next_target": status.remaining_to_next_target,
         "tier_reached_observed": status.tier_reached,
         "targets": list(TARGETS),
-        "scope_note": "This reports account-authored merged PRs observed in the selected repository; GitHub achievement attribution may include additional platform-level eligibility rules.",
+        "scope_note": "Without --repo, this reports account-authored merged PRs returned by GitHub search. With --repo, it restricts the observation to that repository. GitHub achievement attribution may apply additional platform-level eligibility rules.",
     }
     if args.json:
         print(json.dumps(payload, indent=2))
     else:
-        print(f"Pull Shark: {status.merged_prs_observed} merged PRs observed in {status.repository}")
+        print(f"Pull Shark: {status.merged_prs_observed} merged PRs observed in {status.scope}")
         if status.next_target is None:
             print("Next configured target: none (1,024 target reached)")
         else:
