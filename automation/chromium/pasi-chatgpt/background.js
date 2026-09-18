@@ -67,10 +67,12 @@ async function inspect() {
   const matchingTab = targetChatUrl
     ? tabs.find((tab) => tab.url === targetChatUrl)
     : null;
-  // Never refresh an unrelated ChatGPT tab when the reported conversation is
-  // unavailable. The active operation and exact chat URL are the recovery
-  // binding; falling back to most-recently-used tabs can interrupt another task.
-  if (!matchingTab) return;
+  // If the exact conversation tab is gone, recreate only the verified target
+  // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
+  if (!matchingTab) {
+    await chrome.tabs.create({ url: targetChatUrl });
+    return;
+  }
   await reloadBoundedTab(matchingTab);
 }
 
