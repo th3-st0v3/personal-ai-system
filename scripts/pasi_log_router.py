@@ -2,8 +2,8 @@
 """Run a long-lived command with bounded stdout/stderr logs.
 
 The child process remains the real service process from the service's
-perspective; this wrapper only owns the log file and forwards the child's
-exit status. Logs rotate before they can grow without bound.
+perspective; this wrapper owns the log file and forwards the child's exit
+status. Logs rotate before they can grow without bound.
 """
 
 from __future__ import annotations
@@ -24,15 +24,12 @@ def rotate_log(path: Path, backups: int) -> None:
         path.unlink(missing_ok=True)
         return
 
-    oldest = path.with_name(f"{path.name}.{backups}")
-    oldest.unlink(missing_ok=True)
-
+    path.with_name(f"{path.name}.{backups}").unlink(missing_ok=True)
     for index in range(backups - 1, 0, -1):
         source = path.with_name(f"{path.name}.{index}")
         destination = path.with_name(f"{path.name}.{index + 1}")
         if source.exists():
             source.replace(destination)
-
     if path.exists():
         path.replace(path.with_name(f"{path.name}.1"))
 
@@ -53,25 +50,36 @@ def run(command: list[str], log_path: Path, max_bytes: int, backups: int) -> int
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
+        text=False,
+        bufsize=0,
     )
 
     assert process.stdout is not None
-    with log_path.open("a", encoding="utf-8", buffering=1) as log:
-        for line in process.stdout:
-            encoded_size = len(line.encode("utf-8"))
-            if current_size and current_size + encoded_size > max_bytes:
-                log.flush()
-                os.fsync(log.fileno())
-                log.close()
-                rotate_log(log_path, backups)
-                log = log_path.open("a", encoding="utf-8", buffering=1)
-                current_size = 0
+    log = log_path.open("ab", buffering=0)
+    try:
+        for chunk in iter(lambda: process.stdout.readline(), b""):
+            offset = 0
+            while offset < len(chunk):
+                if current_size >= max_bytes:
+                    os.fsync(log.fileno())
+                    log.close()
+                    rotate_log(log_path, backups)
+                    log = log_path.open("ab", buffering=0)
+                    current_size = 0
 
-            log.write(line)
-            log.flush()
-            current_size += encoded_size
+                writable = min(max_bytes - current_size, len(chunk) - offset)
+                log.write(chunk[offset : offset + writable])
+                offset += writable
+                current_size += writable
+
+                if current_size >= max_bytes and offset < len(chunk):
+                    os.fsync(log.fileno())
+                    log.close()
+                    rotate_log(log_path, backups)
+                    log = log_path.open("ab", buffering=0)
+                    current_size = 0
+    finally:
+        log.close()
 
     return process.wait()
 
