@@ -1,0 +1,61 @@
+name: branch-hygiene
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Run branch-hygiene unit tests
+        run: python -m unittest -v scripts.test_cleanup_duplicate_branches
+
+  cleanup:
+    needs: test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Sweep exact duplicate branch refs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          args=(
+            --json
+            --keep "pasi/bridge-edge-case-tests-20260917"
+            --keep "pasi/control-plane-recovery-20260917"
+            --keep "pasi/continuation-anti-loop-20260918"
+          )
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+            args+=(--merged-branch "${{ github.event.pull_request.head.ref }}")
+          fi
+          python scripts/cleanup_duplicate_branches.py "${args[@]}"

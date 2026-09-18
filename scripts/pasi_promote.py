@@ -69,7 +69,10 @@ def _run(command: Sequence[str], *, timeout: float = 30.0) -> tuple[int, str]:
 
 
 def changed_paths(commit: str) -> tuple[str, ...]:
-    code, output = _run(["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commit], timeout=20.0)
+    code, output = _run(
+        ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commit],
+        timeout=20.0,
+    )
     if code != 0:
         raise PromotionError(f"could not inspect changed paths: {output}")
     return tuple(sorted({line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()}))
@@ -78,7 +81,9 @@ def changed_paths(commit: str) -> tuple[str, ...]:
 def classify_risk(paths: Sequence[str]) -> str:
     for path in paths:
         normalized = path.replace("\\", "/").lstrip("/")
-        if normalized.startswith(HIGH_RISK_PATH_PREFIXES) or any(pattern.search(normalized) for pattern in HIGH_RISK_NAME_PATTERNS):
+        if normalized.startswith(HIGH_RISK_PATH_PREFIXES) or any(
+            pattern.search(normalized) for pattern in HIGH_RISK_NAME_PATTERNS
+        ):
             return "high"
     return "standard"
 
@@ -119,19 +124,31 @@ def _reopen_pr(pr_number: int) -> tuple[bool, str]:
     return return_code == 0, output
 
 
-def _find_open_task_pr(task: str) -> tuple[int | None, str]:
+def _find_open_task_pr(task: str) -> tuple[int | None, str, str, str]:
     code, output = _run(
-        ["gh", "pr", "list", "--state", "open", "--base", MAIN_BRANCH, "--limit", "100", "--json", "number,url,title,body"],
+        [
+            "gh",
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--base",
+            MAIN_BRANCH,
+            "--limit",
+            "100",
+            "--json",
+            "number,url,title,body,headRefName,headRefOid",
+        ],
         timeout=30.0,
     )
     if code != 0:
-        return None, ""
+        return None, "", "", ""
     try:
         payload = json.loads(output)
     except json.JSONDecodeError:
-        return None, ""
+        return None, "", "", ""
     if not isinstance(payload, list):
-        return None, ""
+        return None, "", "", ""
     expected = re.sub(r"\s+", " ", task).strip().casefold()
     for item in payload:
         if not isinstance(item, dict):
@@ -140,15 +157,56 @@ def _find_open_task_pr(task: str) -> tuple[int | None, str]:
         title = re.sub(r"\s+", " ", str(item.get("title", ""))).strip().casefold()
         if f"task: {expected}" in body or expected == title:
             try:
-                return int(item["number"]), str(item.get("url", ""))
+                return (
+                    int(item["number"]),
+                    str(item.get("url", "")),
+                    str(item.get("headRefName", "")),
+                    str(item.get("headRefOid", "")),
+                )
             except (KeyError, TypeError, ValueError):
                 continue
-    return None, ""
+    return None, "", "", ""
+
+
+def _fast_forward_pr_branch(
+    branch: str,
+    commit: str,
+    current_head: str,
+) -> tuple[bool, str]:
+    if not branch or not commit or not current_head:
+        return False, "existing PR branch metadata is incomplete"
+    if commit == current_head:
+        return True, "existing PR branch already points at the verified commit"
+    code, _ = _run(
+        ["git", "merge-base", "--is-ancestor", current_head, commit],
+        timeout=15.0,
+    )
+    if code != 0:
+        return False, "verified commit is not a fast-forward descendant of the existing PR head"
+    code, output = _run(
+        ["git", "push", "origin", f"{commit}:refs/heads/{branch}"],
+        timeout=60.0,
+    )
+    if code != 0:
+        return False, f"could not fast-forward existing PR branch: {output}"
+    return True, f"fast-forwarded existing PR branch {branch} to {commit}"
 
 
 def _create_pr(branch: str, title: str, body: str) -> tuple[int, str]:
     code, output = _run(
-        ["gh", "pr", "create", "--base", MAIN_BRANCH, "--head", branch, "--title", title[:MAX_TITLE_CHARS], "--body", body[:MAX_BODY_CHARS]],
+        [
+            "gh",
+            "pr",
+            "create",
+            "--base",
+            MAIN_BRANCH,
+            "--head",
+            branch,
+            "--title",
+            title[:MAX_TITLE_CHARS],
+            "--body",
+            body[:MAX_BODY_CHARS],
+        ],
         timeout=45.0,
     )
     if code != 0:
@@ -183,7 +241,10 @@ def _checks_green(pr_number: int) -> tuple[bool, str]:
 
 
 def _enable_auto_merge(pr_number: int) -> tuple[bool, str]:
-    code, output = _run(["gh", "pr", "merge", str(pr_number), "--squash", "--auto", "--delete-branch"], timeout=45.0)
+    code, output = _run(
+        ["gh", "pr", "merge", str(pr_number), "--squash", "--auto", "--delete-branch"],
+        timeout=45.0,
+    )
     return code == 0, output
 
 
@@ -191,27 +252,75 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
     if branch == MAIN_BRANCH:
         return PromotionResult(branch, None, "", "standard", False, "already on main")
     if not gh_available():
-        return PromotionResult(branch, None, "", "unknown", False, "GitHub CLI is not installed; commit remains on the pushed branch")
+        return PromotionResult(
+            branch,
+            None,
+            "",
+            "unknown",
+            False,
+            "GitHub CLI is not installed; commit remains on the pushed branch",
+        )
     if not gh_authenticated():
-        return PromotionResult(branch, None, "", "unknown", False, "GitHub CLI is not authenticated; commit remains on the pushed branch")
+        return PromotionResult(
+            branch,
+            None,
+            "",
+            "unknown",
+            False,
+            "GitHub CLI is not authenticated; commit remains on the pushed branch",
+        )
 
     paths = changed_paths(commit)
     risk = classify_risk(paths)
-    title = re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:MAX_TITLE_CHARS] or "PASI verified automation change"
+    title = (
+        re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:MAX_TITLE_CHARS]
+        or "PASI verified automation change"
+    )
     path_lines = "\n".join(f"- `{path}`" for path in paths[:100])
     body = (
         "## PASI verified automation change\n\n"
         f"Task: {task}\n\n"
         f"Commit: `{commit}`\n\n"
         f"Risk class: **{risk}**\n\n"
-        "Deterministic repository verification completed before this PR was created. The commit was produced from a validated PASI task patch.\n\n"
+        "Deterministic repository verification completed before this PR was created. "
+        "The commit was produced from a validated PASI task patch.\n\n"
         "### Changed paths\n"
         f"{path_lines or '- none'}\n\n"
-        "PASI never auto-merges high-risk controller, browser, security-boundary, provider-routing, or workflow changes. Those changes are opened as normal PRs for human review."
+        "PASI never auto-merges high-risk controller, browser, security-boundary, "
+        "provider-routing, or workflow changes. Those changes are opened as normal PRs "
+        "for human review."
     )
+
     pr_number, pr_url, pr_state = _branch_pr(branch)
     if pr_number is None:
-        pr_number, pr_url = _find_open_task_pr(task)
+        (
+            existing_number,
+            existing_url,
+            existing_head_branch,
+            existing_head_sha,
+        ) = _find_open_task_pr(task)
+        if existing_number is not None:
+            if existing_head_branch == branch:
+                pr_number, pr_url = existing_number, existing_url
+            else:
+                reused, reuse_message = _fast_forward_pr_branch(
+                    existing_head_branch,
+                    commit,
+                    existing_head_sha,
+                )
+                if not reused:
+                    return PromotionResult(
+                        branch,
+                        existing_number,
+                        existing_url,
+                        risk,
+                        False,
+                        "an open PR for this task already exists on a different branch; "
+                        "no duplicate PR was created and its branch was not rewritten: "
+                        f"{reuse_message}",
+                    )
+                pr_number, pr_url = existing_number, existing_url
+
     if pr_number is None:
         pr_number, pr_url = _create_pr(branch, title, body)
     elif pr_state == "CLOSED":
@@ -228,7 +337,14 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
     elif pr_state == "MERGED":
         pr_number, pr_url = _create_pr(branch, title, body)
     if not pr_number:
-        return PromotionResult(branch, None, pr_url, risk, False, "PR was created but its numeric id could not be parsed")
+        return PromotionResult(
+            branch,
+            None,
+            pr_url,
+            risk,
+            False,
+            "PR was created but its numeric id could not be parsed",
+        )
 
     if risk == "standard" and auto_merge_standard:
         checks_ok, checks_message = _checks_green(pr_number)
@@ -239,7 +355,8 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
                 pr_url,
                 risk,
                 False,
-                f"standard-risk PR created; auto-merge withheld until all GitHub checks pass: {checks_message[-2_000:]}",
+                f"standard-risk PR created; auto-merge withheld until all GitHub checks "
+                f"pass: {checks_message[-2_000:]}",
             )
         merged, output = _enable_auto_merge(pr_number)
         if merged:
@@ -249,7 +366,8 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
                 pr_url,
                 risk,
                 True,
-                f"standard-risk PR created after verified checks ({checks_message}); auto-merge requested",
+                f"standard-risk PR created after verified checks ({checks_message}); "
+                "auto-merge requested",
             )
         return PromotionResult(
             branch,
@@ -260,11 +378,20 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
             f"standard-risk PR created; auto-merge request was not accepted: {output[-2_000:]}",
         )
 
-    return PromotionResult(branch, pr_number, pr_url, risk, False, "high-risk PR created for human review")
+    return PromotionResult(
+        branch,
+        pr_number,
+        pr_url,
+        risk,
+        False,
+        "high-risk PR created for human review",
+    )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Promote a verified PASI automation commit to a GitHub PR, with risk-gated auto-merge.")
+    parser = argparse.ArgumentParser(
+        description="Promote a verified PASI automation commit to a GitHub PR, with risk-gated auto-merge."
+    )
     parser.add_argument("--commit", required=True)
     parser.add_argument("--branch", required=True)
     parser.add_argument("--task", required=True)
