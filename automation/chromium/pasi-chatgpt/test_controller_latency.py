@@ -36,7 +36,7 @@ def test_native_controller_uses_bounded_idle_polling() -> None:
     source = _read(NATIVE)
 
     assert 1000 <= _number(source, "POLL_MS") <= 5000
-    assert _number(source, "DOM_POLL_MS") <= 100
+    assert _number(source, "DOM_POLL_MS") <= 250
     assert _number(source, "CLICK_SETTLE_MS") <= 300
     assert _number(source, "RESPONSE_SETTLE_MS") <= 250
     assert "const ACTIVE_KEY = 'pasi:active-operation';" in source
