@@ -12,7 +12,7 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var CONTROLLER_VERSION = '2.4.9';
+    var CONTROLLER_VERSION = '2.4.10';
     var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
     var DOM_POLL_INTERVAL_MS = 100;
@@ -257,7 +257,7 @@
         await submitPrompt(operation.prompt, baselineUsers);
         var response = await waitForAssistantResponse(baseline);
         if (!response) throw new Error('ChatGPT response could not be extracted from the page.');
-        void reportResponseObservation(response);
+        await reportResponseObservation(response);
         await reportFinished(operation.operation_id, response);
     }
 
