@@ -68,7 +68,12 @@ def initialize(connection: sqlite3.Connection) -> None:
             connection.execute(statement)
     connection.execute("UPDATE users SET name = COALESCE(NULLIF(name, ''), NULLIF(display_name, ''), 'User')")
     connection.execute("UPDATE users SET display_name = COALESCE(NULLIF(display_name, ''), NULLIF(name, ''), 'User')")
-    connection.execute("DELETE FROM sessions WHERE revoked_at IS NOT NULL OR expires_at <= ?", (_now(),))
+    now = _now()
+    connection.execute("DELETE FROM sessions WHERE revoked_at IS NOT NULL OR expires_at <= ?", (now,))
+    connection.execute(
+        "DELETE FROM login_attempts WHERE last_failed_at <= ? AND locked_until <= ?",
+        (now - LOGIN_FAILURE_WINDOW_SECONDS, now),
+    )
     connection.commit()
 
 
