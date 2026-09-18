@@ -516,7 +516,7 @@
   }
 
   async function inspect() {
-    const state = readRecoveryState();
+    let state = readRecoveryState();
     if (state?.operation_id) {
       if (state.phase === 'context_exhausted') {
         await handleContextExhausted(state);
@@ -544,6 +544,13 @@
           writeRecoveryState(nextState);
         }
         return;
+      }
+      if (state.missing_operation_since_ms || state.missing_operation_last_report_ms) {
+        const recoveredState = { ...state };
+        delete recoveredState.missing_operation_since_ms;
+        delete recoveredState.missing_operation_last_report_ms;
+        writeRecoveryState(recoveredState);
+        state = recoveredState;
       }
       if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
         clearInterruptedState();
