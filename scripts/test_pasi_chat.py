@@ -289,6 +289,11 @@ class TestPasiChat(unittest.TestCase):
         }
         self.assertEqual(pending_operation_for_task(handoff, task), "op-pending")
         self.assertIsNone(pending_operation_for_task(handoff, "different task"))
+
+        no_url = dict(handoff)
+        no_url.pop("active_operation_chat_url")
+        no_url.pop("chat_url")
+        self.assertEqual(pending_operation_for_task(no_url, task), "op-pending")
         self.assertIsNone(pending_operation_for_task({"active_operation_id": "op-pending"}, task))
         stale_chat = dict(handoff)
         stale_chat["chat_url"] = "https://chatgpt.com/c/other"
