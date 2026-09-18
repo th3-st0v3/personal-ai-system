@@ -599,7 +599,8 @@
     const stateForTimer = {
       operation_id: operationId,
       started_ms: startedMs,
-      baseline: fingerprint(),
+      baseline: typeof state?.baseline === 'string' ? state.baseline : fingerprint(),
+      chat_url: location.href,
       reload_count: 0,
       phase: 'monitoring',
       chat_url: typeof current.chat_url === 'string' ? current.chat_url : location.href,
@@ -608,7 +609,7 @@
     writeRecoveryState(stateForTimer);
 
     const age = Date.now() - startedMs;
-    if (age < RECOVERY_TRIGGER_MS && !connectionFailure()) return;
+    if (age < RECOVERY_TRIGGER_MS && !connectionFailure() && !contextExhausted()) return;
     await preserveOrReload(operationId, stateForTimer);
   }
 
