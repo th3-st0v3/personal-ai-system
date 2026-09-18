@@ -65,20 +65,51 @@ class TestPasiPromote(unittest.TestCase):
         enable.assert_not_called()
         self.assertFalse(result.auto_merge_requested)
 
-    def test_open_task_pr_is_reused_across_fresh_branches(self) -> None:
+    def test_open_task_pr_is_fast_forwarded_and_reused(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
                 with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
                     with patch.object(promote, "_branch_pr", return_value=(None, "", "")):
-                        with patch.object(promote, "_find_open_task_pr", return_value=(45, "https://github.com/th3-st0v3/personal-ai-system/pull/45")) as find_task:
-                            with patch.object(promote, "_create_pr") as create:
-                                with patch.object(promote, "_checks_green", return_value=(True, "all reported checks passed")):
-                                    with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")):
-                                        result = promote.promote("abc123", "pasi/new-branch", "task")
-        find_task.assert_called_once_with("task")
+                        with patch.object(
+                            promote,
+                            "_find_open_task_pr",
+                            return_value=(45, "https://github.com/th3-st0v3/personal-ai-system/pull/45", "pasi/existing", "base123"),
+                        ):
+                            with patch.object(
+                                promote,
+                                "_fast_forward_pr_branch",
+                                return_value=(True, "fast-forwarded"),
+                            ) as fast_forward:
+                                with patch.object(promote, "_create_pr") as create:
+                                    with patch.object(promote, "_checks_green", return_value=(True, "all reported checks passed")):
+                                        with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")):
+                                            result = promote.promote("abc123", "pasi/new-branch", "task")
+        fast_forward.assert_called_once_with("pasi/existing", "abc123", "base123")
         create.assert_not_called()
         self.assertEqual(result.pr_number, 45)
         self.assertTrue(result.auto_merge_requested)
+
+    def test_open_task_pr_on_unrelated_branch_does_not_create_duplicate(self) -> None:
+        with patch.object(promote, "gh_available", return_value=True):
+            with patch.object(promote, "gh_authenticated", return_value=True):
+                with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
+                    with patch.object(promote, "_branch_pr", return_value=(None, "", "")):
+                        with patch.object(
+                            promote,
+                            "_find_open_task_pr",
+                            return_value=(46, "https://github.com/th3-st0v3/personal-ai-system/pull/46", "pasi/existing", "base123"),
+                        ):
+                            with patch.object(
+                                promote,
+                                "_fast_forward_pr_branch",
+                                return_value=(False, "not a fast-forward"),
+                            ):
+                                with patch.object(promote, "_create_pr") as create:
+                                    result = promote.promote("abc123", "pasi/new-branch", "task")
+        create.assert_not_called()
+        self.assertEqual(result.pr_number, 46)
+        self.assertFalse(result.auto_merge_requested)
+        self.assertIn("no duplicate PR was created", result.message)
 
     def test_existing_closed_pr_is_reopened_instead_of_creating_duplicate(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
