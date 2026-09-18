@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 import db
 from web_api import WebApplication, create_app
@@ -69,6 +70,43 @@ class TestWebApplication(unittest.TestCase):
         self.assertIsNone(me["user"])
         status, _, _ = self.request("POST", "/api/auth/login", {"email": "riley@example.com", "password": "safe-pass-123"})
         self.assertEqual(status, 200)
+
+    def test_login_throttling_is_enforced_for_client_ip(self):
+        self.request(
+            "POST",
+            "/api/auth/signup",
+            {"email": "throttle-web@example.com", "password": "safe-pass-123"},
+        )
+        environ = {"REMOTE_ADDR": "127.0.0.50"}
+        for _ in range(5):
+            status, _, payload = self.request(
+                "POST",
+                "/api/auth/login",
+                {"email": "throttle-web@example.com", "password": "wrong-password"},
+                environ=environ,
+            )
+            self.assertEqual(status, 400)
+            self.assertEqual(payload, {"error": "Email or password is incorrect."})
+        status, _, payload = self.request(
+            "POST",
+            "/api/auth/login",
+            {"email": "throttle-web@example.com", "password": "safe-pass-123"},
+            environ=environ,
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload, {"error": "Email or password is incorrect."})
+
+    def test_unexpected_errors_use_stable_public_error(self):
+        broken = Mock()
+        broken.grouped_categories.side_effect = RuntimeError("sensitive internal path /secret/database")
+        self.app.calculations = broken
+        status, _, payload = self.request("GET", "/api/manifest")
+        self.assertEqual(status, 500)
+        self.assertEqual(
+            payload,
+            {"error": "Internal server error", "code": "internal_server_error"},
+        )
+        self.assertNotIn("secret", json.dumps(payload))
 
     def test_project_metadata_and_chat_are_persistent(self):
         status, _, project = self.request("PATCH", f"/api/projects/{self.project_id}", {"name": "Updated Project", "description": "Project description"})
