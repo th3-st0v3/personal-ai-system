@@ -68,7 +68,7 @@ test('native prompt submission requires explicit user-message acknowledgement', 
 });
 
 test('native completion persists response text before bounded acknowledgement retries', () => {
-  assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
+  assert.match(content, /response_text: String\(responseText \|\| ''\)\.slice\(0, 50000\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
   assert.match(content, /await reportObservation\('chatgpt_response'/);
