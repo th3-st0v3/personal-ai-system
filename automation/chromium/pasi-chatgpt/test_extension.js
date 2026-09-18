@@ -237,3 +237,12 @@ test('background watchdog clears a stale creation cooldown after the exact tab i
   assert.match(background, /await chrome\.storage\.local\.remove\(`create:\$\{targetChatUrl\}`\);/);
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
+
+
+test('native restart recovery uses the persisted pre-prompt baseline when terminal response text is missing', () => {
+  assert.match(content, /else if \(!generating\(\)/);
+  assert.match(content, /const baseline = typeof stored\?\.baseline === 'string' \? stored\.baseline : ''/);
+  assert.match(content, /const visibleResponse = latestAssistant\(\)/);
+  assert.match(content, /visibleFingerprint !== baseline/);
+  assert.match(content, /finishOperation\(stored\.operation_id, visibleResponse, true\)/);
+});
