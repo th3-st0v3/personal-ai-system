@@ -48,6 +48,23 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             )
         )
 
+    def test_controller_observation_requires_current_release_version(self) -> None:
+        now = datetime.now(timezone.utc)
+        timestamp = now.isoformat()
+        current = {
+            "kind": "chatgpt_state",
+            "controller_version": "2.4.11",
+            "captured_at": timestamp,
+        }
+        stale = dict(current, controller_version="2.4.10")
+        missing = dict(current)
+        missing.pop("controller_version")
+
+        with mock.patch.object(engine, "expected_controller_version", return_value="2.4.11"):
+            self.assertTrue(engine.controller_observation_is_compatible(current))
+            self.assertFalse(engine.controller_observation_is_compatible(stale))
+            self.assertFalse(engine.controller_observation_is_compatible(missing))
+
     def test_build_prompt_contains_anti_loop_continuation_rule(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
