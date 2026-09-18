@@ -152,7 +152,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                         with mock.patch.object(engine.time, "sleep"):
                             self.assertTrue(engine.standby_until_ready(state))
 
-        self.assertEqual(service_checks, ["checked"])
+        self.assertEqual(service_checks, ["checked", "checked"])
 
     def test_state_round_trip_uses_schema_v2(self) -> None:
         now = datetime.now(timezone.utc)
