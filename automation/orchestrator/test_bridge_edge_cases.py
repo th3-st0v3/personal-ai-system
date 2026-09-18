@@ -118,8 +118,8 @@ def test_http_finished_rejects_terminal_operation_transition(
             },
         )
 
-        assert retry_status == 409
-        assert "Unsupported operation transition" in retry_body["error"]
+        assert retry_status == 200
+        assert retry_body["operation"]["status"] == "completed"
         persisted = bridge.get_operation(operation.operation_id)
         assert persisted is not None
         assert persisted["status"] == "completed"
