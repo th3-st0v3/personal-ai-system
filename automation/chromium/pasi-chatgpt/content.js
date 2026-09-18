@@ -443,6 +443,31 @@
     }));
   }
 
+  function rememberResponseRecovery(operation, error) {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+    } catch (_) {}
+
+    const startedAt = typeof stored?.started_at === 'string'
+      ? stored.started_at
+      : new Date().toISOString();
+
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: startedAt,
+      started_ms: Date.parse(startedAt) || Date.now(),
+      baseline: fingerprint(),
+      chat_url: chatUrl(),
+      recovery_context: recoveryContext(),
+      reload_count: 0,
+      phase: 'monitoring',
+      error: String(error?.message || error),
+      response_recovery: true
+    }));
+  }
+
   async function finishOperation(operationId, responseText = '', requireResponseText = false) {
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
       throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
@@ -539,8 +564,15 @@
         errorMessage.startsWith('CHAT_EXHAUSTED:') &&
         Number(operation.retry_count || 0) < MAX_CONTEXT_AUTO_RECOVERIES;
 
+      const responseRecoveryEligible =
+        operation.operation_type === 'prompt' &&
+        errorMessage.startsWith('PASI_NATIVE: response text unavailable;');
+
       if (contextRecoveryEligible) {
         rememberContextRecovery(operation, error);
+        finalized = false;
+      } else if (responseRecoveryEligible) {
+        rememberResponseRecovery(operation, error);
         finalized = false;
       } else {
         const failure = (
