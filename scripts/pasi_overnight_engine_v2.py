@@ -371,6 +371,7 @@ def continuation_directive(state: OvernightState, task: str) -> str:
 - After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
 - IF the listed roadmap items are already covered by verified recent work, THEN revisit the repository for the next concrete gap and make that the next task instead of repeating an old task.
 - Never wait for an additional human instruction merely because the current task completed; the persisted runner state is the continuation authority.
+- After any successful completion or bounded failure, continue automatically to the next incomplete roadmap task until the run deadline or an explicit operator stop; do not terminate merely because one task or one provider path finished.
 ROADMAP PHASE: {state.phase}
 ROADMAP:
 {roadmap}
@@ -595,11 +596,23 @@ def run(state: OvernightState, *, push: bool) -> None:
             finished = True
             break
         if not finished:
+            failed_task = state.current_task
             state.failed_tasks += 1
             state.last_result = failure or "bounded retry budget exhausted"
+            # Record the failed task before choosing a replacement so the same task
+            # cannot immediately re-enter the queue after exhausting its attempts.
+            state.recent_tasks.append(failed_task)
+            state.recent_tasks = state.recent_tasks[-12:]
             state.current_task = choose_next_task(state, "")
             save_state(state)
-            log_event("task_failed", phase=state.phase, task_number=state.task_number, error=state.last_result[-6000:])
+            log_event(
+                "task_failed",
+                phase=state.phase,
+                task_number=state.task_number,
+                failed_task=failed_task,
+                next_task=state.current_task,
+                error=state.last_result[-6000:],
+            )
             failure = state.last_result
 
 
