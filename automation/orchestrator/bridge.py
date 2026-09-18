@@ -190,6 +190,13 @@ class BridgeState:
 
         return observation
 
+    def get_browser_response(
+        self,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            response = self.state_manager.load_browser_response()
+            return response if response else None
+
     def get_browser_observation(
         self,
     ) -> dict[str, Any] | None:
@@ -627,6 +634,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     "observation": observation
+                }
+            )
+            return
+
+        if path == "/browser/response":
+            response = self.bridge_state.get_browser_response()
+
+            self._send_json(
+                {
+                    "observation": response
                 }
             )
             return
