@@ -391,8 +391,6 @@ def main() -> None:
                 raise RuntimeError(f"Chromium fixture did not return browser state: {diagnostics}")
             if browser_state.get("response") != EXPECTED_RESPONSE:
                 raise AssertionError(f"Chromium fixture response mismatch: {browser_state}")
-            if browser_state.get("response") != EXPECTED_RESPONSE:
-                raise AssertionError(f"Chromium fixture response mismatch: {browser_state}")
 
             wait_for_bridge_event(20.0)
 
