@@ -92,22 +92,29 @@ def gh_authenticated() -> bool:
     return code == 0
 
 
-def _existing_pr(branch: str) -> tuple[int | None, str]:
-    code, output = _run(["gh", "pr", "view", branch, "--json", "number,url,state"], timeout=20.0)
+def _branch_pr(branch: str) -> tuple[int | None, str, str]:
+    code, output = _run(
+        ["gh", "pr", "view", branch, "--json", "number,url,state"],
+        timeout=20.0,
+    )
     if code != 0:
-        return None, ""
+        return None, "", ""
     try:
         payload = json.loads(output)
     except json.JSONDecodeError:
-        return None, ""
-    if not isinstance(payload, dict) or payload.get("state") != "OPEN":
-        return None, ""
+        return None, "", ""
+    if not isinstance(payload, dict):
+        return None, "", ""
     try:
         number = int(payload["number"])
     except (KeyError, TypeError, ValueError):
-        return None, ""
-    url = str(payload.get("url", ""))
-    return number, url
+        return None, "", ""
+    return number, str(payload.get("url", "")), str(payload.get("state", "")).upper()
+
+
+def _reopen_pr(pr_number: int) -> tuple[bool, str]:
+    return_code, output = _run(["gh", "pr", "reopen", str(pr_number)], timeout=30.0)
+    return return_code == 0, output
 
 
 def _create_pr(branch: str, title: str, body: str) -> tuple[int, str]:
@@ -150,8 +157,21 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
         f"{path_lines or '- none'}\n\n"
         "PASI never auto-merges high-risk controller, browser, security-boundary, provider-routing, or workflow changes. Those changes are opened as normal PRs for human review."
     )
-    pr_number, pr_url = _existing_pr(branch)
+    pr_number, pr_url, pr_state = _branch_pr(branch)
     if pr_number is None:
+        pr_number, pr_url = _create_pr(branch, title, body)
+    elif pr_state == "CLOSED":
+        reopened, output = _reopen_pr(pr_number)
+        if not reopened:
+            return PromotionResult(
+                branch,
+                pr_number,
+                pr_url,
+                risk,
+                False,
+                f"existing closed PR could not be reopened; no duplicate PR created: {output[-2000:]}",
+            )
+    elif pr_state == "MERGED":
         pr_number, pr_url = _create_pr(branch, title, body)
     if not pr_number:
         return PromotionResult(branch, None, pr_url, risk, False, "PR was created but its numeric id could not be parsed")
