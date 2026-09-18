@@ -59,6 +59,8 @@ test('recovery does not consume ordinary queue work directly', () => {
 
 test('recovery tracks monitoring state across reloads and handles context exhaustion separately', () => {
   assert.match(source, /function persistedResponse\(current\)/);
+  assert.match(source, /typeof text === 'string' &&/);
+  assert.doesNotMatch(source, /current\?\.response_text_available === true &&/);
   assert.match(source, /finishPersistedResponse/);
   assert.match(source, /writeRecoveryState\(stateForTimer\)/);
   assert.match(source, /state\.phase === 'context_exhausted'/);
