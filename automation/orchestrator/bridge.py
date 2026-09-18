@@ -304,10 +304,11 @@ class BridgeState:
             return False
 
         response_text = data.get("response_text")
+        # Nonblank, operation-bound response text is the evidence. Do not let
+        # a stale controller availability flag hide already-captured text.
         if (
             not isinstance(response_text, str)
             or len(response_text) > MAX_RESPONSE_TEXT_CHARS
-            or data.get("response_text_available") is not True
             or not response_text.strip()
         ):
             return False
