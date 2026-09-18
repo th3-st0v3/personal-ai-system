@@ -3,7 +3,7 @@
   "enabled": true,
   "version": "2.4.11",
   "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/tampermonkey/chatgpt-controller.user.js",
-  "git_blob_sha": "28cdbc52a53344cf98443dcebcafe78ddd601f46",
+  "git_blob_sha": "d60cf5e8d99eba60a3389db94ccab8c1388b59e9",
   "release_commit": "cca711991143bdbd6ed9e8eda0398adb49eac37b",
   "recovery_version": "1.0.6",
   "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
