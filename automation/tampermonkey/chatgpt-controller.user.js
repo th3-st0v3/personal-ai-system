@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.3
+// @version      2.4.4
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -26,7 +26,7 @@
     var githubAttached = false;
     var reasoningMode = null;
 
-    console.log('[PASI] ChatGPT Controller v2.4.3 loaded.');
+    console.log('[PASI] ChatGPT Controller v2.4.4 loaded.');
     start();
 
     function bridgeRequest(path, options) {
@@ -444,6 +444,7 @@
                     response_text: responseText.slice(0, 50000),
                     response_text_available: true,
                     conversation_context_exhausted: isConversationContextExhaustedVisible(),
+                    active_operation_id: activeOperationId,
                     chat_exhausted: isConversationContextExhaustedVisible()
                 }
             } }
