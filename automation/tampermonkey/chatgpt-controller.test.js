@@ -96,7 +96,8 @@ test('controller re-verifies Thinking immediately before every prompt', () => {
     assert.match(source, /reasoningMode = ['"]thinking['"]/);
     assert.match(source, /aria-checked="true"/);
     assert.match(source, /aria-current="true"/);
-    assert.match(source, /if \(thinkingEnabled\(\) !== true\) throw new Error/);
+    assert.match(source, /var thinkingVerified = await waitFor\(function \(\) \{ return thinkingEnabled\(\) === true \? true : null; \}, 3000\)/);
+    assert.match(source, /if \(!thinkingVerified\) throw new Error/);
     assert.match(source, /await submitPrompt\(operation\.prompt, baselineUsers\)/);
 });
 

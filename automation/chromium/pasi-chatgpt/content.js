@@ -296,7 +296,8 @@
     if (!control || disabled(control)) throw new Error('PASI_NATIVE: Thinking control unavailable');
     control.click();
     await sleep(CLICK_SETTLE_MS);
-    if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified');
+    const thinkingVerified = await waitFor(() => thinkingEnabled() === true ? true : null, 3000);
+    if (!thinkingVerified) throw new Error('PASI_NATIVE: Thinking state could not be verified');
     reasoningMode = 'thinking';
   }
 

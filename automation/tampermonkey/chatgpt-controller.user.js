@@ -180,7 +180,8 @@
         if (isDisabled(control)) throw new Error('ChatGPT Thinking control is disabled.');
         control.click();
         await sleep(CLICK_SETTLE_MS);
-        if (thinkingEnabled() !== true) throw new Error('ChatGPT Thinking state could not be verified.');
+        var thinkingVerified = await waitFor(function () { return thinkingEnabled() === true ? true : null; }, 3000);
+        if (!thinkingVerified) throw new Error('ChatGPT Thinking state could not be verified.');
     }
 
     function findReasoningControl() { return findVisibleLabeledAny(['thinking', 'think', 'thinking mode'], ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]', 'a']); }

@@ -78,7 +78,8 @@ test('native prompt submission re-verifies Thinking before sending', () => {
   assert.match(content, /reasoningMode = 'thinking'/);
   assert.match(content, /aria-checked="true"/);
   assert.match(content, /aria-current="true"/);
-  assert.match(content, /if \(thinkingEnabled\(\) !== true\) throw new Error/);
+  assert.match(content, /const thinkingVerified = await waitFor\(\(\) => thinkingEnabled\(\) === true \? true : null, 3000\)/);
+  assert.match(content, /if \(!thinkingVerified\) throw new Error/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
 });
 
