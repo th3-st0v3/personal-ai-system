@@ -83,8 +83,9 @@ test('controller re-verifies Thinking immediately before every prompt', () => {
 });
 
 test('controller re-checks auth, exhaustion, and Thinking at the send boundary', () => {
+    assert.match(source, /function authRequiredVisible\(\)/);
     assert.match(source, /async function ensurePromptSubmissionReady\(\)/);
-    assert.match(source, /if \(isAuthRequiredVisible\(\)\) throw new Error\('CHAT_AUTH_REQUIRED/);
+    assert.match(source, /if \(authRequiredVisible\(\)\) throw new Error\('CHAT_AUTH_REQUIRED/);
     assert.match(source, /if \(isConversationContextExhaustedVisible\(\)\) throw new Error\('CHAT_EXHAUSTED/);
     assert.match(source, /if \(isUsageLimitedVisible\(\)\) throw new Error\('CHAT_USAGE_LIMITED/);
     assert.match(source, /if \(thinkingEnabled\(\) !== true\) await selectReasoningMode\(['"]thinking['"]\)/);
