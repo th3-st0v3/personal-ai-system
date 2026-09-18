@@ -36,6 +36,7 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /localStorage/);
   assert.match(content, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
+  assert.match(content, /active_operation_id: activeOperationId/);
 });
 
 test('activity indicator is isolated, non-interactive, and reduced-motion aware', () => {
