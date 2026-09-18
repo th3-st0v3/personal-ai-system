@@ -503,7 +503,6 @@
         const payload = operation.ok ? operation.json() : null;
         if (
           payload?.operation?.status === 'completed' &&
-          payload?.operation?.response_text_available === true &&
           typeof payload?.operation?.response_text === 'string' &&
           Boolean(payload.operation.response_text.trim())
         ) return;
