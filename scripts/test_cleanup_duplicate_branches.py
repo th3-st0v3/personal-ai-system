@@ -36,7 +36,7 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         plan = build_cleanup_plan(
             branches,
             open_pr_heads=frozenset(),
-            merged_pr_heads=frozenset(),
+            merged_pr_heads={},
         )
         self.assertEqual([item.name for item in plan.keepers], ["pasi/feature"])
         self.assertEqual(
@@ -44,18 +44,35 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
             {"pasi/feature-final", "pasi/feature-pr"},
         )
 
-    def test_merged_pr_branch_wins_when_competing_with_noncanonical_snapshot(self) -> None:
+    def test_merged_duplicate_branch_is_not_the_keeper(self) -> None:
         branches = (
             BranchRef("feature/local-byte-storage", "abc"),
-            BranchRef("feature/file-service-boundary", "abc"),
             BranchRef("feature/local-byte-storage-final", "abc"),
         )
         plan = build_cleanup_plan(
             branches,
             open_pr_heads=frozenset(),
-            merged_pr_heads=frozenset({"feature/local-byte-storage"}),
+            merged_pr_heads={"feature/local-byte-storage": frozenset({"abc"})},
         )
         self.assertEqual([item.name for item in plan.keepers], ["feature/local-byte-storage"])
+
+    def test_unique_merged_pr_head_is_safe_to_delete(self) -> None:
+        branches = (BranchRef("feature/merged", "abc"),)
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset(),
+            merged_pr_heads={"feature/merged": frozenset({"abc"})},
+        )
+        self.assertEqual([item.name for item in plan.deletions], ["feature/merged"])
+
+    def test_advanced_merged_pr_head_is_preserved(self) -> None:
+        branches = (BranchRef("feature/merged", "newsha"),)
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset(),
+            merged_pr_heads={"feature/merged": frozenset({"oldsha"})},
+        )
+        self.assertEqual(plan.deletions, ())
 
     def test_open_pr_head_is_never_deleted(self) -> None:
         branches = (
@@ -65,7 +82,7 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         plan = build_cleanup_plan(
             branches,
             open_pr_heads=frozenset({"pasi/feature-pr"}),
-            merged_pr_heads=frozenset(),
+            merged_pr_heads={},
         )
         self.assertEqual([item.name for item in plan.deletions], ["pasi/feature"])
 
@@ -77,7 +94,7 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         plan = build_cleanup_plan(
             branches,
             open_pr_heads=frozenset(),
-            merged_pr_heads=frozenset(),
+            merged_pr_heads={},
         )
         self.assertEqual([item.name for item in plan.deletions], ["pasi/snapshot"])
 
@@ -89,7 +106,7 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         plan = build_cleanup_plan(
             branches,
             open_pr_heads=frozenset(),
-            merged_pr_heads=frozenset(),
+            merged_pr_heads={},
             keep_branches=frozenset({"pasi/snapshot"}),
         )
         self.assertEqual(plan.deletions, ())
