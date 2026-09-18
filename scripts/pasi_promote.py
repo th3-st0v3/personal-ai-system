@@ -117,6 +117,33 @@ def _reopen_pr(pr_number: int) -> tuple[bool, str]:
     return return_code == 0, output
 
 
+def _find_open_task_pr(task: str) -> tuple[int | None, str]:
+    code, output = _run(
+        ["gh", "pr", "list", "--state", "open", "--base", MAIN_BRANCH, "--limit", "100", "--json", "number,url,title,body"],
+        timeout=30.0,
+    )
+    if code != 0:
+        return None, ""
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return None, ""
+    if not isinstance(payload, list):
+        return None, ""
+    expected = re.sub(r"\s+", " ", task).strip().casefold()
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        body = re.sub(r"\s+", " ", str(item.get("body", ""))).strip().casefold()
+        title = re.sub(r"\s+", " ", str(item.get("title", ""))).strip().casefold()
+        if f"task: {expected}" in body or expected == title:
+            try:
+                return int(item["number"]), str(item.get("url", ""))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return None, ""
+
+
 def _create_pr(branch: str, title: str, body: str) -> tuple[int, str]:
     code, output = _run(
         ["gh", "pr", "create", "--base", MAIN_BRANCH, "--head", branch, "--title", title[:MAX_TITLE_CHARS], "--body", body[:MAX_BODY_CHARS]],
@@ -158,6 +185,8 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
         "PASI never auto-merges high-risk controller, browser, security-boundary, provider-routing, or workflow changes. Those changes are opened as normal PRs for human review."
     )
     pr_number, pr_url, pr_state = _branch_pr(branch)
+    if pr_number is None:
+        pr_number, pr_url = _find_open_task_pr(task)
     if pr_number is None:
         pr_number, pr_url = _create_pr(branch, title, body)
     elif pr_state == "CLOSED":
