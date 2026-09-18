@@ -91,6 +91,7 @@ async function inspect() {
     }
     return;
   }
+  await chrome.storage.local.remove(`create:${targetChatUrl}`);
   await reloadBoundedTab(matchingTab);
 }
 
