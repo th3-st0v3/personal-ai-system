@@ -13,8 +13,6 @@
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
-  const MAX_CONTEXT_AUTO_RECOVERIES = 1;
-  const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
   const MAX_CONTEXT_AUTO_RECOVERIES = 1;
@@ -146,7 +144,7 @@
 
   function authRequired() {
     const text = normalize(document.body?.innerText || '');
-    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
+    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
   }
 
   function thinkingEnabled() {
