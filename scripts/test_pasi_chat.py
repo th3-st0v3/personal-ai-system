@@ -16,6 +16,8 @@ from scripts.pasi_chat import (
     process_controller_update_signal,
     pending_operation_for_task,
     task_fingerprint,
+    checkpoint_active_operation,
+    clear_active_operation,
     public_github_context_unavailable,
     route_chat,
     wait_for_browser_controller,
@@ -264,6 +266,18 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(public_github_context_unavailable("PASI_PUBLIC_GITHUB_UNAVAILABLE: true"))
         self.assertTrue(public_github_context_unavailable("I can't access the GitHub repository"))
         self.assertFalse(public_github_context_unavailable("I reviewed the GitHub repository and found the bug."))
+
+    def test_checkpoint_and_clear_active_operation_preserve_exact_identity(self) -> None:
+        task = "repair the timeout path"
+        handoff: dict[str, object] = {"chat_url": "https://chatgpt.com/c/current"}
+        checkpoint_active_operation(handoff, "op-timeout", task)
+        self.assertEqual(handoff["active_operation_id"], "op-timeout")
+        self.assertEqual(handoff["active_task_fingerprint"], task_fingerprint(task))
+        self.assertEqual(handoff["active_operation_chat_url"], "https://chatgpt.com/c/current")
+        clear_active_operation(handoff)
+        self.assertNotIn("active_operation_id", handoff)
+        self.assertNotIn("active_task_fingerprint", handoff)
+        self.assertNotIn("active_operation_chat_url", handoff)
 
     def test_pending_operation_is_bound_to_exact_task_fingerprint(self) -> None:
         task = "continue the task"
