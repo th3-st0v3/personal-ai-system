@@ -24,6 +24,7 @@ STATE_PATH = RUNTIME_DIR / "state.json"
 EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
 BRIDGE_URL = "http://127.0.0.1:8765"
+CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
 DEFAULT_HOURS = legacy.DEFAULT_HOURS
 MIN_HOURS = legacy.MIN_HOURS
@@ -283,12 +284,35 @@ def _observation_time(observation: dict[str, Any]) -> datetime | None:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
+def expected_controller_version() -> str | None:
+    try:
+        raw = json.loads(CONTROLLER_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    version = raw.get("version") if isinstance(raw, dict) else None
+    return version.strip() if isinstance(version, str) and version.strip() else None
+
+
+def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
+    data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
+    if not isinstance(data, dict):
+        return False
+    expected = expected_controller_version()
+    actual = data.get("controller_version")
+    return isinstance(expected, str) and expected == actual
+
+
 def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECONDS) -> bool:
     observation = browser_observation()
     if observation is None:
         return False
-    kind = observation.get("kind")
+    data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
+    if not isinstance(data, dict):
+        return False
+    kind = data.get("kind")
     if kind not in {"chatgpt_health", "chatgpt_state"}:
+        return False
+    if not controller_observation_is_compatible(observation):
         return False
     timestamp = _observation_time(observation)
     if timestamp is None:
