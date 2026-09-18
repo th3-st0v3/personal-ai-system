@@ -118,7 +118,7 @@ class TestPasiChat(unittest.TestCase):
         handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
         self.assertIsNone(known_url)
         self.assertIsNone(handoff["chat_url"])
-        self.assertNotIn("https://chatgpt.com/c/old", handoff.get("chat_url_history", []))
+        self.assertFalse(any(entry.get("reason") == "verified_new_chat_session" for entry in handoff.get("chat_url_history", [])))
 
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
