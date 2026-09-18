@@ -113,14 +113,14 @@ test('recovery does not discard persisted recovery state when the bridge tempora
 });
 
 
-test('retry-ready recovery preserves a verified queued operation instead of re-marking it failed or creating another chat', () => {
+test('retry-ready recovery validates the resume marker before waiting for the queued operation', () => {
   assert.match(source, /if \(state\.phase === 'retry_ready'\)/);
-  assert.match(source, /current\.status === 'queued' && state\.resume_operation_id === state\.operation_id/);
+  assert.match(source, /if \(state\.resume_operation_id !== state\.operation_id\)/);
+  assert.match(source, /if \(current\.status === 'queued'\)/);
   assert.match(source, /phase: 'retry_waiting'/);
   assert.match(source, /recovery_action: 'wait_for_runner_resume'/);
   assert.match(source, /phase: 'retry_resume_marker_invalid'/);
 });
-
 
 test('retry-ready recovery clears only its recovery marker once the verified operation resumes running', () => {
   assert.match(source, /if \(state\.resume_operation_id !== state\.operation_id\)/);
