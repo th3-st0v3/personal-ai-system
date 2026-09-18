@@ -62,7 +62,6 @@ async function inspect() {
   if (observationAge(health.observation) <= STALE_MS) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
-  if (!tabs.length) return;
   const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
   const matchingTab = targetChatUrl
     ? tabs.find((tab) => tab.url === targetChatUrl)
