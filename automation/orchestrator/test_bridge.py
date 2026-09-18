@@ -80,6 +80,34 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
     assert status["counts"] == {"completed": 1}
 
 
+def test_response_observation_survives_later_browser_state_updates(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "preserve response")
+    response_observation = {
+        "schema_version": "pasi-native-chromium-v1",
+        "captured_at": "2026-09-18T12:00:00+00:00",
+        "data": {
+            "kind": "chatgpt_response",
+            "active_operation_id": operation.operation_id,
+            "chat_url": "https://chatgpt.com/c/example",
+            "response_text": "durable answer",
+            "response_text_available": True,
+        },
+    }
+    state_observation = {
+        "schema_version": "pasi-native-chromium-v1",
+        "captured_at": "2026-09-18T12:00:01+00:00",
+        "data": {"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/example"},
+    }
+
+    bridge.save_browser_observation(response_observation)
+    bridge.save_browser_observation(state_observation)
+
+    saved = bridge.get_browser_response()
+    assert saved == response_observation
+    assert bridge.get_browser_observation() == state_observation
+
+
 def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("test", "bounded")
