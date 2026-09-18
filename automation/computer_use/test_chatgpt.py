@@ -331,13 +331,13 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertFalse(response.chat_exhausted)
 
     def test_completed_prompt_rechecks_after_delayed_observation(self) -> None:
-        transport = DelayedObservationTransport(delay_cycles=5)
+        transport = DelayedObservationTransport(delay_cycles=2)
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
         response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
         self.assertEqual(response.completion, "complete")
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "delayed browser response")
-        self.assertGreaterEqual(transport.observation_reads, 6)
+        self.assertEqual(transport.observation_reads, 3)
 
     def test_completed_prompt_rechecks_after_observation_failure(self) -> None:
         transport = ObservationFailingTransport([
