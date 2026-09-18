@@ -51,14 +51,14 @@ def stop_server(server: BridgeHTTPServer, thread: threading.Thread) -> None:
     assert not thread.is_alive()
 
 
-def test_http_finished_forces_whitespace_response_unavailable(
+def test_http_finished_rejects_prompt_without_verified_response(
     tmp_path: Path,
 ) -> None:
     bridge = make_bridge(tmp_path)
     server, thread = start_server(bridge)
 
     try:
-        operation = bridge.queue_operation("prompt", "whitespace")
+        operation = bridge.queue_operation("prompt", "response required")
         bridge.claim_next_operation()
         bridge.heartbeat(operation.operation_id)
 
@@ -67,18 +67,18 @@ def test_http_finished_forces_whitespace_response_unavailable(
             "/chat/finished",
             {
                 "operation_id": operation.operation_id,
-                "chat_url": "https://chatgpt.com/c/whitespace",
+                "chat_url": "https://chatgpt.com/c/no-response",
                 "response_text": "   ",
                 "response_text_available": True,
             },
         )
 
-        assert status == 200
-        assert body["operation"]["status"] == "completed"
-        assert body["operation"]["response_text"] == "   "
-        assert body["operation"]["response_text_available"] is False
+        assert status == 409
+        assert body["error"] == "Prompt completion requires verified nonblank response_text."
         persisted = bridge.get_operation(operation.operation_id)
-        assert persisted == body["operation"]
+        assert persisted is not None
+        assert persisted["status"] == "generating"
+        assert "response_text" not in persisted
     finally:
         stop_server(server, thread)
 
