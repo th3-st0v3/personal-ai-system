@@ -128,7 +128,7 @@ nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$
     --hours 168 \
     --worktree "$WORKTREE" \
     --branch "$BRANCH" \
-    "$@" >>"$log_file" 2>&1 < /dev/null &
+    "$@" < /dev/null &
 pid=$!
 
 printf 'Started PASI extended runner (launcher PID %s, 168 hours).\n' "$pid"
