@@ -67,6 +67,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertIn("RECENT TASKS:", prompt)
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
         self.assertIn("empty patch", prompt)
+        self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
 
     def test_failed_task_is_excluded_before_next_selection(self) -> None:
         now = datetime.now(timezone.utc)
