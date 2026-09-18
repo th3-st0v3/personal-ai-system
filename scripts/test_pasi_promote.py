@@ -29,6 +29,20 @@ class TestPasiPromote(unittest.TestCase):
         self.assertFalse(result.auto_merge_requested)
         self.assertIn("not authenticated", result.message)
 
+    def test_existing_closed_pr_is_reopened_instead_of_creating_duplicate(self) -> None:
+        with patch.object(promote, "gh_available", return_value=True):
+            with patch.object(promote, "gh_authenticated", return_value=True):
+                with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
+                    with patch.object(promote, "_branch_pr", return_value=(44, "https://github.com/th3-st0v3/personal-ai-system/pull/44", "CLOSED")):
+                        with patch.object(promote, "_reopen_pr", return_value=(True, "reopened")) as reopen:
+                            with patch.object(promote, "_create_pr") as create:
+                                with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")):
+                                    result = promote.promote("abc123", "pasi/test", "task")
+        reopen.assert_called_once_with(44)
+        create.assert_not_called()
+        self.assertEqual(result.pr_number, 44)
+        self.assertTrue(result.auto_merge_requested)
+
     def test_existing_pr_gets_auto_merge_for_standard_changes(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
