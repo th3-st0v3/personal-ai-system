@@ -56,6 +56,20 @@ class StaleReplacementURLChatAdapter(FakeChatAdapter):
         return "op-new"
 
 
+class DelayedReplacementURLChatAdapter(StaleReplacementURLChatAdapter):
+    def __init__(self, state: dict[str, object] | None = None) -> None:
+        super().__init__(state)
+        self.observation_reads = 0
+
+    def read_browser_observation(self) -> dict[str, object]:
+        self.observation_reads += 1
+        if self.observation_reads < 2:
+            return {"data": dict(self.state)}
+        self.state["active_operation_id"] = "op-new"
+        self.state["chat_url"] = "https://chatgpt.com/c/delayed"
+        return {"data": dict(self.state)}
+
+
 class TestPasiChat(unittest.TestCase):
     def test_build_prompt_uses_public_repo_as_default_and_always_requires_thinking(self) -> None:
         prompt = build_prompt("inspect the bridge", "Repository: https://github.com/example/repo\nWorking tree: clean", {})
@@ -105,6 +119,19 @@ class TestPasiChat(unittest.TestCase):
         handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
         self.assertEqual(known_url, "https://chatgpt.com/c/new")
         self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/new")
+        self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
+
+    def test_new_session_reconciles_delayed_replacement_chat_identity(self) -> None:
+        adapter = DelayedReplacementURLChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/old",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        adapter.last_chat_url = "https://chatgpt.com/c/old"
+        handoff, known_url = route_chat(adapter, {}, "continue the task", "th3-st0v3/personal-ai-system", "auto")
+        self.assertEqual(known_url, "https://chatgpt.com/c/delayed")
+        self.assertEqual(handoff["chat_url"], "https://chatgpt.com/c/delayed")
         self.assertEqual(handoff["chat_url_history"][-1]["reason"], "verified_new_chat_session")
 
     def test_new_session_does_not_reuse_stale_chat_identity(self) -> None:
