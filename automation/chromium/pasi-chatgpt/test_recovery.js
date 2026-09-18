@@ -185,3 +185,10 @@ test('response recovery retries a lost completion acknowledgement within a bound
   assert.match(source, /if \(attempt < 3\) await sleep\(Math\.min\(POLL_MS, 500\)\)/);
   assert.match(source, /phase: 'completion_ack_failed'/);
 });
+
+
+test('terminal recovery attempts a bound visible assistant response before clearing state', () => {
+  assert.match(source, /async function finishVisibleResponse\(operationId, current, baseline\)/);
+  assert.match(source, /if \(await finishVisibleResponse\(operationId, current, state\.baseline\)\)/);
+  assert.match(source, /if \(generating\(\) \|\| !response \|\| currentFingerprint === String\(baseline \|\| ''\)\) return false/);
+});
