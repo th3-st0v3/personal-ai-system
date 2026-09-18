@@ -312,7 +312,7 @@ class TestPasiChat(unittest.TestCase):
 
     def test_checkpoint_and_clear_active_operation_preserve_recovery_identity(self) -> None:
         task = "checkpoint timeout operation"
-        handoff = {"chat_url": "https://chatgpt.com/c/current"}
+        handoff: dict[str, object] = {"chat_url": "https://chatgpt.com/c/current"}
         checkpoint_active_operation(handoff, "op-timeout", task)
         self.assertEqual(handoff["active_operation_id"], "op-timeout")
         self.assertEqual(handoff["active_task_fingerprint"], task_fingerprint(task))
