@@ -254,8 +254,13 @@ class BridgeState:
             return
         if not isinstance(response_text, str) or len(response_text) > MAX_RESPONSE_TEXT_CHARS:
             return
-        if response_text_available is not True or not response_text.strip():
+        # Nonblank response text is the persisted evidence. A stale controller
+        # may report the legacy availability flag incorrectly, but that flag
+        # must not discard an already-bound response. Blank text remains
+        # fail-closed.
+        if not response_text.strip():
             return
+        response_text_available = True
 
         queue = self.state_manager.load_queue()
         for item in queue:
