@@ -95,7 +95,7 @@ class BridgeState:
 
         return None
 
-  def claim_next_operation(self) -> dict[str, Any] | None:
+    def claim_next_operation(self) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
 
