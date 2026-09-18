@@ -69,6 +69,9 @@ class UrllibBridgeTransport:
 
 
 @dataclass
+COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
+
+
 class ChatGPTAdapter(AIAdapter):
     """Semantic ChatGPT adapter built on the existing local bridge."""
 
@@ -164,7 +167,7 @@ class ChatGPTAdapter(AIAdapter):
 
     def _recheck_completed_response(self, operation_id: str, response: AIResponse) -> AIResponse:
         latest = response
-        for attempt in range(3):
+        for attempt in range(COMPLETED_RESPONSE_RECHECK_ATTEMPTS):
             if attempt:
                 time.sleep(min(self.poll_interval_seconds, 0.25))
             try:
