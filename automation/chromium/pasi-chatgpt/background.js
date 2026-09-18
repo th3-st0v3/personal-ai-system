@@ -3,6 +3,7 @@ const ALARM = 'pasi-watchdog';
 const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
 const STALE_MS = 30 * 1000;
+const CREATE_RETRY_MS = 60 * 1000;
 
 async function bridgeJson(path) {
   const controller = new AbortController();
@@ -40,6 +41,17 @@ async function refreshBudget(tabId) {
   return stored;
 }
 
+async function createCooldown(targetChatUrl) {
+  const key = `create:${targetChatUrl}`;
+  const stored = (await chrome.storage.local.get(key))[key];
+  if (!stored || Date.now() - stored > CREATE_RETRY_MS) return false;
+  return true;
+}
+
+async function markCreateAttempt(targetChatUrl) {
+  await chrome.storage.local.set({ [`create:${targetChatUrl}`]: Date.now() });
+}
+
 async function reloadBoundedTab(tab) {
   if (!tab || typeof tab.id !== 'number') return;
 
@@ -69,7 +81,14 @@ async function inspect() {
   // If the exact conversation tab is gone, recreate only the verified target
   // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
   if (!matchingTab) {
-    await chrome.tabs.create({ url: targetChatUrl });
+    if (await createCooldown(targetChatUrl)) return;
+    await markCreateAttempt(targetChatUrl);
+    try {
+      await chrome.tabs.create({ url: targetChatUrl });
+    } catch (_) {
+      // Keep the cooldown so a transient browser rejection does not create
+      // repeated tabs on every watchdog alarm.
+    }
     return;
   }
   await reloadBoundedTab(matchingTab);
