@@ -111,6 +111,34 @@ class TestPasiChat(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "browser controller is not reporting a live heartbeat"):
             wait_for_browser_controller(adapter, timeout_seconds=0.2)
 
+    def test_compact_handoff_preserves_pending_operation_identity(self) -> None:
+        import scripts.pasi_chat as pasi_chat
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            original_path = pasi_chat.SESSION_STATE_PATH
+            original_limit = pasi_chat.MAX_HANDOFF_CHARS
+            try:
+                pasi_chat.SESSION_STATE_PATH = root / "session.json"
+                pasi_chat.MAX_HANDOFF_CHARS = 200
+                handoff = {
+                    "chat_url": "https://chatgpt.com/c/current",
+                    "chat_exhausted": False,
+                    "active_operation_id": "op-pending",
+                    "active_task_fingerprint": task_fingerprint("resume compact state"),
+                    "active_operation_chat_url": "https://chatgpt.com/c/current",
+                    "summary": "x" * 6000,
+                    "chat_url_history": [{"previous_url": "https://chatgpt.com/c/a", "new_url": "https://chatgpt.com/c/b", "reason": "test"}] * 20,
+                }
+                pasi_chat.save_handoff(handoff)
+                persisted = pasi_chat.load_handoff()
+                self.assertEqual(persisted["active_operation_id"], "op-pending")
+                self.assertEqual(persisted["active_task_fingerprint"], handoff["active_task_fingerprint"])
+                self.assertEqual(persisted["active_operation_chat_url"], handoff["active_operation_chat_url"])
+            finally:
+                pasi_chat.SESSION_STATE_PATH = original_path
+                pasi_chat.MAX_HANDOFF_CHARS = original_limit
+
     def test_pending_operation_prevents_replacement_routing(self) -> None:
         task = "resume without creating another chat"
         adapter = FakeChatAdapter({
