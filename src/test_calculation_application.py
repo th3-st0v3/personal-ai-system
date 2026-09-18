@@ -84,9 +84,10 @@ class TestCalculationApplication(unittest.TestCase):
 
     def test_runs_and_saves_through_application_boundary(self):
         with patch("calculation_application.db.save_calculation_record", return_value=42) as save:
-            calculation_id, record = self.app.run_and_save("hydrostatic_pressure", {"density": 1000, "gravity": 9.81, "depth": 10})
+            calculation_id, record, trace = self.app.run_and_save("hydrostatic_pressure", {"density": 1000, "gravity": 9.81, "depth": 10})
         self.assertEqual(calculation_id, 42)
         self.assertEqual(record.result, 98100.0)
+        self.assertEqual(trace.result, 98100.0)
         save.assert_called_once_with(record)
 
     def test_rejects_unknown_missing_and_non_numeric_inputs(self):
