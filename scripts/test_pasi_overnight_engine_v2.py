@@ -88,6 +88,24 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
         self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
 
+    def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="non-roadmap-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            recent_tasks=[],
+        )
+        self.assertEqual(
+            engine.choose_next_task(state, "invented task outside roadmap"),
+            engine.AUTOMATION_TASKS[0],
+        )
+
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
