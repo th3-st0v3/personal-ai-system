@@ -111,6 +111,35 @@ class TestPasiChat(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "browser controller is not reporting a live heartbeat"):
             wait_for_browser_controller(adapter, timeout_seconds=0.2)
 
+    def test_pending_operation_prevents_replacement_routing(self) -> None:
+        task = "resume without creating another chat"
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/current",
+            "chat_exhausted": True,
+            "github_attached": False,
+        })
+        handoff = {
+            "active_operation_id": "op-pending",
+            "active_task_fingerprint": task_fingerprint(task),
+            "active_operation_chat_url": "https://chatgpt.com/c/current",
+            "chat_url": "https://chatgpt.com/c/current",
+            "chat_exhausted": True,
+        }
+
+        routed, known_url = route_chat(
+            adapter,
+            handoff,
+            task,
+            "th3-st0v3/personal-ai-system",
+            "auto",
+        )
+
+        self.assertEqual(known_url, "https://chatgpt.com/c/current")
+        self.assertEqual(routed["active_operation_id"], "op-pending")
+        self.assertFalse(any(call[0] == "new_session" for call in adapter.calls))
+        self.assertFalse(any(call[0] == "select_reasoning" for call in adapter.calls))
+
     def test_new_session_preserves_verified_chat_identity(self) -> None:
         adapter = FakeChatAdapter({
             "kind": "chatgpt_state",
