@@ -81,3 +81,11 @@ test('recovery refresh handling reads the current operation before using persist
   assert.match(source, /if \(!current\) return false/);
   assert.match(source, /finishPersistedResponse\(current\)/);
 });
+
+
+test('recovery carries bounded conversational context into the requeued operation', () => {
+  assert.match(source, /function recoveryContextFromActiveState\(\)/);
+  assert.match(source, /body\.recovery_context = recoveryContext/);
+  assert.match(source, /state\.recovery_context \|\| recoveryContextFromActiveState\(\)/);
+  assert.match(source, /CHAT_EXHAUSTED: verified conversation context exhaustion/);
+});
