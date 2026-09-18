@@ -24,6 +24,8 @@ MAX_RESPONSE_BYTES = 2_000_000
 MAX_PROMPT_CHARS = 90_000
 OLLAMA_DISCOVERY_TIMEOUT = 2.0
 OLLAMA_REQUEST_TIMEOUT = 30.0
+OPENROUTER_429_RETRY_MAX = 1
+OPENROUTER_429_MAX_DELAY = 5.0
 
 SYSTEM_PROMPT = """You are a provider-fallback engineering assistant for Personal AI System.
 You are operating only because the primary ChatGPT browser path is unavailable or needs a recovery path.
@@ -257,6 +259,23 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
                 return provider, call_perplexity(prompt, limit)
             return provider, call_opencode(prompt, repo, limit)
         except urllib.error.HTTPError as exc:
+            if provider == "openrouter" and exc.code == 429 and OPENROUTER_429_RETRY_MAX > 0:
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                try:
+                    delay = min(float(retry_after), OPENROUTER_429_MAX_DELAY) if retry_after is not None else 0.0
+                except (TypeError, ValueError):
+                    delay = 0.0
+                if delay > 0:
+                    remaining_after_delay = timeout - (time.monotonic() - started) - delay
+                    if remaining_after_delay > 5:
+                        time.sleep(delay)
+                        try:
+                            return provider, call_openrouter(prompt, min(per_provider, remaining_after_delay))
+                        except urllib.error.HTTPError as retry_exc:
+                            errors.append(f"{provider}: HTTP {retry_exc.code} after bounded 429 retry")
+                        except (OSError, TimeoutError, ValueError, RuntimeError, urllib.error.URLError) as retry_exc:
+                            errors.append(f"{provider}: {bounded_text(str(retry_exc), 500)} after bounded 429 retry")
+                        continue
             errors.append(f"{provider}: HTTP {exc.code}")
         except (OSError, TimeoutError, ValueError, RuntimeError, urllib.error.URLError) as exc:
             errors.append(f"{provider}: {bounded_text(str(exc), 500)}")
