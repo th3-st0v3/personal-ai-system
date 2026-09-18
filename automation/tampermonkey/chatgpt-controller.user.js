@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Personal AI System - ChatGPT Controller
 // @namespace    http://tampermonkey.net/
-// @version      2.4.10
+// @version      2.4.11
 // @description  Provider-specific ChatGPT browser controller for PASI.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
@@ -12,7 +12,7 @@
     'use strict';
 
     var BRIDGE_URL = 'http://127.0.0.1:8765';
-    var CONTROLLER_VERSION = '2.4.10';
+    var CONTROLLER_VERSION = '2.4.11';
     var POLL_INTERVAL_MS = 250;
     var STATE_INTERVAL_MS = 5000;
     var DOM_POLL_INTERVAL_MS = 100;
@@ -380,12 +380,53 @@
         return false;
     }
 
+    function isGitHubConnectionFailureVisible() {
+        var bodyText = normalize(document.body ? document.body.innerText : '');
+        var markers = [
+            'github connection failed',
+            'github connection error',
+            'failed to connect to github',
+            'could not connect to github',
+            'unable to connect to github',
+            'github connection is unavailable',
+            'github access is unavailable',
+            'github access failed',
+            'github authentication required',
+            'github authentication failed',
+            'reconnect github',
+            'connect your github account',
+            'github app connection failed'
+        ];
+        for (var i = 0; i < markers.length; i += 1) if (bodyText.indexOf(markers[i]) !== -1) return true;
+
+        var alerts = document.querySelectorAll('[role="alert"], [role="dialog"]');
+        for (var j = 0; j < alerts.length; j += 1) {
+            if (!isVisible(alerts[j])) continue;
+            var alertText = normalize(alerts[j].innerText || alerts[j].textContent || '');
+            for (var k = 0; k < markers.length; k += 1) if (alertText.indexOf(markers[k]) !== -1) return true;
+        }
+        return false;
+    }
+
+    function completionProgress(responseText) {
+        var text = typeof responseText === 'string' ? responseText : '';
+        var statusMatch = text.match(/^PASI_RESULT_STATUS:\\s*(.+)$/m);
+        var progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\\s*(.+)$/m);
+        var nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\\s*(.+)$/m);
+        return {
+            completion_status: statusMatch ? statusMatch[1].trim().toLowerCase() : null,
+            repository_progress: progressMatch ? progressMatch[1].trim().toLowerCase() : null,
+            next_task: nextTaskMatch ? nextTaskMatch[1].trim() : null
+        };
+    }
+
     async function reportResponseObservation(responseText) {
         try {
+            var progress = completionProgress(responseText);
             await bridgeRequest('/browser/observation', { method: 'POST', body: { observation: {
                 schema_version: 'chatgpt-controller-v2',
                 captured_at: new Date().toISOString(),
-                data: { kind: 'chatgpt_response', controller_version: CONTROLLER_VERSION, chat_url: chatUrl(), response_text: responseText.slice(0, 50000), response_text_available: true, conversation_context_exhausted: isConversationContextExhaustedVisible(), chat_exhausted: isConversationContextExhaustedVisible(), provider_usage_limited: isUsageLimitedVisible(), active_operation_id: activeOperationId }
+                data: { kind: 'chatgpt_response', controller_version: CONTROLLER_VERSION, chat_url: chatUrl(), response_text: responseText.slice(0, 50000), response_text_available: true, completion_status: progress.completion_status, repository_progress: progress.repository_progress, next_task: progress.next_task, conversation_context_exhausted: isConversationContextExhaustedVisible(), chat_exhausted: isConversationContextExhaustedVisible(), provider_usage_limited: isUsageLimitedVisible(), active_operation_id: activeOperationId }
             } } });
         } catch (error) {
             console.warn('[PASI] Could not persist ChatGPT response observation; completion path remains authoritative.', error);
@@ -418,7 +459,13 @@
 
     async function reportFinished(operationId, responseText) {
         var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()) };
-        if (typeof responseText === 'string') body.response_text = responseText.slice(0, 50000);
+        if (typeof responseText === 'string') {
+            body.response_text = responseText.slice(0, 50000);
+            var progress = completionProgress(responseText);
+            body.completion_status = progress.completion_status;
+            body.repository_progress = progress.repository_progress;
+            body.next_task = progress.next_task;
+        }
         var lastError = null;
         for (var attempt = 1; attempt <= 3; attempt += 1) {
             try {

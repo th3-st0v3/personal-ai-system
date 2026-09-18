@@ -1,12 +1,12 @@
 {
   "schema_version": "1",
   "enabled": true,
-  "version": "2.4.10",
+  "version": "2.4.11",
   "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/tampermonkey/chatgpt-controller.user.js",
-  "git_blob_sha": "e2ac4a6873c236cde0f8314e66f41c9bce18d799",
+  "git_blob_sha": "d60cf5e8d99eba60a3389db94ccab8c1388b59e9",
   "release_commit": "cca711991143bdbd6ed9e8eda0398adb49eac37b",
   "recovery_version": "1.0.6",
   "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
   "recovery_git_blob_sha": "b61866a001c4e0092375fc537fe0ec0d4500f088",
-  "reason": "Hardened prompt submission acknowledgement, direct bounded response delivery with completion acknowledgement, non-blocking response observation across Tampermonkey and native controller/recovery paths, chat identity tracking, bounded reload recovery, response-text persistence through completion acknowledgement loss, and verified exhaustion-only chat replacement and serialized native recovery inspection with persisted retry-ready state continuity, throttled missing-operation observations, and operation-scoped recovery context"
+  "reason": "Hardened prompt submission acknowledgement, direct bounded response delivery with completion acknowledgement, non-blocking response observation across Tampermonkey and native controller/recovery paths, chat identity tracking, bounded reload recovery, response-text persistence through completion acknowledgement loss, and verified exhaustion-only chat replacement and serialized native recovery inspection with persisted retry-ready state continuity, throttled missing-operation observations, operation-scoped recovery context, and roadmap progress telemetry"
 }

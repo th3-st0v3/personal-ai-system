@@ -2,7 +2,7 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const CONTROLLER_VERSION = '2.4.10';
+  const CONTROLLER_VERSION = '2.4.11';
   const POLL_MS = 250;
   const HEALTH_MS = 5000;
   const DOM_POLL_MS = 100;
@@ -477,6 +477,18 @@
     }));
   }
 
+  function completionProgress(responseText) {
+    const text = typeof responseText === 'string' ? responseText : '';
+    const statusMatch = text.match(/^PASI_RESULT_STATUS:\\s*(.+)$/m);
+    const progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\\s*(.+)$/m);
+    const nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\\s*(.+)$/m);
+    return {
+      completion_status: statusMatch ? statusMatch[1].trim().toLowerCase() : null,
+      repository_progress: progressMatch ? progressMatch[1].trim().toLowerCase() : null,
+      next_task: nextTaskMatch ? nextTaskMatch[1].trim() : null
+    };
+  }
+
   async function finishOperation(operationId, responseText = '', requireResponseText = false) {
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
       throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
@@ -487,10 +499,12 @@
       response_text: responseText.slice(0, 50000),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
+    if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
     await reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
       response_text: body.response_text,
       response_text_available: body.response_text_available,
+      ...(typeof responseText === 'string' ? completionProgress(responseText) : {}),
       conversation_context_exhausted: contextExhausted(),
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
