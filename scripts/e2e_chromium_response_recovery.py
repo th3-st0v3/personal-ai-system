@@ -355,7 +355,11 @@ def main() -> None:
                         }
                     }
                 },
-                timeout=10.0,
+                # Chrome can take longer than the short health-check window to
+                # finish creating a headless session on a loaded CI runner.
+                # Keep this bounded, but do not fail the acceptance test merely
+                # because browser startup is slower than normal.
+                timeout=CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS,
             )
             value = created.get("value")
             if not isinstance(value, dict):
