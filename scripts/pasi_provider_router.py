@@ -262,13 +262,14 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
             if provider == "openrouter" and exc.code == 429 and OPENROUTER_429_RETRY_MAX > 0:
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 try:
-                    delay = min(float(retry_after), OPENROUTER_429_MAX_DELAY) if retry_after is not None else 0.0
+                    delay = min(float(retry_after), OPENROUTER_429_MAX_DELAY) if retry_after is not None else None
                 except (TypeError, ValueError):
-                    delay = 0.0
-                if delay > 0:
+                    delay = None
+                if delay is not None and delay >= 0:
                     remaining_after_delay = timeout - (time.monotonic() - started) - delay
                     if remaining_after_delay > 5:
-                        time.sleep(delay)
+                        if delay:
+                            time.sleep(delay)
                         try:
                             return provider, call_openrouter(prompt, min(per_provider, remaining_after_delay))
                         except urllib.error.HTTPError as retry_exc:
