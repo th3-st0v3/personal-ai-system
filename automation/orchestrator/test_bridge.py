@@ -294,6 +294,41 @@ def test_browser_response_observation_derives_availability_from_nonblank_text(tm
     assert current["response_source"] == "browser_observation"
 
 
+def test_completed_operation_repairs_late_response_with_stale_availability_flag(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "repair stale availability")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+    bridge.heartbeat(operation.operation_id)
+
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/stale-repair",
+    )
+    assert completed is not None
+    assert completed["status"] == "completed"
+
+    bridge.state_manager.save_browser_response(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-18T00:00:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/stale-repair",
+                "response_text": "persisted response with stale availability flag",
+                "response_text_available": False,
+            },
+        }
+    )
+
+    repaired = bridge.get_operation(operation.operation_id)
+    assert repaired is not None
+    assert repaired["response_text"] == "persisted response with stale availability flag"
+    assert repaired["response_text_available"] is True
+    assert repaired["response_source"] == "browser_observation"
+
+
 def test_mismatched_browser_response_does_not_attach_to_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "do not attach")
