@@ -17,6 +17,8 @@ RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
 CONTROLLER_LOG="$RUNTIME_DIR/controller-distribution.log"
+BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
+CONTROLLER_PID_FILE="$RUNTIME_DIR/controller-distribution.pid"
 
 if [[ ! -x "$PYTHON" ]]; then
     printf 'error: expected executable Python at %s\n' "$PYTHON" >&2
@@ -87,7 +89,8 @@ start_service() {
     local name="$1"
     local url="$2"
     local log_file="$3"
-    shift 3
+    local pid_file="$4"
+    shift 4
 
     if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
         printf '%s: already healthy\n' "$name"
@@ -98,7 +101,9 @@ start_service() {
     # Close the launcher's flock descriptor in the child before exec. Without
     # this, long-lived services inherit fd 9 and keep start.lock held after the
     # launcher exits, falsely reporting that a run is still starting.
-    nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$@" < /dev/null &
+    nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 1048576 --backups 2 -- "$@" < /dev/null &
+    local service_pid=$!
+    printf '%s\n' "$service_pid" > "$pid_file"
 }
 
 # The direct PASI ChatGPT Controller 2.4.x talks to this localhost bridge.
@@ -107,12 +112,14 @@ start_service \
     'PASI bridge' \
     'http://127.0.0.1:8765/health' \
     "$BRIDGE_LOG" \
+    "$BRIDGE_PID_FILE" \
     "$PYTHON" -m automation.orchestrator.bridge
 
 start_service \
     'PASI controller distribution' \
     'http://127.0.0.1:8766/health' \
     "$CONTROLLER_LOG" \
+    "$CONTROLLER_PID_FILE" \
     "$PYTHON" "$REPO_ROOT/scripts/pasi_controller_server.py"
 
 service_deadline=$((SECONDS + 20))
