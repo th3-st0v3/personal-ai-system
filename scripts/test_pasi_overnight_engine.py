@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts.pasi_overnight_engine import (
     RunnerState,
+    build_prompt,
     choose_next_task,
     completion_contract_is_satisfied,
     parse_response,
