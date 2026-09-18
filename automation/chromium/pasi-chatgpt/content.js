@@ -475,7 +475,7 @@
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
-      response_text: responseText.slice(0, 50000),
+      response_text: String(responseText || '').slice(0, 50000),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
     await reportObservation('chatgpt_response', {
