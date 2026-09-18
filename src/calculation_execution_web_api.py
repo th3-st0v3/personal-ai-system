@@ -10,6 +10,8 @@ from calculation_application import CalculationApplication
 class CalculationExecutionWebApplication:
     """Expose one canonical calculation execution endpoint for the browser client."""
 
+    MAX_REQUEST_BODY_BYTES = 256 * 1024
+
     def __init__(self, calculations: CalculationApplication | None = None) -> None:
         self.calculations = calculations or CalculationApplication()
 
@@ -25,6 +27,8 @@ class CalculationExecutionWebApplication:
             return [payload]
         try:
             length = int(environ.get("CONTENT_LENGTH") or 0)
+            if length < 0 or length > self.MAX_REQUEST_BODY_BYTES:
+                raise ValueError("Request body too large.")
             wsgi_input = environ.get("wsgi.input")
             if length and wsgi_input is None:
                 raise ValueError("Request body stream is unavailable.")
@@ -38,8 +42,8 @@ class CalculationExecutionWebApplication:
                 raise ValueError("inputs must be an object.")
             save = environ.get("PATH_INFO", "").rstrip("/") == "/api/calculations/run/save" or bool(data.get("save", False))
             if save:
-                record_id, record = self.calculations.run_and_save(model_key, inputs)
-                response = self.calculations.run_trace(model_key, inputs).to_dict()
+                record_id, record, trace = self.calculations.run_and_save(model_key, inputs)
+                response = trace.to_dict()
                 response["record_id"] = record_id
                 response["record"] = {"calculation_type": record.calculation_type, "method": record.method, "method_version": record.method_version, "source": record.source}
             else:
@@ -47,8 +51,11 @@ class CalculationExecutionWebApplication:
             status, headers, payload = self._json(200, response)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             status, headers, payload = self._json(400, {"error": str(exc) or "Invalid request"})
-        except Exception as exc:
-            status, headers, payload = self._json(500, {"error": str(exc) or "Calculation failed"})
+        except Exception:
+            status, headers, payload = self._json(
+                500,
+                {"error": "Calculation failed", "code": "calculation_failed"},
+            )
         start_response(f"{status} {'OK' if status < 300 else 'Error'}", headers)
         return [payload]
 
