@@ -179,6 +179,16 @@ class ChatGPTAdapterTests(unittest.TestCase):
         with self.assertRaises(ChatGPTAdapterError):
             ChatGPTAdapter(FakeTransport([]), session_id="session-1").read_response()
 
+    def test_read_response_reconciles_delayed_browser_text(self) -> None:
+        transport = DelayedObservationTransport(delay_cycles=2)
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        adapter.current_operation_id = "op-1"
+        response = adapter.read_response()
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "delayed browser response")
+        self.assertGreaterEqual(transport.observation_reads, 3)
+
     def test_read_operation_scopes_query_parameter(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op/a", "status": "generating"}}])
         response = ChatGPTAdapter(transport, session_id="session-1").read_operation("op/a")
