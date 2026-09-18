@@ -1000,14 +1000,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        operation = (
-            self.bridge_state.complete_operation(
+        try:
+            operation = self.bridge_state.complete_operation(
                 operation_id=operation_id,
                 chat_url=chat_url,
                 response_text=response_text,
                 response_text_available=response_text_available,
             )
-        )
+        except InvalidOperationTransition:
+            # Completion acknowledgements are retried by the browser controller.
+            # Once an operation is durably completed, return its persisted state
+            # instead of turning a duplicate acknowledgement into a recovery loop.
+            operation = self.bridge_state.get_operation(operation_id)
+            if operation is None or operation.get("status") != "completed":
+                raise
 
         if operation is None:
             self._send_json(
