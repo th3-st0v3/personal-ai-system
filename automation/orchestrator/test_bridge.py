@@ -181,7 +181,7 @@ def test_completed_operation_repairs_late_browser_response_observation(tmp_path:
     assert completed["status"] == "completed"
     assert completed["response_text_available"] is False
 
-    bridge.state_manager.save_browser_results(
+    bridge.state_manager.save_browser_response(
         {
             "schema_version": "pasi-native-chromium-v2",
             "captured_at": "2026-09-17T21:48:00Z",
