@@ -36,6 +36,7 @@ test('controller sends the verified response directly with completion acknowledg
     assert.match(source, /void reportResponseObservation\(response\)/);
     assert.match(source, /await reportFinished\(operation\.operation_id, response\)/);
     assert.match(source, /function reportFinished\(operationId, responseText\)/);
+    assert.match(source, /status === 'completed' && payload\.operation\.response_text_available === true/);
     assert.match(source, /if \(typeof responseText === 'string'\) body\.response_text = responseText\.slice\(0, 50000\)/);
     assert.match(source, /for \(var attempt = 1; attempt <= 3; attempt \+= 1\)/);
     assert.match(source, /\/operation\?operation_id=/);
