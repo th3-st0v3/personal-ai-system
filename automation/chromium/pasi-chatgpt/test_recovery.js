@@ -65,3 +65,10 @@ test('recovery preserves response text casing while still normalizing marker che
   assert.match(source, /const compact =/);
   assert.doesNotMatch(source, /const text = normalize\(markdown\[index\]/);
 });
+
+
+test('monitoring recovery keeps the normal bounded reload path before reloaded-state handling', () => {
+  assert.match(source, /if \(state\.phase === 'monitoring'\)/);
+  assert.match(source, /await preserveOrReload\(state\.operation_id, state\)/);
+  assert.match(source, /await handleReloadRecovery\(state\)/);
+});

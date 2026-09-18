@@ -429,6 +429,8 @@
       if (state.phase === 'monitoring') {
         const startedMs = Number(state.started_ms || Date.parse(current.created_at || '') || Date.now());
         if (Date.now() - startedMs < RECOVERY_TRIGGER_MS && !connectionFailure()) return;
+        await preserveOrReload(state.operation_id, state);
+        return;
       }
 
       await handleReloadRecovery(state);
