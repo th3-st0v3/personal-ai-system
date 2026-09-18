@@ -176,6 +176,7 @@ def test_http_queue_response_loss_is_recovered_without_duplicate_operation(tmp_p
         assert body["operation"]["operation_id"]
         assert restarted_bridge.get_status()["history_size"] == 1
         persisted = restarted_bridge.get_operation(body["operation"]["operation_id"])
+        assert persisted is not None
         assert persisted["operation_id"] == body["operation"]["operation_id"]
         assert persisted["status"] == body["operation"]["status"] == "queued"
         assert persisted["idempotency_key"] == idempotency_key
