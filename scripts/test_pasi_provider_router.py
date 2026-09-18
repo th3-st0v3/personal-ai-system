@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from email.message import Message
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -78,7 +79,7 @@ class TestProviderRouter(unittest.TestCase):
                     "https://openrouter.ai/api/v1/chat/completions",
                     429,
                     "rate limited",
-                    {"Retry-After": "1"},
+                    Message({"Retry-After": "1"}),
                     None,
                 )
             return "retry response"
@@ -105,7 +106,7 @@ class TestProviderRouter(unittest.TestCase):
                     "https://openrouter.ai/api/v1/chat/completions",
                     429,
                     "rate limited",
-                    {},
+                    Message(),
                     None,
                 )
             return "headerless retry response"
@@ -132,7 +133,7 @@ class TestProviderRouter(unittest.TestCase):
                     "https://openrouter.ai/api/v1/chat/completions",
                     429,
                     "rate limited",
-                    {"Retry-After": "0"},
+                    Message({"Retry-After": "0"}),
                     None,
                 )
             return "immediate retry response"
@@ -154,7 +155,7 @@ class TestProviderRouter(unittest.TestCase):
             "https://openrouter.ai/api/v1/chat/completions",
             429,
             "rate limited",
-            {"Retry-After": "30"},
+            Message({"Retry-After": "30"}),
             None,
         )
         with patch.object(pasi_provider_router, "providers_available", return_value=["openrouter", "ollama"]):
