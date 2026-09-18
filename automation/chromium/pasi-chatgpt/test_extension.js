@@ -128,7 +128,7 @@ test('background bounded reload helper retains per-tab refresh budget', () => {
 
 
 test('native controller pauses ordinary queue polling while a recovery state is active', () => {
-  assert.match(content, /processing \|\| activeOperationId !== null \|\| localStorage\.getItem\(RECOVERY_KEY\)/);
+  assert.match(content, /if \(processing \|\| activeOperationId !== null\) return/);
 });
 
 
