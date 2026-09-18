@@ -109,20 +109,28 @@ def test_completed_operation_repairs_response_after_state_observation_overwrites
     assert claimed is not None
     bridge.heartbeat(operation.operation_id)
 
-    bridge.save_browser_observation(
-        {
-            "schema_version": "pasi-native-chromium-v2",
-            "captured_at": "2026-09-17T21:50:00Z",
-            "data": {
-                "kind": "chatgpt_response",
-                "active_operation_id": operation.operation_id,
-                "chat_url": "https://chatgpt.com/c/preserve",
-                "response_text": "response persisted before a later heartbeat",
-                "response_text_available": True,
-            },
-        }
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/preserve",
     )
-    bridge.save_browser_observation(
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["response_text_available"] is False
+
+    response_observation = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-17T21:50:00Z",
+        "data": {
+            "kind": "chatgpt_response",
+            "active_operation_id": operation.operation_id,
+            "chat_url": "https://chatgpt.com/c/preserve",
+            "response_text": "response persisted before a later heartbeat",
+            "response_text_available": True,
+        },
+    }
+    bridge.state_manager.save_browser_response(response_observation)
+    bridge.state_manager.save_browser_results(response_observation)
+    bridge.state_manager.save_browser_results(
         {
             "schema_version": "pasi-native-chromium-v2",
             "captured_at": "2026-09-17T21:50:01Z",
@@ -134,17 +142,9 @@ def test_completed_operation_repairs_response_after_state_observation_overwrites
         }
     )
 
-    completed = bridge.complete_operation(
-        operation.operation_id,
-        chat_url="https://chatgpt.com/c/preserve",
-    )
-    assert completed is not None
-    assert completed["status"] == "completed"
-    assert completed["response_text_available"] is True
-    assert completed["response_text"] == "response persisted before a later heartbeat"
-
     latest = bridge.get_operation(operation.operation_id)
     assert latest is not None
+    assert latest["status"] == "completed"
     assert latest["response_text_available"] is True
     assert latest["response_text"] == "response persisted before a later heartbeat"
     assert latest["response_source"] == "browser_observation"
