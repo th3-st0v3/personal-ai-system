@@ -240,7 +240,55 @@ class TransientOperationReadTransport(FakeTransport):
         raise AssertionError(f"unexpected transport request: {method} {path}")
 
 
+class TimeoutReconciliationTransport(FakeTransport):
+    def __init__(self, response_observation: Mapping[str, Any]) -> None:
+        super().__init__([])
+        self.response_observation = response_observation
+
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        if path.startswith("/operation?"):
+            return {"operation": {"operation_id": "op-timeout", "operation_type": "prompt", "status": "generating"}}
+        if path == "/browser/response":
+            return {"observation": self.response_observation}
+        raise AssertionError(f"unexpected transport request: {method} {path}")
+
+
 class ChatGPTAdapterTests(unittest.TestCase):
+    def test_timeout_reconciles_operation_bound_browser_response(self) -> None:
+        transport = TimeoutReconciliationTransport({
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": "op-timeout",
+                "chat_url": "https://chatgpt.com/c/late",
+                "response_text": "late verified response",
+                "response_text_available": True,
+                "chat_exhausted": False,
+            }
+        })
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, max_wait_seconds=0.001)
+        response = adapter.wait_for_completion("op-timeout")
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "late verified response")
+        self.assertEqual(response.chat_url, "https://chatgpt.com/c/late")
+        self.assertEqual([path for _, path, _ in transport.requests], ["/operation?operation_id=op-timeout", "/browser/response"])
+
+    def test_timeout_rejects_browser_response_for_different_operation(self) -> None:
+        transport = TimeoutReconciliationTransport({
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": "different-operation",
+                "response_text": "stale response",
+                "response_text_available": True,
+            }
+        })
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, max_wait_seconds=0.001)
+        response = adapter.wait_for_completion("op-timeout")
+        self.assertEqual(response.completion, "timeout")
+        self.assertFalse(response.response_available)
+        self.assertEqual(response.text, "")
+
     def test_completed_prompt_rechecks_delayed_durable_response(self) -> None:
         transport = DelayedObservationTransport(delay_cycles=2)
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
