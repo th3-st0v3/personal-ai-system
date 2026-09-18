@@ -428,8 +428,10 @@ The patch must apply with git apply, modify only repository files, and contain n
 def choose_next_task(state: OvernightState, suggested: str) -> str:
     candidate = re.sub(r"\s+", " ", suggested).strip()
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
-    if candidate and candidate.casefold() not in {item.casefold() for item in state.recent_tasks[-12:]}:
-        return candidate
+    configured = {item.casefold(): item for item in candidates}
+    recent = {item.casefold() for item in state.recent_tasks[-12:]}
+    if candidate.casefold() in configured and candidate.casefold() not in recent:
+        return configured[candidate.casefold()]
     return choose_unique(candidates, state)
 
 
