@@ -30,7 +30,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
 });
 
 test('native controller reports roadmap completion and repository progress markers', () => {
-  assert.match(content, /const CONTROLLER_VERSION = ['"]2\.4\.12['"]/);
+  assert.match(content, /const CONTROLLER_VERSION = ['"]2\.4\.11['"]/);
   assert.match(content, /function completionProgress\(responseText\)/);
   assert.match(content, /PASI_RESULT_STATUS:/);
   assert.match(content, /PASI_RESULT_REPOSITORY_PROGRESS:/);
