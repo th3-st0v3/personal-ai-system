@@ -11,6 +11,7 @@ class TestPasiPromote(unittest.TestCase):
         self.assertEqual(promote.classify_risk(["automation/chromium/pasi-chatgpt/recovery.js"]), "high")
         self.assertEqual(promote.classify_risk(["scripts/pasi_provider_router.py"]), "high")
         self.assertEqual(promote.classify_risk(["scripts/pasi_promote.py"]), "high")
+        self.assertEqual(promote.classify_risk(["automation/orchestrator/bridge.py"]), "high")
         self.assertEqual(promote.classify_risk([".github/workflows/test.yml"]), "high")
 
     def test_standard_changes_are_auto_merge_eligible(self) -> None:
