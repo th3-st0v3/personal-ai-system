@@ -107,9 +107,8 @@ def save_handoff(payload: Mapping[str, object]) -> None:
         safe.pop("context_source", None)
     text = json.dumps(safe, indent=2, ensure_ascii=False)
     if len(text) > MAX_HANDOFF_CHARS:
-        # Preserve recovery-critical operation identity even when optional handoff
-        # metadata pushes the serialized state over the size budget. Dropping these
-        # fields can turn an interrupted accepted prompt into a duplicate submission.
+        # Preserve recovery-critical operation identity while keeping the checkpoint
+        # bounded even if untrusted/history metadata is unexpectedly oversized.
         minimal = {
             key: safe[key]
             for key in (
@@ -118,16 +117,35 @@ def save_handoff(payload: Mapping[str, object]) -> None:
                 "github_attached",
                 "reasoning_mode",
                 "context_source",
-                "chat_url_history",
                 "active_operation_id",
                 "active_task_fingerprint",
                 "active_operation_chat_url",
             )
             if key in safe
         }
+        history = safe.get("chat_url_history")
+        if isinstance(history, list):
+            compact_history: list[dict[str, str]] = []
+            for entry in history[-MAX_CHAT_HISTORY:]:
+                if not isinstance(entry, Mapping):
+                    continue
+                compact_entry: dict[str, str] = {}
+                for key in ("previous_url", "new_url", "reason"):
+                    value = entry.get(key)
+                    if isinstance(value, str):
+                        compact_entry[key] = value[:500]
+                if compact_entry:
+                    compact_history.append(compact_entry)
+            if compact_history:
+                minimal["chat_url_history"] = compact_history[-4:]
         if "summary" in safe:
             minimal["summary"] = str(safe["summary"])[-4_000:]
         text = json.dumps(minimal, indent=2, ensure_ascii=False)
+        if len(text) > MAX_HANDOFF_CHARS:
+            # Operation identity is more important than optional diagnostic history.
+            minimal.pop("chat_url_history", None)
+            minimal.pop("summary", None)
+            text = json.dumps(minimal, indent=2, ensure_ascii=False)
     temporary = SESSION_STATE_PATH.with_suffix(".json.tmp")
     temporary.write_text(text + "\n", encoding="utf-8")
     temporary.replace(SESSION_STATE_PATH)
