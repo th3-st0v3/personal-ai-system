@@ -476,7 +476,7 @@
       operation_id: operationId,
       chat_url: chatUrl(),
       response_text: responseText.slice(0, 50000),
-      response_text_available: Boolean(responseText)
+      response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
     await reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
