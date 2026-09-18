@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass
@@ -141,7 +142,8 @@ class ChatGPTAdapter(AIAdapter):
     def submit_prompt(self, prompt: str) -> str:
         if not prompt.strip():
             raise ValueError("prompt is required")
-        operation_id = self._operation_id(self._queue("prompt", prompt))
+        idempotency_key = hashlib.sha256(f"{self.session_id}\0{prompt.strip()}".encode("utf-8")).hexdigest()
+        operation_id = self._operation_id(self._queue("prompt", prompt, idempotency_key=idempotency_key))
         self.current_operation_id = operation_id
         return operation_id
 
@@ -212,8 +214,11 @@ class ChatGPTAdapter(AIAdapter):
                 return latest
         return latest
 
-    def _queue(self, operation_type: str, prompt: str) -> Mapping[str, Any]:
-        payload = self.transport.request("POST", "/queue", {"operation_type": operation_type, "prompt": prompt})
+    def _queue(self, operation_type: str, prompt: str, *, idempotency_key: str | None = None) -> Mapping[str, Any]:
+        body: dict[str, Any] = {"operation_type": operation_type, "prompt": prompt}
+        if idempotency_key is not None:
+            body["idempotency_key"] = idempotency_key
+        payload = self.transport.request("POST", "/queue", body)
         operation = payload.get("operation")
         if not isinstance(operation, Mapping):
             raise ChatGPTAdapterError("bridge response did not contain an operation")
