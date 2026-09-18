@@ -457,11 +457,20 @@
         `CHAT_RECOVERED_RETRY: verified ${reason}; a fresh ChatGPT conversation was prepared for the same task.`,
         recoveryContext
       );
+      const latestRecoveryState = readRecoveryState();
+      if (latestRecoveryState) {
+        writeRecoveryState({
+          ...latestRecoveryState,
+          resume_operation_id: operationId,
+          phase: 'retry_ready'
+        });
+      }
       await report('chatgpt_recovery', { phase: 'ready_for_retry', operation_id: operationId, recovery_action: 'fresh_chat_prepared', replacement_reason: reason });
     } catch (error) {
       await markRetryableFailure(operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}`);
       await report('chatgpt_recovery', { phase: 'failed', operation_id: operationId, recovery_action: 'retry_runner', error: String(error?.message || error) });
     }
+    if (readRecoveryState()?.resume_operation_id === operationId) return;
     clearRecoveryState();
   }
 
