@@ -137,6 +137,7 @@ class DelayedObservationTransport(FakeTransport):
                 "observation": {
                     "data": {
                         "kind": "chatgpt_response",
+                        "active_operation_id": "op-1",
                         "chat_url": "https://chatgpt.com/c/delayed",
                         "response_text": "delayed browser response",
                         "response_text_available": True,
