@@ -82,6 +82,7 @@ class ChatGPTAdapter(AIAdapter):
     poll_interval_seconds: float = 0.25
     max_wait_seconds: float = 3600.0
     current_operation_id: str | None = None
+    last_chat_url: str | None = None
 
     provider: str = "chatgpt"
 
@@ -97,6 +98,8 @@ class ChatGPTAdapter(AIAdapter):
         result = self.wait_for_completion(self.current_operation_id, recover_response_text=False)
         if result.completion != "complete":
             raise ChatGPTAdapterError(f"new ChatGPT session did not complete: {result.completion}")
+        if result.chat_url:
+            self.last_chat_url = result.chat_url
         return self.current_operation_id
 
     def attach_github_repository(self, repository: str) -> str:
