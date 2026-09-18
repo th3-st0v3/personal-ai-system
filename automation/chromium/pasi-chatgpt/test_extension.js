@@ -48,7 +48,7 @@ test('native prompt submission requires explicit user-message acknowledgement', 
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /newestUserMatches/);
   assert.match(content, /waitForSubmissionAck/);
-  assert.match(content, /prompt could not be verified after bounded attempts/);
+  assert.match(content, /prompt submission could not be verified after bounded attempts/);
 });
 
 test('native completion persists response text before bounded acknowledgement retries', () => {
