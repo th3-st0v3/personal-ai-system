@@ -127,7 +127,7 @@ class DurableResponseTransportTests(unittest.TestCase):
                 }
             ]
         )
-        adapter = ChatGPTAdapter(transport=transport)
+        adapter = ChatGPTAdapter(transport=transport, session_id="test-session")
         result = adapter.read_browser_response_observation()
 
         self.assertEqual(result["data"]["active_operation_id"], "op-1")
