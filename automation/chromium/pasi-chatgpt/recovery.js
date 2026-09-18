@@ -136,6 +136,7 @@
       response_text: responseText.slice(0, 50000),
       response_text_available: Boolean(responseText),
       chat_exhausted: contextExhausted(),
+      active_operation_id: operationId,
       recovery_action: 'preserve_response'
     });
     const finished = await bridge('/chat/finished', {
