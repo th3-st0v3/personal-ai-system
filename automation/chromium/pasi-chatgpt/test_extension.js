@@ -157,8 +157,9 @@ test('native recovery exact-claims the original prompt retry and clears its resu
   assert.match(content, /localStorage\.removeItem\(RECOVERY_KEY\)/);
 });
 
-test('native prompt completion refuses an empty response payload', () => {
-  assert.match(content, /typeof responseText !== 'string' \|\| !responseText\.trim\(\)/);
-  assert.match(content, /response text unavailable; completion acknowledgement withheld/);
-  assert.match(content, /async function finishOperation\(operationId, responseText = ''\)/);
+test('native prompt completion refuses an empty response payload while non-prompt operations may complete without one', () => {
+  assert.match(content, /async function finishOperation\(operationId, responseText = '', requireResponseText = false\)/);
+  assert.match(content, /if \(requireResponseText && \(typeof responseText !== 'string' \|\| !responseText\.trim\(\)\)\)/);
+  assert.match(content, /await finishOperation\(operation\.operation_id, response, true\)/);
+  assert.match(content, /await finishOperation\(operation\.operation_id\);/);
 });
