@@ -369,6 +369,8 @@ def continuation_directive(state: OvernightState, task: str) -> str:
 - IF the CURRENT TASK is not yet satisfied, THEN continue it and use a materially different approach when PREVIOUS FAILURE EVIDENCE shows the prior approach failed.
 - A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
 - After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
+- IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
+- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: ongoing and provide the required patch.
 - IF the listed roadmap items are already covered by verified recent work, THEN revisit the repository for the next concrete gap and make that the next task instead of repeating an old task.
 - After any successful completion or bounded failure, continue automatically to the next incomplete roadmap task until the run deadline or an explicit operator stop; do not terminate merely because one task or one provider path finished.
 ROADMAP PHASE: {state.phase}
@@ -416,6 +418,7 @@ PASI_RESULT_RESEARCH: performed|not_applicable
 PASI_RESULT_UX: verified|not_applicable
 PASI_RESULT_BACKEND: verified|not_applicable
 PASI_RESULT_EVIDENCE: concise tests/verification evidence
+PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped
 PASI_RESULT_ALLOW_DELETE: true|false
 PASI_RESULT_PATCH_BEGIN
 <one unified git diff>
@@ -571,7 +574,29 @@ def run(state: OvernightState, *, push: bool) -> None:
                 failure = response[-12_000:] or "ChatGPT fallback returned a non-zero exit status"
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
-            if not completion_contract(status, values) or not patch:
+            contract_ok = completion_contract(status, values)
+            if contract_ok and legacy.no_change_completion_is_satisfied(
+                Path(state.worktree), status, next_task, patch, values
+            ):
+                state.completed_tasks += 1
+                state.last_result = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
+                state.next_task = choose_next_task(state, next_task)
+                state.recent_tasks.append(state.current_task)
+                state.current_task = state.next_task
+                state.next_task = ""
+                state.current_attempt = 0
+                save_state(state)
+                log_event(
+                    "task_completed_no_change",
+                    phase=state.phase,
+                    task_number=state.task_number,
+                    reason="task already satisfied and repository remained clean",
+                    next_task=state.current_task,
+                )
+                failure = ""
+                finished = True
+                break
+            if not contract_ok or not patch:
                 failure = summary or response[-12_000:] or "provider returned no usable completion contract"
                 continue
             try:
