@@ -72,7 +72,8 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
             open_pr_heads=frozenset(),
             merged_pr_heads={"feature/merged": frozenset({"oldsha"})},
         )
-        self.assertEqual(plan.deletions, ())
+        self.assertEqual([item.name for item in plan.keepers], ["pasi/snapshot"])
+        self.assertEqual([item.name for item in plan.deletions], ["pasi/canonical"])
 
     def test_open_pr_head_is_never_deleted(self) -> None:
         branches = (
