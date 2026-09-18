@@ -69,6 +69,7 @@ class UrllibBridgeTransport:
 
 
 COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
+BROWSER_RESPONSE_RECHECK_ATTEMPTS = 4
 
 
 @dataclass
@@ -201,12 +202,20 @@ class ChatGPTAdapter(AIAdapter):
         should_check_observation = operation.get("operation_type") == "prompt" and not response_available and (completion == "complete" or completion_ack_lost)
 
         if should_check_observation:
-            try:
-                observation = self.read_browser_observation()
-            except ChatGPTAdapterError:
-                observation = None
-            data = observation.get("data") if isinstance(observation, Mapping) else None
-            if isinstance(data, Mapping):
+            attempts = BROWSER_RESPONSE_RECHECK_ATTEMPTS if completion_ack_lost else 1
+            for attempt in range(attempts):
+                if attempt:
+                    time.sleep(min(self.poll_interval_seconds, 0.25))
+                try:
+                    observation = self.read_browser_observation()
+                except ChatGPTAdapterError:
+                    continue
+                data = observation.get("data") if isinstance(observation, Mapping) else None
+                if not isinstance(data, Mapping):
+                    continue
+                observed_operation_id = data.get("active_operation_id")
+                if observed_operation_id is not None and observed_operation_id != operation_id:
+                    continue
                 kind = data.get("kind")
                 if kind == "chatgpt_response":
                     observed_text = data.get("response_text")
@@ -218,6 +227,7 @@ class ChatGPTAdapter(AIAdapter):
                         # completion acknowledgement itself was lost after the server accepted it.
                         if completion_ack_lost:
                             completion = "complete"
+                        break
                     observed_url = data.get("chat_url")
                     if chat_url is None and isinstance(observed_url, str):
                         chat_url = observed_url
