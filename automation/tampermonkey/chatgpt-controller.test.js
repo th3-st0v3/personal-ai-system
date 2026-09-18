@@ -7,7 +7,7 @@ const controllerPath = path.join(__dirname, 'chatgpt-controller.user.js');
 const source = fs.readFileSync(controllerPath, 'utf8');
 
 test('controller declares the expected current version', () => {
-    assert.match(source, /@version\s+2\.4\.3/);
+    assert.match(source, /@version\s+2\.4\.4/);
 });
 
 test('controller supports conditional reasoning selection', () => {
@@ -29,6 +29,7 @@ test('controller extracts live assistant responses and reports them', () => {
     assert.match(source, /data-message-author-role=\\?"assistant/);
     assert.match(source, /kind: ['"]chatgpt_response['"]/);
     assert.match(source, /response_text_available: true/);
+    assert.match(source, /active_operation_id: activeOperationId/);
 });
 
 test('controller treats only conversation/context exhaustion as new-chat exhaustion', () => {
