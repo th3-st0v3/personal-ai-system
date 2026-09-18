@@ -543,7 +543,10 @@
           const box = await waitFor(composer, TIMEOUTS.composer);
           if (!box) throw new Error('PASI_NATIVE: composer unavailable');
           const baseline = fingerprint();
-          const activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+          let activeState = {};
+          try {
+            activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+          } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           setText(box, '');
           insertText(box, operation.prompt);
