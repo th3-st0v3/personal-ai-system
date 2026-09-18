@@ -119,11 +119,19 @@ class BridgeState:
         observation: dict[str, Any],
     ) -> dict[str, Any]:
         with self.lock:
-            self.state_manager.save_browser_results(
-                observation
-            )
+            data = observation.get("data")
+            if isinstance(data, dict) and data.get("kind") == "chatgpt_response":
+                self.state_manager.save_browser_response(observation)
+            self.state_manager.save_browser_results(observation)
 
         return observation
+
+    def get_browser_response(
+        self,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            response = self.state_manager.load_browser_response()
+            return response if response else None
 
     def get_browser_observation(
         self,
@@ -384,6 +392,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     "observation": observation
                 }
             )
+            return
+
+        if path == "/browser/response":
+            observation = self.bridge_state.get_browser_response()
+            self._send_json({"observation": observation})
             return
 
         if path == "/operation":
@@ -883,6 +896,9 @@ class ChatGPTBridge:
         )
         print(
             "  GET  /operation?operation_id=<id>"
+        )
+        print(
+            "  GET  /browser/response"
         )
         print(
             "  POST /queue"
