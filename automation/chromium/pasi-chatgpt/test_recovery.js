@@ -135,11 +135,11 @@ test('retry-ready recovery clears only its recovery marker once the verified ope
 
 test('recovery serializes inspection so a slow recovery cannot overlap and duplicate recovery work', () => {
   assert.match(source, /let inspecting = false/);
-  assert.match(source, /async function runInspection\\(\\)/);
-  assert.match(source, /if \\(inspecting\\) return/);
+  assert.match(source, /async function runInspection\(\)/);
+  assert.match(source, /if \(inspecting\) return/);
   assert.match(source, /inspecting = true/);
-  assert.match(source, /finally \\{/);
+  assert.match(source, /finally \{/);
   assert.match(source, /inspecting = false/);
-  assert.match(source, /setInterval\\(\\(\\) => \\{ runInspection\\(\\)\\.catch\\(\\(\\) => \\{\\}\\); \\}, POLL_MS\\)/);
-  assert.match(source, /await runInspection\\(\\)/);
+  assert.match(source, /setInterval\(\(\) => \{ runInspection\(\)\.catch\(\(\) => \{\}\); \}, POLL_MS\)/);
+  assert.match(source, /await runInspection\(\)/);
 });
