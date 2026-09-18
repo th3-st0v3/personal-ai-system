@@ -160,6 +160,40 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertTrue(response.chat_exhausted)
         self.assertEqual(response.error, "CHAT_EXHAUSTED: usage limit")
 
+    def test_timeout_recovers_operation_bound_browser_response(self) -> None:
+        transport = FakeTransport([
+            {"operation": {"operation_id": "op-late", "status": "generating"}},
+            {"observation": {"data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": "op-late",
+                "chat_url": "https://chatgpt.com/c/late",
+                "response_text": "late response",
+                "response_text_available": True,
+                "chat_exhausted": False,
+            }}},
+        ])
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, max_wait_seconds=0.001)
+        response = adapter.wait_for_completion("op-late")
+        self.assertEqual(response.completion, "complete")
+        self.assertTrue(response.response_available)
+        self.assertEqual(response.text, "late response")
+        self.assertEqual(response.chat_url, "https://chatgpt.com/c/late")
+
+    def test_timeout_rejects_unbound_browser_response(self) -> None:
+        transport = FakeTransport([
+            {"operation": {"operation_id": "op-late", "status": "generating"}},
+            {"observation": {"data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": "different-operation",
+                "response_text": "stale response",
+                "response_text_available": True,
+            }}},
+        ])
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, max_wait_seconds=0.001)
+        response = adapter.wait_for_completion("op-late")
+        self.assertEqual(response.completion, "timeout")
+        self.assertFalse(response.response_available)
+
     def test_wait_timeout_is_explicit_timeout(self) -> None:
         transport = RepeatingTransport({"operation": {"operation_id": "op-1", "status": "generating"}})
         response = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, max_wait_seconds=0.001).wait_for_completion("op-1")
