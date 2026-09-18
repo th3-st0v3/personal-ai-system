@@ -101,3 +101,19 @@ test('background service worker performs bounded stale-tab recovery', () => {
   assert.match(background, /MAX_REFRESHES/);
   assert.match(background, /auth_required/);
 });
+
+
+test('native controller defers first context-exhaustion failure to bounded recovery', () => {
+  assert.match(content, /RECOVERY_KEY = 'pasi:chatgpt-recovery'/);
+  assert.match(content, /MAX_CONTEXT_AUTO_RECOVERIES = 1/);
+  assert.match(content, /errorMessage\.startsWith\('CHAT_EXHAUSTED:'\)/);
+  assert.match(content, /rememberContextRecovery\(operation, error\)/);
+  assert.match(content, /context recovery exhausted/);
+  assert.match(content, /await reportObservation\('chatgpt_response'/);
+});
+
+test('background watchdog targets the tab matching the reported ChatGPT conversation before fallback recency', () => {
+  assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string'/);
+  assert.match(background, /tabs\.find\(\(tab\) => tab\.url === targetChatUrl\)/);
+  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
+});

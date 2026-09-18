@@ -49,3 +49,19 @@ test('recovery does not consume ordinary queue work directly', () => {
   assert.match(source, /\/queue/);
   assert.doesNotMatch(source, /\/next-operation/);
 });
+
+
+test('recovery tracks monitoring state across reloads and handles context exhaustion separately', () => {
+  assert.match(source, /function persistedResponse\(current\)/);
+  assert.match(source, /finishPersistedResponse/);
+  assert.match(source, /knownChatUrl \|\| location\.href/);
+  assert.match(source, /writeRecoveryState\(stateForTimer\)/);
+  assert.match(source, /state\.phase === 'context_exhausted'/);
+  assert.match(source, /async function handleContextExhausted\(state\)/);
+  assert.match(source, /MAX_CONTEXT_RECOVERIES = 1/);
+});
+
+test('recovery preserves response text casing while still normalizing marker checks', () => {
+  assert.match(source, /const compact =/);
+  assert.doesNotMatch(source, /const text = normalize\(markdown\[index\]/);
+});

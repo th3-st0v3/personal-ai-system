@@ -12,6 +12,8 @@
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
+  const RECOVERY_KEY = 'pasi:chatgpt-recovery';
+  const MAX_CONTEXT_AUTO_RECOVERIES = 1;
   let activeOperationId = null;
   let processing = false;
   let reasoningMode = null;
@@ -374,6 +376,29 @@
     throw new Error('PASI_NATIVE: ChatGPT generation timed out');
   }
 
+  function rememberContextRecovery(operation, error) {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+    } catch (_) {}
+
+    const startedAt = typeof stored?.started_at === 'string'
+      ? stored.started_at
+      : new Date().toISOString();
+
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: startedAt,
+      started_ms: Date.parse(startedAt) || Date.now(),
+      baseline: fingerprint(),
+      chat_url: chatUrl(),
+      reload_count: 0,
+      phase: 'context_exhausted',
+      error: String(error?.message || error)
+    }));
+  }
+
   async function finishOperation(operationId, responseText = '') {
     const body = {
       operation_id: operationId,
@@ -381,7 +406,7 @@
       response_text: responseText.slice(0, 50000),
       response_text_available: Boolean(responseText)
     };
-    void reportObservation('chatgpt_response', {
+    await reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
       response_text: body.response_text,
       response_text_available: body.response_text_available,
@@ -452,7 +477,24 @@
       await finishOperation(operation.operation_id);
       finalized = true;
     } catch (error) {
-      finalized = await failOperation(operation.operation_id, error);
+      const errorMessage = String(error?.message || error);
+      const contextRecoveryEligible =
+        operation.operation_type === 'prompt' &&
+        errorMessage.startsWith('CHAT_EXHAUSTED:') &&
+        Number(operation.retry_count || 0) < MAX_CONTEXT_AUTO_RECOVERIES;
+
+      if (contextRecoveryEligible) {
+        rememberContextRecovery(operation, error);
+        finalized = false;
+      } else {
+        const failure = (
+          errorMessage.startsWith('CHAT_EXHAUSTED:') &&
+          Number(operation.retry_count || 0) >= MAX_CONTEXT_AUTO_RECOVERIES
+        )
+          ? new Error('PASI_NATIVE: context recovery exhausted: ' + errorMessage)
+          : error;
+        finalized = await failOperation(operation.operation_id, failure);
+      }
       throw error;
     } finally {
       activeOperationId = null;

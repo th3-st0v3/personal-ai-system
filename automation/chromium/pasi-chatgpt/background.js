@@ -40,6 +40,12 @@ async function refreshBudget(tabId) {
   return stored;
 }
 
+async function reloadBoundedTab(tab) {
+  if (!tab || typeof tab.id !== 'number') return;
+
+  await reloadBoundedTab(tab);
+}
+
 async function inspect() {
   const status = await bridgeJson('/status');
   const payload = await bridgeJson('/browser/observation');
@@ -51,6 +57,14 @@ async function inspect() {
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
   if (!tabs.length) return;
+  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
+  const matchingTab = targetChatUrl
+    ? tabs.find((tab) => tab.url === targetChatUrl)
+    : null;
+  if (matchingTab) {
+    await reloadBoundedTab(matchingTab);
+    return;
+  }
   tabs.sort((a, b) => Number(b.lastAccessed || 0) - Number(a.lastAccessed || 0));
   const tab = tabs[0];
   if (!tab.id) return;

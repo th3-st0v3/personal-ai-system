@@ -597,3 +597,21 @@ def test_heartbeat_requires_claimed_or_generating_state(tmp_path: Path) -> None:
     final = bridge.get_operation(operation.operation_id)
     assert final is not None
     assert final["status"] == "queued"
+
+
+def test_context_exhaustion_is_requeued_for_one_bounded_fresh_chat(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "continue after context exhaustion")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+    bridge.heartbeat(operation.operation_id)
+
+    recovered = bridge.fail_operation(
+        operation.operation_id,
+        "CHAT_EXHAUSTED: conversation context is exhausted",
+    )
+
+    assert recovered is not None
+    assert recovered["status"] == "queued"
+    assert recovered["retry_count"] == 1
+    assert recovered["last_retry_error"] == "CHAT_EXHAUSTED: conversation context is exhausted"
