@@ -68,11 +68,6 @@
     return ['network error', 'connection lost', 'failed to fetch', 'websocket', 'reconnecting'].some((marker) => text.includes(marker));
   }
 
-  function usageLimited() {
-    const text = normalize(document.body?.innerText || '');
-    return !contextExhausted() && ['current usage limit', 'usage limit reached', 'free tier limit', 'message limit', 'daily limit', 'weekly limit', 'model usage limit', 'rate limit', 'too many requests'].some((marker) => text.includes(marker));
-  }
-
   function contextExhausted() {
     const text = normalize(document.body?.innerText || '');
     return ['this conversation has reached its limit', 'conversation has reached its limit', 'conversation is too long', 'conversation is full', 'maximum conversation length', 'maximum length for this conversation', 'context limit reached', 'context window limit', 'context length limit', 'start a new chat to continue', 'start a new conversation to continue'].some((marker) => text.includes(marker));
