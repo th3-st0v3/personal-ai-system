@@ -35,7 +35,7 @@ class TestPasiControllerServer(unittest.TestCase):
         manifest, source, actual_sha = load_verified_recovery()
         self.assertEqual(actual_sha, manifest["recovery_git_blob_sha"])
         self.assertIn("GENERATION_TIMEOUT_MS", source)
-        self.assertEqual(manifest["recovery_version"], "1.0.5")
+        self.assertEqual(manifest["recovery_version"], "1.0.6")
 
     def test_git_show_preserves_crlf_bytes(self) -> None:
         payload = b"controller-bytes\r\n"
