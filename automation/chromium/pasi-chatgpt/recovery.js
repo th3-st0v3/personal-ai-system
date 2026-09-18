@@ -12,6 +12,7 @@
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
   const MAX_CONTEXT_RECOVERIES = 1;
+  const MISSING_OPERATION_GRACE_MS = 60 * 1000;
   const RECOVERY_VERSION = '1.0.5';
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -494,7 +495,21 @@
       }
 
       const current = await operation(state.operation_id);
-      if (!current || current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
+      if (!current) {
+        const missingSince = Number(state.missing_operation_since_ms || Date.now());
+        if (!state.missing_operation_since_ms) {
+          writeRecoveryState({ ...state, missing_operation_since_ms: missingSince });
+        }
+        await report('chatgpt_recovery', {
+          phase: 'operation_lookup_unavailable',
+          operation_id: state.operation_id,
+          recovery_action: 'wait_for_operation_state',
+          missing_operation_age_ms: Date.now() - missingSince,
+          grace_ms: MISSING_OPERATION_GRACE_MS
+        });
+        return;
+      }
+      if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
         clearInterruptedState();
         return;
       }
@@ -513,7 +528,16 @@
     const operationId = activeOperationId();
     if (!operationId) return;
     const current = await operation(operationId);
-    if (!current || current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') return;
+    if (!current) {
+      await report('chatgpt_recovery', {
+        phase: 'operation_lookup_unavailable',
+        operation_id: operationId,
+        recovery_action: 'wait_for_operation_state',
+        grace_ms: MISSING_OPERATION_GRACE_MS
+      });
+      return;
+    }
+    if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') return;
 
     if (await finishPersistedResponse(current)) {
       clearInterruptedState();
