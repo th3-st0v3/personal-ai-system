@@ -20,6 +20,7 @@ MAX_RESPONSE_TEXT_CHARS = 50_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
 MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
+MAX_IDEMPOTENCY_KEY_CHARS = 128
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -58,22 +59,37 @@ class BridgeState:
         self,
         operation_type: str,
         prompt: str,
+        idempotency_key: str | None = None,
     ) -> ChatOperation:
-        operation = ChatOperation(
-            operation_id=self._new_operation_id(),
-            operation_type=operation_type,
-            prompt=prompt,
-            status="queued",
-        )
+        if idempotency_key is not None:
+            if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS:
+                raise ValueError("idempotency_key must be a nonblank bounded string")
 
         with self.lock:
             queue = self.state_manager.load_queue()
+            if idempotency_key is not None:
+                for item in queue:
+                    if (
+                        item.get("idempotency_key") == idempotency_key
+                        and item.get("operation_type") == operation_type
+                        and item.get("prompt") == prompt
+                        and item.get("status") not in {"completed", "failed", "cancelled"}
+                    ):
+                        fields = ChatOperation.__dataclass_fields__
+                        return ChatOperation(**{key: item[key] for key in fields if key in item})
+
+            operation = ChatOperation(
+                operation_id=self._new_operation_id(),
+                operation_type=operation_type,
+                prompt=prompt,
+                idempotency_key=idempotency_key,
+                status="queued",
+            )
             item = operation.to_dict()
             item["retry_count"] = 0
             queue.append(item)
             self.state_manager.save_queue(queue)
-
-        return operation
+            return operation
 
     def claim_operation(
         self,
@@ -847,6 +863,15 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "prompt"
         )
 
+        idempotency_key = payload.get("idempotency_key")
+        if idempotency_key is not None and (
+            not isinstance(idempotency_key, str)
+            or not idempotency_key.strip()
+            or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS
+        ):
+            self._send_json({"error": "idempotency_key must be a nonblank bounded string."}, HTTPStatus.BAD_REQUEST)
+            return
+
         if not isinstance(
             operation_type,
             str,
@@ -887,6 +912,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self.bridge_state.queue_operation(
                 operation_type=operation_type,
                 prompt=prompt,
+                idempotency_key=idempotency_key,
             )
         )
 
