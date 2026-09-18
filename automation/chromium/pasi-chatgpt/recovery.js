@@ -149,9 +149,9 @@
 
   async function finishExisting(operationId, responseText, knownChatUrl = '') {
     const bounded = responseText.slice(0, 50000);
-    void report('chatgpt_response', {
+    await report('chatgpt_response', {
       response_text: bounded,
-      response_text_available: Boolean(bounded),
+      response_text_available: Boolean(bounded.trim()),
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
       recovery_action: 'preserve_response'
