@@ -2,7 +2,7 @@
   'use strict';
 
   const BRIDGE = 'http://127.0.0.1:8765';
-  const CONTROLLER_VERSION = '2.4.8';
+  const CONTROLLER_VERSION = '2.4.9';
   const POLL_MS = 250;
   const HEALTH_MS = 5000;
   const DOM_POLL_MS = 100;
@@ -616,7 +616,24 @@
       if (!stored?.operation_id) return;
       const current = await bridge(`/operation?operation_id=${encodeURIComponent(stored.operation_id)}`);
       const payload = current.ok ? current.json() : null;
-      if (payload?.operation?.status === 'completed' || payload?.operation?.status === 'failed' || payload?.operation?.status === 'cancelled') {
+      const operation = payload?.operation;
+      if (!operation) return;
+
+      if (operation.status === 'completed') {
+        const responseText = typeof operation.response_text === 'string' ? operation.response_text : '';
+        const responseAvailable =
+          operation.response_text_available === true &&
+          Boolean(responseText.trim());
+        if (responseAvailable) {
+          try {
+            await finishOperation(stored.operation_id, responseText, true);
+          } catch (_) {
+            // Keep the active marker so the next controller start can reconcile again.
+            return;
+          }
+        }
+        localStorage.removeItem(ACTIVE_KEY);
+      } else if (operation.status === 'failed' || operation.status === 'cancelled') {
         localStorage.removeItem(ACTIVE_KEY);
       }
       // Preserve non-terminal operations for the dedicated bounded recovery companion.
