@@ -163,6 +163,12 @@ test('native prompt completion refuses an empty response payload while non-promp
   assert.match(content, /await finishOperation\(operation\.operation_id\);/);
 });
 
+test('native response recovery keeps the pre-prompt baseline after a timeout', () => {
+  assert.match(content, /const baseline = fingerprint\(\);/);
+  assert.match(content, /localStorage\.setItem\(ACTIVE_KEY, JSON\.stringify\(\{ \.\.\.activeState, baseline \}\)\);/);
+  assert.match(content, /baseline: typeof stored\?\.baseline === 'string' \? stored\.baseline : fingerprint\(\),/);
+});
+
 test('native controller preserves prompt operations for bounded response recovery', () => {
   assert.match(content, /function rememberResponseRecovery\(operation, error\)/);
   assert.match(content, /response_recovery: true/);
