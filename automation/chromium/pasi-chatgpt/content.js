@@ -458,7 +458,7 @@
       operation_type: operation.operation_type,
       started_at: startedAt,
       started_ms: Date.parse(startedAt) || Date.now(),
-      baseline: fingerprint(),
+      baseline: typeof stored?.baseline === 'string' ? stored.baseline : fingerprint(),
       chat_url: chatUrl(),
       recovery_context: recoveryContext(),
       reload_count: 0,
@@ -543,6 +543,8 @@
           const box = await waitFor(composer, TIMEOUTS.composer);
           if (!box) throw new Error('PASI_NATIVE: composer unavailable');
           const baseline = fingerprint();
+          const activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+          localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           setText(box, '');
           insertText(box, operation.prompt);
           const send = await waitForSend();
