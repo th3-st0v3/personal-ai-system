@@ -60,10 +60,14 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         missing = dict(current)
         missing.pop("controller_version")
 
-        with mock.patch.object(engine, "expected_controller_version", return_value="2.4.11"):
-            self.assertTrue(engine.controller_observation_is_compatible(current))
-            self.assertFalse(engine.controller_observation_is_compatible(stale))
-            self.assertFalse(engine.controller_observation_is_compatible(missing))
+        with mock.patch(
+            "scripts.pasi_overnight_engine_v2.expected_controller_version",
+            return_value="2.4.11",
+        ):
+            with mock.patch.object(engine, "browser_observation", side_effect=[current, stale, missing]):
+                self.assertTrue(engine.runtime_watchdog_is_live())
+                self.assertFalse(engine.runtime_watchdog_is_live())
+                self.assertFalse(engine.runtime_watchdog_is_live())
 
     def test_build_prompt_contains_anti_loop_continuation_rule(self) -> None:
         now = datetime.now(timezone.utc)
