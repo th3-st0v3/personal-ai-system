@@ -163,3 +163,14 @@ test('native prompt completion refuses an empty response payload while non-promp
   assert.match(content, /await finishOperation\(operation\.operation_id, response, true\)/);
   assert.match(content, /await finishOperation\(operation\.operation_id\);/);
 });
+
+test('native controller preserves prompt operations for bounded response recovery', () => {
+  assert.match(content, /function rememberResponseRecovery\(operation, error\)/);
+  assert.match(content, /response_recovery: true/);
+  assert.match(content, /phase: 'monitoring'/);
+  assert.match(content, /errorMessage\.startsWith\('PASI_NATIVE: response text unavailable;'/);
+  assert.match(content, /const responseRecoveryEligible/);
+  assert.match(content, /else if \(responseRecoveryEligible\)/);
+  assert.match(content, /rememberResponseRecovery\(operation, error\)/);
+  assert.match(content, /finalized = false/);
+});
