@@ -48,7 +48,7 @@ def _merged_count(author: str, repository: str | None = None) -> int:
         raise RuntimeError(f"GitHub returned an invalid merged PR count: {output}") from exc
 
 
-def calculate_status(repository: str, author: str, merged_prs_observed: int) -> PullSharkStatus:
+def calculate_status(scope: str, author: str, merged_prs_observed: int) -> PullSharkStatus:
     reached = [target for target in TARGETS if merged_prs_observed >= target]
     next_target = next((target for target in TARGETS if merged_prs_observed < target), None)
     tier_reached = f"{max(reached)} merged PRs" if reached else "below 2 merged PRs"
@@ -66,8 +66,8 @@ def collect_status(repository: str | None = None, author: str | None = None) -> 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Report account-authored merged PR progress for one PASI repository.")
-    parser.add_argument("--repo", default="th3-st0v3/personal-ai-system", help="GitHub repository in owner/name form.")
+    parser = argparse.ArgumentParser(description="Report account-authored merged PR progress; optionally restrict it to a repository.")
+    parser.add_argument("--repo", default="", help="Optional GitHub repository in owner/name form.")
     parser.add_argument("--author", default="", help="GitHub login; defaults to the authenticated gh account.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
