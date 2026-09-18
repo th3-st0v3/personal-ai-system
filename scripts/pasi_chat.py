@@ -29,6 +29,8 @@ MAX_CHAT_HISTORY = 20
 CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
 CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
 RESPONSE_CAPTURE_REPAIR_ATTEMPTS = 1
+NEW_SESSION_URL_RECONCILE_ATTEMPTS = 6
+NEW_SESSION_URL_RECONCILE_INTERVAL_SECONDS = 0.5
 _PUBLIC_GITHUB_FAILURE_PHRASES = (
     "i can't access the github repository",
     "i cannot access the github repository",
@@ -263,6 +265,36 @@ def valid_chat_url(value: object) -> str | None:
     return value if isinstance(value, str) and CHAT_URL_PATTERN.match(value) else None
 
 
+def recover_replacement_chat_url(
+    adapter: ChatGPTRoutingAdapter,
+    operation_id: str,
+    *,
+    attempts: int = NEW_SESSION_URL_RECONCILE_ATTEMPTS,
+    interval_seconds: float = NEW_SESSION_URL_RECONCILE_INTERVAL_SECONDS,
+) -> str | None:
+    """Recover a delayed replacement URL without accepting stale browser state."""
+    if attempts <= 0 or interval_seconds < 0 or not operation_id.strip():
+        return None
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(interval_seconds)
+        try:
+            observation = adapter.read_browser_observation()
+        except Exception:
+            continue
+        if not isinstance(observation, Mapping):
+            continue
+        data = observation.get("data")
+        if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
+            continue
+        if data.get("active_operation_id") != operation_id:
+            continue
+        replacement_url = valid_chat_url(data.get("chat_url"))
+        if replacement_url:
+            return replacement_url
+    return None
+
+
 def record_chat_change(handoff: dict[str, object], previous_url: str | None, new_url: str | None, reason: str) -> None:
     previous = valid_chat_url(previous_url)
     current = valid_chat_url(new_url)
@@ -314,6 +346,8 @@ def route_chat(
         operation_id = adapter.new_session()
         print(f"New chat operation: {operation_id}")
         replacement_url = valid_chat_url(getattr(adapter, "last_chat_url", None))
+        if replacement_url is None:
+            replacement_url = recover_replacement_chat_url(adapter, operation_id)
         if replacement_url:
             record_chat_change(handoff, known_url, replacement_url, "verified_new_chat_session")
             handoff["chat_url"] = replacement_url
