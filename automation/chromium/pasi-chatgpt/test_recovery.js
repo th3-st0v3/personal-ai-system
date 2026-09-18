@@ -63,6 +63,11 @@ test('recovery tracks monitoring state across reloads and handles context exhaus
   assert.match(source, /MAX_CONTEXT_RECOVERIES = 1/);
 });
 
+test('recovery never finalizes a partial assistant response during generation', () => {
+  assert.match(source, /function generating\(\)/);
+  assert.match(source, /if \(!generating\(\) && response && currentFingerprint/);
+});
+
 test('recovery preserves response text casing while still normalizing marker checks', () => {
   assert.match(source, /const compact =/);
   assert.doesNotMatch(source, /const text = normalize\(markdown\[index\]/);
