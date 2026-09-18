@@ -85,7 +85,7 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
         self.assertIn("PASI_SETUP_REQUIREMENTS_BEGIN", result)
         self.assertIn("SELF-IMPROVEMENT LOOP", result)
         self.assertIn("ROADMAP PROGRESS CONDITION", result)
-        self.assertIn("changes stop producing repository changes", result)
+        self.assertIn("implementation passes stop producing repository changes", result)
         self.assertIn("PULL SHARK OBJECTIVE (SECONDARY)", result)
         self.assertIn("1,024 eligible merged pull requests", result)
         self.assertIn("Never create empty, cosmetic, duplicate, no-op", result)
