@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -124,6 +125,34 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             recent_tasks=[engine.AUTOMATION_TASKS[0]],
         )
         self.assertEqual(engine.choose_unique(engine.AUTOMATION_TASKS, state), engine.AUTOMATION_TASKS[1])
+
+    def test_standby_self_heals_local_services_before_waiting_for_browser(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="standby-service-recovery",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(minutes=5)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        service_checks = []
+        watchdog_results = iter((False, True))
+
+        def fake_ensure_services() -> list[object]:
+            service_checks.append("checked")
+            return []
+
+        with mock.patch.object(engine, "ensure_services", side_effect=fake_ensure_services):
+            with mock.patch.object(engine, "browser_observation", return_value=None):
+                with mock.patch.object(engine, "runtime_watchdog_is_live", side_effect=watchdog_results):
+                    with mock.patch.object(engine, "log_event"):
+                        with mock.patch.object(engine.time, "sleep"):
+                            self.assertTrue(engine.standby_until_ready(state))
+
+        self.assertEqual(service_checks, ["checked"])
 
     def test_state_round_trip_uses_schema_v2(self) -> None:
         now = datetime.now(timezone.utc)
