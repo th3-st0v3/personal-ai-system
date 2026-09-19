@@ -12,6 +12,11 @@ from typing import Iterable, Mapping
 
 API_VERSION = "2022-11-28"
 DEFAULT_BRANCH = "main"
+CANONICAL_KEEP_BRANCHES = frozenset({
+    "pasi/bridge-edge-case-tests-20260917",
+    "pasi/control-plane-recovery-20260917",
+    "pasi/continuation-anti-loop-20260918",
+})
 DISPOSABLE_SUFFIX_RE = re.compile(
     r"(?:-pr\d*|-final\d*|-v\d+|-head|-verified|-check\d*|-current|-submit|-merge)$",
     re.IGNORECASE,
@@ -396,6 +401,7 @@ def cleanup(
     merged_branch: str = "",
 ) -> CleanupPlan:
     token = _token()
+    effective_keep_branches = frozenset(keep_branches) | CANONICAL_KEEP_BRANCHES
     branches = list_branches(token=token)
     open_heads = list_open_pr_heads(token=token)
     merged_heads = _list_closed_pr_heads(token=token)
@@ -403,13 +409,13 @@ def cleanup(
         branches,
         token=token,
         open_pr_heads=open_heads,
-        keep_branches=keep_branches,
+        keep_branches=effective_keep_branches,
     )
     superseded = list_superseded_snapshot_branches(
         branches,
         token=token,
         open_pr_heads=open_heads,
-        keep_branches=keep_branches,
+        keep_branches=effective_keep_branches,
     )
     plan = build_cleanup_plan(
         branches,
@@ -417,7 +423,7 @@ def cleanup(
         merged_pr_heads=merged_heads,
         fully_merged_branches=fully_merged,
         superseded_branches=superseded,
-        keep_branches=keep_branches,
+        keep_branches=effective_keep_branches,
     )
     merged_to_delete = (
         merged_branch if can_delete_merged_branch(merged_branch, open_pr_heads=open_heads) else ""
