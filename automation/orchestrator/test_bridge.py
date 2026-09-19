@@ -335,6 +335,57 @@ def test_completed_operation_repairs_response_after_state_observation_overwrites
     assert latest["response_source"] == "browser_observation"
 
 
+def test_lower_priority_page_observer_cannot_overwrite_native_browser_heartbeat(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    native = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-19T02:10:00Z",
+        "data": {
+            "kind": "chatgpt_health",
+            "controller_version": "2.4.11",
+            "native_controller": True,
+            "composer_present": True,
+        },
+    }
+    observer = {
+        "schema_version": "1.0.0",
+        "captured_at": "2026-09-19T02:11:00Z",
+        "data": {
+            "kind": "browser_page_observer",
+            "native_controller": False,
+        },
+    }
+
+    bridge.save_browser_observation(native)
+    bridge.save_browser_observation(observer)
+
+    latest = bridge.get_browser_observation()
+    assert latest is not None
+    assert latest["schema_version"] == "pasi-native-chromium-v2"
+    assert latest["data"]["kind"] == "chatgpt_health"
+
+
+def test_equal_priority_native_observations_replace_older_state(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-19T02:10:00Z",
+        "data": {"kind": "chatgpt_health", "controller_version": "2.4.11"},
+    }
+    second = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-19T02:11:00Z",
+        "data": {"kind": "chatgpt_state", "controller_version": "2.4.11"},
+    }
+
+    bridge.save_browser_observation(first)
+    bridge.save_browser_observation(second)
+
+    latest = bridge.get_browser_observation()
+    assert latest is not None
+    assert latest["data"]["kind"] == "chatgpt_state"
+
+
 def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("test", "empty")
