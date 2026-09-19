@@ -10,6 +10,9 @@ from scripts.cleanup_duplicate_branches import (
     is_disposable_name,
     list_superseded_snapshot_branches,
     CANONICAL_KEEP_BRANCHES,
+    CANONICAL_KEEP_BRANCH_TIPS,
+    missing_canonical_keep_branches,
+    restore_missing_canonical_keep_branches,
 )
 
 
@@ -77,6 +80,29 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         )
         self.assertEqual(plan.deletions, ())
 
+    def test_closed_unmerged_pr_branch_is_safe_only_when_fully_merged(self) -> None:
+        branches = (BranchRef("feature/closed-unmerged", "main-tip"),)
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset(),
+            merged_pr_heads={},
+            fully_merged_branches=frozenset({"feature/closed-unmerged"}),
+        )
+        self.assertEqual(
+            [item.name for item in plan.deletions],
+            ["feature/closed-unmerged"],
+        )
+
+    def test_closed_unmerged_pr_branch_is_preserved_when_not_fully_merged(self) -> None:
+        branches = (BranchRef("feature/closed-unmerged", "feature-tip"),)
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset(),
+            merged_pr_heads={},
+            fully_merged_branches=frozenset(),
+        )
+        self.assertEqual(plan.deletions, ())
+
     def test_fully_merged_branch_is_safe_to_delete(self) -> None:
         branches = (BranchRef("feature/merged", "main-tip"),)
         plan = build_cleanup_plan(
@@ -132,6 +158,51 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
                 }
             ),
         )
+
+    def test_missing_canonical_keeper_is_detected(self) -> None:
+        branches = (
+            BranchRef("main", "mainsha"),
+            BranchRef("pasi/bridge-edge-case-tests-20260917", "bridge"),
+            BranchRef("pasi/control-plane-recovery-20260917", "recovery"),
+        )
+        self.assertEqual(
+            missing_canonical_keep_branches(branches),
+            ("pasi/continuation-anti-loop-20260918",),
+        )
+
+    def test_present_canonical_keepers_are_not_restored(self) -> None:
+        branches = (
+            BranchRef(name, sha)
+            for name, sha in CANONICAL_KEEP_BRANCH_TIPS.items()
+        )
+        with unittest.mock.patch(
+            "scripts.cleanup_duplicate_branches._create_ref"
+        ) as create_ref:
+            restored = restore_missing_canonical_keep_branches(
+                tuple(branches),
+                token="test-token",
+            )
+        create_ref.assert_not_called()
+        self.assertEqual(restored, ())
+
+    def test_missing_canonical_keeper_is_restored_at_known_tip(self) -> None:
+        branches = (
+            BranchRef("pasi/bridge-edge-case-tests-20260917", "bridge"),
+            BranchRef("pasi/control-plane-recovery-20260917", "recovery"),
+        )
+        with unittest.mock.patch(
+            "scripts.cleanup_duplicate_branches._create_ref"
+        ) as create_ref:
+            restored = restore_missing_canonical_keep_branches(
+                branches,
+                token="test-token",
+            )
+        create_ref.assert_called_once_with(
+            "pasi/continuation-anti-loop-20260918",
+            "0f9047ad6e4e8ca4637372e391faa26ecdb49a85",
+            token="test-token",
+        )
+        self.assertEqual(restored, ("pasi/continuation-anti-loop-20260918",))
 
     def test_explicit_keeper_is_never_deleted(self) -> None:
         branches = (
