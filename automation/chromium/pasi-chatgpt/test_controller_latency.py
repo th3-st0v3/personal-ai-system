@@ -71,8 +71,8 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert 'button[data-testid*="model" i]' in native
     assert 'button[aria-label*="model" i]' in native
     assert "extended" in native
-    assert "medium|high|extra high" in native or "medium|high|extra high" in native.replace(" ", "")
-    assert "think|medium|high|extra high" in native
+    assert "medium|high|extra high" in native
+    assert "thinking|think|medium|high|extra high" in native
     assert "findDirectThinkingControl" in native
     assert 'button[data-testid*="intelligence" i]' in native
     assert "fall back to a nearby menu button" in native
