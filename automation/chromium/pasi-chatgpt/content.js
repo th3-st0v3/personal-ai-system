@@ -224,6 +224,13 @@
 
   function chatUrl() { return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null; }
 
+  function freshChatSurface(previousLocation, previousChat) {
+    if (!previousChat || location.href === previousLocation) return false;
+    if (!/^https:\/\/chatgpt\.com(?::\d+)?\/?(?:\?.*)?$/.test(location.href)) return false;
+    return Boolean(composer()) && !generating() && userMessages().length === 0 && assistantMessages().length === 0;
+  }
+
+
   function contextExhausted() {
     const text = normalize(document.body?.innerText || '');
     return [
@@ -479,6 +486,10 @@
     clearFocusBeforeActivation();
     try {
       element.click();
+      const focused = document.activeElement;
+      if (focused && accessibilityHidden(focused)) {
+        try { focused.blur(); } catch (_) {}
+      }
       return true;
     } catch (_) {
       return false;
@@ -497,13 +508,17 @@
       const currentChat = chatUrl();
       const navigated = location.href !== previousLocation;
       const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat);
+      const freshRootChat = freshChatSurface(previousLocation, previousChat);
       const initialChatReady = !previousChat && navigated && currentChat && composer() && !generating() && userMessages().length === 0 && assistantMessages().length === 0 && conversationSignature() !== previousSignature;
-      return composer() && !generating() && (differentChat || initialChatReady);
+      return composer() && !generating() && (differentChat || freshRootChat || initialChatReady);
     }, TIMEOUTS.menu + 7000);
     if (!ready) throw new Error('PASI_NATIVE: new chat did not reach a verified ready state');
 
     const current = chatUrl();
-    if (previousChat && (!current || current === previousChat)) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
+    if (previousChat && current === previousChat) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
+    if (previousChat && !current && !freshChatSurface(previousLocation, previousChat)) {
+      throw new Error('PASI_NATIVE: new chat control did not reach a verified fresh chat surface');
+    }
     reasoningMode = null;
     githubAttached = false;
     githubRepository = null;
@@ -962,6 +977,10 @@
     } catch (_) {}
     element.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
     element.click();
+    const focused = document.activeElement;
+    if (focused && accessibilityHidden(focused)) {
+      try { focused.blur(); } catch (_) {}
+    }
     return true;
   }
 
