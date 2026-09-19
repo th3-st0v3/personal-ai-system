@@ -679,6 +679,7 @@
       cancelable: true
     };
     element.dispatchEvent(new KeyboardEvent('keydown', init));
+    element.dispatchEvent(new KeyboardEvent('keypress', init));
     element.dispatchEvent(new KeyboardEvent('keyup', { ...init, cancelable: false }));
   }
 
