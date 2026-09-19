@@ -14,14 +14,16 @@ from .config import CONFIG, ensure_runtime_directories
 from .models import ChatOperation
 from .operation_lifecycle import InvalidOperationTransition, validate_transition
 from .state import StateManager
+from scripts.pasi_timeout_policy import load_timeout_policy
 
 
 HOST = "127.0.0.1"
 PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 50_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
-CLAIM_LEASE_SECONDS = 70 * 60
-QUEUE_TTL_SECONDS = 24 * 60 * 60
+TIMEOUT_POLICY = load_timeout_policy()
+CLAIM_LEASE_SECONDS = TIMEOUT_POLICY["bridge_claim_lease_seconds"]
+QUEUE_TTL_SECONDS = TIMEOUT_POLICY["queue_ttl_seconds"]
 MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 MAX_IDEMPOTENCY_KEY_CHARS = 128
