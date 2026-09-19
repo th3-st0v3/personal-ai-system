@@ -7,6 +7,7 @@ import math
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -18,7 +19,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from scripts import pasi_overnight_engine as legacy
 from scripts.pasi_timeout_policy import load_timeout_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -29,11 +29,21 @@ PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
 CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
-DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
-DEFAULT_HOURS = legacy.DEFAULT_HOURS
-MIN_HOURS = legacy.MIN_HOURS
+DEFAULT_WORKTREE = Path.home() / ".pasi-worktrees" / "personal-ai-system-overnight"
+DEFAULT_HOURS = 10.0
+MIN_HOURS = 8.0
 MAX_HOURS = float("inf")
-MAX_ATTEMPTS = legacy.MAX_ATTEMPTS
+BRIDGE_HEALTH = "http://127.0.0.1:8765/health"
+MAX_PATCH_BYTES = 250_000
+MAX_OUTPUT_CHARS = 20_000
+MAX_ATTEMPTS = 3
+PROTECTED_UNATTENDED_PATHS = frozenset({
+    "scripts/check_all.sh",
+    "scripts/pasi_overnight_hardening.py",
+    "scripts/pasi_overnight_engine.py",
+    "scripts/pasi_overnight_engine_v2.py",
+    "automation/chromium/pasi-chatgpt/manifest.json",
+})
 TIMEOUT_POLICY = load_timeout_policy()
 TASK_TIMEOUT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
 WATCHDOG_MAX_AGE_SECONDS = 30.0
@@ -401,7 +411,7 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     children: list[subprocess.Popen[bytes]] = []
     if not healthy(f"{BRIDGE_URL}/health"):
         log_event("service_start", service="bridge")
-        children.append(subprocess.Popen([legacy.sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
+        children.append(subprocess.Popen([sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
         if healthy(f"{BRIDGE_URL}/health"):
@@ -594,14 +604,14 @@ def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
     prompt = build_prompt(task, state, failure)
     code, output = command(
-        [legacy.sys.executable, "scripts/pasi_chat_guard.py", prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS)],
+        [sys.executable, "scripts/pasi_chat_guard.py", prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS)],
         Path(state.worktree),
         TASK_TIMEOUT_SECONDS + 45.0,
     )
     if provider_condition(code, output) is None:
         return code, output
     fallback = command(
-        [legacy.sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
+        [sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
         Path(state.worktree),
         225.0,
     )
@@ -611,8 +621,14 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
-    parsed = legacy.parse_response(response)
-    values = dict(parsed[5])
+    values: dict[str, str] = {}
+    for key, pattern in MARKERS.items():
+        match = pattern.search(response)
+        if match:
+            values[key] = match.group(1).strip()
+    allow_delete = bool(re.search(r"^PASI_RESULT_ALLOW_DELETE:\s*true$", response, re.MULTILINE | re.IGNORECASE))
+    raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0] if PATCH_BEGIN in response and PATCH_END in response else ""
+    patch = normalize_patch(raw_patch)
     values["automation_continue"] = "true" if re.search(
         r"^PASI_AUTOMATION_CONTINUE:\s*true$",
         response,
@@ -622,7 +638,15 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
 
 
 def completion_contract(status: str, values: dict[str, str]) -> bool:
-    return legacy.completion_contract_is_satisfied(status, values)
+    return (
+        status == "complete"
+        and values.get("requirements", "").lower() == "complete"
+        and values.get("limitations", "").lower() in {"handled", "none", "not_applicable"}
+        and values.get("research", "").lower() in {"performed", "not_applicable"}
+        and values.get("ux", "").lower() in {"verified", "not_applicable"}
+        and values.get("backend", "").lower() in {"verified", "not_applicable"}
+        and bool(values.get("evidence", "").strip())
+    )
 
 
 def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
@@ -720,11 +744,11 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
     output = output + ("\n" if output else "") + validation_output
-    commit = legacy.commit_and_push(worktree, branch, task, push)
+    commit = commit_and_push(worktree, branch, task, push)
     if push:
         promotion = command(
             [
-                legacy.sys.executable,
+                sys.executable,
                 "scripts/pasi_promote.py",
                 "--commit",
                 commit,
@@ -817,7 +841,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
-            if contract_ok and legacy.no_change_completion_is_satisfied(
+            if contract_ok and no_change_completion_is_satisfied(
                 Path(state.worktree), status, next_task, patch, values
             ):
                 state.completed_tasks += 1
