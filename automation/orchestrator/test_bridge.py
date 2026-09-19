@@ -891,7 +891,9 @@ def test_http_bridge_rejects_bad_auth_host_origin_and_content_type(tmp_path: Pat
         assert response.status == 400
         connection.close()
 
-        assert bridge.get_operation(operation.operation_id)["status"] == "queued"
+        current = bridge.get_operation(operation.operation_id)
+        assert current is not None
+        assert current["status"] == "queued"
     finally:
         server.shutdown()
         server.server_close()
