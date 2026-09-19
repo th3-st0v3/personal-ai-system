@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
@@ -46,6 +48,14 @@ class UrllibBridgeTransport:
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         body = None
         headers: dict[str, str] = {}
+        token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+        if not token:
+            try:
+                token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+            except OSError:
+                token = ""
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         if payload is not None:
             body = json.dumps(dict(payload)).encode("utf-8")
             headers["Content-Type"] = "application/json"
