@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import traceback
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -847,26 +848,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"operation": operation})
             return
 
-        if path == "/next-operation":
-            operation = (
-                self.bridge_state.claim_next_operation()
-            )
-
-            if operation is None:
-                self._send_json(
-                    {
-                        "operation": None
-                    }
-                )
-                return
-
-            self._send_json(
-                {
-                    "operation": operation
-                }
-            )
-            return
-
         self._send_json(
             {
                 "error": "Not found"
@@ -894,6 +875,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            if path == "/next-operation":
+                self._next_operation()
+                return
+
             if path == "/chat/claim":
                 self._claim(payload)
                 return
@@ -918,6 +903,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 self._failed(payload)
                 return
 
+            if path == "/chat/cancel":
+                self._cancel(payload)
+                return
+
             self._send_json(
                 {
                     "error": "Not found"
@@ -932,13 +921,32 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 },
                 HTTPStatus.CONFLICT,
             )
-        except Exception:
+        except Exception as exc:
+            traceback.print_exc()
             self._send_json(
                 {
                     "error": "Internal server error."
                 },
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
+
+    def _next_operation(self) -> None:
+        operation = self.bridge_state.claim_next_operation()
+        self._send_json({"operation": operation})
+
+    def _cancel(self, payload: dict[str, Any]) -> None:
+        operation_id = payload.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            self._send_json({"error": "operation_id is required."}, HTTPStatus.BAD_REQUEST)
+            return
+        reason = payload.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            reason = "cancelled by runner timeout"
+        operation = self.bridge_state.cancel_operation(operation_id, reason)
+        if operation is None:
+            self._send_json({"error": "Operation not found."}, HTTPStatus.NOT_FOUND)
+            return
+        self._send_json({"operation": operation})
 
     def _claim(
         self,
