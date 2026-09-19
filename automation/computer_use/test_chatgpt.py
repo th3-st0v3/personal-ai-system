@@ -425,6 +425,9 @@ class ChatGPTAdapterTests(unittest.TestCase):
             [
                 "/operation?operation_id=op-1",
                 "/browser/response",
+                "/browser/response",
+                "/browser/response",
+                "/browser/response",
                 "/operation?operation_id=op-1",
             ],
         )
