@@ -683,6 +683,7 @@ def finish_state(state: OvernightState, reason: str) -> None:
 
 
 def main() -> int:
+    global STOP
     parser = argparse.ArgumentParser(description="Run PASI unattended with bounded recovery and provider fallback.")
     parser.add_argument("--hours", type=float, default=DEFAULT_HOURS)
     parser.add_argument("--task", default="")
