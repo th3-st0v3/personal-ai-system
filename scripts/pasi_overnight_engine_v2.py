@@ -942,7 +942,7 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
         ]
         later_completed = [index for index in completed_indices if index > current_entry[0]]
         if later_completed:
-            advance_from_key = candidates[max(later_completed)]
+            advance_from_key = task_key(candidates[max(later_completed)])
         else:
             # An invented/non-roadmap suggestion cannot replace an unfinished task.
             return current_entry[1]
