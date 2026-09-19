@@ -80,6 +80,9 @@ def classify_observation(payload: dict[str, Any] | None) -> str | None:
             return "usage_limit"
         if data.get("auth_required") is True or data.get("login_required") is True:
             return "auth_required"
+        text = observation_text(data)
+        if any(marker in text for marker in ("message limit", "usage limit reached", "rate limit", "too many requests", "daily limit", "weekly limit", "free tier limit")):
+            return "usage_limit"
         return None
 
     return None
