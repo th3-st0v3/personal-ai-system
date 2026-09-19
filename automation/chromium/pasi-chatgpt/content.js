@@ -82,14 +82,24 @@
   }
 
   function disabled(element) {
-    return Boolean(element) && (element.disabled === true || element.getAttribute('aria-disabled') === 'true');
+    return Boolean(element) && (
+      element.disabled === true ||
+      element.hasAttribute?.('disabled') ||
+      element.getAttribute('aria-disabled') === 'true'
+    );
   }
 
   function label(element) {
+    if (!element) return '';
+    const labelledBy = element.getAttribute?.('aria-labelledby');
+    const labelledText = labelledBy
+      ? labelledBy.split(/\\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ')
+      : '';
     return normalize([
-      element?.getAttribute?.('aria-label'),
-      element?.getAttribute?.('title'),
-      element?.textContent
+      element.getAttribute?.('aria-label'),
+      element.getAttribute?.('title'),
+      labelledText,
+      element.textContent
     ].filter(Boolean).join(' '));
   }
 
@@ -527,7 +537,14 @@
   }
 
   async function attachGithub(repository) {
-    if (githubAttached) return;
+    repository = String(repository || '').trim();
+    if (!/^[^/\\s]+\\/[^/\\s]+$/.test(repository)) {
+      throw new Error('PASI_NATIVE: GitHub repository must be in owner/name form');
+    }
+    if (githubAttached) {
+      if (githubRepository === repository) return;
+      throw new Error('PASI_NATIVE: GitHub attachment conflicts with the requested repository');
+    }
     const plus = await waitFor(() => firstVisible(['button[aria-label="Add files and more"]', 'button[aria-label*="Add files"]', 'button[aria-label*="Attach"]']), TIMEOUTS.menu);
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: GitHub menu unavailable');
     plus.click();
@@ -541,7 +558,26 @@
     if (!result) throw new Error('PASI_NATIVE: requested repository unavailable');
     result.click();
     await sleep(CLICK_SETTLE_MS);
-    if (normalize(document.body?.innerText || '').includes('github needs to be connected')) throw new Error('PASI_NATIVE: GitHub connection unavailable');
+    const bodyText = normalize(document.body?.innerText || '');
+    const githubFailureMarkers = [
+      'github connection failed',
+      'github connection error',
+      'failed to connect to github',
+      'could not connect to github',
+      'unable to connect to github',
+      'github connection is unavailable',
+      'github access is unavailable',
+      'github access failed',
+      'github authentication required',
+      'github authentication failed',
+      'reconnect github',
+      'connect your github account',
+      'github needs to be connected',
+      'github app connection failed'
+    ];
+    if (githubFailureMarkers.some((marker) => bodyText.includes(marker))) {
+      throw new Error('PASI_NATIVE: GitHub connection/access unavailable');
+    }
     githubAttached = true;
     githubRepository = repository;
   }
