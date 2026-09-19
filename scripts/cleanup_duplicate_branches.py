@@ -174,24 +174,21 @@ def _list_merged_pr_head_shas_for_branches(
     *,
     token: str,
 ) -> Mapping[str, frozenset[str]]:
-    """Return merged PR head SHAs for branch refs that still exist.
+    """Return merged PR head SHAs associated with each surviving branch tip.
 
-    Querying by branch name avoids relying on repository-wide closed-PR
-    ordering and correctly handles squash-merged branches.
+    The commit-to-pull-requests endpoint directly associates the current branch
+    tip with its merged PRs, which handles squash merges and reused branch names.
     """
     heads: dict[str, set[str]] = {}
     for branch in branches:
-        encoded_head = urllib.parse.quote(
-            f"{_repository()}:{branch.name}",
-            safe="",
-        )
+        encoded_sha = urllib.parse.quote(branch.sha, safe="")
         payload = _request_json(
-            f"pulls?state=closed&head={encoded_head}&per_page=100",
+            f"commits/{encoded_sha}/pulls?per_page=100",
             token=token,
         )
         if not isinstance(payload, list):
             raise BranchCleanupError(
-                f"GitHub pull-request response was not a list for {branch.name}"
+                f"GitHub pull-request association response was not a list for {branch.name}"
             )
         for item in payload:
             if not isinstance(item, dict) or not item.get("merged_at"):
@@ -199,13 +196,16 @@ def _list_merged_pr_head_shas_for_branches(
             head = item.get("head")
             if not isinstance(head, dict):
                 continue
-            head_repo = head.get("repo")
-            if isinstance(head_repo, dict):
-                repo_name = str(head_repo.get("full_name", "")).strip()
-                if repo_name and repo_name != _repository():
-                    continue
             ref = str(head.get("ref", "")).strip()
             sha = str(head.get("sha", "")).strip()
+            head_repo = head.get("repo")
+            repo_name = (
+                str(head_repo.get("full_name", "")).strip()
+                if isinstance(head_repo, dict)
+                else ""
+            )
+            if repo_name and repo_name != _repository():
+                continue
             if ref == branch.name and sha:
                 heads.setdefault(ref, set()).add(sha)
     return {name: frozenset(shas) for name, shas in heads.items()}

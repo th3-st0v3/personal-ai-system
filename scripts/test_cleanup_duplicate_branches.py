@@ -73,12 +73,16 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
                     },
                 }
             ],
-        ):
+        ) as request:
             merged = _list_merged_pr_head_shas_for_branches(
                 (branch,),
                 token="test-token",
             )
 
+        request.assert_called_once_with(
+            "commits/d9f6a1ed3966a53b701b289b018813bdff36d6ea/pulls?per_page=100",
+            token="test-token",
+        )
         self.assertEqual(
             merged,
             {
