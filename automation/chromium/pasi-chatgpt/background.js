@@ -11,6 +11,8 @@ const BRIDGE_ROUTES = new Set([
   'GET /health',
   'GET /status',
   'GET /browser/observation',
+  'GET /browser/health',
+  'GET /browser/state',
   'GET /browser/response',
   'POST /next-operation',
   'POST /browser/observation',
@@ -158,20 +160,19 @@ async function reloadBoundedTab(tab) {
 
 async function inspect() {
   const status = await bridgeJson('/status');
-  const payload = await bridgeJson('/browser/observation');
+  const payload = await bridgeJson('/browser/health');
   if (!status || !payload) return;
   const health = healthData(payload);
   if (!health) return;
   if (health.data.auth_required === true) return;
-  if (typeof health.data.active_operation_id !== 'string' || !health.data.active_operation_id.trim()) return;
-  if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
+  if (status.queue_size <= 0 && !String(health.data.active_operation_id || '').trim()) return;
   if (observationAge(health.observation) <= STALE_MS) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
   const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
   const matchingTab = targetChatUrl
     ? tabs.find((tab) => tab.url === targetChatUrl)
-    : null;
+    : (tabs[0] || null);
   // If the exact conversation tab is gone, recreate only the verified target
   // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
   if (!matchingTab) {
