@@ -5,20 +5,89 @@ const WINDOW_MS = 15 * 60 * 1000;
 const STALE_MS = 30 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
 
-async function bridgeJson(path) {
+const BRIDGE_ROUTES = new Set([
+  'GET /health',
+  'GET /status',
+  'GET /browser/observation',
+  'GET /browser/response',
+  'GET /next-operation',
+  'POST /browser/observation',
+  'POST /queue',
+  'POST /chat/claim',
+  'POST /chat/heartbeat',
+  'POST /chat/finished',
+  'POST /chat/failed'
+]);
+const BRIDGE_OPERATION_RE = /^GET \/operation\?operation_id=[^&]{1,200}$/;
+
+function allowedBridgeRequest(method, path) {
+  const normalized = String(method || 'GET').toUpperCase();
+  const value = String(path || '');
+  if (normalized === 'GET' && BRIDGE_OPERATION_RE.test(value)) return true;
+  return BRIDGE_ROUTES.has(`${normalized} ${value}`);
+}
+
+async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) {
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+  if (!allowedBridgeRequest(normalizedMethod, path)) {
+    return { ok: false, status: 400, text: '' };
+  }
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${BRIDGE}${path}`, { signal: controller.signal });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch (_) {
-    return null;
+    const response = await fetch(`${BRIDGE}${path}`, {
+      method: normalizedMethod,
+      headers: body ? { 'Content-Type': 'text/plain;charset=UTF-8' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+      credentials: 'omit',
+      cache: 'no-store'
+    });
+    return { ok: response.ok, status: response.status, text: await response.text() };
+  } catch (error) {
+    const message = String(error?.message || error).slice(0, 300);
+    console.warn('[PASI worker bridge]', message);
+    return { ok: false, status: 0, text: '', error: message };
   } finally {
     clearTimeout(timer);
   }
 }
 
+async function bridgeJson(path) {
+  const response = await bridgeFetch(path);
+  if (!response.ok) return null;
+  try {
+    return JSON.parse(response.text);
+  } catch (_) {
+    return null;
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== 'pasi-bridge-request') return undefined;
+  const senderUrl = String(sender?.url || '');
+  if (!/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)) {
+    sendResponse({ ok: false, status: 403, text: '' });
+    return undefined;
+  }
+
+  const method = String(message.method || 'GET').toUpperCase();
+  const path = String(message.path || '');
+  if (!allowedBridgeRequest(method, path)) {
+    sendResponse({ ok: false, status: 403, text: '' });
+    return undefined;
+  }
+
+  const body = message.body == null ? null : message.body;
+  if (body !== null && (typeof body !== 'object' || Array.isArray(body))) {
+    sendResponse({ ok: false, status: 400, text: '' });
+    return undefined;
+  }
+
+  bridgeFetch(path, method, body, 10000).then(sendResponse);
+  return true;
+});
 function observationAge(observation) {
   const stamp = observation && observation.captured_at;
   if (typeof stamp !== 'string') return Infinity;
