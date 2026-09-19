@@ -18,7 +18,7 @@ const BRIDGE_ROUTES = new Set([
   'POST /chat/finished',
   'POST /chat/failed'
 ]);
-const BRIDGE_OPERATION_RE = /^GET \/operation\?operation_id=[^&]{1,200}$/;
+const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
 function allowedBridgeRequest(method, path) {
   const normalized = String(method || 'GET').toUpperCase();
