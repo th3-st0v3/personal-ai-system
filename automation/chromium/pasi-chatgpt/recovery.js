@@ -77,12 +77,6 @@
 
   function activeOperationId() {
     try {
-      if (typeof window.__PASI_CHATGPT_ACTIVE_OPERATION__ === 'function') {
-        const value = window.__PASI_CHATGPT_ACTIVE_OPERATION__();
-        if (value) return String(value);
-      }
-    } catch (_) {}
-    try {
       const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
       return stored?.operation_id ? String(stored.operation_id) : null;
     } catch (_) {
