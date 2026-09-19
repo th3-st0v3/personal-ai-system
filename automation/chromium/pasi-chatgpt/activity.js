@@ -139,8 +139,7 @@
 
   async function backendOperation(operationId) {
     if (!globalThis.chrome?.runtime?.sendMessage) return null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
+    let timeoutId = null;
     try {
       const response = await Promise.race([
         chrome.runtime.sendMessage({
@@ -149,7 +148,9 @@
           method: 'GET',
           body: null
         }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('bridge timeout')), 2500))
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('bridge timeout')), 2500);
+        })
       ]);
       if (!response?.ok || typeof response.text !== 'string') return null;
       const payload = JSON.parse(response.text);
@@ -157,7 +158,7 @@
     } catch (_) {
       return null;
     } finally {
-      clearTimeout(timer);
+      if (timeoutId !== null) clearTimeout(timeoutId);
     }
   }
 
