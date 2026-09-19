@@ -28,7 +28,6 @@ HIGH_RISK_PATH_PREFIXES = (
     "scripts/pasi_promote.py",
     "scripts/cleanup_duplicate_branches.py",
     "automation/orchestrator/",
-    "scripts/pasi_overnight_engine.py",
     "scripts/pasi_overnight_engine_v2.py",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_automation_entrypoint.py",
