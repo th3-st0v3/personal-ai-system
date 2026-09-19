@@ -914,7 +914,7 @@ def test_http_next_operation_is_post_only(tmp_path: Path) -> None:
         conn.close()
 
         conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        conn.request("POST", "/next-operation", body=b"{}", headers={"Content-Type": "application/json"})
+        conn.request("POST", "/next-operation", body=b"{}", headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"})
         response = conn.getresponse()
         body = json.loads(response.read().decode("utf-8"))
         conn.close()
