@@ -6,14 +6,14 @@ Persistent recovery/checkpoint for the external review remediation checklist. Th
 
 ## Current Step
 
-**M2 / M3 / M4 — implementation and verification in progress; M0/M1 code is implemented but milestone gates still require end-to-end evidence.**
+**M5 / T22-T23 — final verification in progress; implementation work is frozen pending CI and acceptance-gate evidence.**
 
-Current highest-priority step:
-1. Finish M2 lease/cancel/state verification and make v2 use the shared sandboxed patch/validation path.
-2. Finish M3 by removing the v1/v2 monkeypatch/pass-through coupling while preserving resilience/restart behavior.
-3. Finish M4 privacy/security details, then run the complete deterministic suite and refresh this checkpoint.
-4. M0 gate remains pending until one real authenticated scratch-repository task completes browser extraction → parse → apply → validation → commit.
-5. M1/M2/M3/M4 gates remain pending until their explicit multi-step acceptance tests have evidence.
+Immediate verification sequence:
+1. Confirm the stable branch head completes the canonical GitHub Actions suite without failures.
+2. If CI is green, run/record the available real-Chromium baseline and mutation checks and inspect their diagnostics.
+3. Verify the milestone gates that can be exercised in CI; explicitly leave only genuinely interactive ChatGPT-only gates pending if the environment cannot perform them.
+4. Reconcile the final documentation/bundle inventory and record the exact head SHA here.
+5. Do not restart implementation unless CI or acceptance evidence identifies a concrete defect.
 
 ## Already Verified Before This Remediation
 
@@ -78,9 +78,9 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 **M4 Gate:** red-team checklist passes.
 
 ### M5 — Redundancy / Tests
-- [ ] T21 one detector / one completion owner / one response store; legacy Tampermonkey pieces isolated/removed; dead code removed.
-- [ ] T22 browser/DOM fixtures replace source-regex tests; mutation checks.
-- [ ] T23 documentation reconciled and complete bundle.
+- [x] T21 one detector / one completion owner / one response store; legacy Tampermonkey pieces isolated/removed; dead code removed.
+- [x] T22 browser/DOM fixtures cover the native path; deliberate response-collapse mutation is expected to fail. Static regex tests remain as compatibility guards.
+- [x] T23 active launcher/service/provider documentation reconciled; legacy compatibility docs isolated. Final CI/bundle verification remains.
 
 **M5 Gate:** final bundle contains all intended modules, tests, and consistent documentation.
 
@@ -95,3 +95,5 @@ When asked "what step are we on?", report the unchecked item under **Current Ste
 - 2026-09-19: T5-T15 implementation work completed in source; M1/M2/M3 gates still require deterministic and/or real-runtime evidence.
 - 2026-09-19: T17-T19 implementation completed in source; T20 remains incomplete pending remote-provider privacy opt-in.
 - 2026-09-19: latest checkpoint: M2/M3/M4 implementation and verification in progress.
+
+- 2026-09-19: implementation frozen for final verification at branch head after T21/T22/T23 source changes; CI run 2363 is the current validation attempt.
