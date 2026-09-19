@@ -15,12 +15,10 @@ from automation.computer_use.research import (
 )
 from automation.computer_use.setup_requirements import capture_response_requirements
 from scripts import pasi_overnight_engine_v2 as supervisor
-from scripts.pasi_timeout_policy import load_timeout_policy
-from scripts import pasi_overnight_hardening as hardening
 
 # Keep the response ceiling aligned with the native Chromium controller's one-hour
 # generation bound. This is a ceiling, not a target duration.
-RESPONSE_TIMEOUT_SECONDS = load_timeout_policy()["python_wait_seconds"]
+RESPONSE_TIMEOUT_SECONDS = supervisor.TASK_TIMEOUT_SECONDS
 MAX_WEB_URLS = 4
 MAX_WEB_SOURCE_CHARS = 8_000
 MAX_WEB_TOTAL_CHARS = 24_000
@@ -267,34 +265,43 @@ def _record_self_improvement_surfaces(worktree: Path, commit: str) -> None:
 
 
 def main() -> int:
-    supervisor.TASK_TIMEOUT_SECONDS = float(RESPONSE_TIMEOUT_SECONDS)
-    ledger = ObstacleLedger(supervisor.REPO_ROOT)
+    parser = argparse.ArgumentParser(
+        description="Compatibility entrypoint for the unified PASI v2 unattended runtime."
+    )
+    parser.add_argument("--hours", type=float, required=True)
+    parser.add_argument("--task", default="")
+    parser.add_argument("--task-file", type=Path, default=None)
+    args, passthrough = parser.parse_known_args()
 
-    original_invoke = hardening.resilient_invoke_chat
-    original_verify = supervisor.verify_and_commit
+    hours = validate_hours(args.hours)
+    configured_task_file = args.task_file
+    if configured_task_file is None:
+        environment_path = os.environ.get("PASI_TASK_FILE", "").strip()
+        if environment_path:
+            configured_task_file = Path(environment_path)
+    if configured_task_file is None and DEFAULT_TASK_FILE.is_file():
+        configured_task_file = DEFAULT_TASK_FILE
 
-    def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: ObstacleLedger) -> tuple[int, str]:
-        enriched = enrich_task(task)
-        code, response = original_invoke(enriched, state, failure, ledger=ledger)
-        if response:
-            _record_setup_requirements(response)
-        return code, response
+    selected_task = args.task.strip()
+    if not selected_task and configured_task_file is not None:
+        selected_task = load_task_file(configured_task_file)
+    if not selected_task:
+        selected_task = DEFAULT_ENGINEERING_TASK
+    selected_task = DIFFICULT_MODE_PREFIX + "\n" + selected_task
 
-    def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool):
-        commit, verification = original_verify(worktree, branch, task, patch, allow_delete, push=push)
-        try:
-            _record_self_improvement_surfaces(worktree, commit)
-        except Exception as exc:
-            supervisor.log_event("self_improvement_audit_failed", commit=commit, error=str(exc)[:2000])
-        return commit, verification
-
-    hardening.resilient_invoke_chat = resilient_invoke_chat
-    supervisor.verify_and_commit = verify_and_commit
+    original_argv = sys.argv
     try:
-        return hardening.main()
+        sys.argv = [
+            "pasi_overnight_engine_v2.py",
+            "--hours",
+            str(hours),
+            "--task",
+            selected_task,
+            *passthrough,
+        ]
+        return supervisor.main()
     finally:
-        hardening.resilient_invoke_chat = original_invoke
-        supervisor.verify_and_commit = original_verify
+        sys.argv = original_argv
 
 
 if __name__ == "__main__":
