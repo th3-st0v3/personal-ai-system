@@ -111,6 +111,11 @@ class WeeklongResilienceTests(unittest.TestCase):
         state = SimpleNamespace(stop_reason="stopped")
         self.assertTrue(resilience._should_not_restart(0, state, deadline))
 
+    def test_restart_budget_is_consecutive_and_resets_after_stable_runtime(self) -> None:
+        self.assertEqual(resilience.MAX_CONSECUTIVE_RUNNER_RESTARTS, 8)
+        self.assertEqual(resilience.RUNNER_STABILITY_RESET_SECONDS, 10 * 60)
+        self.assertNotIn("MAX_RUNNER_RESTARTS", resilience.__dict__)
+
     def test_active_failure_state_is_restartable(self) -> None:
         deadline = datetime.now(timezone.utc) + timedelta(hours=1)
         state = SimpleNamespace(stop_reason="unexpected exception")
