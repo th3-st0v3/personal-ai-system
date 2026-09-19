@@ -390,7 +390,7 @@ def apply_patch(
         parts = field.split("\t")
         if len(parts) != 3:
             raise OvernightError("git apply returned an unexpected numstat record")
-        candidate = Path(parts[2]).resolve()
+        candidate = (root / parts[2]).resolve()
         try:
             candidate.relative_to(root)
         except ValueError as exc:
