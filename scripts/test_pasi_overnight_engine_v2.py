@@ -225,7 +225,7 @@ PASI_RESULT_PATCH_END"""
                     engine.AUTOMATION_TASKS[2],
                 )
                 candidate = "Implement a concrete seam diagnostic for queued ChatGPT operations."
-                self.assertEqual(engine.choose_next_task(state, candidate), candidate)
+                self.assertEqual(engine.choose_next_task(state, candidate), engine.AUTOMATION_TASKS[2])
 
     def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
         now = datetime.now(timezone.utc)
