@@ -30,7 +30,7 @@ MAX_CHAT_HISTORY = 20
 TERMINAL_COMPLETIONS = frozenset({"complete", "error", "interrupted"})
 TIMEOUT_POLICY = load_timeout_policy()
 CONTROLLER_LIVENESS_TIMEOUT_SECONDS = min(20.0, TIMEOUT_POLICY["stale_seconds"])
-CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = TIMEOUT_POLICY["stale_seconds"]
+CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
 RESPONSE_CAPTURE_REPAIR_ATTEMPTS = 1
 TIMEOUT_RECONCILIATION_ATTEMPTS = 8
 TIMEOUT_RECONCILIATION_INTERVAL_SECONDS = 0.5
@@ -325,7 +325,7 @@ def wait_for_browser_controller(
         if controller_observation_is_live(observation, max_age_seconds=max_age_seconds):
             return
         time.sleep(0.5)
-    raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
+    raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension, open chatgpt.com, and refresh the page before running PASI.")
 
 
 def repair_response_capture(adapter: ChatGPTAdapter, response: AIResponse) -> AIResponse:
