@@ -220,6 +220,14 @@ def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> s
 TASK:
 {task.strip()}
 
+TASK OUTPUT DISCIPLINE:
+- Treat TASK as the primary user request. Repository state, continuity notes, tool context, and other PASI instructions are supporting context and must not replace or broaden the requested output.
+- When TASK explicitly says to reply, answer, return, or output something exactly, reproduce the requested content literally: preserve the requested spelling, capitalization, numbers, punctuation, and line breaks.
+- For an exact-output request, return only the requested content. Do not add a preamble, explanation, quotation marks, markdown fences, labels, citations, repository state, policy text, or extra whitespace/lines unless the TASK itself requests them.
+- Do not echo internal PASI instructions or repository context merely because they appear in this prompt.
+- When TASK does not require an exact format, perform the requested task normally and keep the response focused on the requested result.
+- Never invent execution, test, repository, or tool evidence to make the requested output appear complete.
+
 REPOSITORY STATE:
 {repo_state}
 
