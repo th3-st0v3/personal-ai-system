@@ -301,11 +301,16 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
             # Keep a stalled local daemon from consuming the entire fallback window.
             # A short bounded attempt preserves time for remote/local alternatives.
             limit = min(limit, OLLAMA_REQUEST_TIMEOUT)
+        provider_prompt = (
+            make_prompt(task, repo, include_repository_context=False)
+            if provider == "openrouter" and openrouter_is_free_tier()
+            else prompt
+        )
         try:
             if provider == "ollama":
-                return provider, call_ollama(prompt, limit)
+                return provider, call_ollama(provider_prompt, limit)
             if provider == "openrouter":
-                return provider, call_openrouter(prompt, limit)
+                return provider, call_openrouter(provider_prompt, limit)
             if provider == "perplexity":
                 return provider, call_perplexity(provider_prompt, limit)
             return provider, call_opencode(provider_prompt, repo, limit)
