@@ -142,16 +142,23 @@ test('native transient control activation clears stale focus before ChatGPT hide
     'assistantMessages',
     freshSource + '\\nreturn freshChatSurface;'
   );
-  const fresh = buildFresh(
+  const freshRoot = buildFresh(
     { href: 'https://chatgpt.com/' },
     () => true,
     () => false,
     () => [],
     () => []
   );
-  assert.equal(fresh('https://chatgpt.com/old', 'https://chatgpt.com/c/old'), true);
+  assert.equal(freshRoot('https://chatgpt.com/old', 'https://chatgpt.com/c/old'), true);
+  const freshChatPath = buildFresh(
+    { href: 'https://chatgpt.com/c/new' },
+    () => true,
+    () => false,
+    () => [],
+    () => []
+  );
   assert.equal(
-    fresh('https://chatgpt.com/c/new', 'https://chatgpt.com/c/old'),
+    freshChatPath('https://chatgpt.com/c/new', 'https://chatgpt.com/c/old'),
     false
   );
 
