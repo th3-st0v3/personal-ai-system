@@ -943,8 +943,6 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
     for configured in ordered:
         if task_key(configured) in completed:
             continue
-        if configured.casefold() in recent and configured.casefold() != state.current_task.casefold():
-            continue
         return configured
     return next(
         (item for item in ordered if task_key(item) not in completed),
