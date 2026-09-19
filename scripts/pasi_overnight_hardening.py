@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]
 _AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 _BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
 _CONTROLLER_HEALTH_URL = "http://127.0.0.1:8766/health"
+_STANDBY_SECONDS = 30.0
 
 
 def validate_patch_paths(patch: str, allow_delete: bool) -> None:
@@ -185,7 +187,7 @@ def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
         remaining = (
             supervisor.datetime.fromisoformat(state.deadline_at) - supervisor.now_utc()
         ).total_seconds()
-        supervisor.time.sleep(min(supervisor.STANDBY_SECONDS, max(1.0, remaining)))
+        time.sleep(min(_STANDBY_SECONDS, max(1.0, remaining)))
     return False
 
 

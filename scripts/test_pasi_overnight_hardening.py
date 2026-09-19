@@ -62,10 +62,12 @@ class OvernightHardeningTests(unittest.TestCase):
             root = Path(directory)
             ledger = ObstacleLedger(root)
             state = self._state(root)
-            watchdog = iter([False, True])
+            watchdog = iter([False, False, True])
             with patch.object(supervisor, "runtime_watchdog_is_live", side_effect=lambda: next(watchdog)), patch.object(
                 hardening, "fallback_providers_available", return_value=[]
-            ), patch.object(supervisor, "time.sleep") as sleep_mock:
+            ), patch.object(supervisor, "ensure_services", return_value=[]), patch.object(
+                hardening.time, "sleep"
+            ) as sleep_mock:
                 self.assertTrue(nonblocking_standby(state, ledger=ledger))
                 sleep_mock.assert_called_once()
             self.assertEqual(ledger.pending()[0]["kind"], "runtime_unavailable")
