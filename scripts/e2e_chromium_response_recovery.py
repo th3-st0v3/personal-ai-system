@@ -28,7 +28,25 @@ from scripts.build_chromium_extension import build_extension
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 8765
 OPERATION_ID = "pasi-e2e-late-response"
-EXPECTED_RESPONSE = "response recovered by the real Chromium controller"
+EXPECTED_RESPONSE = """PASI_RESULT_STATUS: complete
+PASI_RESULT_SUMMARY: multiline Chromium seam recovery
+PASI_RESULT_NEXT_TASK: continue with the next incomplete task
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: handled
+PASI_RESULT_RESEARCH: not_applicable
+PASI_RESULT_UX: verified
+PASI_RESULT_BACKEND: verified
+PASI_RESULT_EVIDENCE: real Chromium DOM preserved parser contract line breaks
+PASI_RESULT_REPOSITORY_PROGRESS: changed
+PASI_RESULT_ALLOW_DELETE: false
+PASI_RESULT_PATCH_BEGIN
+diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+PASI_RESULT_PATCH_END""";
 CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS = 45.0
 CHROMEDRIVER_START_ATTEMPTS = 2
 
@@ -194,9 +212,13 @@ class FixtureHandler(BaseHTTPRequestHandler):
   </script>
 </head>
 <body>
-  <div data-message-author-role="assistant">
-    <div class="markdown">{EXPECTED_RESPONSE}</div>
-  </div>
+  <nav>Sidebar examples mention captcha and cloudflare.</nav>
+  <main>
+    <div data-message-author-role="user">A normal message can quote rate limit, captcha, and context limit reached without changing provider state.</div>
+    <div data-message-author-role="assistant">
+      <div class="markdown"><pre>{EXPECTED_RESPONSE}</pre></div>
+    </div>
+  </main>
 </body>
 </html>""".encode("utf-8")
             self._send(200, html, "text/html; charset=utf-8")
@@ -677,6 +699,39 @@ def main() -> None:
                     )
 
                 wait_for_bridge_event(20.0)
+
+                response_observations = [
+                    item.get("observation", {})
+                    for item in BridgeHandler.observation_payloads
+                    if isinstance(item.get("observation", {}), dict)
+                    and item.get("observation", {}).get("data", {}).get("kind") == "chatgpt_response"
+                ]
+                if not response_observations:
+                    raise AssertionError("Chromium did not report a response observation")
+                observed_response = response_observations[-1].get("observation", {}).get("data", {}).get("response_text", "")
+                if observed_response != EXPECTED_RESPONSE:
+                    raise AssertionError(
+                        "Chromium response observation did not preserve multiline text: "
+                        f"{observed_response!r}"
+                    )
+
+                health_observations = [
+                    item.get("observation", {})
+                    for item in BridgeHandler.observation_payloads
+                    if isinstance(item.get("observation", {}), dict)
+                    and item.get("observation", {}).get("data", {}).get("kind") == "chatgpt_health"
+                ]
+                if not health_observations:
+                    raise AssertionError("Chromium did not report health observation")
+                latest_health = health_observations[-1].get("observation", {}).get("data", {})
+                if latest_health.get("provider_usage_limited") is True:
+                    raise AssertionError(f"false usage-limit detector positive: {latest_health}")
+                if latest_health.get("conversation_context_exhausted") is True:
+                    raise AssertionError(f"false context detector positive: {latest_health}")
+                if latest_health.get("auth_required") is True:
+                    raise AssertionError(f"false auth detector positive: {latest_health}")
+                if latest_health.get("native_controller") is not True:
+                    raise AssertionError(f"native controller health missing: {latest_health}")
 
                 final_browser_state = runtime_evaluate(
                     cdp,
