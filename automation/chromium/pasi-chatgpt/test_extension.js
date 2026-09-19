@@ -71,17 +71,29 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
 });
 
-test('native prompt submission re-verifies Thinking before sending', () => {
+test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
   assert.match(content, /case 'prompt': \{/);
   assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
   assert.match(content, /await selectThinking\(\)/);
   assert.match(content, /reasoningMode = 'thinking'/);
-  assert.match(content, /aria-checked="true"/);
-  assert.match(content, /aria-current="true"/);
-  assert.match(content, /const thinkingVerified = await waitFor\(\(\) => thinkingEnabled\(\) === true \? true : null, 3000\)/);
-  assert.match(content, /if \(!thinkingVerified\) throw new Error/);
+  assert.match(content, /function selectionState\(element\)/);
+  assert.match(content, /data-selected/);
+  assert.match(content, /data-checked/);
+  assert.match(content, /data-testid="modal-intelligence-menu"/);
+  assert.match(content, /button\[role="radio"\]/);
+  assert.match(content, /function findModelPill\(\)/);
+  assert.match(content, /currentModelMode\(\) === 'thinking'/);
+  assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
+  assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
   assert.match(content, /const DOM_POLL_MS = 250;/);
+});
+
+test('native Thinking selection prefers the composer model pill and stable intelligence modal', () => {
+  assert.match(content, /button\.__composer-pill/);
+  assert.match(content, /\[data-testid="model-configure-modal"\]/);
+  assert.match(content, /\[data-testid="modal-intelligence-menu"\]/);
+  assert.match(content, /button\[role="radio"\]/);
 });
 
 test('native prompt submission re-checks auth, exhaustion, and Thinking at the send boundary', () => {

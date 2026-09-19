@@ -147,12 +147,74 @@
     return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
   }
 
-  function thinkingEnabled() {
-    const selected = document.querySelectorAll('[aria-pressed="true"], [aria-selected="true"], [aria-checked="true"], [aria-current="true"], [data-state="on"], [data-state="active"]');
-    for (const element of selected) {
-      if (visible(element) && label(element).includes('thinking')) return true;
+  function selectionState(element) {
+    if (!element) return null;
+    const values = [
+      element.getAttribute('aria-pressed'),
+      element.getAttribute('aria-selected'),
+      element.getAttribute('aria-checked'),
+      element.getAttribute('aria-current'),
+      element.getAttribute('data-state'),
+      element.getAttribute('data-selected'),
+      element.getAttribute('data-checked'),
+      element.getAttribute('data-active')
+    ].filter(Boolean).map(normalize);
+
+    if (values.some((value) => ['true', 'selected', 'checked', 'on', 'active', 'current', 'page'].includes(value))) return true;
+    if (values.some((value) => ['false', 'unselected', 'unchecked', 'off', 'inactive'].includes(value))) return false;
+
+    const className = typeof element.className === 'string' ? normalize(element.className) : '';
+    if (/(^| )(selected|checked|active|enabled)( |$)/.test(className)) return true;
+    if (/(^| )(unselected|unchecked|inactive|disabled)( |$)/.test(className)) return false;
+
+    const accessible = label(element);
+    if (/\b(selected|checked|current)\b/.test(accessible)) return true;
+    if (/\b(not selected|unchecked|inactive|disabled)\b/.test(accessible)) return false;
+    return null;
+  }
+
+  function modelModeFromLabel(value) {
+    const text = normalize(value);
+    if (!text) return null;
+    if (/\bthinking\b/.test(text)) return 'thinking';
+    if (/\binstant\b/.test(text)) return 'instant';
+    if (/\bauto(?:matic)?\b/.test(text)) return 'auto';
+    if (/\bpro\b/.test(text)) return 'pro';
+    return null;
+  }
+
+  function findModelPill() {
+    const candidates = document.querySelectorAll('button.__composer-pill, .__composer-pill, button[aria-haspopup="menu"], [role="button"][aria-haspopup="menu"]');
+    for (const element of candidates) {
+      if (!visible(element) || disabled(element)) continue;
+      const mode = modelModeFromLabel(label(element));
+      if (mode) return element;
     }
     return null;
+  }
+
+  function currentModelMode() {
+    return modelModeFromLabel(label(findModelPill()));
+  }
+
+  function thinkingEnabled() {
+    const currentMode = currentModelMode();
+    if (currentMode === 'thinking') return true;
+    if (currentMode === 'instant' || currentMode === 'auto' || currentMode === 'pro') return false;
+
+    const selected = document.querySelectorAll(
+      '[aria-pressed], [aria-selected], [aria-checked], [aria-current], [data-state], [data-selected], [data-checked], [data-active]'
+    );
+    let explicitFalse = false;
+    for (const element of selected) {
+      if (!visible(element)) continue;
+      const text = label(element);
+      if (!text.includes('thinking')) continue;
+      const state = selectionState(element);
+      if (state === true) return true;
+      if (state === false) explicitFalse = true;
+    }
+    return explicitFalse ? false : null;
   }
 
   function userMessages() { return Array.from(document.querySelectorAll('[data-message-author-role="user"]')).filter(visible); }
@@ -284,21 +346,123 @@
     lastKnownChatUrl = current;
   }
 
-  async function selectThinking() {
-    if (thinkingEnabled() === true) { reasoningMode = 'thinking'; return; }
-    let control = findLabeled(['thinking', 'think', 'thinking mode'], ['button', '[role="button"]', '[role="option"]', '[role="menuitem"]']);
-    if (!control) {
-      const plus = await waitFor(() => firstVisible(['button[aria-label="Add files and more"]', 'button[aria-label*="Add files"]', 'button[aria-label*="Attach"]']), TIMEOUTS.menu);
-      if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: Thinking menu control unavailable');
-      plus.click();
-      control = await waitFor(() => findLabeled(['thinking', 'think', 'thinking mode'], ['button', '[role="button"]', '[role="option"]', '[role="menuitem"]']), TIMEOUTS.menu);
+  function findThinkingMenuOption() {
+    const modal = firstVisible(['[data-testid="modal-intelligence-menu"]']);
+    if (modal) {
+      const radios = modal.querySelectorAll('button[role="radio"], [role="radio"]');
+      for (const element of radios) {
+        if (visible(element) && label(element).includes('thinking')) return element;
+      }
     }
-    if (!control || disabled(control)) throw new Error('PASI_NATIVE: Thinking control unavailable');
-    control.click();
+
+    const menus = document.querySelectorAll('[role="menu"], [role="listbox"], [role="dialog"]');
+    for (const menu of menus) {
+      if (!visible(menu)) continue;
+      const candidates = menu.querySelectorAll('[role="radio"], [role="option"], [role="menuitemradio"], [role="menuitem"], button');
+      for (const element of candidates) {
+        if (visible(element) && label(element).includes('thinking')) return element;
+      }
+    }
+    return null;
+  }
+
+  async function selectThinking() {
+    const initialState = thinkingEnabled();
+    if (initialState === true) { reasoningMode = 'thinking'; return; }
+
+    const pill = findModelPill();
+    if (pill) {
+      const mode = currentModelMode();
+      if (mode === 'thinking') { reasoningMode = 'thinking'; return; }
+
+      pill.click();
+      await sleep(CLICK_SETTLE_MS);
+
+      const configure = await waitFor(
+        () => firstVisible(['[data-testid="model-configure-modal"]']) ||
+          findLabeled(['configure'], ['[role="menuitem"]', '[role="option"]', 'button', '[role="button"]']),
+        TIMEOUTS.menu
+      );
+
+      if (configure && visible(configure)) {
+        configure.click();
+        await sleep(CLICK_SETTLE_MS);
+      }
+
+      const thinkingOption = await waitFor(findThinkingMenuOption, TIMEOUTS.menu);
+      if (!thinkingOption || disabled(thinkingOption)) {
+        throw new Error('PASI_NATIVE: Thinking model option unavailable for the current ChatGPT account/model');
+      }
+
+      const optionState = selectionState(thinkingOption);
+      if (optionState === true) {
+        await waitFor(() => currentModelMode() === 'thinking' || thinkingEnabled() === true ? true : null, 3000);
+      } else {
+        thinkingOption.click();
+      }
+
+      const verified = await waitFor(
+        () => currentModelMode() === 'thinking' || thinkingEnabled() === true ? true : null,
+        5000
+      );
+      if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after model selection');
+      reasoningMode = 'thinking';
+      return;
+    }
+
+    const control = findLabeled(
+      ['thinking', 'think', 'thinking mode'],
+      ['button', '[role="button"]', '[role="option"]', '[role="menuitem"]', '[role="radio"]']
+    );
+
+    if (control && !disabled(control)) {
+      const state = selectionState(control);
+      if (state === true) {
+        reasoningMode = 'thinking';
+        return;
+      }
+      if (state === false) {
+        control.click();
+        await sleep(CLICK_SETTLE_MS);
+        const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+        if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after toggle');
+        reasoningMode = 'thinking';
+        return;
+      }
+      throw new Error('PASI_NATIVE: Thinking state is ambiguous; refusing to toggle the control');
+    }
+
+    const plus = await waitFor(
+      () => firstVisible([
+        'button[data-testid="composer-plus-btn"]',
+        'button[aria-label="Add files and more"]',
+        'button[aria-label*="Add files"]',
+        'button[aria-label*="Attach"]'
+      ]),
+      TIMEOUTS.menu
+    );
+    if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: Thinking/model selection control unavailable');
+    plus.click();
     await sleep(CLICK_SETTLE_MS);
-    const thinkingVerified = await waitFor(() => thinkingEnabled() === true ? true : null, 3000);
-    if (!thinkingVerified) throw new Error('PASI_NATIVE: Thinking state could not be verified');
-    reasoningMode = 'thinking';
+
+    const menuThinking = await waitFor(findThinkingMenuOption, TIMEOUTS.menu);
+    if (!menuThinking || disabled(menuThinking)) {
+      throw new Error('PASI_NATIVE: Thinking option unavailable in the current ChatGPT menu');
+    }
+    const menuState = selectionState(menuThinking);
+    if (menuState === true) {
+      reasoningMode = 'thinking';
+      return;
+    }
+    if (menuState === false) {
+      menuThinking.click();
+      await sleep(CLICK_SETTLE_MS);
+      const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+      if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after menu selection');
+      reasoningMode = 'thinking';
+      return;
+    }
+    throw new Error('PASI_NATIVE: Thinking state is ambiguous; refusing to toggle the menu control');
   }
 
   async function attachGithub(repository) {

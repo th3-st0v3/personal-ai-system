@@ -9,9 +9,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from automation.computer_use.setup_requirements import MARKDOWN_RELATIVE_PATH, RUNTIME_RELATIVE_PATH
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from automation.computer_use.setup_requirements import MARKDOWN_RELATIVE_PATH, RUNTIME_RELATIVE_PATH
 CATALOG_PATH = REPO_ROOT / "config" / "automation" / "setup_catalog.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
 CONTROLLER_URL = "http://127.0.0.1:8766"
