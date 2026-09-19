@@ -285,6 +285,15 @@ def wait_for_driver(base_url: str, timeout: float) -> None:
     raise RuntimeError(f"ChromeDriver did not become ready: {last_error}")
 
 
+def wait_for_bridge_event(timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if BridgeHandler.finished_payload is not None:
+            return
+        time.sleep(0.1)
+    raise AssertionError("Chromium did not submit the recovered response evidence")
+
+
 def start_driver(
     chromedriver_binary: str,
     driver_port: int,
