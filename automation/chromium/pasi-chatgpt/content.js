@@ -168,18 +168,18 @@
     if (/(^| )(unselected|unchecked|inactive|disabled)( |$)/.test(className)) return false;
 
     const accessible = label(element);
-    if (/\\b(selected|checked|current)\\b/.test(accessible)) return true;
-    if (/\\b(not selected|unchecked|inactive|disabled)\\b/.test(accessible)) return false;
+    if (/\b(selected|checked|current)\b/.test(accessible)) return true;
+    if (/\b(not selected|unchecked|inactive|disabled)\b/.test(accessible)) return false;
     return null;
   }
 
   function modelModeFromLabel(value) {
     const text = normalize(value);
     if (!text) return null;
-    if (/\\bthinking\\b/.test(text)) return 'thinking';
-    if (/\\binstant\\b/.test(text)) return 'instant';
-    if (/\\bauto(?:matic)?\\b/.test(text)) return 'auto';
-    if (/\\bpro\\b/.test(text)) return 'pro';
+    if (/\bthinking\b/.test(text)) return 'thinking';
+    if (/\binstant\b/.test(text)) return 'instant';
+    if (/\bauto(?:matic)?\b/.test(text)) return 'auto';
+    if (/\bpro\b/.test(text)) return 'pro';
     return null;
   }
 
