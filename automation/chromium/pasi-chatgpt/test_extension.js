@@ -37,7 +37,7 @@ test('shared detectors scope terminal state markers away from messages and sideb
   const nav = {
     innerText: 'captcha sign in to continue',
     textContent: 'captcha sign in to continue',
-    closest: (selector) => selector === 'nav, aside, [role="navigation"], [data-testid*="sidebar" i]' ? nav : null
+    closest: (selector) => selector.includes('data-message-author-role') && selector.includes('nav, aside') ? nav : null
   };
   const documentMock = {
     querySelectorAll(selector) {
