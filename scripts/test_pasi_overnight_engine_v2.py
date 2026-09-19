@@ -54,6 +54,15 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=False), "stopped")
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=True), "deadline_reached")
 
+    def test_fresh_worktree_starts_from_launcher_head_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir) / "fresh"
+            with mock.patch.dict(engine.os.environ, {"PASI_OVERNIGHT_BASE_REF": ""}, clear=False):
+                with mock.patch.object(engine, "command", return_value=(0, "")) as run_command:
+                    engine.ensure_worktree(worktree, "pasi/test", resume=False)
+            command_args = run_command.call_args.args[0]
+            self.assertEqual(command_args[-1], "HEAD")
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
