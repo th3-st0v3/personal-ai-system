@@ -21,6 +21,13 @@ _FORBIDDEN_PATH_PATTERNS = (
 )
 _DIFF_PATH_RE = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]+\n\+\+\+ /dev/null$", re.MULTILINE)
+_PROTECTED_UNATTENDED_PATHS = frozenset({
+    "scripts/check_all.sh",
+    "scripts/pasi_overnight_hardening.py",
+    "scripts/pasi_overnight_engine.py",
+    "scripts/pasi_overnight_engine_v2.py",
+    "automation/chromium/pasi-chatgpt/manifest.json",
+})
 _AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 _BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
 _STANDBY_SECONDS = 30.0
@@ -46,6 +53,8 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
                 raise ValueError(f"forbidden patch path: {path_value}")
             if any(pattern.search(normalized) for pattern in _FORBIDDEN_PATH_PATTERNS):
                 raise ValueError(f"forbidden credential/secret path: {path_value}")
+            if normalized in _PROTECTED_UNATTENDED_PATHS or normalized.startswith(".github/"):
+                raise ValueError(f"protected unattended patch path requires human-approved branch: {path_value}")
     is_deletion = bool(_DELETION_FILE_HEADER_RE.search(patch)) or bool(
         re.search(r"^--- [^\n]+\n\+\+\+ /dev/null$", patch, re.MULTILINE)
     )
