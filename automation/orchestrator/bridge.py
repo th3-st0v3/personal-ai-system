@@ -37,6 +37,7 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "CHAT_EXHAUSTED:",
     "PASI_NATIVE: new chat did not reach a verified ready state",
     "PASI_NATIVE: new chat control did not change conversation identity",
+    "PASI_NATIVE: new chat control did not reach a verified fresh chat surface",
     "PASI_NATIVE: prompt submission could not be verified after bounded attempts",
     "PASI_NATIVE: send control unavailable",
     "PASI_NATIVE: composer unavailable",
