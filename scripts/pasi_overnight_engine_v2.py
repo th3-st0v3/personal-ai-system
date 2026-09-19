@@ -193,7 +193,15 @@ def save_task_ledger(ledger: Mapping[str, Mapping[str, Any]]) -> None:
     temporary.replace(TASK_LEDGER_PATH)
 
 
-def record_task_ledger(task: str, status: str, *, commit: str | None = None, evidence: str = "") -> None:
+def record_task_ledger(
+    task: str,
+    status: str,
+    *,
+    commit: str | None = None,
+    evidence: str = "",
+    phase: str = "",
+    automation_continue: bool = False,
+) -> None:
     normalized = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
     if not normalized:
         return
@@ -204,8 +212,8 @@ def record_task_ledger(task: str, status: str, *, commit: str | None = None, evi
         "status": status,
         "commit": commit or "",
         "evidence": evidence[-4000:],
-        "phase": ledger.get(key, {}).get("phase", ""),
-        "automation_continue": ledger.get(key, {}).get("automation_continue", False),
+        "phase": phase,
+        "automation_continue": automation_continue,
         "updated_at": now_utc().isoformat(),
     }
     save_task_ledger(ledger)
