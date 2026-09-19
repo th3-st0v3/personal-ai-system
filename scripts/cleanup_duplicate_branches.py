@@ -170,6 +170,12 @@ def list_branches(*, token: str) -> tuple[BranchRef, ...]:
 
 
 def _list_closed_pr_heads(*, token: str) -> Mapping[str, frozenset[str]]:
+    """Return same-repository merged PR head refs keyed by branch name.
+
+    Closed unmerged PR branches are handled independently by the
+    fully-merged-into-main proof below; they are never deleted just because
+    a PR was closed.
+    """
     heads: dict[str, set[str]] = {}
     page = 1
     while True:
