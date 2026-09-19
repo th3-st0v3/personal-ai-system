@@ -5,6 +5,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -347,7 +348,7 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
             "--chdir", str(worktree),
             *base,
         ]
-        code, output = command(sandbox_command, worktree, timeout)
+        code, output = command(sandbox_command, worktree, timeout=timeout)
         if code == 0:
             return output
         raise OvernightError(f"sandboxed canonical validation failed:\n{output}")
