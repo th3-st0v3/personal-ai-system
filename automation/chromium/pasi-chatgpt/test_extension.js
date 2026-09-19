@@ -63,7 +63,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller reports roadmap completion and repository progress markers', () => {
@@ -95,8 +95,8 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /typeof operation\.response_text === 'string'/);
   assert.match(content, /payload\?\.operation\?\.response_text_available === true/);
   assert.match(content, /Boolean\(responseText\.trim\(\)\)/);
-  assert.match(content, /await finishOperation\(stored\.operation_id, responseText, true\)/);
-  assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
+  assert.match(content, /await finishOperation\(operationId, responseText, true\)/);
+  assert.match(content, /readJsonStorage\(ACTIVE_KEY\)/);
 });
 
 test('native controller reports health and preserves interrupted-operation recovery', () => {
@@ -108,7 +108,7 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /CHAT_EXHAUSTED/);
   assert.match(content, /CHAT_USAGE_LIMITED/);
   assert.match(content, /const current = await bridge\(`\/operation\?operation_id=/);
-  assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
+  assert.match(content, /content\.js owns completion and retry mutation/);
 });
 
 test('native transient control activation clears stale focus before ChatGPT hides or replaces UI', () => {
@@ -128,6 +128,7 @@ test('native transient control activation clears stale focus before ChatGPT hide
   assert.match(content, /clearFocusBeforeActivation\(\);\s*try \{\s*element\.click\(\);/);
   assert.match(content, /if \(!activateControl\(button\)\) throw new Error\('PASI_NATIVE: New chat control activation failed'\)/);
   assert.match(content, /function nativeMouseActivate\(element\) \{/);
+  assert.match(content, /function controllerClaim\(\)/);
   const mouseActivation = content.slice(
     content.indexOf('function nativeMouseActivate(element)'),
     content.indexOf('async function submitPrompt(expected)')
