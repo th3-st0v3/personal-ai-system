@@ -344,7 +344,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertNotIn("active_task_fingerprint", handoff)
         self.assertNotIn("active_operation_chat_url", handoff)
 
-    def test_reconcile_timed_out_response_consumes_one_final_operation_read(self) -> None:
+    def test_reconcile_timed_out_response_allows_bounded_completion_lag(self) -> None:
         class Adapter:
             def __init__(self) -> None:
                 self.calls = 0
@@ -353,8 +353,18 @@ class TestPasiChat(unittest.TestCase):
                 self.calls += 1
                 if operation_id != "op-timeout":
                     raise AssertionError(f"unexpected operation ID: {operation_id}")
+                if self.calls < 3:
+                    return AIResponse(
+                        response_id=f"response-{self.calls}",
+                        session_id="session-1",
+                        provider="chatgpt",
+                        operation_id=operation_id,
+                        text="",
+                        completion="generating",
+                        response_available=False,
+                    )
                 return AIResponse(
-                    response_id="response-1",
+                    response_id="response-3",
                     session_id="session-1",
                     provider="chatgpt",
                     operation_id=operation_id,
@@ -373,10 +383,45 @@ class TestPasiChat(unittest.TestCase):
             response_available=False,
         )
         adapter = Adapter()
-        reconciled = reconcile_timed_out_response(cast(ChatGPTAdapter, adapter), "op-timeout", timeout)
+        with patch("scripts.pasi_chat.time.sleep") as sleep:
+            reconciled = reconcile_timed_out_response(cast(ChatGPTAdapter, adapter), "op-timeout", timeout)
         self.assertEqual(reconciled.completion, "complete")
         self.assertEqual(reconciled.text, "late response")
-        self.assertEqual(adapter.calls, 1)
+        self.assertEqual(adapter.calls, 3)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.5,), (0.5,)])
+
+    def test_reconcile_timed_out_response_keeps_timeout_after_bounded_window(self) -> None:
+        class Adapter:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def read_operation(self, operation_id: str) -> AIResponse:
+                self.calls += 1
+                return AIResponse(
+                    response_id=f"response-{self.calls}",
+                    session_id="session-1",
+                    provider="chatgpt",
+                    operation_id=operation_id,
+                    text="",
+                    completion="generating",
+                    response_available=False,
+                )
+
+        timeout = AIResponse(
+            response_id="response-timeout",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-timeout",
+            text="",
+            completion="timeout",
+            response_available=False,
+        )
+        adapter = Adapter()
+        with patch("scripts.pasi_chat.time.sleep") as sleep:
+            reconciled = reconcile_timed_out_response(cast(ChatGPTAdapter, adapter), "op-timeout", timeout)
+        self.assertIs(reconciled, timeout)
+        self.assertEqual(adapter.calls, 8)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.5,)] * 7)
 
     def test_repair_response_capture_retries_once_without_resending_prompt(self) -> None:
         class Adapter:
