@@ -169,22 +169,30 @@ def list_branches(*, token: str) -> tuple[BranchRef, ...]:
     return tuple(branches)
 
 
-def _list_closed_pr_heads(*, token: str) -> Mapping[str, frozenset[str]]:
-    """Return same-repository merged PR head refs keyed by branch name.
+def _list_merged_pr_head_shas_for_branches(
+    branches: Iterable[BranchRef],
+    *,
+    token: str,
+) -> Mapping[str, frozenset[str]]:
+    """Return merged PR head SHAs for branch refs that still exist.
 
-    Closed unmerged PR branches are handled independently by the
-    fully-merged-into-main proof below; they are never deleted just because
-    a PR was closed.
+    Querying by branch name avoids relying on repository-wide closed-PR
+    ordering and correctly handles squash-merged branches.
     """
     heads: dict[str, set[str]] = {}
-    page = 1
-    while True:
+    for branch in branches:
+        encoded_head = urllib.parse.quote(
+            f"{_repository()}:{branch.name}",
+            safe="",
+        )
         payload = _request_json(
-            f"pulls?state=closed&per_page=100&page={page}",
+            f"pulls?state=closed&head={encoded_head}&per_page=100",
             token=token,
         )
         if not isinstance(payload, list):
-            raise BranchCleanupError("GitHub pull-request response was not a list")
+            raise BranchCleanupError(
+                f"GitHub pull-request response was not a list for {branch.name}"
+            )
         for item in payload:
             if not isinstance(item, dict) or not item.get("merged_at"):
                 continue
@@ -198,11 +206,8 @@ def _list_closed_pr_heads(*, token: str) -> Mapping[str, frozenset[str]]:
                     continue
             ref = str(head.get("ref", "")).strip()
             sha = str(head.get("sha", "")).strip()
-            if ref and sha:
+            if ref == branch.name and sha:
                 heads.setdefault(ref, set()).add(sha)
-        if len(payload) < 100:
-            break
-        page += 1
     return {name: frozenset(shas) for name, shas in heads.items()}
 
 
@@ -465,7 +470,10 @@ def cleanup(
     restore_missing_canonical_keep_branches(branches, token=token)
     branches = list_branches(token=token)
     open_heads = list_open_pr_heads(token=token)
-    merged_heads = _list_closed_pr_heads(token=token)
+    merged_heads = _list_merged_pr_head_shas_for_branches(
+        branches,
+        token=token,
+    )
     fully_merged = list_branches_fully_merged_into_default(
         branches,
         token=token,
