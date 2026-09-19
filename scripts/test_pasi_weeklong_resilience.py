@@ -11,6 +11,9 @@ from scripts import pasi_weeklong_resilience as resilience
 
 
 class WeeklongResilienceTests(unittest.TestCase):
+    def test_repair_timeout_is_bounded_but_allows_longer_engineering_responses(self) -> None:
+        self.assertEqual(resilience.REPAIR_TIMEOUT_SECONDS, 30 * 60)
+
     def _complete_prefix(self) -> str:
         return "\n".join(
             (
