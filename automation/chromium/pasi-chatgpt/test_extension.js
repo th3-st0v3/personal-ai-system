@@ -142,7 +142,8 @@ test('native prompt submission requires explicit acknowledgement and composer-sc
   assert.doesNotMatch(content, /if \(generating\(\) && userMessages\(\)\.length > baselineUserCount\) return true/);
   assert.match(content, /function composerContainsPrompt\(element, expected\)/);
   assert.match(content, /element\.focus\(\);/);
-  assert.match(content, /const currentButton = sendCandidatesForComposer\(composer\(\)\)\[0\] \|\| button/);
+  assert.match(content, /const currentBox = composer\(\);/);
+  assert.match(content, /const currentButton = sendCandidatesForComposer\(currentBox\)\[0\] \|\| button/);
   assert.match(content, /form\?\.requestSubmit/);
   assert.match(content, /const buttonType = String\(button\?\.getAttribute\?\.\('type'\) \|\| 'submit'\)/);
   assert.match(content, /if \(!button \|\| buttonType === 'submit'\) form\.requestSubmit\(button \|\| undefined\);/);
