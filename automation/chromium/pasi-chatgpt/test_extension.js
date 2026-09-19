@@ -106,11 +106,17 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
   assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(\)/);
 });
 
-test('native prompt submission requires explicit user-message acknowledgement', () => {
+test('native prompt submission requires explicit user-message acknowledgement and uses bounded alternate send paths', () => {
   assert.match(content, /SUBMISSION_ACK_MS = 2500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /newestUserMatches/);
   assert.match(content, /waitForSubmissionAck/);
+  assert.match(content, /function composerContainsPrompt\(element, expected\)/);
+  assert.match(content, /button\.focus\(\);/);
+  assert.match(content, /const afterClick = composer\(\);/);
+  assert.match(content, /form\?\.requestSubmit/);
+  assert.match(content, /function dispatchEnter\(element\)/);
+  assert.match(content, /if \(!generating\(\) && composerContainsPrompt\(retryBox, expected\)\)/);
   assert.match(content, /prompt submission could not be verified after bounded attempts/);
 });
 
