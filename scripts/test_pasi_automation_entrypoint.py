@@ -10,8 +10,8 @@ from scripts import pasi_automation_entrypoint as entrypoint
 
 
 class TestPasiAutomationEntrypoint(unittest.TestCase):
-    def test_response_timeout_is_25_minutes(self) -> None:
-        self.assertEqual(entrypoint.RESPONSE_TIMEOUT_SECONDS, 25 * 60)
+    def test_response_timeout_matches_native_controller_ceiling(self) -> None:
+        self.assertEqual(entrypoint.RESPONSE_TIMEOUT_SECONDS, 60 * 60)
 
     def test_web_urls_are_bounded_deduplicated_and_https_only(self) -> None:
         task = (
@@ -115,7 +115,7 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
         self.assertIn("wsl", surfaces)
         self.assertIn("vscode", surfaces)
 
-    def test_main_forwards_to_hardening_with_25_minute_timeout(self) -> None:
+    def test_main_forwards_to_hardening_with_one_hour_timeout(self) -> None:
         seen: list[float] = []
 
         def fake_main() -> int:
@@ -126,7 +126,7 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
         try:
             with patch.object(entrypoint.hardening, "main", side_effect=fake_main):
                 self.assertEqual(entrypoint.main(), 0)
-            self.assertEqual(seen, [float(25 * 60)])
+            self.assertEqual(seen, [float(60 * 60)])
         finally:
             entrypoint.supervisor.TASK_TIMEOUT_SECONDS = original
 
