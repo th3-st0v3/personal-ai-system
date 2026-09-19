@@ -89,7 +89,7 @@ def test_native_extraction_parser_patch_apply_and_commit_seam(tmp_path: Path) ->
     subprocess.run(["git", "add", "."], cwd=worktree, check=True)
     subprocess.run(["git", "commit", "-qm", "initial"], cwd=worktree, check=True)
 
-    verification = engine.verify_patch(worktree, parsed_patch, allow_delete)
+    verification = engine.verify_patch(worktree, parsed_patch, allow_delete, sandbox=False)
     assert "git apply" not in verification.lower()
     assert (worktree / "example.txt").read_text(encoding="utf-8") == "new\n"
 
