@@ -17,7 +17,9 @@ from automation.computer_use.setup_requirements import capture_response_requirem
 from scripts import pasi_overnight_engine_v2 as supervisor
 from scripts import pasi_overnight_hardening as hardening
 
-RESPONSE_TIMEOUT_SECONDS = 25 * 60
+# Keep the response ceiling aligned with the native Chromium controller's one-hour
+# generation bound. This is a ceiling, not a target duration.
+RESPONSE_TIMEOUT_SECONDS = 60 * 60
 MAX_WEB_URLS = 4
 MAX_WEB_SOURCE_CHARS = 8_000
 MAX_WEB_TOTAL_CHARS = 24_000
