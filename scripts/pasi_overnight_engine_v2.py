@@ -771,11 +771,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 return
 
         if state.phase == "automation" and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE:
-            gate_evidence = {
-                "automation_gate": "proceed_engineering",
-                "automation_opportunity": "none",
-                "automation_evidence": "The bounded automation tranche has completed its configured tasks; future improvements remain available as ordinary engineering tasks.",
-            }
+            gate_evidence = automation_gate_evidence(state)
             if automation_gate_is_satisfied(gate_evidence):
                 state.automation_gates += 1
                 state.automation_tasks_since_gate = 0
