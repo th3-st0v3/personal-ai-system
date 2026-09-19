@@ -9,10 +9,15 @@ Persistent recovery/checkpoint for the external review remediation checklist. Th
 **M5 / T22-T23 — final verification in progress; implementation work is frozen pending CI and acceptance-gate evidence.**
 
 Immediate verification sequence:
+
 1. Confirm the stable branch head completes the canonical GitHub Actions suite without failures.
+
 2. If CI is green, run/record the available real-Chromium baseline and mutation checks and inspect their diagnostics.
+
 3. Verify the milestone gates that can be exercised in CI; explicitly leave only genuinely interactive ChatGPT-only gates pending if the environment cannot perform them.
+
 4. Reconcile the final documentation/bundle inventory and record the exact head SHA here.
+
 5. Do not restart implementation unless CI or acceptance evidence identifies a concrete defect.
 
 ## Already Verified Before This Remediation
@@ -38,6 +43,7 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 ## Checklist
 
 ### M0 — Unblock
+
 - [x] T1 response extraction preserves line breaks; collapsed text is fingerprint-only; multiline fixture round-trips.
 - [x] T2 shared `git apply --check -` / `git apply -` path accepts a patch on stdin and rejects invalid patches.
 - [x] T3 seam test proves browser-format response → parser → patch application/commit path.
@@ -46,6 +52,7 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 **M0 Gate:** one real task on a scratch repository reaches ChatGPT response → parser → patch applied → validation → commit.
 
 ### M1 — False Verdicts / Duplicates
+
 - [x] T5 scoped detectors; no body/sidebar false positives; Python phrase lists removed; raw provider errors not re-injected.
 - [x] T6 operation nonce + acknowledgment; no reinsert while generating/bubble count changed.
 - [x] T7 stable completion (stop button gone + 3–5s stability + final marker).
@@ -55,6 +62,7 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 **M1 Gate:** 20 consecutive prompts, zero false terminal `CHAT_*` verdicts, zero duplicate user messages.
 
 ### M2 — Timeouts / State
+
 - [x] T10 shared timeout table and heartbeat alarm.
 - [x] T11 bridge claim lease/reclaim, queue TTL, cancel endpoint, POST-only claim path, traceback logging.
 - [x] T12 separate retry budgets by failure class.
@@ -64,12 +72,14 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 **M2 Gate:** scripted kill/restart tests at tab, bridge, runner stages produce zero duplicate prompts.
 
 ### M3 — Continuation
+
 - [x] T15 validated NEXT_TASK + durable task ledger + evidence-driven gate + explicit precedence for task sources.
 - [ ] T16 v1 folded into v2; no monkeypatch/pass-through wrapper.
 
 **M3 Gate:** 10-task run produces no repeated task text and no redo commits.
 
 ### M4 — Security
+
 - [x] T17 bridge launch token + JSON content type + Host/Origin validation.
 - [x] T18 protected paths and resolved Git paths/mode/rename validation.
 - [x] T19 validation sandbox with environment allowlist and no network/push credentials.
@@ -78,6 +88,7 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 **M4 Gate:** red-team checklist passes.
 
 ### M5 — Redundancy / Tests
+
 - [x] T21 one detector / one completion owner / one response store; legacy Tampermonkey pieces isolated/removed; dead code removed.
 - [x] T22 browser/DOM fixtures cover the native path; deliberate response-collapse mutation is expected to fail. Static regex tests remain as compatibility guards.
 - [x] T23 active launcher/service/provider documentation reconciled; legacy compatibility docs isolated. Final CI/bundle verification remains.
