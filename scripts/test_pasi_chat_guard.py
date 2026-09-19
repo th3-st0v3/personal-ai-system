@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+from unittest import mock
 
 from scripts import pasi_chat_guard as guard
 from scripts.pasi_chat_guard import classify_observation, observation_text
@@ -29,8 +30,8 @@ class TestPasiChatGuard(unittest.TestCase):
             captured["timeout"] = timeout
             return FakeResponse()
 
-        with unittest.mock.patch.dict("os.environ", {"PASI_BRIDGE_TOKEN": "test-token"}, clear=True):
-            with unittest.mock.patch.object(guard, "urlopen", side_effect=fake_urlopen):
+        with mock.patch.dict("os.environ", {"PASI_BRIDGE_TOKEN": "test-token"}, clear=True):
+            with mock.patch.object(guard, "urlopen", side_effect=fake_urlopen):
                 self.assertEqual(guard.request_json("/browser/health"), {"observation": {}})
 
         request = captured["request"]
