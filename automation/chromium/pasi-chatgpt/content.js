@@ -606,9 +606,8 @@
     // form or uniquely identified within a small ancestor scope around it.
     if (form) {
       candidates.push(...form.querySelectorAll('button[type="submit"]'));
-    } else {
-      candidates.push(...nearbyScopedControls(box));
     }
+    candidates.push(...nearbyScopedControls(box));
 
     const seen = new Set();
     return candidates.filter((element) => {
