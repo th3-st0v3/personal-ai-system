@@ -148,6 +148,7 @@ fi
 browser_observation_ready() {
     "$PYTHON" - <<'PY'
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -158,10 +159,13 @@ manifest_path = root / "automation" / "chromium" / "pasi-chatgpt" / "manifest.js
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected_version = manifest.get("version")
-    with urllib.request.urlopen(
-        "http://127.0.0.1:8765/browser/observation",
-        timeout=3.0,
-    ) as response:
+    token = (os.environ.get("PASI_BRIDGE_TOKEN", "") or (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8")).strip()
+    request = urllib.request.Request(
+        "http://127.0.0.1:8765/browser/health",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=3.0) as response:
         payload = json.loads(response.read(2_000_000).decode("utf-8"))
 except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
     raise SystemExit(1)
