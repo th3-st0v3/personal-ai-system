@@ -370,9 +370,9 @@ def create_driver_session(
             "capabilities": {
                 "alwaysMatch": {
                     "browserName": "chrome",
+                    "goog:loggingPrefs": {"browser": "ALL"},
                     "goog:chromeOptions": {
                         "binary": chrome_binary,
-                        "goog:loggingPrefs": {"browser": "ALL"},
                         "args": [
                             "--headless=new",
                             "--no-sandbox",
