@@ -1309,7 +1309,8 @@
       chat_url: chatUrl(),
       reasoning_mode: reasoningMode,
       github_attached: githubAttached,
-      github_repository: githubRepository
+      github_repository: githubRepository,
+      recovery_context: recoveryContext()
     }));
     let finalized = false;
     try {
