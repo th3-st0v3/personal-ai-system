@@ -383,7 +383,7 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
     return legacy.completion_contract_is_satisfied(status, values)
 
 
-def continuation_directive(state: OvernightState) -> str:
+def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     roadmap = "\n".join(f"- {item}" for item in candidates)
     recent = "\n".join(f"- {item}" for item in state.recent_tasks[-12:]) or "- none recorded"
