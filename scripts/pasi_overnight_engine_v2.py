@@ -204,6 +204,8 @@ def record_task_ledger(task: str, status: str, *, commit: str | None = None, evi
         "status": status,
         "commit": commit or "",
         "evidence": evidence[-4000:],
+        "phase": ledger.get(key, {}).get("phase", ""),
+        "automation_continue": ledger.get(key, {}).get("automation_continue", False),
         "updated_at": now_utc().isoformat(),
     }
     save_task_ledger(ledger)
@@ -537,6 +539,38 @@ def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool:
     return False
 
 
+def automation_gate_evidence(state: OvernightState) -> dict[str, str]:
+    ledger = load_task_ledger()
+    automation_entries = [
+        value for value in ledger.values()
+        if isinstance(value, dict) and value.get("phase") == "automation" and value.get("status") == "completed"
+    ]
+    recent = automation_entries[-AUTOMATION_TASKS_PER_GATE:]
+    if len(recent) < AUTOMATION_TASKS_PER_GATE:
+        return {
+            "automation_gate": "continue_automation",
+            "automation_opportunity": "concrete",
+            "automation_evidence": "Durable task ledger does not yet contain enough completed automation tasks for a gate.",
+        }
+    if any(value.get("automation_continue") is True for value in recent):
+        return {
+            "automation_gate": "continue_automation",
+            "automation_opportunity": "concrete",
+            "automation_evidence": "A completed automation task explicitly requested continued automation work.",
+        }
+    if not all(str(value.get("evidence", "")).strip() for value in recent):
+        return {
+            "automation_gate": "continue_automation",
+            "automation_opportunity": "concrete",
+            "automation_evidence": "Recent automation task evidence is incomplete.",
+        }
+    return {
+        "automation_gate": "proceed_engineering",
+        "automation_opportunity": "none",
+        "automation_evidence": "Recent automation tasks have verified evidence recorded in the durable task ledger.",
+    }
+
+
 def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
     values = tuple(str(item).strip() for item in candidates if str(item).strip())
     if not values:
@@ -568,7 +602,14 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
-    return legacy.parse_response(response)
+    parsed = legacy.parse_response(response)
+    values = dict(parsed[5])
+    values["automation_continue"] = "true" if re.search(
+        r"^PASI_AUTOMATION_CONTINUE:\s*true$",
+        response,
+        re.MULTILINE | re.IGNORECASE,
+    ) else "false"
+    return parsed[0], parsed[1], parsed[2], parsed[3], parsed[4], values
 
 
 def completion_contract(status: str, values: dict[str, str]) -> bool:
