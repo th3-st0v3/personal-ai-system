@@ -90,7 +90,7 @@ test('native prompt submission uses stable model selection and fail-closed Think
 });
 
 test('native Thinking selection prefers the composer model pill and stable intelligence modal', () => {
-  assert.match(content, /button\\.__composer-pill/);
+  assert.match(content, /button\.__composer-pill/);
   assert.match(content, /\[data-testid="model-configure-modal"\]/);
   assert.match(content, /\[data-testid="modal-intelligence-menu"\]/);
   assert.match(content, /button\[role="radio"\]/);
