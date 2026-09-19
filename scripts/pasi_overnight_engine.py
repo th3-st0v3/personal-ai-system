@@ -328,16 +328,30 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
     }
     Path(clean_env["HOME"]).mkdir(parents=True, exist_ok=True)
     base = ["env", "-i", *[f"{key}={value}" for key, value in clean_env.items()], "bash", "scripts/check_all.sh"]
+    if shutil.which("bwrap"):
+        sandbox_command = [
+            "bwrap",
+            "--ro-bind", "/", "/",
+            "--bind", str(worktree), str(worktree),
+            "--dev", "/dev",
+            "--proc", "/proc",
+            "--tmpfs", "/tmp",
+            "--unshare-net",
+            "--chdir", str(worktree),
+            *base,
+        ]
+        code, output = command(sandbox_command, worktree, timeout)
+        if code == 0:
+            return output
+        raise OvernightError(f"sandboxed canonical validation failed:\n{output}")
     if shutil.which("unshare"):
         sandbox_command = ["unshare", "--user", "--map-root-user", "--net", "--"] + base
         code, output = command(sandbox_command, worktree, timeout)
         if code == 0:
             return output
-        if "unshare failed" not in output.lower():
-            raise OvernightError(f"sandboxed canonical validation failed:\n{output}")
     raise OvernightError(
-        "network-isolated validation sandbox is unavailable; install/configure an "
-        "unshare-compatible user namespace before unattended validation can proceed"
+        "network-isolated validation sandbox is unavailable; install bubblewrap "
+        "(recommended) or enable an unshare-compatible user namespace"
     )
 
 
