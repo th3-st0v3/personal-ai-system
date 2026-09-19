@@ -7,7 +7,7 @@
   const DOM_POLL_MS = 250;
   const CLICK_SETTLE_MS = 250;
   const THINKING_VERIFY_MS = 5000;
-  const RESPONSE_SETTLE_MS = 200;
+  const RESPONSE_SETTLE_MS = 3500;
   const SUBMISSION_ACK_MS = 7500;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
@@ -1099,15 +1099,33 @@
   async function waitForResponse(baseline) {
     const started = Date.now();
     let sawGeneration = false;
+    let stableFingerprint = '';
+    let stableSince = 0;
     while (Date.now() - started < TIMEOUTS.generation) {
-      if (generating()) sawGeneration = true;
-      else if (sawGeneration) {
-        await sleep(RESPONSE_SETTLE_MS);
+      if (generating()) {
+        sawGeneration = true;
+        stableFingerprint = '';
+        stableSince = 0;
+      } else if (sawGeneration) {
         const response = latestAssistant();
-        if (response && fingerprint() !== baseline) return response;
+        const current = fingerprint();
+        if (response && current !== baseline) {
+          if (current !== stableFingerprint) {
+            stableFingerprint = current;
+            stableSince = Date.now();
+          }
+          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
+        }
       } else {
         const current = fingerprint();
-        if (current !== baseline && current) return latestAssistant();
+        if (current !== baseline && current) {
+          if (current !== stableFingerprint) {
+            stableFingerprint = current;
+            stableSince = Date.now();
+          }
+          const response = latestAssistant();
+          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
+        }
       }
       if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
       if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
