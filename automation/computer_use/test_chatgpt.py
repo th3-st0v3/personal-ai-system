@@ -62,7 +62,7 @@ class RepeatingTransport(FakeTransport):
 
 
 class ObservationFailingTransport(FakeTransport):
-    def __init__(self, responses: list[Mapping[str, Any]], fail_path: str = "/browser/response") -> None:
+    def __init__(self, responses: list[Mapping[str, Any]], fail_path: str = "/browser/health") -> None:
         super().__init__(responses)
         self.fail_path = fail_path
 
