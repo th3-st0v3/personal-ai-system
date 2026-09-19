@@ -285,9 +285,23 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
     legacy.validate_patch_paths(patch, allow_delete)
 
 
-def command(command: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+def command(
+    command: list[str],
+    cwd: Path,
+    timeout: float,
+    *,
+    input: str | None = None,
+) -> tuple[int, str]:
     try:
-        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            input=input,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
     output = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -581,10 +595,20 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
     validate_patch_paths(patch, allow_delete)
-    code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, 60.0)
+    code, output = command(
+        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+        worktree,
+        60.0,
+        input=patch,
+    )
     if code != 0:
         raise RuntimeError(f"git apply --check failed:\n{output}")
-    code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, 60.0)
+    code, output = command(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        worktree,
+        60.0,
+        input=patch,
+    )
     if code != 0:
         raise RuntimeError(f"git apply failed:\n{output}")
     code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
