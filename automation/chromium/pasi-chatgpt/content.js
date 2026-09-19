@@ -23,8 +23,18 @@
   let githubAttached = false;
   let githubRepository = null;
   let lastKnownChatUrl = null;
+  let extensionContextInvalidated = false;
+  let pollTimerId = null;
+  let healthTimerId = null;
+
+  function isExtensionContextInvalidatedError(error) {
+    return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
+  }
 
   async function bridge(path, options = {}) {
+    if (extensionContextInvalidated) {
+      throw new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page');
+    }
     if (!globalThis.chrome?.runtime?.sendMessage) {
       throw new Error('PASI_NATIVE: extension messaging API unavailable');
     }
@@ -48,7 +58,13 @@
           clearTimeout(timerId);
           const runtimeError = chrome.runtime.lastError;
           if (runtimeError) {
-            reject(new Error('PASI_NATIVE: extension bridge error: ' + runtimeError.message));
+            const message = String(runtimeError.message || '');
+            if (/extension context invalidated|context invalidated/i.test(message)) {
+              extensionContextInvalidated = true;
+              reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
+              return;
+            }
+            reject(new Error('PASI_NATIVE: extension bridge error: ' + message));
             return;
           }
           if (!response || typeof response !== 'object') {
@@ -903,12 +919,44 @@
 
   async function submitPrompt(expected) {
     const baselineUserCount = userMessages().length;
+
     for (let attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
-      const box = composer();
-      if (!box) throw new Error('PASI_NATIVE: composer disappeared');
-      if (!composerContainsPrompt(box, expected)) throw new Error('PASI_NATIVE: composer lost the requested prompt before submission');
+      // ChatGPT can rerender or replace the composer node during controlled
+      // input updates. Confirm the message was not already accepted before
+      // treating a missing composer value as a failure.
+      if (newestUserMatches(expected, baselineUserCount)) return;
 
       await ensurePromptSubmissionReady();
+
+      let box = composer();
+      if (!box) throw new Error('PASI_NATIVE: composer disappeared');
+
+      // Re-acquire the composer after readiness checks. Restore the requested
+      // prompt only when the new composer is empty; never overwrite unrelated
+      // text that may have been entered independently.
+      if (!composerContainsPrompt(box, expected)) {
+        const currentText = normalize(readText(box));
+        if (!currentText) {
+          insertText(box, expected);
+          box = await waitFor(
+            () => {
+              const current = composer();
+              return current && composerContainsPrompt(current, expected) ? current : null;
+            },
+            2000
+          ) || composer();
+        }
+      }
+
+      if (newestUserMatches(expected, baselineUserCount)) return;
+
+      if (!box || !composerContainsPrompt(box, expected)) {
+        if (attempt < SUBMISSION_ATTEMPTS) {
+          await sleep(DOM_POLL_MS + 50);
+          continue;
+        }
+        throw new Error('PASI_NATIVE: composer lost the requested prompt before submission after bounded recovery');
+      }
 
       const button = await waitForSend(box);
       const form = (button || box)?.closest?.('form') || box.closest?.('form') || null;
@@ -922,7 +970,10 @@
         } catch (_) {}
       }
 
-      const currentButton = sendCandidatesForComposer(composer())[0] || button;
+      if (newestUserMatches(expected, baselineUserCount)) return;
+
+      const currentBox = composer();
+      const currentButton = sendCandidatesForComposer(currentBox)[0] || button;
       if (currentButton && !disabled(currentButton)) {
         nativeMouseActivate(currentButton);
         if (await waitForSubmissionAck(expected, baselineUserCount)) return;
@@ -936,6 +987,7 @@
 
       if (attempt < SUBMISSION_ATTEMPTS) await sleep(DOM_POLL_MS + 50);
     }
+
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
     throw new Error('PASI_NATIVE: prompt submission could not be verified after bounded attempts');
@@ -1236,7 +1288,7 @@
   }
 
   async function poll() {
-    if (processing || activeOperationId !== null) return;
+    if (processing || activeOperationId !== null || extensionContextInvalidated) return;
     try {
       const recoveryOperation = recoveryOperationId();
       if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
@@ -1262,8 +1314,14 @@
       const payload = response.json();
       if (payload?.operation) await processOperation(payload.operation);
     } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) {
+        extensionContextInvalidated = true;
+        if (pollTimerId !== null) clearInterval(pollTimerId);
+        if (healthTimerId !== null) clearInterval(healthTimerId);
+        return;
+      }
       console.warn('[PASI native controller]', error);
-      await reportHealth();
+      try { await reportHealth(); } catch (_) {}
     }
   }
 
@@ -1271,8 +1329,9 @@
     await recoverInterruptedOperation();
     try { await reportHealth(); } catch (_) {}
     await poll();
-    setInterval(poll, POLL_MS);
-    setInterval(reportHealth, HEALTH_MS);
+    if (extensionContextInvalidated) return;
+    pollTimerId = setInterval(poll, POLL_MS);
+    healthTimerId = setInterval(reportHealth, HEALTH_MS);
   }
 
   start();

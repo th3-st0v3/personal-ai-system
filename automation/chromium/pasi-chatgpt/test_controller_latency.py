@@ -79,3 +79,16 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "payload?.operation?.status === 'completed'" in native
     assert "payload?.operation?.response_text_available === true" in native
     assert "Boolean(payload.operation.response_text.trim())" in native
+
+
+def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_context_polling() -> None:
+    native = _read(NATIVE)
+
+    assert "newestUserMatches(expected, baselineUserCount)" in native
+    assert "composer lost the requested prompt before submission after bounded recovery" in native
+    assert "never overwrite unrelated" in native
+    assert "extensionContextInvalidated" in native
+    assert "extension context invalidated; reload the ChatGPT page" in native
+    assert "clearInterval(pollTimerId)" in native
+    assert "clearInterval(healthTimerId)" in native
+    assert "if (extensionContextInvalidated) return;" in native
