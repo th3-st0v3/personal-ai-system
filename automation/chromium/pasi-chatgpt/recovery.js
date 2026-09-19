@@ -1,7 +1,6 @@
 (() => {
   'use strict';
 
-  const BRIDGE = 'http://127.0.0.1:8765';
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
@@ -22,21 +21,53 @@
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function bridge(path, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeout || 5000);
-    try {
-      const response = await fetch(BRIDGE + path, {
-        method: options.method || 'GET',
-        headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-        credentials: 'omit'
-      });
-      const text = await response.text();
-      return { ok: response.ok, status: response.status, text, json: () => JSON.parse(text) };
-    } finally {
-      clearTimeout(timer);
+    if (!globalThis.chrome?.runtime?.sendMessage) {
+      throw new Error('PASI_NATIVE: extension messaging API unavailable');
     }
+    const timeoutMs = Number(options.timeout || 5000);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timerId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error('PASI_NATIVE: bridge message timed out'));
+      }, timeoutMs);
+      try {
+        chrome.runtime.sendMessage({
+          type: 'pasi-bridge-request',
+          path: String(path || ''),
+          method: String(options.method || 'GET').toUpperCase(),
+          body: options.body ?? null
+        }, (response) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timerId);
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError) {
+            reject(new Error('PASI_NATIVE: extension bridge error: ' + runtimeError.message));
+            return;
+          }
+          if (!response || typeof response !== 'object') {
+            reject(new Error('PASI_NATIVE: invalid bridge response'));
+            return;
+          }
+          const text = typeof response.text === 'string' ? response.text : '';
+          const error = typeof response.error === 'string' ? response.error : '';
+          resolve({
+            ok: response.ok === true,
+            status: Number(response.status || 0),
+            text,
+            error,
+            json: () => JSON.parse(text)
+          });
+        });
+      } catch (error) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timerId);
+        reject(error);
+      }
+    });
   }
 
   function activeOperationId() {
@@ -638,7 +669,14 @@
       });
       return;
     }
-    if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') return;
+    if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
+      if (await finishVisibleResponse(operationId, current, '')) {
+        clearInterruptedState();
+      } else if (current.status !== 'completed') {
+        clearInterruptedState();
+      }
+      return;
+    }
 
     if (await finishPersistedResponse(current)) {
       clearInterruptedState();
