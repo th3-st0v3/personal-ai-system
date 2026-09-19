@@ -19,6 +19,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from automation.computer_use.chatgpt import ChatGPTAdapter, UrllibBridgeTransport
 from automation.computer_use.contracts import AIResponse
 from automation.orchestrator.controller_update import evaluate_controller_update, read_last_synced_version, write_update_request
+from scripts.pasi_timeout_policy import load_timeout_policy
 
 RUNTIME_DIR = REPOSITORY_ROOT / ".runtime" / "chatgpt"
 SESSION_STATE_PATH = RUNTIME_DIR / "session.json"
@@ -28,8 +29,9 @@ CHAT_URL_PATTERN = re.compile(r"^https://chatgpt\.com/c/")
 MAX_HANDOFF_CHARS = 12_000
 MAX_CHAT_HISTORY = 20
 TERMINAL_COMPLETIONS = frozenset({"complete", "error", "interrupted"})
-CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
-CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
+TIMEOUT_POLICY = load_timeout_policy()
+CONTROLLER_LIVENESS_TIMEOUT_SECONDS = min(20.0, TIMEOUT_POLICY["stale_seconds"])
+CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = TIMEOUT_POLICY["stale_seconds"]
 RESPONSE_CAPTURE_REPAIR_ATTEMPTS = 1
 TIMEOUT_RECONCILIATION_ATTEMPTS = 8
 TIMEOUT_RECONCILIATION_INTERVAL_SECONDS = 0.5
@@ -526,7 +528,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run a PASI ChatGPT session with always-on Thinking and resilient public GitHub context fallback.")
     parser.add_argument("task", nargs="+", help="Engineering/research task to send to ChatGPT")
     parser.add_argument("--repo", type=Path, default=REPOSITORY_ROOT)
-    parser.add_argument("--timeout", type=float, default=900.0)
+    parser.add_argument("--timeout", type=float, default=TIMEOUT_POLICY["python_wait_seconds"])
     parser.add_argument("--repository", default="th3-st0v3/personal-ai-system")
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto", help="auto tries public GitHub first and automatically falls back to the ChatGPT GitHub app when retrieval fails")
     args = parser.parse_args()
