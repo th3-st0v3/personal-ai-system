@@ -39,7 +39,7 @@ test('recovery companion scopes detectors through the shared detector module', (
 test('recovery reports active operation and response observations without mutating queue state', () => {
   assert.match(source, /active_operation_id: String\(activeOperationId\)/);
   assert.match(source, /report\('chatgpt_response'/);
-  assert.match(source, /kind: 'chatgpt_recovery'/);
+  assert.match(source, /report\('chatgpt_recovery'/);
   assert.match(source, /observe_only/);
 });
 
