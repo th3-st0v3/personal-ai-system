@@ -701,7 +701,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
     def _request_is_authorized(self, *, require_token: bool) -> bool:
         host = self.headers.get("Host", "")
-        if host not in {f"{HOST}:{PORT}", HOST}:
+        bound_port = self.server.server_address[1] if isinstance(self.server.server_address, tuple) else PORT
+        if host not in {f"{HOST}:{bound_port}", HOST}:
             return False
         origin = self.headers.get("Origin", "").strip()
         if origin and not (origin in {"https://chatgpt.com", "https://www.chatgpt.com"} or origin.startswith("chrome-extension://")):
