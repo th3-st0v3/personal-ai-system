@@ -324,30 +324,6 @@ def execute_cdp_command(
     return value
 
 
-def wait_for_extension_marker(driver_url: str, session_id: str, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    last_value = None
-    while time.monotonic() < deadline:
-        payload = driver_request(
-            driver_url,
-            "POST",
-            f"/session/{session_id}/execute/sync",
-            {
-                "script": "return Boolean(document.getElementById('pasi-activity-indicator'));",
-                "args": [],
-            },
-            timeout=3.0,
-        )
-        last_value = payload.get("value")
-        if last_value is True:
-            return
-        time.sleep(0.2)
-    raise AssertionError(
-        "PASI Chromium extension did not inject its activity marker into the fixture page; "
-        f"last marker state={last_value!r}"
-    )
-
-
 def wait_for_driver(base_url: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
