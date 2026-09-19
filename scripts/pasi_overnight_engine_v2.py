@@ -715,9 +715,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         allow_delete,
         validator=validate_patch_paths,
     )
-    code, validation_output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
-    if code != 0:
-        raise RuntimeError(f"canonical validation failed:\n{validation_output}")
+    validation_output = legacy.run_validation_sandbox(worktree)
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
