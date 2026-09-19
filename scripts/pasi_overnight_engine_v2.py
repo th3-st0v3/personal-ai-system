@@ -318,12 +318,22 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     raise RuntimeError("local PASI bridge/distribution services did not become healthy")
 
 
+def worktree_start_ref() -> str:
+    configured = os.environ.get("PASI_OVERNIGHT_BASE_REF", "").strip()
+    return configured or "HEAD"
+
+
 def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
-        code, output = command(["git", "worktree", "add", "-B", branch, str(path), "origin/main"], REPO_ROOT, 60.0)
+        code, output = command(
+            ["git", "worktree", "add", "-B", branch, str(path), worktree_start_ref()],
+            REPO_ROOT,
+            60.0,
+        )
         if code != 0:
             raise RuntimeError(f"could not create overnight worktree: {output}")
+        log_event("worktree_created", branch=branch, base_ref=worktree_start_ref(), path=str(path))
         return
     code, output = command(["git", "status", "--porcelain"], path, 15.0)
     if code != 0:
