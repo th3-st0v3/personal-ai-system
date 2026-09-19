@@ -103,8 +103,18 @@
   }  const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function accessibilityHidden(element) {
+    for (let current = element; current; current = current.parentElement) {
+      if (
+        current.getAttribute?.('aria-hidden') === 'true' ||
+        current.hasAttribute?.('inert')
+      ) return true;
+    }
+    return false;
+  }
+
   function visible(element) {
-    if (!element) return false;
+    if (!element || accessibilityHidden(element)) return false;
     const style = getComputedStyle(element);
     return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.getClientRects().length > 0;
   }
