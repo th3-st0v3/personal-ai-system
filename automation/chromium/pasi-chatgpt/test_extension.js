@@ -75,6 +75,11 @@ test('native controller reports health and preserves interrupted-operation recov
 });
 
 test('native transient control activation clears stale focus before ChatGPT hides or replaces UI', () => {
+  assert.match(content, /function freshChatSurface\(previousLocation, previousChat\)/);
+  assert.match(content, /freshRootChat = freshChatSurface\(previousLocation, previousChat\)/);
+  assert.match(content, /new chat control did not reach a verified fresh chat surface/);
+  assert.match(content, /const focused = document\.activeElement;/);
+
   assert.match(content, /function accessibilityHidden\(element\)/);
   assert.match(content, /current\.getAttribute\?\.\('aria-hidden'\) === 'true'/);
   assert.match(content, /current\.hasAttribute\?\.\('inert'\)/);
