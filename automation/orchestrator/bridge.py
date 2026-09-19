@@ -48,6 +48,8 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "PASI_NATIVE: new chat did not reach a verified ready state",
     "PASI_NATIVE: new chat control did not change conversation identity",
     "PASI_NATIVE: new chat control did not reach a verified fresh chat surface",
+    "PASI_NATIVE: ChatGPT generation timed out",
+    "PASI_NATIVE: response text unavailable",
     "PASI_NATIVE: prompt submission could not be verified after bounded attempts",
     "PASI_NATIVE: New chat control activation failed",
     "PASI_NATIVE: Thinking control activation failed",
@@ -841,6 +843,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if path == "/next-operation":
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+            return
+
         if path != "/health" and not self._request_is_authorized(require_token=True):
             self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
             return
@@ -870,10 +876,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     "observation": observation
                 }
             )
-            return
-
-        if path == "/next-operation":
-            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
             return
 
         if path == "/browser/health":
