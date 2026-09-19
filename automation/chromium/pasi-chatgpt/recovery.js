@@ -203,7 +203,7 @@
       if (responseText) {
         await report('chatgpt_response', {
           active_operation_id: String(activeOperationId),
-          response_text: collapseWhitespace(responseText),
+          response_text: responseText,
           response_text_available: true,
           recovery_action: 'observe_response_only'
         });
