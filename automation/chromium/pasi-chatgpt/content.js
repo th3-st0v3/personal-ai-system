@@ -416,6 +416,21 @@
     return `${userMessages().length}:${assistantMessages().length}:${fingerprint()}`;
   }
 
+  function userMessageExistsForOperation(operationId) {
+    const needle = normalize(`[PASI_OPERATION ${operationId}]`);
+    if (!needle) return false;
+    return userMessages().some((node) => normalize(messageText(node)).includes(needle));
+  }
+
+  function readJsonStorage(key) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || 'null');
+      return value && typeof value === 'object' ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function recoveryContext() {
     const context = {};
     if (reasoningMode === 'thinking') context.reasoning_mode = 'thinking';
