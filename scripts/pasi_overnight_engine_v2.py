@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from scripts import pasi_overnight_engine as legacy
+from scripts.pasi_timeout_policy import load_timeout_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
@@ -31,7 +32,8 @@ DEFAULT_HOURS = legacy.DEFAULT_HOURS
 MIN_HOURS = legacy.MIN_HOURS
 MAX_HOURS = legacy.MAX_HOURS
 MAX_ATTEMPTS = legacy.MAX_ATTEMPTS
-TASK_TIMEOUT_SECONDS = 900.0
+TIMEOUT_POLICY = load_timeout_policy()
+TASK_TIMEOUT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
 WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
 AUTOMATION_TASKS_PER_GATE = 2
