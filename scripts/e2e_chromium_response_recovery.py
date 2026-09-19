@@ -360,7 +360,7 @@ def create_driver_session(
     return session_id
 
 
-def main() -> None:def main() -> None:
+def main() -> None:
     BridgeHandler.finished_payload = None
     BridgeHandler.observations = 0
 
