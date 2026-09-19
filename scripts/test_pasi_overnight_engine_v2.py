@@ -83,6 +83,9 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             recent_tasks=["already completed task"],
         )
         prompt = engine.build_prompt(state.current_task, state)
+        self.assertIn("KEEP WORKING UNTIL YOU'RE FINISHED:", prompt)
+        self.assertIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
+        self.assertIn("immediately continue to the next incomplete roadmap task", prompt)
         self.assertIn("IF the CURRENT TASK is already satisfied", prompt)
         self.assertIn("THEN do not re-implement it", prompt)
         self.assertIn("next incomplete roadmap item", prompt)
