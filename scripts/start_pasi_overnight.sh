@@ -5,6 +5,21 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+PYTHON="$REPO_ROOT/.venv/bin/python"
+TOKEN_FILE="$HOME/.pasi/bridge-token"
+EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
+mkdir -p "$HOME/.pasi"
+if [[ ! -s "$TOKEN_FILE" ]]; then
+    "$PYTHON" - <<'PY' > "$TOKEN_FILE"
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+    chmod 600 "$TOKEN_FILE"
+fi
+cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
+chmod 600 "$EXTENSION_TOKEN_FILE"
+export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 if [[ ! -x "$REPO_ROOT/.venv/bin/python" ]]; then
     printf 'error: expected executable Python at %s/.venv/bin/python\n' "$REPO_ROOT" >&2
     exit 1
