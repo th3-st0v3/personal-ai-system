@@ -3,12 +3,13 @@
 
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || globalThis.PASI_TIMEOUT_POLICY?.defaults || {};
-  const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;
+  var POLL_MS = 2000;
+  POLL_MS = TIMEOUT_POLICY.pollMs || POLL_MS;
   const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
   const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 250;
   const CLICK_SETTLE_MS = 250;
   const THINKING_VERIFY_MS = 5000;
-  const RESPONSE_SETTLE_MS = 3500;
+  const RESPONSE_SETTLE_MS = 200;
   const SUBMISSION_ACK_MS = 7500;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = {
