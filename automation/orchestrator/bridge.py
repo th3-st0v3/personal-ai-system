@@ -764,7 +764,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type",
+            "Content-Type, Authorization",
         )
 
         self.send_header(
