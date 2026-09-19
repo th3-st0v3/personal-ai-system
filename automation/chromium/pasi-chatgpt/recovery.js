@@ -17,7 +17,11 @@
   let inspecting = false;
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-  const compact = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const preserveLineBreaks = (value) => String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+(?=\n)/g, '')
+    .trim();
+  const collapseWhitespace = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function bridge(path, options = {}) {
@@ -158,7 +162,9 @@
     return compact(node.innerText || node.textContent || '').slice(0, 50000);
   }
 
-  function fingerprint() { return latestAssistant().slice(-4000); }
+  function fingerprint() {
+    return collapseWhitespace(latestAssistant()).slice(-4000);
+  }
 
   function readRecoveryState() {
     try {
