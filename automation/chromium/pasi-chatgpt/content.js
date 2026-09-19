@@ -247,10 +247,12 @@
   function modelModeFromLabel(value) {
     const text = normalize(value);
     if (!text) return null;
-    if (/\bthinking\b/.test(text) || /\bextended\b/.test(text)) return 'thinking';
+    if (
+      /\b(?:thinking|think|medium|high|extra high|pro(?: standard| extended)?)\b/.test(text) ||
+      /\bextended\b/.test(text)
+    ) return 'thinking';
     if (/\binstant\b/.test(text)) return 'instant';
     if (/\bauto(?:matic)?\b/.test(text)) return 'auto';
-    if (/\bpro\b/.test(text)) return 'pro';
     return null;
   }
 
@@ -305,7 +307,7 @@
   function thinkingEnabled() {
     const currentMode = currentModelMode();
     if (currentMode === 'thinking') return true;
-    if (currentMode === 'instant' || currentMode === 'auto' || currentMode === 'pro') return false;
+    if (currentMode === 'instant' || currentMode === 'auto') return false;
 
     const selected = document.querySelectorAll(
       '[aria-pressed], [aria-selected], [aria-checked], [aria-current], [data-state], [data-selected], [data-checked], [data-active]'
@@ -314,7 +316,7 @@
     for (const element of selected) {
       if (!visible(element)) continue;
       const text = label(element);
-      if (!text.includes('thinking')) continue;
+      if (!/\b(?:thinking|think|medium|high|extra high|pro(?: standard| extended)?)\b/.test(text)) continue;
       const state = selectionState(element);
       if (state === true) return true;
       if (state === false) explicitFalse = true;
@@ -451,12 +453,18 @@
     lastKnownChatUrl = current;
   }
 
+  function isReasoningLabel(value) {
+    const text = normalize(value);
+    return /\b(?:thinking|think|medium|high|extra high|pro(?: standard| extended)?)\b/.test(text) ||
+      /\bextended\b/.test(text);
+  }
+
   function findThinkingMenuOption() {
     const modal = firstVisible(['[data-testid="modal-intelligence-menu"]']);
     if (modal) {
       const radios = modal.querySelectorAll('button[role="radio"], [role="radio"]');
       for (const element of radios) {
-        if (visible(element) && label(element).includes('thinking')) return element;
+        if (visible(element) && isReasoningLabel(label(element))) return element;
       }
     }
 
@@ -465,8 +473,29 @@
       if (!visible(menu)) continue;
       const candidates = menu.querySelectorAll('[role="radio"], [role="option"], [role="menuitemradio"], [role="menuitem"], button');
       for (const element of candidates) {
-        if (visible(element) && label(element).includes('thinking')) return element;
+        if (visible(element) && isReasoningLabel(label(element))) return element;
       }
+    }
+    return null;
+  }
+
+  function findDirectThinkingControl() {
+    const exactLabels = new Set([
+      'thinking',
+      'think',
+      'medium',
+      'high',
+      'extra high',
+      'pro standard',
+      'pro extended'
+    ]);
+    const controls = document.querySelectorAll(
+      'button, [role="button"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="radio"]'
+    );
+    for (const element of controls) {
+      if (!visible(element) || disabled(element)) continue;
+      const text = label(element);
+      if (exactLabels.has(text)) return element;
     }
     return null;
   }
@@ -474,6 +503,30 @@
   async function selectThinking() {
     const initialState = thinkingEnabled();
     if (initialState === true) { reasoningMode = 'thinking'; return; }
+
+    // Free/Go and some newer ChatGPT layouts expose a direct Think control in
+    // the composer menu rather than a Thinking option in the model picker.
+    // Check that control before opening the model picker so an already-enabled
+    // reasoning mode is not misclassified as unavailable.
+    const directThinkingControl = findDirectThinkingControl();
+    if (directThinkingControl) {
+      const state = selectionState(directThinkingControl);
+      if (state === true) {
+        reasoningMode = 'thinking';
+        return;
+      }
+      if (state === false) {
+        directThinkingControl.click();
+        await sleep(CLICK_SETTLE_MS);
+        const verified = await waitFor(
+          () => thinkingEnabled() === true ? true : null,
+          5000
+        );
+        if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after direct Think control');
+        reasoningMode = 'thinking';
+        return;
+      }
+    }
 
     const pill = findModelPill();
     if (pill) {
