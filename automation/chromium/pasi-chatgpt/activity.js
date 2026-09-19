@@ -138,15 +138,21 @@
   }
 
   async function backendOperation(operationId) {
+    if (!globalThis.chrome?.runtime?.sendMessage) return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2500);
     try {
-      const response = await fetch(`http://127.0.0.1:8765/operation?operation_id=${encodeURIComponent(operationId)}`, {
-        credentials: 'omit',
-        signal: controller.signal
-      });
-      if (!response.ok) return null;
-      const payload = await response.json();
+      const response = await Promise.race([
+        chrome.runtime.sendMessage({
+          type: 'pasi-bridge-request',
+          path: '/operation?operation_id=' + encodeURIComponent(String(operationId)),
+          method: 'GET',
+          body: null
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('bridge timeout')), 2500))
+      ]);
+      if (!response?.ok || typeof response.text !== 'string') return null;
+      const payload = JSON.parse(response.text);
       return payload?.operation || null;
     } catch (_) {
       return null;
