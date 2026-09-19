@@ -25,23 +25,38 @@
   let lastKnownChatUrl = null;
 
   async function bridge(path, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeout || 10000);
+    if (!globalThis.chrome?.runtime?.sendMessage) {
+      throw new Error('PASI_NATIVE: extension messaging API unavailable');
+    }
+    const timeoutMs = Number(options.timeout || 10000);
+    let timerId = null;
+    const timeout = new Promise((_, reject) => {
+      timerId = setTimeout(() => reject(new Error('PASI_NATIVE: bridge message timed out')), timeoutMs);
+    });
     try {
-      const response = await fetch(BRIDGE + path, {
-        method: options.method || 'GET',
-        headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-        credentials: 'omit'
-      });
-      const text = await response.text();
-      return { ok: response.ok, status: response.status, text, json: () => JSON.parse(text) };
+      const response = await Promise.race([
+        chrome.runtime.sendMessage({
+          type: 'pasi-bridge-request',
+          path: String(path || ''),
+          method: String(options.method || 'GET').toUpperCase(),
+          body: options.body ?? null
+        }),
+        timeout
+      ]);
+      if (!response || typeof response !== 'object') {
+        throw new Error('PASI_NATIVE: invalid bridge response');
+      }
+      const text = typeof response.text === 'string' ? response.text : '';
+      return {
+        ok: response.ok === true,
+        status: Number(response.status || 0),
+        text,
+        json: () => JSON.parse(text)
+      };
     } finally {
-      clearTimeout(timer);
+      if (timerId !== null) clearTimeout(timerId);
     }
   }
-
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
