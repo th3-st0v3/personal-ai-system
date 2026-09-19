@@ -64,9 +64,15 @@ def bounded_text(value: str, limit: int) -> str:
     return value if len(value) <= limit else value[:limit] + "\n[truncated]"
 
 
-def make_prompt(task: str, repo: Path) -> str:
-    context = collect_context(repo, max_chars=MAX_CONTEXT_CHARS)
-    prompt = f"{SYSTEM_PROMPT}\n\nTASK:\n{task.strip()}\n\nREPOSITORY CONTEXT:\n{context}\n\n{CONTRACT}\n"
+def make_prompt(task: str, repo: Path, *, include_repository_context: bool = True) -> str:
+    if include_repository_context:
+        context_section = f"REPOSITORY CONTEXT:\n{collect_context(repo, max_chars=MAX_CONTEXT_CHARS)}"
+    else:
+        context_section = (
+            "REPOSITORY CONTEXT: omitted by privacy policy; "
+            "this remote free-tier provider receives task/contract text only."
+        )
+    prompt = f"{SYSTEM_PROMPT}\n\nTASK:\n{task.strip()}\n\n{context_section}\n\n{CONTRACT}\n"
     return bounded_text(prompt, MAX_PROMPT_CHARS)
 
 
@@ -257,6 +263,11 @@ def remote_code_allowed() -> bool:
     return os.environ.get(REMOTE_CODE_OPT_IN_ENV, "").strip().casefold() in {"1", "true", "yes"}
 
 
+def openrouter_is_free_tier() -> bool:
+    model = os.environ.get("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL).strip().casefold()
+    return model == "openrouter/free" or model.endswith(":free") or model.endswith("/free")
+
+
 def providers_available() -> list[str]:
     values: list[str] = []
     if os.environ.get("OLLAMA_MODEL", "").strip() or os.environ.get("OLLAMA_BASE_URL", "").strip() or shutil.which("ollama"):
@@ -296,8 +307,8 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
             if provider == "openrouter":
                 return provider, call_openrouter(prompt, limit)
             if provider == "perplexity":
-                return provider, call_perplexity(prompt, limit)
-            return provider, call_opencode(prompt, repo, limit)
+                return provider, call_perplexity(provider_prompt, limit)
+            return provider, call_opencode(provider_prompt, repo, limit)
         except urllib.error.HTTPError as exc:
             if provider == "openrouter" and exc.code == 429 and OPENROUTER_429_RETRY_MAX > 0:
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
