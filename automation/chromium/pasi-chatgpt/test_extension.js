@@ -154,7 +154,7 @@ test('native prompt submission requires explicit acknowledgement and composer-sc
   assert.match(content, /form\.requestSubmit\(button \|\| undefined\)/);
   assert.match(content, /nativeMouseActivate\(currentButton\)/);
   assert.match(content, /dispatchEnter\(retryBox\)/);
-  assert.match(content, /const current = composer\(\)/);
+  assert.doesNotMatch(content, /if \(!current \|\| !composerContainsPrompt\(current, expected\)\) \{\s*if \(generating\(\)\) return true;/);
   assert.match(content, /new KeyboardEvent\('keypress', init\)/);
   assert.match(content, /const retryBox = composer\(\);/);
   assert.match(content, /if \(retryBox && composerContainsPrompt\(retryBox, expected\) && !generating\(\)\)/);
