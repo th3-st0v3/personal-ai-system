@@ -822,6 +822,82 @@ def test_non_transient_failure_remains_terminal(tmp_path: Path) -> None:
     assert "failure_reason" not in failed
 
 
+def test_http_bridge_rejects_bad_auth_host_origin_and_content_type(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "security")
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+
+        body = b"{}"
+        connection.request(
+            "POST",
+            "/next-operation",
+            body=body,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer wrong-token"},
+        )
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 401
+        connection.close()
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/next-operation",
+            body=body,
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-bridge-token",
+                "Host": "evil.example",
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 401
+        connection.close()
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/next-operation",
+            body=body,
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-bridge-token",
+                "Origin": "https://evil.example",
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 401
+        connection.close()
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/next-operation",
+            body=body,
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-bridge-token",
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 400
+        connection.close()
+
+        assert bridge.get_operation(operation.operation_id)["status"] == "queued"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
 def test_http_next_operation_is_post_only(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "post-only")
