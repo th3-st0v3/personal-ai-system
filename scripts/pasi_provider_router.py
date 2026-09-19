@@ -219,10 +219,25 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
             + "\n- Do not edit, create, delete, run shell commands, push, deploy, or access credentials."
             + "\n- Return text only with the PASI completion contract."
         )
+        denied_permissions = json.dumps({
+            "edit": "deny",
+            "bash": "deny",
+            "webfetch": "deny",
+            "websearch": "deny",
+            "task": "deny",
+            "skill": "deny",
+            "external_directory": "deny",
+            "question": "deny",
+        })
+        opencode_env = dict(os.environ)
+        opencode_env["OPENCODE_PERMISSION"] = denied_permissions
+        opencode_env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
+        opencode_env["OPENCODE_DISABLE_LSP_DOWNLOAD"] = "true"
         try:
             result = subprocess.run(
-                [executable, "run", "--dir", str(sandbox), safe_prompt],
+                [executable, "run", "--standalone", "--dir", str(sandbox), safe_prompt],
                 cwd=sandbox,
+                env=opencode_env,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
