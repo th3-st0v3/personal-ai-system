@@ -170,6 +170,30 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                     self.assertEqual(repeats, 0)
                 self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
 
+    def test_valid_next_task_is_honored_and_completed_ledger_is_skipped(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="ledger-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            recent_tasks=[],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger_path = Path(temp_dir) / "task-ledger.json"
+            with mock.patch.object(engine, "TASK_LEDGER_PATH", ledger_path):
+                engine.record_task_ledger(engine.AUTOMATION_TASKS[1], "completed", commit="abc123", evidence="verified")
+                self.assertEqual(
+                    engine.choose_next_task(state, engine.AUTOMATION_TASKS[1]),
+                    engine.AUTOMATION_TASKS[2],
+                )
+                candidate = "Implement a concrete seam diagnostic for queued ChatGPT operations."
+                self.assertEqual(engine.choose_next_task(state, candidate), candidate)
+
     def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
         now = datetime.now(timezone.utc)
         current = engine.AUTOMATION_TASKS[1]
