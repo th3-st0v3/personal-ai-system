@@ -304,6 +304,50 @@ def driver_request(
         raise RuntimeError(f"ChromeDriver {method} {path} failed: {exc}") from exc
 
 
+def execute_cdp_command(
+    driver_url: str,
+    session_id: str,
+    command: str,
+    params: dict | None = None,
+    timeout: float = 10.0,
+) -> dict:
+    payload = driver_request(
+        driver_url,
+        "POST",
+        f"/session/{session_id}/goog/cdp/execute",
+        {"cmd": command, "params": params or {}},
+        timeout=timeout,
+    )
+    value = payload.get("value")
+    if not isinstance(value, dict):
+        raise RuntimeError(f"ChromeDriver CDP {command} returned invalid payload: {payload}")
+    return value
+
+
+def wait_for_extension_marker(driver_url: str, session_id: str, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    last_value = None
+    while time.monotonic() < deadline:
+        payload = driver_request(
+            driver_url,
+            "POST",
+            f"/session/{session_id}/execute/sync",
+            {
+                "script": "return Boolean(document.getElementById('pasi-activity-indicator'));",
+                "args": [],
+            },
+            timeout=3.0,
+        )
+        last_value = payload.get("value")
+        if last_value is True:
+            return
+        time.sleep(0.2)
+    raise AssertionError(
+        "PASI Chromium extension did not inject its activity marker into the fixture page; "
+        f"last marker state={last_value!r}"
+    )
+
+
 def wait_for_driver(base_url: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
@@ -384,11 +428,10 @@ def create_driver_session(
                             "--disable-component-update",
                             "--disable-default-apps",
                             "--enable-unsafe-extension-debugging",
+                            "--remote-debugging-pipe",
                             "--remote-allow-origins=*",
                             "--ignore-certificate-errors",
                             "--host-resolver-rules=MAP chatgpt.com 127.0.0.1",
-                            f"--disable-extensions-except={extension_dir}",
-                            f"--load-extension={extension_dir}",
                             f"--user-data-dir={profile_dir}",
                         ],
                     },
@@ -405,6 +448,36 @@ def create_driver_session(
     session_id = value.get("sessionId") or created.get("sessionId")
     if not isinstance(session_id, str) or not session_id:
         raise RuntimeError(f"ChromeDriver did not return a session id: {created}")
+
+    loaded = execute_cdp_command(
+        driver_url,
+        session_id,
+        "Extensions.loadUnpacked",
+        {"path": str(extension_dir)},
+        timeout=10.0,
+    )
+    extension_id = loaded.get("id")
+    if not isinstance(extension_id, str) or not extension_id:
+        raise RuntimeError(
+            f"ChromeDriver Extensions.loadUnpacked returned no extension id: {loaded}"
+        )
+
+    installed = execute_cdp_command(
+        driver_url,
+        session_id,
+        "Extensions.getExtensions",
+        {},
+        timeout=10.0,
+    )
+    installed_extensions = installed.get("extensions")
+    if not isinstance(installed_extensions, list) or not any(
+        isinstance(item, dict) and item.get("id") == extension_id
+        for item in installed_extensions
+    ):
+        raise RuntimeError(
+            f"Loaded extension {extension_id} was not reported by Extensions.getExtensions: {installed}"
+        )
+
     return session_id
 
 
@@ -484,6 +557,8 @@ def main() -> None:
                 {"url": f"https://chatgpt.com:{fixture_port}/fixture"},
                 timeout=10.0,
             )
+
+            wait_for_extension_marker(driver_url, session_id, timeout=10.0)
 
             diagnostics = driver_request(
                 driver_url,
