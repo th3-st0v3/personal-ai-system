@@ -103,7 +103,7 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
   assert.match(content, /if \(usageLimited\(\)\) throw new Error\('CHAT_USAGE_LIMITED/);
   assert.match(content, /if \(thinkingEnabled\(\) !== true\) await selectThinking\(\)/);
   assert.match(content, /if \(thinkingEnabled\(\) !== true\) throw new Error\('PASI_NATIVE: Thinking state could not be verified before prompt submission/);
-  assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(\)/);
+  assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(box\)/);
 });
 
 test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
