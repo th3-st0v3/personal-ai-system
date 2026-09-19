@@ -651,6 +651,22 @@ def test_transient_completion_ack_failure_completes_from_persisted_response(tmp_
     assert bridge.claim_next_operation() is None
 
 
+def test_native_chat_control_activation_failure_is_requeued(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("new_chat", "")
+
+    bridge.claim_next_operation()
+
+    recovered = bridge.fail_operation(
+        operation.operation_id,
+        "PASI_NATIVE: New chat control activation failed",
+    )
+
+    assert recovered is not None
+    assert recovered["status"] == "queued"
+    assert recovered["retry_count"] == 1
+
+
 def test_transient_browser_failure_is_requeued(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "retry me")
