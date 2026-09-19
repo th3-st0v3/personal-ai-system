@@ -264,7 +264,9 @@ def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[st
         return ""
     if task_key(value) in completed_task_keys():
         return ""
-    return value
+    return value if value.casefold() in {
+        item.casefold() for item in (AUTOMATION_TASKS if current_task in AUTOMATION_TASKS else ENGINEERING_TASKS)
+    } else ""
 
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
@@ -957,6 +959,35 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
             log_event("promotion_deferred", commit=commit, branch=branch, error=promotion[1][-4000:])
             output = output + "\n\n[PASI PROMOTION DEFERRED]\n" + promotion[1][-4000:]
     return commit, output
+
+def standby_until_ready(state: OvernightState) -> bool:
+    logged = False
+    while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
+        try:
+            ensure_services()
+        except Exception as exc:
+            log_event("service_recovery_failed", error=str(exc)[-4000:])
+
+        observation = browser_observation()
+        if observation:
+            data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
+            if isinstance(data, dict) and bool(data.get("auth_required")):
+                log_event("standby_auth_required")
+                return False
+
+        if runtime_watchdog_is_live():
+            if logged:
+                log_event("standby_recovered")
+            return True
+
+        if not logged:
+            log_event("standby_started", reason="browser controller/extension heartbeat is stale; waiting for browser recovery while keeping local services healthy")
+            logged = True
+
+        remaining = (datetime.fromisoformat(state.deadline_at) - now_utc()).total_seconds()
+        time.sleep(min(STANDBY_SECONDS, max(1.0, remaining)))
+    return False
+
 
 def on_signal(signum: int, _frame: object) -> None:
     global STOP
