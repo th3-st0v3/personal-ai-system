@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from automation.computer_use.obstacles import ObstacleLedger
-from scripts import pasi_overnight_engine as engine
 from scripts import pasi_overnight_engine_v2 as supervisor
 
 
@@ -34,7 +33,7 @@ _STANDBY_SECONDS = 30.0
 
 
 def validate_patch_paths(patch: str, allow_delete: bool) -> None:
-    if len(patch.encode("utf-8")) > engine.MAX_PATCH_BYTES:
+    if len(patch.encode("utf-8")) > supervisor.MAX_PATCH_BYTES:
         raise ValueError("model patch exceeds configured size bound")
     if "new file mode 120000" in patch or "new file mode 160000" in patch:
         raise ValueError("symlink and submodule additions are not allowed in unattended patches")
