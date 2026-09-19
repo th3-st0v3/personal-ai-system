@@ -12,11 +12,12 @@ from typing import Iterable, Mapping
 
 API_VERSION = "2022-11-28"
 DEFAULT_BRANCH = "main"
-CANONICAL_KEEP_BRANCHES = frozenset({
-    "pasi/bridge-edge-case-tests-20260917",
-    "pasi/control-plane-recovery-20260917",
-    "pasi/continuation-anti-loop-20260918",
-})
+CANONICAL_KEEP_BRANCH_TIPS = {
+    "pasi/bridge-edge-case-tests-20260917": "5e60f55527a5268ef95cfe8c33e178674ed9cdcb",
+    "pasi/control-plane-recovery-20260917": "4400700dde94a485cacdec7b662a7d1b7441f172",
+    "pasi/continuation-anti-loop-20260918": "0f9047ad6e4e8ca4637372e391faa26ecdb49a85",
+}
+CANONICAL_KEEP_BRANCHES = frozenset(CANONICAL_KEEP_BRANCH_TIPS)
 DISPOSABLE_SUFFIX_RE = re.compile(
     r"(?:-pr\d*|-final\d*|-v\d+|-head|-verified|-check\d*|-current|-submit|-merge)$",
     re.IGNORECASE,
@@ -93,6 +94,58 @@ def _delete_ref(branch: str, *, token: str) -> None:
         raise BranchCleanupError(f"could not delete branch {branch}: HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         raise BranchCleanupError(f"could not delete branch {branch}: {exc}") from exc
+
+
+def _create_ref(branch: str, sha: str, *, token: str) -> None:
+    body = json.dumps({"ref": f"refs/heads/{branch}", "sha": sha}).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{_repository()}/git/refs",
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": API_VERSION,
+            "Content-Type": "application/json",
+            "User-Agent": "pasi-branch-hygiene",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30):
+            return
+    except urllib.error.HTTPError as exc:
+        if exc.code == 422:
+            # Another cleanup run may have restored the ref between our list
+            # and this create request. Do not rewrite an existing ref.
+            return
+        raise BranchCleanupError(
+            f"could not restore canonical branch {branch}: HTTP {exc.code}"
+        ) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise BranchCleanupError(
+            f"could not restore canonical branch {branch}: {exc}"
+        ) from exc
+
+
+def missing_canonical_keep_branches(
+    branches: Iterable[BranchRef],
+) -> tuple[str, ...]:
+    present = {branch.name for branch in branches}
+    return tuple(
+        name for name in sorted(CANONICAL_KEEP_BRANCH_TIPS)
+        if name not in present
+    )
+
+
+def restore_missing_canonical_keep_branches(
+    branches: Iterable[BranchRef],
+    *,
+    token: str,
+) -> tuple[str, ...]:
+    missing = missing_canonical_keep_branches(branches)
+    for branch in missing:
+        _create_ref(branch, CANONICAL_KEEP_BRANCH_TIPS[branch], token=token)
+    return missing
 
 
 def list_branches(*, token: str) -> tuple[BranchRef, ...]:
@@ -402,6 +455,8 @@ def cleanup(
 ) -> CleanupPlan:
     token = _token()
     effective_keep_branches = frozenset(keep_branches) | CANONICAL_KEEP_BRANCHES
+    branches = list_branches(token=token)
+    restore_missing_canonical_keep_branches(branches, token=token)
     branches = list_branches(token=token)
     open_heads = list_open_pr_heads(token=token)
     merged_heads = _list_closed_pr_heads(token=token)
