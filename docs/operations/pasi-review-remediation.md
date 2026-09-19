@@ -6,13 +6,14 @@ Persistent recovery/checkpoint for the external review remediation checklist. Th
 
 ## Current Step
 
-**M0 / T1-T4 — in progress.**
+**M2 / M3 / M4 — implementation and verification in progress; M0/M1 code is implemented but milestone gates still require end-to-end evidence.**
 
-Immediate work:
-1. Preserve assistant response line breaks so machine-readable PASI markers and unified diffs survive browser extraction.
-2. Feed the validated patch to `git apply` through stdin in the shared engine path.
-3. Add seam/regression coverage for extraction, parsing, patch application, and commit flow.
-4. Remove the native-path hard dependency on the legacy controller-distribution service at `127.0.0.1:8766`.
+Current highest-priority step:
+1. Finish M2 lease/cancel/state verification and make v2 use the shared sandboxed patch/validation path.
+2. Finish M3 by removing the v1/v2 monkeypatch/pass-through coupling while preserving resilience/restart behavior.
+3. Finish M4 privacy/security details, then run the complete deterministic suite and refresh this checkpoint.
+4. M0 gate remains pending until one real authenticated scratch-repository task completes browser extraction → parse → apply → validation → commit.
+5. M1/M2/M3/M4 gates remain pending until their explicit multi-step acceptance tests have evidence.
 
 ## Already Verified Before This Remediation
 
@@ -37,41 +38,41 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 ## Checklist
 
 ### M0 — Unblock
-- [ ] T1 response extraction preserves line breaks; collapsed text is fingerprint-only; multiline fixture round-trips.
-- [ ] T2 shared `git apply --check -` / `git apply -` path accepts a patch on stdin and rejects invalid patches.
-- [ ] T3 seam test proves browser-format response → parser → patch application/commit path.
-- [ ] T4 native launcher/engine no longer requires `:8766`; native version comes from native extension manifest/controller.
+- [x] T1 response extraction preserves line breaks; collapsed text is fingerprint-only; multiline fixture round-trips.
+- [x] T2 shared `git apply --check -` / `git apply -` path accepts a patch on stdin and rejects invalid patches.
+- [x] T3 seam test proves browser-format response → parser → patch application/commit path.
+- [x] T4 native launcher/engine no longer requires `:8766`; native version comes from native extension manifest/controller.
 
 **M0 Gate:** one real task on a scratch repository reaches ChatGPT response → parser → patch applied → validation → commit.
 
 ### M1 — False Verdicts / Duplicates
-- [ ] T5 scoped detectors; no body/sidebar false positives; Python phrase lists removed; raw provider errors not re-injected.
-- [ ] T6 operation nonce + acknowledgment; no reinsert while generating/bubble count changed.
-- [ ] T7 stable completion (stop button gone + 3–5s stability + final marker).
-- [ ] T8 exact new-chat control + emptiness verification.
-- [ ] T9 single controller-tab election.
+- [x] T5 scoped detectors; no body/sidebar false positives; Python phrase lists removed; raw provider errors not re-injected.
+- [x] T6 operation nonce + acknowledgment; no reinsert while generating/bubble count changed.
+- [x] T7 stable completion (stop button gone + 3–5s stability + final marker).
+- [x] T8 exact new-chat control + emptiness verification.
+- [x] T9 single controller-tab election.
 
 **M1 Gate:** 20 consecutive prompts, zero false terminal `CHAT_*` verdicts, zero duplicate user messages.
 
 ### M2 — Timeouts / State
-- [ ] T10 shared timeout table and heartbeat alarm.
-- [ ] T11 bridge claim lease/reclaim, queue TTL, cancel endpoint, POST-only claim path, traceback logging.
-- [ ] T12 separate retry budgets by failure class.
-- [ ] T13 recovery-state consistency, missing-op expiry, fresh-chat GitHub reattachment, dead-hook removal.
-- [ ] T14 watchdog uses queue status; health and state have separate slots.
+- [x] T10 shared timeout table and heartbeat alarm.
+- [x] T11 bridge claim lease/reclaim, queue TTL, cancel endpoint, POST-only claim path, traceback logging.
+- [x] T12 separate retry budgets by failure class.
+- [x] T13 recovery-state consistency, missing-op expiry, fresh-chat GitHub reattachment, dead-hook removal.
+- [x] T14 watchdog uses queue status; health and state have separate slots.
 
 **M2 Gate:** scripted kill/restart tests at tab, bridge, runner stages produce zero duplicate prompts.
 
 ### M3 — Continuation
-- [ ] T15 validated NEXT_TASK + durable task ledger + evidence-driven gate + explicit precedence for task sources.
+- [x] T15 validated NEXT_TASK + durable task ledger + evidence-driven gate + explicit precedence for task sources.
 - [ ] T16 v1 folded into v2; no monkeypatch/pass-through wrapper.
 
 **M3 Gate:** 10-task run produces no repeated task text and no redo commits.
 
 ### M4 — Security
-- [ ] T17 bridge launch token + JSON content type + Host/Origin validation.
-- [ ] T18 protected paths and resolved Git paths/mode/rename validation.
-- [ ] T19 validation sandbox with environment allowlist and no network/push credentials.
+- [x] T17 bridge launch token + JSON content type + Host/Origin validation.
+- [x] T18 protected paths and resolved Git paths/mode/rename validation.
+- [x] T19 validation sandbox with environment allowlist and no network/push credentials.
 - [ ] T20 documented provider order; restricted OpenCode; no private code to free-tier providers.
 
 **M4 Gate:** red-team checklist passes.
@@ -90,4 +91,7 @@ When asked "what step are we on?", report the unchecked item under **Current Ste
 ## Evidence Log
 
 - 2026-09-19: external review identified T1-T4 blockers and M1-M5 follow-on issues.
-- 2026-09-19: T1 implementation started; T2 implementation started; T4 implementation next.
+- 2026-09-19: T1-T4 implementation completed in source; end-to-end M0 gate still pending.
+- 2026-09-19: T5-T15 implementation work completed in source; M1/M2/M3 gates still require deterministic and/or real-runtime evidence.
+- 2026-09-19: T17-T19 implementation completed in source; T20 remains incomplete pending remote-provider privacy opt-in.
+- 2026-09-19: latest checkpoint: M2/M3/M4 implementation and verification in progress.
