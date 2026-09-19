@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import ssl
 import socket
 import subprocess
 import tempfile
@@ -183,23 +184,41 @@ class FixtureHandler(BaseHTTPRequestHandler):
   <div data-message-author-role="assistant">
     <div class="markdown">{EXPECTED_RESPONSE}</div>
   </div>
-  <script src="/automation/chromium/pasi-chatgpt/content.js"></script>
 </body>
 </html>""".encode("utf-8")
             self._send(200, html, "text/html; charset=utf-8")
-            return
-
-        if path == "/automation/chromium/pasi-chatgpt/content.js":
-            source = (
-                ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
-            ).read_bytes()
-            self._send(200, source, "text/javascript; charset=utf-8")
             return
 
         self._send(404, b"not found", "text/plain; charset=utf-8")
 
     def log_message(self, _format: str, *_args: object) -> None:
         return
+
+
+def generate_fixture_certificate(cert_path: Path, key_path: Path) -> None:
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            str(key_path),
+            "-out",
+            str(cert_path),
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=chatgpt.com",
+            "-addext",
+            "subjectAltName=DNS:chatgpt.com",
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def free_port() -> int:
@@ -242,6 +261,21 @@ def find_chromedriver() -> str:
         if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
             return candidate
     raise RuntimeError("ChromeDriver binary not found")
+
+
+def read_browser_logs(base_url: str, session_id: str) -> list[dict]:
+    try:
+        payload = driver_request(
+            base_url,
+            "POST",
+            f"/session/{session_id}/log",
+            {"type": "browser"},
+            timeout=3.0,
+        )
+        value = payload.get("value")
+        return value if isinstance(value, list) else []
+    except Exception:
+        return []
 
 
 def driver_request(
@@ -326,6 +360,7 @@ def create_driver_session(
     driver_url: str,
     chrome_binary: str,
     profile_dir: Path,
+    extension_dir: Path,
 ) -> str:
     created = driver_request(
         driver_url,
@@ -337,6 +372,7 @@ def create_driver_session(
                     "browserName": "chrome",
                     "goog:chromeOptions": {
                         "binary": chrome_binary,
+                        "goog:loggingPrefs": {"browser": "ALL"},
                         "args": [
                             "--headless=new",
                             "--no-sandbox",
@@ -345,11 +381,13 @@ def create_driver_session(
                             "--no-first-run",
                             "--no-default-browser-check",
                             "--disable-sync",
-                            "--disable-extensions",
-                            "--disable-background-networking",
                             "--disable-component-update",
                             "--disable-default-apps",
                             "--remote-allow-origins=*",
+                            "--ignore-certificate-errors",
+                            "--host-resolver-rules=MAP chatgpt.com 127.0.0.1",
+                            f"--disable-extensions-except={extension_dir}",
+                            f"--load-extension={extension_dir}",
                             f"--user-data-dir={profile_dir}",
                         ],
                     },
@@ -376,8 +414,16 @@ def main() -> None:
     bridge = ThreadingHTTPServer((BRIDGE_HOST, BRIDGE_PORT), BridgeHandler)
     fixture_port = free_port()
     fixture = ThreadingHTTPServer(("127.0.0.1", fixture_port), FixtureHandler)
-    bridge_thread = threading.Thread(target=bridge.serve_forever, daemon=True)
-    fixture_thread = threading.Thread(target=fixture.serve_forever, daemon=True)
+    with tempfile.TemporaryDirectory(prefix="pasi-fixture-tls-") as tls_root:
+        cert_path = Path(tls_root) / "cert.pem"
+        key_path = Path(tls_root) / "key.pem"
+        generate_fixture_certificate(cert_path, key_path)
+        tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        fixture.socket = tls_context.wrap_socket(fixture.socket, server_side=True)
+
+        bridge_thread = threading.Thread(target=bridge.serve_forever, daemon=True)
+        fixture_thread = threading.Thread(target=fixture.serve_forever, daemon=True)
     bridge_thread.start()
     fixture_thread.start()
 
@@ -406,10 +452,16 @@ def main() -> None:
                 )
                 try:
                     wait_for_driver(driver_url, 10.0)
+                    extension_dir = Path(profile_root) / f"extension-{attempt + 1}"
+                    shutil.copytree(
+                        ROOT / "automation" / "chromium" / "pasi-chatgpt",
+                        extension_dir,
+                    )
                     session_id = create_driver_session(
                         driver_url,
                         chrome_binary,
                         attempt_profile,
+                        extension_dir,
                     )
                     break
                 except Exception as exc:
@@ -428,7 +480,7 @@ def main() -> None:
                 driver_url,
                 "POST",
                 f"/session/{session_id}/url",
-                {"url": f"http://127.0.0.1:{fixture_port}/fixture"},
+                {"url": f"https://chatgpt.com:{fixture_port}/fixture"},
                 timeout=10.0,
             )
 
@@ -487,11 +539,13 @@ def main() -> None:
                 ) if session_id else None
             except Exception:
                 diagnostic = None
+            browser_logs = read_browser_logs(driver_url, session_id) if session_id else []
             stop_driver(driver_process)
             driver_log = driver_log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
             raise AssertionError(
                 f"Chromium WebDriver acceptance failed: {exc}; "
-                f"browser={diagnostic}; chromedriver_log={driver_log}"
+                f"browser={diagnostic}; browser_logs={browser_logs[-50:]}; "
+                f"chromedriver_log={driver_log}"
             ) from exc
         finally:
             if session_id:
