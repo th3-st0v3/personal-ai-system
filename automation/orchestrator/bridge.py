@@ -123,7 +123,7 @@ class BridgeState:
         for item in queue:
             status = str(item.get("status", ""))
             expires_at = float(item.get("expires_at", 0) or 0)
-            if expires_at and now >= expires_at and status in {"queued", "claimed", "generating"}:
+            if "expires_at" in item and now >= expires_at and status in {"queued", "claimed", "generating"}:
                 validate_transition(status, "failed")
                 item["status"] = "failed"
                 item["error"] = "operation queue TTL expired"
@@ -132,7 +132,7 @@ class BridgeState:
                 changed = True
                 continue
             claimed_at = float(item.get("claimed_at", 0) or 0)
-            if status in {"claimed", "generating"} and claimed_at and now - claimed_at >= CLAIM_LEASE_SECONDS:
+            if status in {"claimed", "generating"} and now - claimed_at >= CLAIM_LEASE_SECONDS:
                 validate_transition(status, "queued")
                 item["status"] = "queued"
                 item.pop("claimed_at", None)
@@ -551,7 +551,7 @@ class BridgeState:
                     validate_transition(current_status, "failed")
                     item["status"] = "failed"
                     item["error"] = error[:MAX_ERROR_CHARS]
-                    item["failure_reason"] = f"{retry_class}_retry_exhausted"
+                    item["failure_reason"] = "transient_retry_exhausted" if retry_class == "controller" else f"{retry_class}_retry_exhausted"
                     item["updated_at"] = time.time()
                     self.state_manager.save_queue(queue)
                     return dict(item)
@@ -870,6 +870,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     "observation": observation
                 }
             )
+            return
+
+        if path == "/next-operation":
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
             return
 
         if path == "/browser/health":
