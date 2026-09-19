@@ -1201,7 +1201,7 @@ def test_http_transient_failure_requeues_operation(tmp_path: Path) -> None:
             "POST",
             "/chat/failed",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
