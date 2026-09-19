@@ -5,6 +5,7 @@ import re
 ROOT = Path(__file__).resolve().parents[3]
 TAMPERMONKEY = ROOT / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
 NATIVE = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
+NATIVE_BACKGROUND = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "background.js"
 
 
 def _read(path: Path) -> str:
@@ -47,12 +48,14 @@ def test_native_controller_uses_bounded_idle_polling() -> None:
 def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     tampermonkey = _read(TAMPERMONKEY)
     native = _read(NATIVE)
+    native_background = _read(NATIVE_BACKGROUND)
 
     assert "GM_xmlhttpRequest" in tampermonkey
     assert "context limit" in tampermonkey or "conversation has reached its limit" in tampermonkey
     assert "reportFailure" in tampermonkey
 
-    assert "credentials: 'omit'" in native
+    assert "credentials: 'omit'" in native_background
+    assert "cache: 'no-store'" in native_background
     assert "captcha" in native
     assert "session has expired" in native
     assert "CHAT_EXHAUSTED" in native
