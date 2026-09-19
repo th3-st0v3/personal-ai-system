@@ -237,7 +237,7 @@ Default branch: {PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL}
 {github_context_instruction}
 
 THINKING POLICY:
-Thinking/reasoning mode is required for every PASI task. Keep Thinking enabled regardless of repository context or whether the GitHub app fallback is used.
+PASI attempts to keep Thinking/reasoning enabled for every task. If the current ChatGPT account/model explicitly does not expose a Thinking option, continue with the best available reasoning mode, treat that as a capability limitation rather than a task failure, and preserve the limitation in the controller evidence/state.
 
 CONTINUITY:
 {continuity_text}
@@ -260,7 +260,7 @@ RULES:
 - Do not claim files were changed, tests were run, or actions were completed without evidence.
 - Use the public PASI repository as the normal repository context source.
 - In auto mode, explicitly state `PASI_PUBLIC_GITHUB_UNAVAILABLE: true` when you cannot retrieve the requested public repository material. PASI will switch to the connected GitHub app automatically.
-- Keep Thinking enabled for every task.
+- Attempt Thinking for every task. If the current account/model does not expose it, do not fabricate Thinking state; continue with the best available reasoning mode and report the capability limitation as evidence.
 - PASI controls the local computer-use boundary; this prompt does not grant repository write access.
 """
 
