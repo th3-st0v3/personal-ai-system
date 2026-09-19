@@ -247,7 +247,7 @@
   function modelModeFromLabel(value) {
     const text = normalize(value);
     if (!text) return null;
-    if (/\bthinking\b/.test(text)) return 'thinking';
+    if (/\bthinking\b/.test(text) || /\bextended\b/.test(text)) return 'thinking';
     if (/\binstant\b/.test(text)) return 'instant';
     if (/\bauto(?:matic)?\b/.test(text)) return 'auto';
     if (/\bpro\b/.test(text)) return 'pro';
