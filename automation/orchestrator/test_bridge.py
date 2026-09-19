@@ -937,7 +937,7 @@ def test_http_cancel_operation(tmp_path: Path) -> None:
     try:
         conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
         body = json.dumps({"operation_id": operation.operation_id, "reason": "timeout"}).encode()
-        conn.request("POST", "/chat/cancel", body=body, headers={"Content-Type": "application/json"})
+        conn.request("POST", "/chat/cancel", body=body, headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"})
         response = conn.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
         conn.close()
