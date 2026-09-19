@@ -178,15 +178,21 @@ def load_roadmap_selection_history() -> list[dict[str, str]]:
         task = item.get("task")
         run_id = item.get("run_id")
         timestamp = item.get("timestamp")
-        if not all(isinstance(value, str) for value in (phase, task, run_id, timestamp)):
+        if not isinstance(phase, str) or not isinstance(task, str):
             continue
-        if not all(value.strip() for value in (phase, task, run_id, timestamp)):
+        if not isinstance(run_id, str) or not isinstance(timestamp, str):
+            continue
+        phase_text = phase.strip()
+        task_text = task.strip()
+        run_id_text = run_id.strip()
+        timestamp_text = timestamp.strip()
+        if not all((phase_text, task_text, run_id_text, timestamp_text)):
             continue
         history.append({
-            "phase": phase.strip(),
-            "task": task.strip(),
-            "run_id": run_id.strip(),
-            "timestamp": timestamp.strip(),
+            "phase": phase_text,
+            "task": task_text,
+            "run_id": run_id_text,
+            "timestamp": timestamp_text,
         })
     return history
 
