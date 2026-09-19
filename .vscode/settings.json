@@ -14,5 +14,7 @@
     "**/.tox": true,
     "**/__pycache__": true,
     "**/node_modules": true
-  }
+  },
+  "git.postCommitCommand": "sync",
+  "git.rememberPostCommitCommand": true
 }
