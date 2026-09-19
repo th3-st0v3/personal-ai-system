@@ -937,8 +937,15 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
         elif current_entry and current_key not in completed:
             return current_entry[1]
     elif current_entry and current_key not in completed:
-        # An invented/non-roadmap suggestion cannot replace an unfinished task.
-        return current_entry[1]
+        completed_indices = [
+            index for key, (index, _item) in configured.items() if key in completed
+        ]
+        later_completed = [index for index in completed_indices if index > current_entry[0]]
+        if later_completed:
+            advance_from_key = candidates[max(later_completed)]
+        else:
+            # An invented/non-roadmap suggestion cannot replace an unfinished task.
+            return current_entry[1]
 
     start_index = configured[advance_from_key][0] + 1 if advance_from_key in configured else 0
     ordered = list(candidates[start_index:]) + list(candidates[:start_index])
