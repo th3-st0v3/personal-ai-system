@@ -560,6 +560,11 @@ def main() -> int:
             print(f"Prompt operation: {prompt_operation}")
         response = adapter.wait_for_completion(prompt_operation)
         response = reconcile_timed_out_response(adapter, prompt_operation, response)
+        if response.completion == "timeout":
+            try:
+                adapter.cancel_operation(prompt_operation, "Python task timeout after bounded reconciliation window")
+            except Exception as exc:
+                print(f"warning: failed to cancel timed-out ChatGPT operation: {exc}", file=sys.stderr)
         response = repair_response_capture(adapter, response)
         if response.completion == "error" and response.chat_exhausted:
             print("Current ChatGPT conversation is exhausted; creating one replacement chat and retrying once.")
@@ -577,6 +582,11 @@ def main() -> int:
             print(f"Retry prompt operation: {retry_operation}")
             response = adapter.wait_for_completion(retry_operation)
             response = reconcile_timed_out_response(adapter, retry_operation, response)
+            if response.completion == "timeout":
+                try:
+                    adapter.cancel_operation(retry_operation, "Python retry timeout after bounded reconciliation window")
+                except Exception as exc:
+                    print(f"warning: failed to cancel timed-out retry operation: {exc}", file=sys.stderr)
             response = repair_response_capture(adapter, response)
 
         if args.github == "auto" and response.text and not handoff.get("github_attached") and public_github_context_unavailable(response.text):
