@@ -25,7 +25,7 @@ def test_tampermonkey_controller_uses_bounded_idle_polling_and_recovery_state() 
     assert 1000 <= _number(source, "POLL_INTERVAL_MS") <= 5000
     assert _number(source, "DOM_POLL_INTERVAL_MS") <= 100
     assert _number(source, "RETRY_DELAY_MS") <= 150
-    assert _number(source, "RESPONSE_SETTLE_MS") <= 250
+    assert 3000 <= _number(source, "RESPONSE_SETTLE_MS") <= 5000
     assert "var ACTIVE_KEY = 'pasi:active-operation';" in source
     assert "window.__PASI_CHATGPT_ACTIVE_OPERATION__" in source
     assert "localStorage.setItem(ACTIVE_KEY" in source
