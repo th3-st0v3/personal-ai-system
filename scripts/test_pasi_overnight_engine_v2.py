@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts.pasi_overnight_engine_v2 import continuation_directive
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
@@ -60,7 +61,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             phase="automation",
             current_task="test",
         )
-        self.assertIn("TASK CONTINUATION:", engine.continuation_directive(state, "test"))
+        self.assertIn("TASK CONTINUATION:", continuation_directive(state, "test"))
 
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
