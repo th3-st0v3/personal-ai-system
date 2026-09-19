@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import pasi_overnight_engine as engine
 from scripts.pasi_overnight_engine import (
     RunnerState,
     build_prompt,
