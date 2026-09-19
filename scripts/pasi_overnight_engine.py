@@ -168,9 +168,23 @@ def release_lock() -> None:
         pass
 
 
-def command(command: list[str], cwd: Path, *, timeout: float) -> tuple[int, str]:
+def command(
+    command: list[str],
+    cwd: Path,
+    *,
+    timeout: float,
+    input: str | None = None,
+) -> tuple[int, str]:
     try:
-        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            input=input,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
     output = ((result.stdout or "") + (result.stderr or "")).strip()
