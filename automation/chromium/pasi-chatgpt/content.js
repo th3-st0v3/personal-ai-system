@@ -255,12 +255,46 @@
   }
 
   function findModelPill() {
-    const candidates = document.querySelectorAll('button.__composer-pill, .__composer-pill, button[aria-haspopup="menu"], [role="button"][aria-haspopup="menu"]');
-    for (const element of candidates) {
-      if (!visible(element) || disabled(element)) continue;
-      const mode = modelModeFromLabel(label(element));
-      if (mode) return element;
+    const preferredSelectors = [
+      'button[data-testid*="model" i]',
+      'button[aria-label*="model" i]',
+      'button[title*="model" i]',
+      'button[data-testid*="intelligence" i]',
+      'button[aria-label*="intelligence" i]',
+      'button.__composer-pill',
+      '.__composer-pill'
+    ];
+
+    // ChatGPT may label the active selector with a model name (for example,
+    // only "GPT-5") rather than the current reasoning mode. Prefer controls
+    // whose metadata clearly identifies the model/intelligence switcher, then
+    // fall back to a nearby menu button instead of requiring the word
+    // "thinking" to already be present in its label.
+    const candidates = [];
+    const seen = new Set();
+    const collect = (selector, scope = document) => {
+      for (const element of scope.querySelectorAll(selector)) {
+        if (seen.has(element) || !visible(element) || disabled(element)) continue;
+        seen.add(element);
+        candidates.push(element);
+      }
+    };
+
+    const box = composer();
+    const localScope = box?.closest?.('form') || box?.parentElement?.parentElement || null;
+    for (const selector of preferredSelectors) {
+      if (localScope) collect(selector, localScope);
+      if (!candidates.length) collect(selector);
     }
+    if (candidates.length) return candidates[0];
+
+    // Last-resort compatibility path: a menu button adjacent to the composer
+    // is more likely to be the model selector than an unrelated page menu.
+    if (localScope) {
+      collect('button[aria-haspopup="menu"], [role="button"][aria-haspopup="menu"]', localScope);
+      if (candidates.length) return candidates[0];
+    }
+
     return null;
   }
 
