@@ -104,6 +104,44 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertIn("empty patch", prompt)
         self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
 
+    def test_cross_run_loop_guard_skips_repeated_roadmap_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            guard_path = Path(temp_dir) / "roadmap-loop-guard.json"
+            with mock.patch.object(engine, "ROADMAP_LOOP_GUARD_PATH", guard_path):
+                first, guarded, repeats = getattr(engine, "choose_run_start_task")("automation", "", "run-1")
+                self.assertEqual(first, engine.AUTOMATION_TASKS[0])
+                self.assertFalse(guarded)
+                self.assertEqual(repeats, 0)
+
+                second, guarded, repeats = getattr(engine, "choose_run_start_task")("automation", "", "run-2")
+                self.assertEqual(second, engine.AUTOMATION_TASKS[0])
+                self.assertFalse(guarded)
+                self.assertEqual(repeats, 1)
+
+                third, guarded, repeats = getattr(engine, "choose_run_start_task")("automation", "", "run-3")
+                self.assertEqual(third, engine.AUTOMATION_TASKS[1])
+                self.assertTrue(guarded)
+                self.assertEqual(repeats, 2)
+
+                history = getattr(engine, "load_roadmap_selection_history")()
+                self.assertEqual([item["task"] for item in history[-3:]], [
+                    engine.AUTOMATION_TASKS[0],
+                    engine.AUTOMATION_TASKS[0],
+                    engine.AUTOMATION_TASKS[1],
+                ])
+
+    def test_cross_run_loop_guard_preserves_custom_task(self) -> None:
+        custom = "Do this explicitly requested task."
+        with tempfile.TemporaryDirectory() as temp_dir:
+            guard_path = Path(temp_dir) / "roadmap-loop-guard.json"
+            with mock.patch.object(engine, "ROADMAP_LOOP_GUARD_PATH", guard_path):
+                for run_id in ("run-1", "run-2", "run-3"):
+                    selected, guarded, repeats = getattr(engine, "choose_run_start_task")("automation", custom, run_id)
+                    self.assertEqual(selected, custom)
+                    self.assertFalse(guarded)
+                    self.assertEqual(repeats, 0)
+                self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
+
     def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
         now = datetime.now(timezone.utc)
         current = engine.AUTOMATION_TASKS[1]

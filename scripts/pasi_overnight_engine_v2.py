@@ -23,6 +23,7 @@ RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
 STATE_PATH = RUNTIME_DIR / "state.json"
 EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
+ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
 CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
@@ -35,6 +36,8 @@ WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
 AUTOMATION_TASKS_PER_GATE = 2
 MAX_PROVIDER_LIMIT_PAUSES = 3
+ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
+ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 
 AUTOMATION_TASKS = (
     "Audit the PASI computer-use control plane end to end and implement concrete changes that reduce repeated human input, improve state continuity, improve browser recovery, and preserve all existing safety boundaries.",
@@ -155,6 +158,99 @@ def load_state() -> OvernightState | None:
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def load_roadmap_selection_history() -> list[dict[str, str]]:
+    try:
+        raw = json.loads(ROADMAP_LOOP_GUARD_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != 1:
+        return []
+    selections = raw.get("selections", [])
+    if not isinstance(selections, list):
+        return []
+    history: list[dict[str, str]] = []
+    for item in selections[-ROADMAP_LOOP_GUARD_HISTORY_LIMIT:]:
+        if not isinstance(item, dict):
+            continue
+        phase = item.get("phase")
+        task = item.get("task")
+        run_id = item.get("run_id")
+        timestamp = item.get("timestamp")
+        if not isinstance(phase, str) or not isinstance(task, str):
+            continue
+        if not isinstance(run_id, str) or not isinstance(timestamp, str):
+            continue
+        phase_text = phase.strip()
+        task_text = task.strip()
+        run_id_text = run_id.strip()
+        timestamp_text = timestamp.strip()
+        if not all((phase_text, task_text, run_id_text, timestamp_text)):
+            continue
+        history.append({
+            "phase": phase_text,
+            "task": task_text,
+            "run_id": run_id_text,
+            "timestamp": timestamp_text,
+        })
+    return history
+
+
+def save_roadmap_selection_history(history: Sequence[Mapping[str, str]]) -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "selections": [dict(item) for item in history[-ROADMAP_LOOP_GUARD_HISTORY_LIMIT:]],
+    }
+    temporary = ROADMAP_LOOP_GUARD_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(ROADMAP_LOOP_GUARD_PATH)
+
+
+def consecutive_roadmap_selection_count(
+    history: Sequence[Mapping[str, str]], phase: str, task: str
+) -> int:
+    target_phase = phase.casefold().strip()
+    target_task = task.casefold().strip()
+    count = 0
+    for item in reversed(history):
+        if str(item.get("phase", "")).casefold().strip() != target_phase:
+            break
+        if str(item.get("task", "")).casefold().strip() != target_task:
+            break
+        count += 1
+    return count
+
+
+def choose_run_start_task(phase: str, requested_task: str, run_id: str) -> tuple[str, bool, int]:
+    candidates = AUTOMATION_TASKS if phase == "automation" else ENGINEERING_TASKS
+    candidate = re.sub(r"\s+", " ", requested_task).strip()
+    configured = {item.casefold(): item for item in candidates}
+
+    if candidate and candidate.casefold() not in configured:
+        return candidate, False, 0
+
+    candidate = configured.get(candidate.casefold(), candidates[0])
+    history = load_roadmap_selection_history()
+    prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate)
+    guard_applied = prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
+
+    if guard_applied:
+        index = next(index for index, item in enumerate(candidates) if item.casefold() == candidate.casefold())
+        candidate = candidates[(index + 1) % len(candidates)]
+
+    updated = [
+        *history,
+        {
+            "phase": phase,
+            "task": candidate,
+            "run_id": run_id,
+            "timestamp": now_utc().isoformat(),
+        },
+    ]
+    save_roadmap_selection_history(updated)
+    return candidate, guard_applied, prior_repeats
 
 
 def acquire_lock() -> None:
@@ -719,20 +815,33 @@ def main() -> int:
             log_event("run_resumed", **state.to_dict())
         else:
             started = now_utc()
+            run_id = f"overnight-{uuid.uuid4().hex}"
+            selected_task, guard_applied, prior_repeats = choose_run_start_task(
+                "automation", args.task.strip(), run_id
+            )
             state = OvernightState(
                 schema_version=2,
-                run_id=f"overnight-{uuid.uuid4().hex}",
+                run_id=run_id,
                 started_at=started.isoformat(),
                 deadline_at=(started + timedelta(hours=args.hours)).isoformat(),
                 worktree=str(args.worktree.expanduser().resolve()),
                 branch=args.branch,
                 phase="automation",
-                current_task=args.task.strip() or AUTOMATION_TASKS[0],
+                current_task=selected_task,
                 requested_task=args.task.strip(),
             )
             resume = False
             save_state(state)
             log_event("run_started", **state.to_dict(), push=not args.no_push)
+            if guard_applied:
+                log_event(
+                    "roadmap_loop_guard",
+                    phase=state.phase,
+                    repeated_task=state.requested_task or AUTOMATION_TASKS[0],
+                    consecutive_prior_runs=prior_repeats,
+                    skipped_to=state.current_task,
+                    reason="same roadmap selection recurred across consecutive runs",
+                )
 
         ensure_worktree(Path(state.worktree), state.branch, resume=resume)
         children = ensure_services()
