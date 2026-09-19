@@ -4,10 +4,11 @@
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
-  const POLL_MS = 2000;
-  const GENERATION_TIMEOUT_MS = 25 * 60 * 1000;
-  const RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS;
-  const RECOVERY_GRACE_MS = 10 * 60 * 1000;
+  const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || globalThis.PASI_TIMEOUT_POLICY?.defaults || {};
+  const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;
+  const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY.generationMs || 1500 * 1000;
+  const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY.recoveryTriggerMs || GENERATION_TIMEOUT_MS;
+  const RECOVERY_GRACE_MS = TIMEOUT_POLICY.recoveryGraceMs || 600 * 1000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
   const MAX_CONTEXT_RECOVERIES = 1;
@@ -726,6 +727,7 @@
   }
 
   async function start() {
+    await globalThis.PASI_TIMEOUT_POLICY?.load?.();
     await report('chatgpt_recovery', { phase: 'started', recovery_action: 'monitor', generation_timeout_ms: GENERATION_TIMEOUT_MS, recovery_grace_ms: RECOVERY_GRACE_MS });
     setInterval(() => { runInspection().catch(() => {}); }, POLL_MS);
     await runInspection();
