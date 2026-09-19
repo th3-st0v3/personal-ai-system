@@ -9,6 +9,7 @@ from typing import Any
 from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine as engine
 from scripts import pasi_overnight_engine_v2 as supervisor
+from scripts import pasi_provider_router as fallback_router
 
 
 _FORBIDDEN_PATH_PARTS = frozenset({".git", ".env", ".env.local", ".env.production"})
@@ -121,15 +122,57 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
 def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
     if supervisor.runtime_watchdog_is_live():
         return True
-    ledger.record(
-        "runtime_unavailable",
-        "ChatGPT/browser heartbeat is unavailable or stale.",
-        "Use a configured fallback provider now; the next task will re-check the browser automatically.",
-        details={"deadline_at": getattr(state, "deadline_at", "")},
-        status="waiting_external",
-    )
-    supervisor.log_event("standby_bypassed", reason="browser heartbeat unavailable; continuing without waiting")
-    return True
+
+    providers = fallback_router.providers_available()
+    if providers:
+        ledger.record(
+            "runtime_unavailable",
+            "ChatGPT/browser heartbeat is unavailable or stale; a configured fallback provider is available.",
+            "Proceed with the bounded fallback route; the next task will re-check the browser automatically.",
+            details={
+                "deadline_at": getattr(state, "deadline_at", ""),
+                "fallback_providers": ",".join(providers),
+            },
+            status="pending",
+        )
+        supervisor.log_event(
+            "standby_fallback_available",
+            reason="browser heartbeat unavailable; continuing through configured fallback provider",
+            providers=providers,
+        )
+        return True
+
+    logged = False
+    while not supervisor.STOP and supervisor.now_utc() < supervisor.datetime.fromisoformat(state.deadline_at):
+        try:
+            supervisor.ensure_services()
+        except Exception as exc:
+            supervisor.log_event("service_recovery_failed", error=str(exc)[-4_000:])
+
+        if supervisor.runtime_watchdog_is_live():
+            if logged:
+                supervisor.log_event("standby_recovered")
+            return True
+
+        if not logged:
+            ledger.record(
+                "runtime_unavailable",
+                "ChatGPT/browser heartbeat is unavailable or stale and no fallback provider is configured.",
+                "Wait for the browser controller to recover instead of burning task attempts on repeated runtime failures.",
+                details={"deadline_at": getattr(state, "deadline_at", "")},
+                status="waiting_external",
+            )
+            supervisor.log_event(
+                "standby_waiting_no_fallback",
+                reason="browser heartbeat unavailable and no fallback provider is configured",
+            )
+            logged = True
+
+        remaining = (
+            supervisor.datetime.fromisoformat(state.deadline_at) - supervisor.now_utc()
+        ).total_seconds()
+        supervisor.time.sleep(min(supervisor.STANDBY_SECONDS, max(1.0, remaining)))
+    return False
 
 
 def nonblocking_sleep(state: Any, seconds: float, *, ledger: ObstacleLedger) -> bool:
