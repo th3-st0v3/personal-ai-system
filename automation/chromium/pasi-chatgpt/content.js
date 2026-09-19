@@ -1175,7 +1175,7 @@
         case 'prompt': {
           await restoreRecoveryContext(operation.recovery_context);
           await selectThinking();
-          reasoningMode = 'thinking';
+          if (reasoningMode !== 'unavailable') reasoningMode = 'thinking';
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
           const box = await waitFor(composer, TIMEOUTS.composer);
