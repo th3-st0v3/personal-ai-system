@@ -720,10 +720,10 @@ def main() -> None:
                 if not response_observations:
                     raise AssertionError("Chromium did not report a response observation")
                 observed_responses = [
-                    entry.get("observation", {}).get("data", {}).get("response_text")
+                    entry.get("data", {}).get("response_text")
                     for entry in response_observations
-                    if isinstance(entry.get("observation", {}).get("data", {}).get("response_text"), str)
-                    and bool(entry.get("observation", {}).get("data", {}).get("response_text").strip())
+                    if isinstance(entry.get("data", {}).get("response_text"), str)
+                    and bool(entry.get("data", {}).get("response_text").strip())
                 ]
                 if EXPECTED_RESPONSE not in observed_responses:
                     raise AssertionError(
