@@ -50,6 +50,43 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
             {"pasi/feature-final", "pasi/feature-pr"},
         )
 
+    def test_merged_pr_lookup_by_branch_handles_squash_merge(self) -> None:
+        branch = BranchRef(
+            "codex/easy-local-validation",
+            "d9f6a1ed3966a53b701b289b018813bdff36d6ea",
+        )
+
+        with unittest.mock.patch.dict(
+            "os.environ",
+            {"GITHUB_REPOSITORY": "th3-st0v3/personal-ai-system"},
+            clear=False,
+        ), unittest.mock.patch(
+            "scripts.cleanup_duplicate_branches._request_json",
+            return_value=[
+                {
+                    "merged_at": "2026-09-16T23:25:57Z",
+                    "head": {
+                        "ref": "codex/easy-local-validation",
+                        "sha": "d9f6a1ed3966a53b701b289b018813bdff36d6ea",
+                        "repo": {"full_name": "th3-st0v3/personal-ai-system"},
+                    },
+                }
+            ],
+        ):
+            merged = _list_merged_pr_head_shas_for_branches(
+                (branch,),
+                token="test-token",
+            )
+
+        self.assertEqual(
+            merged,
+            {
+                "codex/easy-local-validation": frozenset(
+                    {"d9f6a1ed3966a53b701b289b018813bdff36d6ea"}
+                )
+            },
+        )
+
     def test_merged_duplicate_branch_is_not_the_keeper(self) -> None:
         branches = (
             BranchRef("feature/local-byte-storage", "abc"),
