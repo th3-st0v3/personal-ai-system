@@ -104,9 +104,10 @@ def fallback_providers_available() -> list[str]:
         providers.append("ollama")
     if shutil.which("opencode"):
         providers.append("opencode")
-    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+    remote_opt_in = os.environ.get("PASI_ALLOW_REMOTE_CODE", "").strip().casefold() in {"1", "true", "yes"}
+    if remote_opt_in and os.environ.get("OPENROUTER_API_KEY", "").strip():
         providers.append("openrouter")
-    if os.environ.get("PERPLEXITY_API_KEY", "").strip():
+    if remote_opt_in and os.environ.get("PERPLEXITY_API_KEY", "").strip():
         providers.append("perplexity")
     return providers
 
