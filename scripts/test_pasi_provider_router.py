@@ -198,7 +198,6 @@ class TestProviderRouter(unittest.TestCase):
         sleep.assert_not_called()
         ollama.assert_called_once()
 
-
     def test_provider_order_is_local_before_opted_in_remote(self) -> None:
         with patch.dict(
             "os.environ",
@@ -215,6 +214,32 @@ class TestProviderRouter(unittest.TestCase):
                     providers_available(),
                     ["ollama", "opencode", "openrouter", "perplexity"],
                 )
+
+
+    def test_openrouter_uses_task_only_prompt_on_free_tier(self) -> None:
+        captured: list[str] = []
+
+        def fake_openrouter(prompt: str, timeout: float) -> str:
+            captured.append(prompt)
+            return "safe response"
+
+        with patch.dict(
+            "os.environ",
+            {
+                "OPENROUTER_API_KEY": "remote",
+                "PASI_ALLOW_REMOTE_CODE": "1",
+            },
+            clear=True,
+        ):
+            with patch.object(pasi_provider_router, "collect_context", return_value="PRIVATE-SENTINEL"):
+                with patch.object(pasi_provider_router, "providers_available", return_value=["openrouter"]):
+                    with patch.object(pasi_provider_router, "call_openrouter", side_effect=fake_openrouter):
+                        provider, response = pasi_provider_router.route("task", Path("."), 30.0)
+
+        self.assertEqual((provider, response), ("openrouter", "safe response"))
+        self.assertEqual(len(captured), 1)
+        self.assertNotIn("PRIVATE-SENTINEL", captured[0])
+        self.assertIn("task/contract text only", captured[0])
 
     def test_opencode_uses_disposable_copy_and_denies_tools(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
