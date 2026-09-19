@@ -49,7 +49,7 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 - [x] T3 seam test proves browser-format response → parser → patch application/commit path.
 - [x] T4 native launcher/engine no longer requires `:8766`; native version comes from native extension manifest/controller.
 
-**M0 Gate:** one real task on a scratch repository reaches ChatGPT response → parser → patch applied → validation → commit.
+**M0 Gate:** **pending runtime evidence.** The browser → parser → patch → commit seam is covered by CI, but a real authenticated ChatGPT task on the user's Chromium instance is still required to close this gate.
 
 ### M1 — False Verdicts / Duplicates
 
@@ -59,7 +59,7 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 - [x] T8 exact new-chat control + emptiness verification.
 - [x] T9 single controller-tab election.
 
-**M1 Gate:** 20 consecutive prompts, zero false terminal `CHAT_*` verdicts, zero duplicate user messages.
+**M1 Gate:** **pending runtime evidence.** CI covers the duplicate-send and detector contracts; the required 20-prompt consecutive live run on the user's ChatGPT session has not been executed in this environment.
 
 ### M2 — Timeouts / State
 
@@ -69,12 +69,12 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 - [x] T13 recovery-state consistency, missing-op expiry, fresh-chat GitHub reattachment, dead-hook removal.
 - [x] T14 watchdog uses queue status; health and state have separate slots.
 
-**M2 Gate:** scripted kill/restart tests at tab, bridge, runner stages produce zero duplicate prompts.
+**M2 Gate:** **pending runtime evidence.** Recovery/reclaim/cancellation behavior is unit-tested; the required scripted live kill/restart exercise across tab, bridge, and runner stages still requires the user's running PASI/browser environment.
 
 ### M3 — Continuation
 
 - [x] T15 validated NEXT_TASK + durable task ledger + evidence-driven gate + explicit precedence for task sources.
-- [ ] T16 v1 folded into v2; no monkeypatch/pass-through wrapper.
+- [x] T16 v1 engine retired; canonical unattended execution is v2-only, with no v1 compatibility/monkeypatch pass-through.
 
 **M3 Gate:** 10-task run produces no repeated task text and no redo commits.
 
@@ -83,7 +83,7 @@ Do not mark a milestone complete from source inspection alone. Record determinis
 - [x] T17 bridge launch token + JSON content type + Host/Origin validation.
 - [x] T18 protected paths and resolved Git paths/mode/rename validation.
 - [x] T19 validation sandbox with environment allowlist and no network/push credentials.
-- [ ] T20 documented provider order; restricted OpenCode; no private code to free-tier providers.
+- [x] T20 provider order is documented and tested: local Ollama → restricted disposable-copy OpenCode → explicitly opted-in remote APIs; free-tier OpenRouter receives task/contract text only and never repository context.
 
 **M4 Gate:** red-team checklist passes.
 
@@ -105,6 +105,6 @@ When asked "what step are we on?", report the unchecked item under **Current Ste
 - 2026-09-19: T1-T4 implementation completed in source; end-to-end M0 gate still pending.
 - 2026-09-19: T5-T15 implementation work completed in source; M1/M2/M3 gates still require deterministic and/or real-runtime evidence.
 - 2026-09-19: T17-T19 implementation completed in source; T20 remains incomplete pending remote-provider privacy opt-in.
-- 2026-09-19: latest checkpoint: M2/M3/M4 implementation and verification in progress.
+- 2026-09-19: latest checkpoint: M0/M1/M2 live gates remain pending runtime evidence; T16/T20 implementation is complete and covered by deterministic tests; final CI validation is in progress.
 
 - 2026-09-19: implementation frozen for final verification at branch head after T21/T22/T23 source changes; CI run 2363 is the current validation attempt.
