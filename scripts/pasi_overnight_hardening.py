@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -9,7 +11,6 @@ from typing import Any
 from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine as engine
 from scripts import pasi_overnight_engine_v2 as supervisor
-from scripts import pasi_provider_router as fallback_router
 
 
 _FORBIDDEN_PATH_PARTS = frozenset({".git", ".env", ".env.local", ".env.production"})
@@ -87,6 +88,19 @@ def _record_event_obstacle(ledger: ObstacleLedger, kind: str, data: dict[str, An
     ledger.record(obstacle_kind, summary, next_action, task_id=_task_id(data), details=details)
 
 
+def fallback_providers_available() -> list[str]:
+    providers: list[str] = []
+    if os.environ.get("OLLAMA_MODEL", "").strip() or os.environ.get("OLLAMA_BASE_URL", "").strip() or shutil.which("ollama"):
+        providers.append("ollama")
+    if shutil.which("opencode"):
+        providers.append("opencode")
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
+        providers.append("openrouter")
+    if os.environ.get("PERPLEXITY_API_KEY", "").strip():
+        providers.append("perplexity")
+    return providers
+
+
 def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
     """Start local PASI helpers opportunistically without making them a startup gate."""
     children: list[Any] = []
@@ -123,7 +137,7 @@ def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
     if supervisor.runtime_watchdog_is_live():
         return True
 
-    providers = fallback_router.providers_available()
+    providers = fallback_providers_available()
     if providers:
         ledger.record(
             "runtime_unavailable",
