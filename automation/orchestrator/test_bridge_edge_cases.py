@@ -4,10 +4,16 @@ import json
 import threading
 from http.client import HTTPConnection
 from pathlib import Path
+import pytest
 from typing import Any
 
 from automation.orchestrator.bridge import BridgeHTTPServer, BridgeRequestHandler, BridgeState
 from automation.orchestrator.state import StateManager
+
+
+@pytest.fixture(autouse=True)
+def bridge_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PASI_BRIDGE_TOKEN", "test-bridge-token")
 
 
 def make_bridge(tmp_path: Path) -> BridgeState:
@@ -25,7 +31,7 @@ def post_json(
             "POST",
             path,
             body=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
