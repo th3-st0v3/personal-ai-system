@@ -95,9 +95,6 @@ def save_handoff(payload: Mapping[str, object]) -> None:
         safe["summary"] = summary[-6_000:]
     else:
         safe.pop("summary", None)
-    controller_signal = safe.get("controller_update_signal")
-    if not isinstance(controller_signal, Mapping):
-        safe.pop("controller_update_signal", None)
     chat_url = safe.get("chat_url")
     if not isinstance(chat_url, str) or len(chat_url) > 500 or not CHAT_URL_PATTERN.match(chat_url):
         safe.pop("chat_url", None)
