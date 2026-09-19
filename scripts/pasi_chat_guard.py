@@ -112,7 +112,7 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
             classification = "guard_timeout"
             break
 
-        classification = classify_observation(request_json("/browser/observation"))
+        classification = classify_observation(request_json("/browser/health"))
         if classification in {"usage_limit", "auth_required"}:
             process.terminate()
             try:
