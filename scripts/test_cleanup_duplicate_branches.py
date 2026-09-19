@@ -9,6 +9,7 @@ from scripts.cleanup_duplicate_branches import (
     can_delete_merged_branch,
     is_disposable_name,
     list_superseded_snapshot_branches,
+    CANONICAL_KEEP_BRANCHES,
 )
 
 
@@ -119,6 +120,18 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
             merged_pr_heads={},
         )
         self.assertEqual([item.name for item in plan.deletions], ["pasi/snapshot"])
+
+    def test_canonical_keep_branches_are_built_in(self) -> None:
+        self.assertEqual(
+            CANONICAL_KEEP_BRANCHES,
+            frozenset(
+                {
+                    "pasi/bridge-edge-case-tests-20260917",
+                    "pasi/control-plane-recovery-20260917",
+                    "pasi/continuation-anti-loop-20260918",
+                }
+            ),
+        )
 
     def test_explicit_keeper_is_never_deleted(self) -> None:
         branches = (
