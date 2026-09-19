@@ -18,14 +18,36 @@ class TestProviderRouter(unittest.TestCase):
         payload = {"choices": [{"message": {"content": [{"text": "one"}, {"text": "two"}]}}]}
         self.assertEqual(extract_chat_text(payload), "onetwo")
 
-    def test_provider_discovery_never_exposes_secret_values(self) -> None:
-        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "secret", "PERPLEXITY_API_KEY": "secret2"}, clear=True):
+    def test_remote_provider_discovery_requires_explicit_opt_in(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "OPENROUTER_API_KEY": "secret",
+                "PERPLEXITY_API_KEY": "secret2",
+                "PASI_ALLOW_REMOTE_CODE": "",
+            },
+            clear=True,
+        ):
+            with patch("shutil.which", return_value=None):
+                values = providers_available()
+        self.assertNotIn("openrouter", values)
+        self.assertNotIn("perplexity", values)
+        self.assertNotIn("secret", values)
+        self.assertNotIn("secret2", values)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "OPENROUTER_API_KEY": "secret",
+                "PERPLEXITY_API_KEY": "secret2",
+                "PASI_ALLOW_REMOTE_CODE": "1",
+            },
+            clear=True,
+        ):
             with patch("shutil.which", return_value=None):
                 values = providers_available()
         self.assertIn("openrouter", values)
         self.assertIn("perplexity", values)
-        self.assertNotIn("secret", values)
-        self.assertNotIn("secret2", values)
 
     def test_provider_discovery_includes_local_ollama_without_api_keys(self) -> None:
         with patch.dict("os.environ", {"OLLAMA_MODEL": "local-coder"}, clear=True):
