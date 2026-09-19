@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -13,11 +14,13 @@ from urllib.request import Request, urlopen
 
 from automation.computer_use.capability_gateway import CapabilityGateway
 from automation.computer_use.local_access import LocalAccessBroker
+from scripts.pasi_timeout_policy import load_timeout_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_URL = "http://127.0.0.1:8765"
 POLL_SECONDS = 0.5
-DEFAULT_TIMEOUT = 60 * 60
+TIMEOUT_POLICY = load_timeout_policy()
+DEFAULT_TIMEOUT = TIMEOUT_POLICY["python_wait_seconds"]
 GUARD_EXIT_USAGE_LIMIT = 90
 GUARD_EXIT_AUTH_REQUIRED = 91
 GUARD_EXIT_CONTROLLER_OFFLINE = 92
@@ -31,7 +34,17 @@ RESPONSE_MARKER = "=== CHATGPT RESPONSE ==="
 
 
 def request_json(path: str, timeout: float = 3.0) -> dict[str, Any] | None:
-    request = Request(f"{BRIDGE_URL}{path}", method="GET")
+    token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not token:
+        try:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+    request = Request(
+        f"{BRIDGE_URL}{path}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
     try:
         with urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read(2_000_000).decode("utf-8"))
