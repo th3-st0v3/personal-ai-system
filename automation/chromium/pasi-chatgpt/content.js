@@ -373,7 +373,14 @@
   function assistantMessages() { return Array.from(document.querySelectorAll('[data-message-author-role="assistant"]')).filter(visible); }
 
   function messageText(node) {
-    return String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
+    return String(node?.innerText || node?.textContent || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+(?=\n)/g, '')
+      .trim();
+  }
+
+  function collapseWhitespace(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
   function newestUserMatches(expected, baselineCount) {
@@ -773,7 +780,10 @@
   function extractAssistant(node) {
     const markdown = Array.from(node.querySelectorAll?.('.markdown, [class*="markdown"]') || []).filter(visible);
     for (let i = markdown.length - 1; i >= 0; i -= 1) {
-      const text = String(markdown[i].innerText || markdown[i].textContent || '').replace(/\s+/g, ' ').trim();
+      const text = String(markdown[i].innerText || markdown[i].textContent || '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[ \t]+(?=\n)/g, '')
+        .trim();
       if (text) return text.slice(0, 50000);
     }
     return messageText(node).slice(0, 50000);
@@ -784,7 +794,9 @@
     return nodes.length ? extractAssistant(nodes[nodes.length - 1]) : '';
   }
 
-  function fingerprint() { return latestAssistant().slice(-4000); }
+  function fingerprint() {
+    return collapseWhitespace(latestAssistant()).slice(-4000);
+  }
 
   function nearbyScopedControls(box) {
     const controls = [];
