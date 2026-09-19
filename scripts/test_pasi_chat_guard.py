@@ -9,6 +9,9 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_default_timeout_matches_native_generation_ceiling(self) -> None:
+        self.assertEqual(guard.DEFAULT_TIMEOUT, 60 * 60)
+
     def test_provider_usage_limit_is_distinguished_from_context_exhaustion(self) -> None:
         usage = {"observation": {"data": {"kind": "chatgpt_health", "provider_usage_limited": True}}}
         context = {
