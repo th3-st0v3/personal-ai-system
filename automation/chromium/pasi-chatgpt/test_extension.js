@@ -21,8 +21,9 @@ test('shared detectors scope terminal state markers away from messages and sideb
   assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
   assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
   assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
-  assert.equal(content.includes('document.body?.innerText'), false);
-  assert.equal(recovery.includes('document.body?.innerText'), false);
+  assert.doesNotMatch(detectors, /document\.body\?\.innerText/);
+  assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
   const alert = {
     innerText: 'Your request hit a rate limit.',
     textContent: 'Your request hit a rate limit.',
@@ -598,7 +599,8 @@ test('native controller preserves prompt operations for bounded response recover
 
 test('background watchdog requires an active operation and exact chat identity before reloading', () => {
   assert.match(background, /if \(status\.queue_size <= 0 && !String\(health\.data\.active_operation_id \|\| ''\)\.trim\(\)\) return/);
-  assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
+  assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string' \? health\.data\.chat_url\.trim\(\) : '';/);
+  assert.match(background, /if \(!targetChatUrl\) return;/);
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
   assert.match(background, /async function createCooldown\(targetChatUrl\)/);
