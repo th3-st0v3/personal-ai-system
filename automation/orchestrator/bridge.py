@@ -816,6 +816,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             content_length
         )
 
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_length and content_type != "application/json":
+            raise ValueError("JSON request body requires Content-Type: application/json")
         if not raw_body:
             return {}
 
@@ -838,6 +841,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if path != "/health" and not self._request_is_authorized(require_token=True):
+            self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
 
         if path == "/health":
             self._send_json(
@@ -913,6 +919,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         path = urlparse(
             self.path
         ).path
+        if not self._request_is_authorized(require_token=True):
+            self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
 
         try:
             payload = self._read_json()
