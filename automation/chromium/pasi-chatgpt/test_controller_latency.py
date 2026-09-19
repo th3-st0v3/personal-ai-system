@@ -68,6 +68,10 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "hasAttribute?.('disabled')" in native
     assert "github connection failed" in native
     assert "GitHub repository must be in owner/name form" in native
+    assert "button[data-testid*="model" i]" in native
+    assert "button[aria-label*="model" i]" in native
+    assert "button[data-testid*="intelligence" i]" in native
+    assert "fall back to a nearby menu button" in native
     assert "payload?.operation?.status === 'completed'" in native
     assert "payload?.operation?.response_text_available === true" in native
     assert "Boolean(payload.operation.response_text.trim())" in native
