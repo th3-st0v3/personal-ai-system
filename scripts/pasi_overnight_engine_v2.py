@@ -591,29 +591,19 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
-    validate_patch_paths(patch, allow_delete)
-    code, output = command(
-        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+    output = legacy.apply_patch(
         worktree,
-        60.0,
-        input=patch,
+        patch,
+        allow_delete,
+        validator=validate_patch_paths,
     )
+    code, validation_output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
     if code != 0:
-        raise RuntimeError(f"git apply --check failed:\n{output}")
-    code, output = command(
-        ["git", "apply", "--whitespace=nowarn", "-"],
-        worktree,
-        60.0,
-        input=patch,
-    )
-    if code != 0:
-        raise RuntimeError(f"git apply failed:\n{output}")
-    code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
-    if code != 0:
-        raise RuntimeError(f"canonical validation failed:\n{output}")
+        raise RuntimeError(f"canonical validation failed:\n{validation_output}")
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
+    output = output + ("\n" if output else "") + validation_output
     commit = legacy.commit_and_push(worktree, branch, task, push)
     if push:
         promotion = command(
@@ -637,39 +627,6 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
             log_event("promotion_deferred", commit=commit, branch=branch, error=promotion[1][-4000:])
             output = output + "\n\n[PASI PROMOTION DEFERRED]\n" + promotion[1][-4000:]
     return commit, output
-
-
-def standby_until_ready(state: OvernightState) -> bool:
-    logged = False
-    while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
-        try:
-            ensure_services()
-        except Exception as exc:
-            log_event("service_recovery_failed", error=str(exc)[-4_000:])
-
-        observation = browser_observation()
-        if observation:
-            data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
-            if isinstance(data, dict) and bool(data.get("auth_required")):
-                log_event("standby_auth_required")
-                return False
-
-        if runtime_watchdog_is_live():
-            if logged:
-                log_event("standby_recovered")
-            return True
-
-        if not logged:
-            log_event(
-                "standby_started",
-                reason="browser controller/extension heartbeat is stale; waiting for browser recovery while keeping local services healthy",
-            )
-            logged = True
-
-        remaining = (datetime.fromisoformat(state.deadline_at) - now_utc()).total_seconds()
-        time.sleep(min(STANDBY_SECONDS, max(1.0, remaining)))
-    return False
-
 
 def on_signal(signum: int, _frame: object) -> None:
     global STOP
