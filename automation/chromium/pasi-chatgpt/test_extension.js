@@ -133,6 +133,7 @@ test('native prompt submission requires explicit acknowledgement and composer-sc
   assert.match(content, /const afterClick = composer\(\);/);
   assert.match(content, /form\?\.requestSubmit/);
   assert.match(content, /function dispatchEnter\(element\)/);
+  assert.match(content, /new KeyboardEvent\('keypress', init\)/);
   assert.match(content, /if \(!generating\(\) && composerContainsPrompt\(retryBox, expected\)\)/);
   assert.match(content, /prompt submission could not be verified after bounded attempts/);
 });
