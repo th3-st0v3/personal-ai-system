@@ -132,6 +132,35 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         self.assertEqual([item.name for item in plan.keepers], ["pasi/snapshot"])
         self.assertEqual([item.name for item in plan.deletions], ["pasi/canonical"])
 
+    def test_superseded_snapshot_is_deletable(self) -> None:
+        branches = (
+            BranchRef("pasi/feature", "new"),
+            BranchRef("pasi/feature-pr", "old"),
+        )
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset(),
+            merged_pr_heads={},
+            superseded_branches=frozenset({"pasi/feature-pr"}),
+        )
+        self.assertEqual(
+            [item.name for item in plan.deletions],
+            ["pasi/feature-pr"],
+        )
+
+    def test_open_or_kept_superseded_snapshot_is_not_deleted(self) -> None:
+        branches = (
+            BranchRef("pasi/feature", "new"),
+            BranchRef("pasi/feature-pr", "old"),
+        )
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset({"pasi/feature-pr"}),
+            merged_pr_heads={},
+            superseded_branches=frozenset({"pasi/feature-pr"}),
+        )
+        self.assertEqual(plan.deletions, ())
+
     def test_explicit_keeper_survives_fully_merged_pass(self) -> None:
         branches = (BranchRef("pasi/keeper", "abc"),)
         plan = build_cleanup_plan(
