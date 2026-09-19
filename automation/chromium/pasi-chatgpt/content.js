@@ -1010,6 +1010,10 @@
   }
 
 
+  function operationPrompt(operation) {
+    return `[PASI_OPERATION ${operation.operation_id}]\n${operation.prompt}`;
+  }
+
   async function submitPrompt(expected) {
     const baselineUserCount = userMessages().length;
 
@@ -1018,6 +1022,11 @@
       // input updates. Confirm the message was not already accepted before
       // treating a missing composer value as a failure.
       if (newestUserMatches(expected, baselineUserCount)) return;
+
+      if (generating() || userMessages().length > baselineUserCount) {
+        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+        throw new Error('PASI_NATIVE: prompt submission already appears to be in progress; refusing to reinsert');
+      }
 
       await ensurePromptSubmissionReady();
 
@@ -1251,6 +1260,7 @@
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
           const box = await waitFor(composer, TIMEOUTS.composer);
           if (!box) throw new Error('PASI_NATIVE: composer unavailable');
+          const promptText = operationPrompt(operation);
           const baseline = fingerprint();
           let activeState = {};
           try {
@@ -1258,13 +1268,13 @@
           } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           setText(box, '');
-          insertText(box, operation.prompt);
+          insertText(box, promptText);
           // Scope the preflight check to the exact composer already being used.
           // A document-wide send lookup can bind to an unrelated control while the
           // bounded submitPrompt() path is still waiting for the real composer send action.
           const send = await waitForSend(box);
           if (!send) throw new Error('PASI_NATIVE: send control unavailable');
-          await submitPrompt(operation.prompt);
+          await submitPrompt(promptText);
           const response = await waitForResponse(baseline);
           await finishOperation(operation.operation_id, response, true);
           finalized = true;
