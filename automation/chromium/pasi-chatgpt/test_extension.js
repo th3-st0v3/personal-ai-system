@@ -40,8 +40,11 @@ test('native controller reports roadmap completion and repository progress marke
   assert.match(content, /next_task: nextTaskMatch/);
 });
 
-test('native content controller uses standard fetch instead of GM APIs', () => {
-  assert.match(content, /fetch\(BRIDGE/);
+test('native content controller uses extension messaging instead of page-side loopback fetch', () => {
+  assert.match(content, /chrome\.runtime\.sendMessage/);
+  assert.match(content, /type: 'pasi-bridge-request'/);
+  assert.doesNotMatch(content, /fetch\(['"]?BRIDGE/);
+  assert.doesNotMatch(content, /127\.0\.0\.1:8765/);
   assert.doesNotMatch(content, /GM_xmlhttpRequest|GM_getValue|GM_setValue/);
   assert.match(content, /new_chat/);
   assert.match(content, /select_reasoning/);
@@ -191,6 +194,21 @@ test('native recovery companion preserves response text without blocking complet
   assert.match(recovery, /response_text: bounded/);
   assert.match(recovery, /await report\('chatgpt_response'/);
   assert.match(recovery, /current\.status === 'failed'/);
+});
+
+test('loopback bridge access is confined to the MV3 service worker', () => {
+  assert.match(background, /const BRIDGE_ROUTES = new Set\(\[/);
+  assert.match(background, /function allowedBridgeRequest\(method, path\)/);
+  assert.match(background, /const BRIDGE_OPERATION_RE = \^\(GET \\/operation/);
+  assert.match(background, /chrome\.runtime\.onMessage\.addListener/);
+  assert.match(background, /message\.type !== 'pasi-bridge-request'/);
+  assert.match(background, /https:\\/\\/(?:www\\\.)?chatgpt\\\.com/);
+  assert.match(background, /allowedBridgeRequest\(method, path\)/);
+  assert.match(background, /bridgeFetch\(path, method, body, 10000\)/);
+  assert.match(background, /http:\/\/127\.0\.0\.1:8765\/\*/);
+  assert.doesNotMatch(content, /fetch\([^)]*127\.0\.0\.1:8765/);
+  assert.doesNotMatch(activity, /fetch\([^)]*127\.0\.0\.1:8765/);
+  assert.doesNotMatch(recovery, /fetch\([^)]*127\.0\.0\.1:8765/);
 });
 
 test('background service worker performs bounded stale-tab recovery', () => {
