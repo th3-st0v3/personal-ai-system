@@ -29,7 +29,7 @@ source .venv/bin/activate
 bash scripts/start_pasi_12h.sh
 ```
 
-That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher routes through `scripts/pasi_automation_entrypoint.py`, which enforces the 25-minute response budget, captures new setup requirements, supports bounded public-web research, and records verified self-improvement surfaces.
+That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher routes through the same native v2 runtime used by the 168-hour runner. It uses the shared timeout policy, native Chromium bridge, bounded recovery, and provider fallback controls.
 
 To supply specific public web pages as research context without editing the repository prompt, set a bounded comma-separated list first:
 
