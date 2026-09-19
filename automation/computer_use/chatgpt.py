@@ -152,6 +152,17 @@ class ChatGPTAdapter(AIAdapter):
             raise ChatGPTAdapterError("no active ChatGPT operation")
         return self.wait_for_completion(self.current_operation_id)
 
+    def cancel_operation(self, operation_id: str, reason: str = "cancelled by runner timeout") -> bool:
+        if not operation_id.strip():
+            raise ValueError("operation_id is required")
+        payload = self.transport.request(
+            "POST",
+            "/chat/cancel",
+            {"operation_id": operation_id, "reason": reason},
+        )
+        operation = payload.get("operation")
+        return isinstance(operation, Mapping) and operation.get("status") == "cancelled"
+
     def read_operation(self, operation_id: str) -> AIResponse:
         if not operation_id.strip():
             raise ValueError("operation_id is required")
