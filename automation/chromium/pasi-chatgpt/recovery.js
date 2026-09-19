@@ -603,6 +603,16 @@
         } else if (!state.missing_operation_since_ms) {
           writeRecoveryState(nextState);
         }
+        if (now - missingSince >= MISSING_OPERATION_GRACE_MS) {
+          await report('chatgpt_recovery', {
+            phase: 'operation_missing_expired',
+            operation_id: state.operation_id,
+            recovery_action: 'clear_stale_recovery_state',
+            missing_operation_age_ms: now - missingSince,
+            grace_ms: MISSING_OPERATION_GRACE_MS
+          });
+          clearRecoveryState();
+        }
         return;
       }
       if (state.missing_operation_since_ms || state.missing_operation_last_report_ms) {
