@@ -286,6 +286,37 @@ test('native assistant extraction preserves machine-readable marker and diff lin
   assert.match(fingerprintSource, /collapseWhitespace\(latestAssistant\(\)\)/);
 });
 
+test('native prompt execution prevents duplicate sends and requires stable final output', () => {
+  assert.match(content, /function operationPrompt\(operation\)/);
+  assert.match(content, /PASI_OPERATION/);
+  assert.match(content, /generating\(\) \|\| userMessages\(\)\.length > baselineUserCount/);
+  assert.match(content, /prompt submission already appears to be in progress/);
+  assert.match(content, /const RESPONSE_SETTLE_MS = 3500/);
+  assert.match(content, /stableFingerprint/);
+  assert.match(content, /stableSince/);
+  assert.match(content, /Date\.now\(\) - stableSince >= RESPONSE_SETTLE_MS/);
+  assert.match(content, /PASI_RESULT_STATUS/);
+});
+
+test('native new-chat selection excludes navigation and requires an empty target', () => {
+  assert.match(content, /function findNewChatControl\(\)/);
+  assert.match(content, /button\[data-testid="new-chat-button"\]/);
+  assert.match(content, /button\[aria-label="New chat"\]/);
+  assert.match(content, /nav, aside, \[role="navigation"\]/);
+  assert.match(content, /emptySurface = Boolean\(composer\(\)/);
+  assert.match(content, /currentChat !== previousChat && emptySurface/);
+});
+
+test('native controller elects one tab through a renewable lease', () => {
+  assert.match(content, /type: 'pasi-controller-claim'/);
+  assert.match(content, /await controllerClaim\(\)/);
+  assert.match(background, /CONTROLLER_LEASE_KEY/);
+  assert.match(background, /CONTROLLER_LEASE_MS = 10 \* 1000/);
+  assert.match(background, /sender\?\.tab\?\.id/);
+  assert.match(background, /current\.tabId === tabId/);
+  assert.match(background, /renewedAt: now/);
+});
+
 test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
   assert.match(content, /case 'prompt': \{/);
   assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
