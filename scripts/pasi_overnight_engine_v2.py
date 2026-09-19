@@ -488,11 +488,32 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
     raise RuntimeError("network-isolated validation sandbox is unavailable; install bubblewrap (recommended) or enable an unshare-compatible user namespace")
 
 
+def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
+    root = worktree.resolve()
+    for record in summary.split("\x00"):
+        if not record:
+            continue
+        fields = record.split("\t")
+        if len(fields) != 3:
+            raise RuntimeError("git apply returned an unexpected numstat record")
+        path_value = fields[2]
+        if not path_value or path_value == "/dev/null":
+            continue
+        candidate = (root / path_value).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(f"git apply resolved an unsafe path: {path_value}") from exc
+        if path_value in PROTECTED_UNATTENDED_PATHS or path_value.startswith(".github/"):
+            raise RuntimeError(f"git apply resolved a protected unattended path: {path_value}")
+
+
 def apply_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     validate_patch_paths(patch, allow_delete)
     code, summary = command(["git", "apply", "--numstat", "-z", "-"], worktree, 60.0, input=patch)
     if code != 0:
         raise RuntimeError(f"git apply path resolution failed:\n{summary}")
+    validate_git_resolved_paths(worktree, summary)
     code, output = command(["git", "apply", "--check", "--whitespace=nowarn", "-"], worktree, 60.0, input=patch)
     if code != 0:
         raise RuntimeError(f"git apply --check failed:\n{output}")
