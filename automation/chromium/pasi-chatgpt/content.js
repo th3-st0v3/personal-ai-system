@@ -31,6 +31,18 @@
     return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
   }
 
+  function markThinkingUnavailable(reason) {
+    reasoningMode = 'unavailable';
+    void reportObservation('chatgpt_reasoning_capability', {
+      chat_url: chatUrl(),
+      thinking_available: false,
+      reasoning_mode: 'unavailable',
+      reason: String(reason || 'current account/model does not expose a Thinking option').slice(0, 500),
+      native_controller: true
+    });
+    return false;
+  }
+
   async function bridge(path, options = {}) {
     if (extensionContextInvalidated) {
       throw new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page');
@@ -416,6 +428,7 @@
       auth_required: authRequired(),
       conversation_context_exhausted: exhausted,
       thinking_enabled: thinkingEnabled(),
+      thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinkingEnabled() === true ? 'available' : 'unknown'),
       page_visible: document.visibilityState !== 'hidden',
       composer_present: Boolean(composer()),
       native_controller: true,
@@ -428,6 +441,7 @@
       provider_usage_limited: limited,
       github_attached: githubAttached,
       reasoning_mode: reasoningMode,
+      reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinkingEnabled() === true ? 'available' : 'unknown'),
       conversation_signature: conversationSignature(),
       active_operation_id: activeOperationId,
       native_controller: true
@@ -565,7 +579,7 @@
 
       const thinkingOption = await waitFor(findThinkingMenuOption, TIMEOUTS.menu);
       if (!thinkingOption || disabled(thinkingOption)) {
-        throw new Error('PASI_NATIVE: Thinking model option unavailable for the current ChatGPT account/model');
+        return markThinkingUnavailable('current ChatGPT account/model does not expose a usable Thinking model option');
       }
 
       const optionState = selectionState(thinkingOption);
@@ -621,7 +635,7 @@
 
     const menuThinking = await waitFor(findThinkingMenuOption, TIMEOUTS.menu);
     if (!menuThinking || disabled(menuThinking)) {
-      throw new Error('PASI_NATIVE: Thinking option unavailable in the current ChatGPT menu');
+      return markThinkingUnavailable('current ChatGPT menu does not expose a usable Thinking option');
     }
     const menuState = selectionState(menuThinking);
     if (menuState === true) {
@@ -693,7 +707,12 @@
       if (reasoning !== 'thinking' && reasoning !== 'think') {
         throw new Error('PASI_NATIVE: unsupported recovery reasoning mode');
       }
-      if (thinkingEnabled() !== true) await selectThinking();
+      if (thinkingEnabled() !== true) {
+        const selected = await selectThinking();
+        if (selected === false && reasoningMode !== 'unavailable') {
+          throw new Error('PASI_NATIVE: Thinking state could not be selected during recovery');
+        }
+      }
     }
 
     const repository = String(context.github_repository || '').trim();
@@ -837,6 +856,7 @@
       reasoningMode = 'thinking';
       return true;
     }
+    if (reasoningMode === 'unavailable') return true;
 
     // The model selector can report null briefly while ChatGPT is closing
     // the intelligence menu. Give the DOM a chance to settle before trying
@@ -846,9 +866,11 @@
       reasoningMode = 'thinking';
       return true;
     }
+    if (reasoningMode === 'unavailable') return true;
 
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      await selectThinking();
+      const selected = await selectThinking();
+      if (selected === false && reasoningMode === 'unavailable') return true;
       if (await verifyThinkingState()) {
         reasoningMode = 'thinking';
         return true;
