@@ -917,9 +917,19 @@ The patch must apply with git apply, modify only repository files, and contain n
 def choose_next_task(state: OvernightState, suggested: str) -> str:
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     completed = completed_task_keys()
-    candidate = valid_next_task(suggested, state.current_task, state.recent_tasks[-12:])
+    normalized_suggestion = re.sub(r"\s+", " ", suggested).strip()
+    same_task = normalized_suggestion.casefold() == state.current_task.casefold() if normalized_suggestion else False
+    candidate = valid_next_task(normalized_suggestion, state.current_task, state.recent_tasks[-12:])
     if candidate:
         return candidate
+    if normalized_suggestion and not same_task:
+        suggested_key = task_key(normalized_suggestion)
+        configured = {task_key(item): item for item in candidates}
+        if suggested_key not in configured and task_key(state.current_task) not in completed:
+            return state.current_task
+    if not same_task and task_key(state.current_task) not in completed:
+        return state.current_task
+
     recent = {item.casefold() for item in state.recent_tasks[-12:]}
     current_index = next(
         (index for index, item in enumerate(candidates) if item.casefold() == state.current_task.casefold()),
