@@ -1,8 +1,10 @@
+importScripts('timeout-config.js');
+
 const BRIDGE = 'http://127.0.0.1:8765';
 const ALARM = 'pasi-watchdog';
 const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
-const STALE_MS = 30 * 1000;
+let STALE_MS = 45 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
@@ -190,12 +192,19 @@ async function inspect() {
   await reloadBoundedTab(matchingTab);
 }
 
+async function applyTimeoutPolicy() {
+  try {
+    const policy = await globalThis.PASI_TIMEOUT_POLICY?.load?.();
+    if (policy?.staleMs) STALE_MS = policy.staleMs;
+  } catch (_) {}
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
