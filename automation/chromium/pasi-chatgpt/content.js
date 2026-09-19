@@ -572,7 +572,7 @@
 
   async function attachGithub(repository) {
     repository = String(repository || '').trim();
-    if (!/^[^/\\s]+\\/[^/\\s]+$/.test(repository)) {
+    if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) {
       throw new Error('PASI_NATIVE: GitHub repository must be in owner/name form');
     }
     if (githubAttached) {
