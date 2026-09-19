@@ -126,7 +126,8 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
                     self.assertEqual(entrypoint.main(), 0)
         self.assertEqual(seen[0][0], "pasi_overnight_engine_v2.py")
         self.assertIn("--task", seen[0])
-        self.assertIn("direct v2", seen[0])
+        task_value = seen[0][seen[0].index("--task") + 1]
+        self.assertIn("direct v2", task_value)
 
 
 if __name__ == "__main__":
