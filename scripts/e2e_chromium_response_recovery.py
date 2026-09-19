@@ -17,11 +17,14 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
-
-from scripts.build_chromium_extension import build_extension
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.build_chromium_extension import build_extension
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 8765
 OPERATION_ID = "pasi-e2e-late-response"
