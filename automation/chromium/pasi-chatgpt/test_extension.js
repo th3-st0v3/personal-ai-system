@@ -112,6 +112,12 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
   assert.match(content, /if \(await verifyThinkingState\(\)\)/);
   assert.match(content, /if \(!\(await ensureThinkingReady\(\)\)\)/);
   assert.match(content, /PASI_NATIVE: Thinking state could not be verified before prompt submission/);
+  assert.match(content, /function markThinkingUnavailable\(reason\)/);
+  assert.match(content, /thinking_available: false/);
+  assert.match(content, /reasoning_mode: 'unavailable'/);
+  assert.match(content, /current ChatGPT account\/model does not expose a usable Thinking model option/);
+  assert.match(content, /current ChatGPT menu does not expose a usable Thinking option/);
+  assert.match(content, /if \(reasoningMode !== 'unavailable'\) reasoningMode = 'thinking';/);
   assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(box\)/);
   assert.equal((content.match(/async function waitForSubmissionAck\(expected, baselineUserCount\)/g) || []).length, 1);
   assert.equal((content.match(/async function ensurePromptSubmissionReady\(\)/g) || []).length, 1);
