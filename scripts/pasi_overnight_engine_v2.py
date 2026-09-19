@@ -388,11 +388,15 @@ def continuation_directive(state: OvernightState, _task: str | None = None) -> s
     roadmap = "\n".join(f"- {item}" for item in candidates)
     recent = "\n".join(f"- {item}" for item in state.recent_tasks[-12:]) or "- none recorded"
     return f"""TASK CONTINUATION:
-- Inspect the current repository state and evidence before acting.
+- Inspect the current repository state and recent commits before deciding whether the CURRENT TASK is still incomplete.
 - Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.
-- When verified complete, immediately continue to the next incomplete roadmap task; do not wait for a follow-up.
-- If the same failure repeats, change approach instead of repeating the failed path.
-- Do not invent work or cosmetic changes; report stopped only when the task is satisfied and no concrete repository change remains.
+- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it, do not make cosmetic duplicate changes, and do not ask the human what to do next; immediately work on the next incomplete roadmap item below.
+- IF the CURRENT TASK is not yet satisfied, THEN continue it and use a materially different approach when PREVIOUS FAILURE EVIDENCE shows the prior approach failed.
+- A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
+- After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
+- IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
+- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: changed and provide the required patch.
+- do not invent work or cosmetic changes; report stopped only when the task is satisfied and no concrete repository change remains.
 - Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it.
 ROADMAP PHASE: {state.phase}
 ROADMAP:
