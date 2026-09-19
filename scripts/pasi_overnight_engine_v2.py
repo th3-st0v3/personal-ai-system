@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -40,6 +41,8 @@ AUTOMATION_TASKS_PER_GATE = 2
 MAX_PROVIDER_LIMIT_PAUSES = 3
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
+TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
+MAX_TASK_TEXT_CHARS = 4000
 
 AUTOMATION_TASKS = (
     "Audit the PASI computer-use control plane end to end and implement concrete changes that reduce repeated human input, improve state continuity, improve browser recovery, and preserve all existing safety boundaries.",
@@ -160,6 +163,71 @@ def load_state() -> OvernightState | None:
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def task_key(task: str) -> str:
+    return hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+
+
+def load_task_ledger() -> dict[str, dict[str, Any]]:
+    try:
+        raw = json.loads(TASK_LEDGER_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    entries = raw.get("tasks", {})
+    if not isinstance(entries, dict):
+        return {}
+    return {str(key): dict(value) for key, value in entries.items() if isinstance(value, dict)}
+
+
+def save_task_ledger(ledger: Mapping[str, Mapping[str, Any]]) -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "tasks": {str(key): dict(value) for key, value in ledger.items()},
+    }
+    temporary = TASK_LEDGER_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(TASK_LEDGER_PATH)
+
+
+def record_task_ledger(task: str, status: str, *, commit: str | None = None, evidence: str = "") -> None:
+    normalized = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
+    if not normalized:
+        return
+    ledger = load_task_ledger()
+    key = task_key(normalized)
+    ledger[key] = {
+        "task": normalized,
+        "status": status,
+        "commit": commit or "",
+        "evidence": evidence[-4000:],
+        "updated_at": now_utc().isoformat(),
+    }
+    save_task_ledger(ledger)
+
+
+def completed_task_keys() -> set[str]:
+    return {
+        key
+        for key, value in load_task_ledger().items()
+        if str(value.get("status", "")).casefold() == "completed"
+    }
+
+
+def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[str]) -> str:
+    value = re.sub(r"\s+", " ", candidate).strip()
+    if not value or len(value) > MAX_TASK_TEXT_CHARS:
+        return ""
+    lowered = value.casefold()
+    recent = {item.casefold().strip() for item in recent_tasks}
+    if lowered == current_task.casefold().strip() or lowered in recent:
+        return ""
+    if task_key(value) in completed_task_keys():
+        return ""
+    return value
 
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
@@ -576,20 +644,18 @@ The patch must apply with git apply, modify only repository files, and contain n
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
-    candidate = re.sub(r"\s+", " ", suggested).strip()
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
-    configured = {item.casefold(): item for item in candidates}
-    current = state.current_task.casefold().strip()
-    if candidate.casefold() == current and current in configured:
-        # A completion response that repeats the current roadmap item must advance
-        # rather than relying on the bounded recent-task window to break the loop.
-        index = next(index for index, item in enumerate(candidates) if item.casefold() == current)
-        return candidates[(index + 1) % len(candidates)]
-
+    completed = completed_task_keys()
+    candidate = valid_next_task(suggested, state.current_task, state.recent_tasks[-12:])
+    if candidate:
+        return candidate
     recent = {item.casefold() for item in state.recent_tasks[-12:]}
-    if candidate.casefold() in configured and candidate.casefold() not in recent:
-        return configured[candidate.casefold()]
-    return choose_unique(candidates, state)
+    for configured in candidates:
+        if task_key(configured) in completed:
+            continue
+        if configured.casefold() not in recent:
+            return configured
+    return choose_unique([item for item in candidates if task_key(item) not in completed] or list(candidates), state)
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
