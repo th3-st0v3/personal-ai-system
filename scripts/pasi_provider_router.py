@@ -202,24 +202,38 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
     executable = shutil.which("opencode")
     if not executable:
         raise RuntimeError("opencode executable is not installed")
-    safe_prompt = prompt + "\nDo not use edit, write, bash, deploy, or other mutation tools even if they are available. Return text only."
-    try:
-        result = subprocess.run(
-            [executable, "run", "--dir", str(repo), safe_prompt],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="pasi-opencode-") as temp_dir:
+        sandbox = Path(temp_dir) / "repo"
+        shutil.copytree(
+            repo,
+            sandbox,
+            ignore=shutil.ignore_patterns(".git", ".runtime", ".venv", "__pycache__", "*.pyc"),
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("OpenCode timed out") from exc
-    output = ((result.stdout or "") + (result.stderr or "")).strip()
-    if result.returncode != 0:
-        raise RuntimeError(bounded_text(output or "OpenCode failed", 4000))
-    if not output:
-        raise RuntimeError("OpenCode returned no text")
-    return output
+        safe_prompt = (
+            prompt
+            + "\n\nProvider isolation policy:"
+            + "\n- This is a read-only evidence copy."
+            + "\n- Do not edit, create, delete, run shell commands, push, deploy, or access credentials."
+            + "\n- Return text only with the PASI completion contract."
+        )
+        try:
+            result = subprocess.run(
+                [executable, "run", "--dir", str(sandbox), safe_prompt],
+                cwd=sandbox,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("OpenCode timed out") from exc
+        output = ((result.stdout or "") + (result.stderr or "")).strip()
+        if result.returncode != 0:
+            raise RuntimeError(bounded_text(output or "OpenCode failed", 4000))
+        if not output:
+            raise RuntimeError("OpenCode returned no text")
+        return output
 
 
 def providers_available() -> list[str]:
