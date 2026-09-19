@@ -103,7 +103,7 @@ test('native transient control activation clears stale focus before ChatGPT hide
   assert.ok(accessibilityStart >= 0 && visibleStart > accessibilityStart);
   const accessibilitySource = content.slice(accessibilityStart, visibleStart);
   const accessibilityHidden = new Function(
-    accessibilitySource + '\\nreturn accessibilityHidden;'
+    accessibilitySource + '\nreturn accessibilityHidden;'
   )();
 
   const ariaAncestor = {
@@ -140,7 +140,7 @@ test('native transient control activation clears stale focus before ChatGPT hide
     'generating',
     'userMessages',
     'assistantMessages',
-    freshSource + '\\nreturn freshChatSurface;'
+    freshSource + '\nreturn freshChatSurface;'
   );
   const freshRoot = buildFresh(
     { href: 'https://chatgpt.com/' },
@@ -164,6 +164,22 @@ test('native transient control activation clears stale focus before ChatGPT hide
 
   let blurred = false;
   let clicked = false;
+  const hiddenAncestor = {
+    parentElement: null,
+    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
+    hasAttribute() { return false; }
+  };
+  const focusedAfterClick = {
+    parentElement: hiddenAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; },
+    blur() { blurred = true; }
+  };
+  const focusDocument = {
+    activeElement: { blur() { blurred = true; } },
+    body: {},
+    documentElement: {}
+  };
   const focusStart = content.indexOf('function clearFocusBeforeActivation()');
   const focusEnd = content.indexOf('  async function newChat()', focusStart);
   assert.ok(focusStart >= 0 && focusEnd > focusStart);
@@ -172,18 +188,29 @@ test('native transient control activation clears stale focus before ChatGPT hide
     'document',
     'visible',
     'disabled',
-    focusSource + '\\nreturn { activateControl };'
+    'accessibilityHidden',
+    focusSource + '\nreturn { activateControl };'
   );
   const activation = buildActivation(
-    {
-      activeElement: { blur() { blurred = true; } },
-      body: {},
-      documentElement: {}
-    },
+    focusDocument,
     () => true,
-    () => false
+    () => false,
+    (element) => {
+      for (let current = element; current; current = current.parentElement) {
+        if (current.getAttribute?.('aria-hidden') === 'true' || current.hasAttribute?.('inert')) return true;
+      }
+      return false;
+    }
   );
-  assert.equal(activation.activateControl({ click() { clicked = true; } }), true);
+  assert.equal(
+    activation.activateControl({
+      click() {
+        clicked = true;
+        focusDocument.activeElement = focusedAfterClick;
+      }
+    }),
+    true
+  );
   assert.equal(blurred, true);
   assert.equal(clicked, true);
 });
