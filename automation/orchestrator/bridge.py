@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hmac
 import json
+import os
 import threading
 import time
 import traceback
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -25,6 +28,7 @@ TIMEOUT_POLICY = load_timeout_policy()
 CLAIM_LEASE_SECONDS = TIMEOUT_POLICY["bridge_claim_lease_seconds"]
 QUEUE_TTL_SECONDS = TIMEOUT_POLICY["queue_ttl_seconds"]
 MAX_ERROR_CHARS = 2_000
+BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 MAX_IDEMPOTENCY_KEY_CHARS = 128
 RETRY_BUDGETS = {"controller": 3, "response": 2, "context": 1}
@@ -686,6 +690,33 @@ def _bridge_access_log_should_emit(message: str) -> bool:
 
 
 class BridgeRequestHandler(BaseHTTPRequestHandler):
+    def _expected_bridge_token(self) -> str:
+        configured = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+        if configured:
+            return configured
+        try:
+            return BRIDGE_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def _request_is_authorized(self, *, require_token: bool) -> bool:
+        host = self.headers.get("Host", "")
+        if host not in {f"{HOST}:{PORT}", HOST}:
+            return False
+        origin = self.headers.get("Origin", "").strip()
+        if origin and not (
+            origin in {"https://chatgpt.com", "https://www.chatgpt.com"}
+            or origin.startswith("chrome-extension://")
+        ):
+            return False
+        if not require_token:
+            return True
+        expected = self._expected_bridge_token()
+        supplied = self.headers.get("Authorization", "")
+        prefix = "Bearer "
+        token = supplied[len(prefix):].strip() if supplied.startswith(prefix) else ""
+        return bool(expected) and bool(token) and hmac.compare_digest(token, expected)
+
     """
     Small localhost HTTP API consumed by the Tampermonkey
     ChatGPT controller.
