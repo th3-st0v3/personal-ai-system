@@ -114,12 +114,12 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                 self.assertFalse(guarded)
                 self.assertEqual(repeats, 0)
 
-                second, guarded, repeats = engine.choose_run_start_task("automation", "", "run-2")
+                second, guarded, repeats = choose_run_start_task("automation", "", "run-2")
                 self.assertEqual(second, engine.AUTOMATION_TASKS[0])
                 self.assertFalse(guarded)
                 self.assertEqual(repeats, 1)
 
-                third, guarded, repeats = engine.choose_run_start_task("automation", "", "run-3")
+                third, guarded, repeats = choose_run_start_task("automation", "", "run-3")
                 self.assertEqual(third, engine.AUTOMATION_TASKS[1])
                 self.assertTrue(guarded)
                 self.assertEqual(repeats, 2)
@@ -137,11 +137,11 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             guard_path = Path(temp_dir) / "roadmap-loop-guard.json"
             with mock.patch.object(engine, "ROADMAP_LOOP_GUARD_PATH", guard_path):
                 for run_id in ("run-1", "run-2", "run-3"):
-                    selected, guarded, repeats = engine.choose_run_start_task("automation", custom, run_id)
+                    selected, guarded, repeats = choose_run_start_task("automation", custom, run_id)
                     self.assertEqual(selected, custom)
                     self.assertFalse(guarded)
                     self.assertEqual(repeats, 0)
-                self.assertEqual(engine.load_roadmap_selection_history(), [])
+                self.assertEqual(load_roadmap_selection_history(), [])
 
     def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
         now = datetime.now(timezone.utc)
