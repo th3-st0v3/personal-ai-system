@@ -100,13 +100,22 @@ test('native Thinking selection prefers the composer model pill and stable intel
 });
 
 test('native prompt submission re-checks auth, exhaustion, and Thinking at the send boundary', () => {
-  assert.match(content, /async function ensurePromptSubmissionReady\(\)/);
-  assert.match(content, /if \(authRequired\(\)\) throw new Error\('CHAT_AUTH_REQUIRED/);
-  assert.match(content, /if \(contextExhausted\(\)\) throw new Error\('CHAT_EXHAUSTED/);
-  assert.match(content, /if \(usageLimited\(\)\) throw new Error\('CHAT_USAGE_LIMITED/);
-  assert.match(content, /if \(thinkingEnabled\(\) !== true\) await selectThinking\(\)/);
-  assert.match(content, /if \(thinkingEnabled\(\) !== true\) throw new Error\('PASI_NATIVE: Thinking state could not be verified before prompt submission/);
+  assert.match(content, /const THINKING_VERIFY_MS = 5000;/);
+  assert.match(content, /async function verifyThinkingState\(\)/);
+  assert.match(content, /return waitFor\(\(\) => \{/);
+  assert.match(content, /\}, THINKING_VERIFY_MS\)/);
+  assert.match(content, /async function ensureThinkingReady\(\)/);
+  assert.match(content, /if \(state === true\) \{/);
+  assert.match(content, /state = await verifyThinkingState\(\)/);
+  assert.match(content, /for \(let attempt = 1; attempt <= 2; attempt \+= 1\)/);
+  assert.match(content, /await selectThinking\(\)/);
+  assert.match(content, /if \(await verifyThinkingState\(\)\)/);
+  assert.match(content, /if \(!\(await ensureThinkingReady\(\)\)\)/);
+  assert.match(content, /PASI_NATIVE: Thinking state could not be verified before prompt submission/);
   assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(box\)/);
+  assert.equal((content.match(/async function waitForSubmissionAck\(expected, baselineUserCount\)/g) || []).length, 1);
+  assert.equal((content.match(/async function ensurePromptSubmissionReady\(\)/g) || []).length, 1);
+  assert.equal((content.match(/function composerContainsPrompt\(element, expected\)/g) || []).length, 1);
 });
 
 test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
