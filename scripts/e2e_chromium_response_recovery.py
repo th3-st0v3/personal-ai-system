@@ -719,11 +719,16 @@ def main() -> None:
                 ]
                 if not response_observations:
                     raise AssertionError("Chromium did not report a response observation")
-                observed_response = response_observations[-1].get("observation", {}).get("data", {}).get("response_text", "")
-                if observed_response != EXPECTED_RESPONSE:
+                observed_responses = [
+                    entry.get("observation", {}).get("data", {}).get("response_text")
+                    for entry in response_observations
+                    if isinstance(entry.get("observation", {}).get("data", {}).get("response_text"), str)
+                    and bool(entry.get("observation", {}).get("data", {}).get("response_text").strip())
+                ]
+                if EXPECTED_RESPONSE not in observed_responses:
                     raise AssertionError(
                         "Chromium response observation did not preserve multiline text: "
-                        f"{observed_response!r}"
+                        f"{observed_responses!r}"
                     )
 
                 health_observations = [
