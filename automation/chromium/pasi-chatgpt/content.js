@@ -556,8 +556,52 @@
 
   function fingerprint() { return latestAssistant().slice(-4000); }
 
-  async function waitForSend() {
-    return waitFor(() => firstVisible(['button[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]', 'button[type="submit"]'], true) || findLabeled(['send prompt', 'send message'], ['button', '[role="button"]'], true), TIMEOUTS.send);
+  function sendCandidatesForComposer(box) {
+    const form = box?.closest?.('form') || null;
+    const scope = form || document;
+    const selectors = [
+      'button[data-testid="send-button"]',
+      'button[aria-label="Send prompt"]',
+      'button[aria-label="Send message"]'
+    ];
+    const candidates = [];
+    for (const selector of selectors) {
+      candidates.push(...scope.querySelectorAll(selector));
+    }
+
+    // Only consider a generic submit button when it is owned by the same
+    // form as the composer. Never click an unrelated page form.
+    if (form) candidates.push(...form.querySelectorAll('button[type="submit"]'));
+
+    const seen = new Set();
+    return candidates.filter((element) => {
+      if (seen.has(element)) return false;
+      seen.add(element);
+      return visible(element) && !disabled(element);
+    });
+  }
+
+  async function waitForSend(box) {
+    return waitFor(() => {
+      const candidates = sendCandidatesForComposer(box);
+      if (candidates.length) return candidates[0];
+
+      // Use the explicit accessible label only when it is tied to the
+      // composer's form (or when the composer has no form at all).
+      const form = box?.closest?.('form') || null;
+      if (form) {
+        return findLabeled(
+          ['send prompt', 'send message'],
+          ['button', '[role="button"]'],
+          true
+        );
+      }
+      return findLabeled(
+        ['send prompt', 'send message'],
+        ['button', '[role="button"]'],
+        true
+      );
+    }, TIMEOUTS.send);
   }
 
   async function waitForSubmissionAck(expected, baselineUserCount) {
@@ -605,7 +649,7 @@
 
       await ensurePromptSubmissionReady();
 
-      const button = await waitForSend();
+      const button = await waitForSend(box);
       if (button && !disabled(button)) {
         button.focus();
         button.click();
