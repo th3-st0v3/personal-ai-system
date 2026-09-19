@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import signal
@@ -31,7 +32,7 @@ CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
 DEFAULT_HOURS = legacy.DEFAULT_HOURS
 MIN_HOURS = legacy.MIN_HOURS
-MAX_HOURS = legacy.MAX_HOURS
+MAX_HOURS = float("inf")
 MAX_ATTEMPTS = legacy.MAX_ATTEMPTS
 TIMEOUT_POLICY = load_timeout_policy()
 TASK_TIMEOUT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
@@ -901,8 +902,8 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--no-push", action="store_true")
     args = parser.parse_args()
-    if not MIN_HOURS <= args.hours <= MAX_HOURS:
-        parser.error(f"--hours must be between {MIN_HOURS:g} and {MAX_HOURS:g}")
+    if not math.isfinite(args.hours) or args.hours < MIN_HOURS:
+        parser.error(f"--hours must be a finite value >= {MIN_HOURS:g}")
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
