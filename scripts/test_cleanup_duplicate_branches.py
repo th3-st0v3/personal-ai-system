@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import unittest
+import unittest.mock
 
 from scripts.cleanup_duplicate_branches import (
     BranchRef,
     build_cleanup_plan,
     can_delete_merged_branch,
     is_disposable_name,
+    list_superseded_snapshot_branches,
 )
 
 
@@ -147,6 +149,23 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
             [item.name for item in plan.deletions],
             ["pasi/feature-pr"],
         )
+
+    def test_kept_canonical_branch_can_supersede_snapshot(self) -> None:
+        branches = (
+            BranchRef("pasi/feature", "new"),
+            BranchRef("pasi/feature-pr", "old"),
+        )
+        with unittest.mock.patch(
+            "scripts.cleanup_duplicate_branches._request_json",
+            return_value={"status": "ahead", "ahead_by": 1, "behind_by": 0},
+        ):
+            superseded = list_superseded_snapshot_branches(
+                branches,
+                token="test-token",
+                open_pr_heads=frozenset(),
+                keep_branches=frozenset({"pasi/feature"}),
+            )
+        self.assertEqual(superseded, frozenset({"pasi/feature-pr"}))
 
     def test_open_or_kept_superseded_snapshot_is_not_deleted(self) -> None:
         branches = (
