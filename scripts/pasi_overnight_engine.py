@@ -328,6 +328,27 @@ def apply_patch(
     validator: Any = validate_patch_paths,
 ) -> str:
     validator(patch, allow_delete)
+    code, summary = command(
+        ["git", "apply", "--numstat", "-z", "-"],
+        worktree,
+        timeout=60.0,
+        input=patch,
+    )
+    if code != 0:
+        raise OvernightError(f"git apply path resolution failed:\n{summary}")
+    root = worktree.resolve()
+    for field in summary.split("\x00"):
+        if not field:
+            continue
+        parts = field.split("\t")
+        if len(parts) != 3:
+            raise OvernightError("git apply returned an unexpected numstat record")
+        candidate = Path(parts[2]).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise OvernightError(f"git apply resolved an unsafe path: {parts[2]}") from exc
+
     code, output = command(
         ["git", "apply", "--check", "--whitespace=nowarn", "-"],
         worktree,
