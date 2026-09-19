@@ -21,8 +21,8 @@ test('shared detectors scope terminal state markers away from messages and sideb
   assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
   assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
   assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
-  assert.doesNotMatch(content, /function contextExhausted\(\)[\s\S]*?document\.body\?\.innerText/);
-  assert.doesNotMatch(recovery, /function contextExhausted\(\)[\s\S]*?document\.body\?\.innerText/);
+  assert.equal(content.includes('document.body?.innerText'), false);
+  assert.equal(recovery.includes('document.body?.innerText'), false);
   const alert = {
     innerText: 'Your request hit a rate limit.',
     textContent: 'Your request hit a rate limit.',
@@ -104,7 +104,7 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /chatgpt_chat_changed/);
   assert.match(content, /conversation_signature/);
   assert.match(content, /localStorage/);
-  assert.match(recovery, /browser page reloaded during operation/);
+  assert.match(content, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
   assert.match(content, /CHAT_USAGE_LIMITED/);
   assert.match(content, /const current = await bridge\(`\/operation\?operation_id=/);
@@ -333,7 +333,8 @@ test('native prompt submission uses stable model selection and fail-closed Think
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
   assert.match(content, /await submitPrompt\(promptText\)/);
-  assert.match(content, /const DOM_POLL_MS = 250;/);
+  assert.match(content, /var DOM_POLL_MS = 250;/);
+  assert.match(content, /DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| DOM_POLL_MS/);
 });
 
 test('native Thinking selection prefers the composer model pill and stable intelligence modal', () => {
@@ -453,11 +454,13 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
-test('native recovery retries completed prompt evidence before clearing the active marker', () => {
-  assert.match(recovery, /if \(current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'\) \{/);
-  assert.match(recovery, /finishVisibleResponse\(operationId, current, ''\)/);
-  assert.match(recovery, /else if \(current\.status !== 'completed'\)/);
-  assert.match(recovery, /clearInterruptedState\(\)/);
+test('native restart recovery retries persisted response evidence before clearing active state', () => {
+  assert.match(content, /if \(operation\.status === 'completed'\)/);
+  assert.match(content, /const responseAvailable = Boolean\(responseText\.trim\(\)\)/);
+  assert.match(content, /await finishOperation\(operationId, responseText, true\)/);
+  assert.match(content, /const visibleResponse = latestAssistant\(\)/);
+  assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
+  assert.match(content, /localStorage\.removeItem\(ACTIVE_KEY\)/);
 });
 
 test('native recovery companion is observation-only', () => {
@@ -569,9 +572,10 @@ test('native prompt completion refuses an empty response payload while non-promp
 });
 
 test('native prompt submission tolerates corrupt active recovery state', () => {
-  assert.match(content, /let activeState = \{\};/);
-  assert.match(content, /try \{\s*activeState = JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\) \|\| '\{\}'\);/);
-  assert.match(content, /catch \(_\) \{\}/);
+  assert.match(content, /function readJsonStorage\(key\)/);
+  assert.match(content, /JSON\.parse\(localStorage\.getItem\(key\) \|\| 'null'\)/);
+  assert.match(content, /catch \(_\) \{\s*return null;\s*\}/);
+  assert.match(content, /const activeState = readJsonStorage\(ACTIVE_KEY\) \|\| \{\};/);
 });
 
 test('native response recovery keeps the pre-prompt baseline after a timeout', () => {
@@ -593,7 +597,7 @@ test('native controller preserves prompt operations for bounded response recover
 });
 
 test('background watchdog requires an active operation and exact chat identity before reloading', () => {
-  assert.match(background, /if \(typeof health\.data\.active_operation_id !== 'string' \|\| !health\.data\.active_operation_id\.trim\(\)\) return/);
+  assert.match(background, /if \(status\.queue_size <= 0 && !String\(health\.data\.active_operation_id \|\| ''\)\.trim\(\)\) return/);
   assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
@@ -631,5 +635,5 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /const baseline = typeof stored\?\.baseline === 'string' \? stored\.baseline : ''/);
   assert.match(content, /const visibleResponse = latestAssistant\(\)/);
   assert.match(content, /visibleFingerprint !== baseline/);
-  assert.match(content, /finishOperation\(stored\.operation_id, visibleResponse, true\)/);
+  assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
 });
