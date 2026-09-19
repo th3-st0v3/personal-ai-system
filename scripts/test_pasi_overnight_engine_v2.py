@@ -35,15 +35,11 @@ PASI_RESULT_PATCH_END"""
         self.assertEqual(summary, "parser seam")
         self.assertEqual(next_task, "next")
         self.assertFalse(allow_delete)
-        self.assertIn("@@ -1 +1 @@
--old
-+new", patch)
+        self.assertIn("@@ -1 +1 @@\n-old\n+new", patch)
         self.assertEqual(values["repository_progress"], "changed")
 
     def test_parse_response_rejects_missing_marker(self) -> None:
-        response = "PASI_RESULT_STATUS: complete
-PASI_RESULT_PATCH_BEGIN
-PASI_RESULT_PATCH_END"
+        response = "PASI_RESULT_STATUS: complete\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END"
         with self.assertRaisesRegex(ValueError, "each marker exactly once"):
             engine.parse_response(response)
 
