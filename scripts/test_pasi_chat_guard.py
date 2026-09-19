@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts import pasi_chat_guard as guard
 from scripts.pasi_chat_guard import classify_observation, observation_text
@@ -10,7 +11,31 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 class TestPasiChatGuard(unittest.TestCase):
     def test_default_timeout_matches_native_generation_ceiling(self) -> None:
-        self.assertEqual(guard.DEFAULT_TIMEOUT, 60 * 60)
+        self.assertEqual(guard.DEFAULT_TIMEOUT, guard.TIMEOUT_POLICY["python_wait_seconds"])
+
+    def test_request_json_sends_bridge_authorization_header(self) -> None:
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return None
+            def read(self, _limit):
+                return b'{"observation": {}}'
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        with unittest.mock.patch.dict("os.environ", {"PASI_BRIDGE_TOKEN": "test-token"}, clear=True):
+            with unittest.mock.patch.object(guard, "urlopen", side_effect=fake_urlopen):
+                self.assertEqual(guard.request_json("/browser/health"), {"observation": {}})
+
+        request = captured["request"]
+        self.assertEqual(request.headers["Authorization"], "Bearer test-token")
+        self.assertEqual(captured["timeout"], 3.0)
 
     def test_provider_usage_limit_is_distinguished_from_context_exhaustion(self) -> None:
         usage = {"observation": {"data": {"kind": "chatgpt_health", "provider_usage_limited": True}}}
