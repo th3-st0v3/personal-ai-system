@@ -917,37 +917,35 @@ The patch must apply with git apply, modify only repository files, and contain n
 def choose_next_task(state: OvernightState, suggested: str) -> str:
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     completed = completed_task_keys()
-    normalized_suggestion = re.sub(r"\s+", " ", suggested).strip()
-    same_task = normalized_suggestion.casefold() == state.current_task.casefold() if normalized_suggestion else False
-    candidate = valid_next_task(normalized_suggestion, state.current_task, state.recent_tasks[-12:])
-    if candidate:
-        return candidate
-    if normalized_suggestion and not same_task:
-        suggested_key = task_key(normalized_suggestion)
-        configured = {task_key(item): item for item in candidates}
-        if suggested_key not in configured and task_key(state.current_task) not in completed:
-            return state.current_task
-    if not same_task and task_key(state.current_task) not in completed:
-        return state.current_task
+    normalized_suggestion = re.sub(r"\\s+", " ", suggested).strip()
+    current_key = task_key(state.current_task)
+    configured = {task_key(item): (index, item) for index, item in enumerate(candidates)}
+    suggestion_key = task_key(normalized_suggestion) if normalized_suggestion else ""
+    current_entry = configured.get(current_key)
+    suggestion_entry = configured.get(suggestion_key)
 
-    recent = {item.casefold() for item in state.recent_tasks[-12:]}
-    current_index = next(
-        (index for index, item in enumerate(candidates) if item.casefold() == state.current_task.casefold()),
-        -1,
-    )
-    ordered = (
-        list(candidates[current_index + 1:]) + list(candidates[: max(0, current_index + 1)])
-        if current_index >= 0
-        else list(candidates)
-    )
-    for configured in ordered:
-        if task_key(configured) in completed:
-            continue
-        return configured
-    return next(
-        (item for item in ordered if task_key(item) not in completed),
-        choose_unique([item for item in candidates if task_key(item) not in completed] or list(candidates), state),
-    )
+    if suggestion_entry and suggestion_key not in completed and suggestion_key != current_key:
+        return suggestion_entry[1]
+
+    advance_from_key: str | None = None
+    if suggestion_entry and (suggestion_key == current_key or suggestion_key in completed):
+        advance_from_key = suggestion_key
+    elif not normalized_suggestion:
+        recent = {task_key(item) for item in state.recent_tasks[-12:]}
+        if current_key in completed or current_key in recent:
+            advance_from_key = current_key
+        elif current_entry and current_key not in completed:
+            return current_entry[1]
+    elif current_entry and current_key not in completed:
+        # An invented/non-roadmap suggestion cannot replace an unfinished task.
+        return current_entry[1]
+
+    start_index = configured[advance_from_key][0] + 1 if advance_from_key in configured else 0
+    ordered = list(candidates[start_index:]) + list(candidates[:start_index])
+    for configured_task in ordered:
+        if task_key(configured_task) not in completed:
+            return configured_task
+    return choose_unique(candidates, state)
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
