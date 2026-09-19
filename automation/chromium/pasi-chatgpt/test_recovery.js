@@ -7,8 +7,8 @@ const source = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery.js', '
 test('recovery companion uses the shared timeout policy and bounded observation loop', () => {
   assert.match(source, /PASI_TIMEOUT_POLICY/);
   assert.match(source, /const POLL_MS/);
-  assert.match(source, /MISSING_OPERATION_GRACE_MS = 60 \\* 1000/);
-  assert.match(source, /MISSING_OPERATION_REPORT_MS = 10 \\* 1000/);
+  assert.ok(source.includes('const MISSING_OPERATION_GRACE_MS = 60 * 1000;'));
+  assert.ok(source.includes('const MISSING_OPERATION_REPORT_MS = 10 * 1000;'));
   assert.match(source, /setInterval\(\(\) =>/);
 });
 
@@ -27,7 +27,7 @@ test('recovery companion is strictly observe-only', () => {
 
 test('recovery companion preserves raw multiline response evidence', () => {
   assert.match(source, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
-  assert.match(source, /replace\(\[ \t\]\+\(\?=\\n\)/);
+  assert.ok(source.includes(".replace(/[ \\t]+(?=\\n)/g, '')"));
   assert.match(source, /response_text: responseText/);
 });
 
@@ -38,7 +38,7 @@ test('recovery companion scopes detectors through the shared detector module', (
 
 test('recovery reports active operation and response observations without mutating queue state', () => {
   assert.match(source, /active_operation_id: String\(activeOperationId\)/);
-  assert.match(source, /kind: 'chatgpt_response'/);
+  assert.match(source, /report\('chatgpt_response'/);
   assert.match(source, /kind: 'chatgpt_recovery'/);
   assert.match(source, /observe_only/);
 });
