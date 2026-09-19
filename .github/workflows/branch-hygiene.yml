@@ -3,6 +3,8 @@ name: branch-hygiene
 on:
   push:
     branches: [main]
+  pull_request:
+    types: [closed]
   schedule:
     - cron: "17 4 * * *"
   workflow_dispatch:
@@ -24,6 +26,8 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -36,6 +40,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
