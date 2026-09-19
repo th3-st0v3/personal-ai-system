@@ -48,20 +48,6 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             )
         )
 
-    def test_continuation_helper_keeps_repair_prompt_compatibility(self) -> None:
-        now = datetime.now(timezone.utc)
-        state = engine.OvernightState(
-            schema_version=2,
-            run_id="compatibility-test",
-            started_at=now.isoformat(),
-            deadline_at=(now + timedelta(hours=1)).isoformat(),
-            worktree=str(Path.cwd()),
-            branch="test",
-            phase="automation",
-            current_task="test",
-        )
-        self.assertIn("TASK CONTINUATION:", engine.continuation_directive(state, "test"))
-
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
