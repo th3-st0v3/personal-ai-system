@@ -25,7 +25,7 @@ EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
-CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
+CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
 DEFAULT_HOURS = legacy.DEFAULT_HOURS
 MIN_HOURS = legacy.MIN_HOURS
@@ -321,15 +321,12 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     if not healthy(f"{BRIDGE_URL}/health"):
         log_event("service_start", service="bridge")
         children.append(subprocess.Popen([legacy.sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
-    if not healthy("http://127.0.0.1:8766/health"):
-        log_event("service_start", service="controller_distribution")
-        children.append(subprocess.Popen([legacy.sys.executable, "scripts/pasi_controller_server.py"], cwd=REPO_ROOT))
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
-        if healthy(f"{BRIDGE_URL}/health") and healthy("http://127.0.0.1:8766/health"):
+        if healthy(f"{BRIDGE_URL}/health"):
             return children
         time.sleep(0.5)
-    raise RuntimeError("local PASI bridge/distribution services did not become healthy")
+    raise RuntimeError("local PASI bridge did not become healthy")
 
 
 def worktree_start_ref() -> str:
