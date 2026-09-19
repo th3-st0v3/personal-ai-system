@@ -1106,7 +1106,7 @@ def test_http_prompt_completion_requires_verified_nonblank_response(tmp_path: Pa
             "POST",
             "/chat/finished",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
