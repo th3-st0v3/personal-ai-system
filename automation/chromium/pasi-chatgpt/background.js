@@ -27,6 +27,18 @@ const BRIDGE_ROUTES = new Set([
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
+let bridgeTokenPromise = null;
+
+function bridgeToken() {
+  if (!bridgeTokenPromise) {
+    bridgeTokenPromise = fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' })
+      .then((response) => response.ok ? response.text() : '')
+      .then((value) => value.trim())
+      .catch(() => '');
+  }
+  return bridgeTokenPromise;
+}
+
 function allowedBridgeRequest(method, path) {
   const normalized = String(method || 'GET').toUpperCase();
   const value = String(path || '');
@@ -43,9 +55,14 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const token = await bridgeToken();
+    const headers = {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
     const response = await fetch(`${BRIDGE}${path}`, {
       method: normalizedMethod,
-      headers: body ? { 'Content-Type': 'text/plain;charset=UTF-8' } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
       credentials: 'omit',
