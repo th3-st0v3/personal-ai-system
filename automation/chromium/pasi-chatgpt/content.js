@@ -8,7 +8,7 @@
   const DOM_POLL_MS = 250;
   const CLICK_SETTLE_MS = 250;
   const RESPONSE_SETTLE_MS = 200;
-  const SUBMISSION_ACK_MS = 2500;
+  const SUBMISSION_ACK_MS = 7500;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
@@ -556,6 +556,39 @@
 
   function fingerprint() { return latestAssistant().slice(-4000); }
 
+  function nearbyScopedControls(box) {
+    const controls = [];
+    const seen = new Set();
+    let scope = box?.parentElement || null;
+
+    // ChatGPT has used both form-owned and generic submit controls over time.
+    // Walk only a few ancestors from the active composer so a fallback cannot
+    // bind to an unrelated form elsewhere on the page.
+    for (let depth = 0; scope && depth < 5; depth += 1, scope = scope.parentElement) {
+      const candidates = scope.querySelectorAll(
+        'button[data-testid*="send" i], button[aria-label*="send" i], button[title*="send" i]'
+      );
+      for (const element of candidates) {
+        if (seen.has(element) || !visible(element) || disabled(element)) continue;
+        seen.add(element);
+        controls.push(element);
+      }
+
+      const submits = Array.from(scope.querySelectorAll('button[type="submit"]')).filter(
+        (element) => visible(element) && !disabled(element) && !seen.has(element)
+      );
+      if (submits.length === 1) {
+        seen.add(submits[0]);
+        controls.push(submits[0]);
+      } else if (submits.length > 1 && depth > 0) {
+        // Do not guess among multiple generic submit buttons in a wider
+        // ancestor; the exact composer-scoped selectors above remain safe.
+        break;
+      }
+    }
+    return controls;
+  }
+
   function sendCandidatesForComposer(box) {
     const form = box?.closest?.('form') || null;
     const scope = form || document;
@@ -569,9 +602,13 @@
       candidates.push(...scope.querySelectorAll(selector));
     }
 
-    // Only consider a generic submit button when it is owned by the same
-    // form as the composer. Never click an unrelated page form.
-    if (form) candidates.push(...form.querySelectorAll('button[type="submit"]'));
+    // Generic submit controls are safe only when owned by the exact composer
+    // form or uniquely identified within a small ancestor scope around it.
+    if (form) {
+      candidates.push(...form.querySelectorAll('button[type="submit"]'));
+    } else {
+      candidates.push(...nearbyScopedControls(box));
+    }
 
     const seen = new Set();
     return candidates.filter((element) => {
@@ -587,7 +624,7 @@
     for (const element of elements) {
       if (!visible(element) || disabled(element)) continue;
       const text = label(element);
-      if (['send prompt', 'send message'].some((needle) =>
+      if (['send prompt', 'send message', 'send'].some((needle) =>
         text === needle || text.startsWith(needle + ' ') || text.includes(' ' + needle)
       )) {
         return element;
@@ -601,9 +638,6 @@
       const candidates = sendCandidatesForComposer(box);
       if (candidates.length) return candidates[0];
 
-      // Restrict accessible-label fallback to the active composer form. If
-      // there is no form, use the composer itself as the narrow scope instead
-      // of searching the entire ChatGPT document.
       const form = box?.closest?.('form') || null;
       return labeledSendInScope(form || box?.parentElement || null);
     }, TIMEOUTS.send);
@@ -612,8 +646,11 @@
   async function waitForSubmissionAck(expected, baselineUserCount) {
     const started = Date.now();
     while (Date.now() - started < SUBMISSION_ACK_MS) {
+      // A submission acknowledgement must identify PASI's exact prompt. Merely
+      // observing generation plus an increased user-message count can be caused
+      // by another message and can falsely advance the controller into the
+      // one-hour response wait.
       if (newestUserMatches(expected, baselineUserCount)) return true;
-      if (generating() && userMessages().length > baselineUserCount) return true;
       await sleep(DOM_POLL_MS);
     }
     return false;
@@ -669,7 +706,7 @@
         } else {
           const form = afterClick.closest('form');
           if (form?.requestSubmit) {
-            form.requestSubmit();
+            form.requestSubmit(afterClick);
             if (await waitForSubmissionAck(expected, baselineUserCount)) return;
           }
 
