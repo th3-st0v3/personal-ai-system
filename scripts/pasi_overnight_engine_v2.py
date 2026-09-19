@@ -388,7 +388,49 @@ def release_lock() -> None:
 
 
 def validate_patch_paths(patch: str, allow_delete: bool) -> None:
-    legacy.validate_patch_paths(patch, allow_delete)
+    if len(patch.encode("utf-8")) > MAX_PATCH_BYTES:
+        raise ValueError("model patch exceeds configured size bound")
+    if "new file mode 120000" in patch or "new file mode 160000" in patch:
+        raise ValueError("symlink and submodule additions are not allowed in unattended patches")
+    matches = re.findall(r"^diff --git a/(.+) b/(.+)$", patch, re.MULTILINE)
+    if not matches:
+        raise ValueError("model response did not contain a unified git diff")
+    for old_path, new_path in matches:
+        for path_value in (old_path, new_path):
+            if path_value == "/dev/null":
+                continue
+            normalized = path_value.replace("\\", "/")
+            parts = Path(normalized).parts
+            if normalized.startswith("/") or ".." in parts:
+                raise ValueError(f"unsafe patch path: {path_value}")
+            if any(part in {".git", ".env", ".env.local", ".env.production"} for part in parts):
+                raise ValueError(f"forbidden patch path: {path_value}")
+            if any(pattern.search(normalized) for pattern in (
+                re.compile(r"(^|/)(id_rsa|id_ed25519|authorized_keys)$", re.IGNORECASE),
+                re.compile(r"(^|/)(credentials|secrets?)(\.|/|$)", re.IGNORECASE),
+            )):
+                raise ValueError(f"forbidden credential/secret path: {path_value}")
+            if normalized in PROTECTED_UNATTENDED_PATHS or normalized.startswith(".github/"):
+                raise ValueError(f"protected unattended patch path requires human-approved branch: {path_value}")
+        if new_path == "/dev/null" and not allow_delete:
+            raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
+
+
+def normalize_patch(patch: str) -> str:
+    normalized = patch.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return ""
+    lines = normalized.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line.startswith("diff --git "))
+    except StopIteration:
+        return normalized
+    lines = lines[start:]
+    for index, line in enumerate(lines):
+        if line.strip().startswith(chr(96) * 3):
+            lines = lines[:index]
+            break
+    return "\n".join(lines).strip() + "\n"
 
 
 def command(
