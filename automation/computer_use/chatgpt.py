@@ -173,9 +173,15 @@ class ChatGPTAdapter(AIAdapter):
         return self._response_from_operation(operation)
 
     def read_browser_observation(self) -> Mapping[str, Any] | None:
-        payload = self.transport.request("GET", "/browser/observation")
+        payload = self.transport.request("GET", "/browser/health")
         observation = payload.get("observation")
         return observation if isinstance(observation, Mapping) else None
+
+    def read_browser_state(self) -> Mapping[str, Any] | None:
+        payload = self.transport.request("GET", "/browser/state")
+        observation = payload.get("observation")
+        return observation if isinstance(observation, Mapping) else None
+
     def read_browser_response_observation(self) -> Mapping[str, Any] | None:
         """Read the durable response record instead of the latest transient state."""
         payload = self.transport.request("GET", "/browser/response")
