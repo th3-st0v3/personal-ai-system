@@ -31,11 +31,13 @@ class TestPasiControllerServer(unittest.TestCase):
         self.assertEqual(actual_sha, manifest["git_blob_sha"])
         self.assertIn(f"@version      {manifest['version']}", source)
 
-    def test_local_recovery_matches_published_git_blob(self) -> None:
-        manifest, source, actual_sha = load_verified_recovery()
-        self.assertEqual(actual_sha, manifest["recovery_git_blob_sha"])
-        self.assertIn("GENERATION_TIMEOUT_MS", source)
-        self.assertEqual(manifest["recovery_version"], "1.0.6")
+    def test_legacy_recovery_rejects_native_observe_only_recovery_blob(self) -> None:
+        manifest = server._load_manifest()
+        expected_sha = manifest["recovery_git_blob_sha"]
+        actual_sha = git_blob_sha1(RECOVERY_PATH)
+        self.assertNotEqual(actual_sha, expected_sha)
+        with self.assertRaises(ControllerDistributionError):
+            load_verified_recovery()
 
     def test_git_show_preserves_crlf_bytes(self) -> None:
         payload = b"controller-bytes\r\n"
