@@ -400,85 +400,171 @@ def stop_driver(driver_process: subprocess.Popen | None) -> None:
         driver_process.wait(timeout=3)
 
 
-def create_driver_session(
-    driver_url: str,
-    chrome_binary: str,
-    profile_dir: Path,
-    extension_dir: Path,
-) -> str:
-    created = driver_request(
-        driver_url,
-        "POST",
-        "/session",
+def read_devtools_browser_endpoint(port: int, timeout: float = 15.0) -> str:
+    url = f"http://127.0.0.1:{port}/json/version"
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            with urlopen(Request(url), timeout=2.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            endpoint = payload.get("webSocketDebuggerUrl")
+            if isinstance(endpoint, str) and endpoint:
+                return endpoint
+            last_error = RuntimeError(f"DevTools endpoint missing from response: {payload}")
+        except Exception as exc:  # pragma: no cover - bounded startup retry
+            last_error = exc
+        time.sleep(0.1)
+    raise RuntimeError(f"Chrome DevTools endpoint did not become available: {last_error}")
+
+
+class BrowserCdpClient:
+    def __init__(self, websocket_url: str) -> None:
+        from websockets.sync.client import connect
+
+        self.websocket = connect(
+            websocket_url,
+            open_timeout=15,
+            close_timeout=5,
+            ping_interval=20,
+            ping_timeout=20,
+            max_size=16 * 1024 * 1024,
+            proxy=None,
+        )
+        self._next_id = 0
+
+    def command(
+        self,
+        method: str,
+        params: dict | None = None,
+        *,
+        session_id: str | None = None,
+        timeout: float = 15.0,
+    ) -> dict:
+        self._next_id += 1
+        request_id = self._next_id
+        payload: dict[str, object] = {
+            "id": request_id,
+            "method": method,
+            "params": params or {},
+        }
+        if session_id:
+            payload["sessionId"] = session_id
+        self.websocket.send(json.dumps(payload))
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            remaining = max(0.1, deadline - time.monotonic())
+            raw = self.websocket.recv(timeout=remaining)
+            message = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+            if message.get("id") != request_id:
+                continue
+            if "error" in message:
+                raise RuntimeError(
+                    f"CDP {method} failed: {message['error']}"
+                )
+            result = message.get("result", {})
+            if not isinstance(result, dict):
+                raise RuntimeError(
+                    f"CDP {method} returned invalid result: {message}"
+                )
+            return result
+        raise TimeoutError(f"Timed out waiting for CDP {method}")
+
+    def close(self) -> None:
+        try:
+            self.websocket.close()
+        except Exception:
+            pass
+
+
+def runtime_evaluate(
+    cdp: BrowserCdpClient,
+    session_id: str,
+    expression: str,
+    timeout: float = 10.0,
+) -> object:
+    payload = cdp.command(
+        "Runtime.evaluate",
         {
-            "capabilities": {
-                "alwaysMatch": {
-                    "browserName": "chrome",
-                    "goog:loggingPrefs": {"browser": "ALL"},
-                    "goog:chromeOptions": {
-                        "binary": chrome_binary,
-                        "args": [
-                            "--headless=new",
-                            "--no-sandbox",
-                            "--disable-gpu",
-                            "--disable-dev-shm-usage",
-                            "--no-first-run",
-                            "--no-default-browser-check",
-                            "--disable-sync",
-                            "--disable-component-update",
-                            "--disable-default-apps",
-                            "--enable-unsafe-extension-debugging",
-                            "--remote-debugging-pipe",
-                            "--remote-allow-origins=*",
-                            "--ignore-certificate-errors",
-                            "--host-resolver-rules=MAP chatgpt.com 127.0.0.1",
-                            f"--user-data-dir={profile_dir}",
-                        ],
-                    },
-                }
-            }
+            "expression": expression,
+            "returnByValue": True,
+            "awaitPromise": True,
         },
-        timeout=CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS,
+        session_id=session_id,
+        timeout=timeout,
     )
-    value = created.get("value")
-    if not isinstance(value, dict):
-        raise RuntimeError(
-            f"ChromeDriver returned invalid session payload: {created}"
-        )
-    session_id = value.get("sessionId") or created.get("sessionId")
-    if not isinstance(session_id, str) or not session_id:
-        raise RuntimeError(f"ChromeDriver did not return a session id: {created}")
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise RuntimeError(f"Runtime.evaluate returned invalid result: {payload}")
+    if result.get("type") == "object" and "value" not in result:
+        return result.get("description")
+    return result.get("value")
 
-    loaded = execute_cdp_command(
-        driver_url,
-        session_id,
-        "Extensions.loadUnpacked",
-        {"path": str(extension_dir)},
-        timeout=10.0,
+
+def wait_for_extension_marker(
+    cdp: BrowserCdpClient,
+    session_id: str,
+    timeout: float = 10.0,
+) -> None:
+    deadline = time.monotonic() + timeout
+    last_value: object = None
+    while time.monotonic() < deadline:
+        last_value = runtime_evaluate(
+            cdp,
+            session_id,
+            "Boolean(document.getElementById('pasi-activity-indicator'))",
+            timeout=3.0,
+        )
+        if last_value is True:
+            return
+        time.sleep(0.2)
+    raise AssertionError(
+        "PASI Chromium extension did not inject its activity marker into the fixture page; "
+        f"last marker state={last_value!r}"
     )
-    extension_id = loaded.get("id")
-    if not isinstance(extension_id, str) or not extension_id:
-        raise RuntimeError(
-            f"ChromeDriver Extensions.loadUnpacked returned no extension id: {loaded}"
-        )
 
-    installed = execute_cdp_command(
-        driver_url,
-        session_id,
-        "Extensions.getExtensions",
-        {},
-        timeout=10.0,
+
+def start_chrome(
+    chrome_binary: str,
+    debug_port: int,
+    profile_dir: Path,
+    log_file,
+) -> subprocess.Popen:
+    return subprocess.Popen(
+        [
+            chrome_binary,
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-sync",
+            "--disable-component-update",
+            "--disable-default-apps",
+            "--enable-unsafe-extension-debugging",
+            f"--remote-debugging-port={debug_port}",
+            "--remote-allow-origins=*",
+            "--ignore-certificate-errors",
+            "--host-resolver-rules=MAP chatgpt.com 127.0.0.1",
+            f"--user-data-dir={profile_dir}",
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
     )
-    installed_extensions = installed.get("extensions")
-    if not isinstance(installed_extensions, list) or not any(
-        isinstance(item, dict) and item.get("id") == extension_id
-        for item in installed_extensions
-    ):
-        raise RuntimeError(
-            f"Loaded extension {extension_id} was not reported by Extensions.getExtensions: {installed}"
-        )
 
-    return session_id
+
+def stop_chrome(chrome_process: subprocess.Popen | None) -> None:
+    if chrome_process is None or chrome_process.poll() is not None:
+        return
+    chrome_process.terminate()
+    try:
+        chrome_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        chrome_process.kill()
+        chrome_process.wait(timeout=5)
 
 
 def main() -> None:
@@ -498,148 +584,173 @@ def main() -> None:
 
         bridge_thread = threading.Thread(target=bridge.serve_forever, daemon=True)
         fixture_thread = threading.Thread(target=fixture.serve_forever, daemon=True)
-    bridge_thread.start()
-    fixture_thread.start()
+        bridge_thread.start()
+        fixture_thread.start()
 
-    chrome_binary = find_chrome()
-    chromedriver_binary = find_chromedriver()
-
-    with (
-        tempfile.TemporaryDirectory(prefix="pasi-chromium-e2e-") as profile_root,
-        tempfile.NamedTemporaryFile(
-            prefix="pasi-chromedriver-", suffix=".log", delete=False
-        ) as log_file,
-    ):
-        driver_log_path = Path(log_file.name)
-        driver_process: subprocess.Popen | None = None
-        driver_url = ""
-        session_id: str | None = None
-        try:
-            last_startup_error: Exception | None = None
-            for attempt in range(CHROMEDRIVER_START_ATTEMPTS):
-                driver_port = free_port()
-                driver_url = f"http://127.0.0.1:{driver_port}"
-                attempt_profile = Path(profile_root) / f"attempt-{attempt + 1}"
-                attempt_profile.mkdir()
-                driver_process = start_driver(
-                    chromedriver_binary, driver_port, log_file
+        chrome_binary = find_chrome()
+        with (
+            tempfile.TemporaryDirectory(prefix="pasi-chromium-e2e-") as profile_root,
+            tempfile.TemporaryDirectory(prefix="pasi-chromium-extension-") as extension_root,
+            tempfile.NamedTemporaryFile(
+                prefix="pasi-chromium-", suffix=".log", delete=False
+            ) as log_file,
+        ):
+            chrome_process: subprocess.Popen | None = None
+            cdp: BrowserCdpClient | None = None
+            browser_session: str | None = None
+            target_id: str | None = None
+            try:
+                extension_dir = Path(extension_root) / "pasi-chatgpt"
+                shutil.copytree(
+                    ROOT / "automation" / "chromium" / "pasi-chatgpt",
+                    extension_dir,
                 )
-                try:
-                    wait_for_driver(driver_url, 10.0)
-                    extension_dir = Path(profile_root) / f"extension-{attempt + 1}"
-                    shutil.copytree(
-                        ROOT / "automation" / "chromium" / "pasi-chatgpt",
-                        extension_dir,
-                    )
-                    session_id = create_driver_session(
-                        driver_url,
-                        chrome_binary,
-                        attempt_profile,
-                        extension_dir,
-                    )
-                    break
-                except Exception as exc:
-                    last_startup_error = exc
-                    stop_driver(driver_process)
-                    driver_process = None
-                    if attempt + 1 < CHROMEDRIVER_START_ATTEMPTS:
-                        time.sleep(0.5)
-            if not session_id:
-                raise RuntimeError(
-                    "ChromeDriver session startup failed after "
-                    f"{CHROMEDRIVER_START_ATTEMPTS} bounded attempts: {last_startup_error}"
+                debug_port = free_port()
+                profile_dir = Path(profile_root) / "profile"
+                profile_dir.mkdir()
+                chrome_process = start_chrome(
+                    chrome_binary,
+                    debug_port,
+                    profile_dir,
+                    log_file,
                 )
 
-            driver_request(
-                driver_url,
-                "POST",
-                f"/session/{session_id}/url",
-                {"url": f"https://chatgpt.com:{fixture_port}/fixture"},
-                timeout=10.0,
-            )
+                websocket_url = read_devtools_browser_endpoint(debug_port)
+                cdp = BrowserCdpClient(websocket_url)
 
-            wait_for_extension_marker(driver_url, session_id, timeout=10.0)
+                loaded = cdp.command(
+                    "Extensions.loadUnpacked",
+                    {"path": str(extension_dir)},
+                    timeout=15.0,
+                )
+                extension_id = loaded.get("id")
+                if not isinstance(extension_id, str) or not extension_id:
+                    raise RuntimeError(
+                        f"Extensions.loadUnpacked returned no extension id: {loaded}"
+                    )
 
-            diagnostics = driver_request(
-                driver_url,
-                "POST",
-                f"/session/{session_id}/execute/sync",
-                {
-                    "script": """return {
+                installed = cdp.command("Extensions.getExtensions", timeout=10.0)
+                installed_extensions = installed.get("extensions")
+                if not isinstance(installed_extensions, list) or not any(
+                    isinstance(item, dict) and item.get("id") == extension_id
+                    for item in installed_extensions
+                ):
+                    raise RuntimeError(
+                        f"Loaded extension {extension_id} was not reported by "
+                        f"Extensions.getExtensions: {installed}"
+                    )
+
+                created = cdp.command(
+                    "Target.createTarget",
+                    {"url": "about:blank"},
+                    timeout=10.0,
+                )
+                target_id = created.get("targetId")
+                if not isinstance(target_id, str) or not target_id:
+                    raise RuntimeError(f"Target.createTarget returned invalid target: {created}")
+
+                attached = cdp.command(
+                    "Target.attachToTarget",
+                    {"targetId": target_id, "flatten": True},
+                    timeout=10.0,
+                )
+                browser_session = attached.get("sessionId")
+                if not isinstance(browser_session, str) or not browser_session:
+                    raise RuntimeError(
+                        f"Target.attachToTarget returned no session id: {attached}"
+                    )
+
+                cdp.command("Page.enable", session_id=browser_session)
+                cdp.command("Runtime.enable", session_id=browser_session)
+                cdp.command(
+                    "Page.navigate",
+                    {"url": f"https://chatgpt.com:{fixture_port}/fixture"},
+                    session_id=browser_session,
+                    timeout=10.0,
+                )
+
+                wait_for_extension_marker(cdp, browser_session, timeout=10.0)
+
+                browser_state = runtime_evaluate(
+                    cdp,
+                    browser_session,
+                    """({
                       href: location.href,
                       active: localStorage.getItem("pasi:active-operation"),
                       response: document.querySelector('[data-message-author-role="assistant"]')?.innerText || ""
-                    };""",
-                    "args": [],
-                },
-                timeout=5.0,
-            )
-            browser_state = diagnostics.get("value")
-            if not isinstance(browser_state, dict):
-                raise RuntimeError(f"Chromium fixture did not return browser state: {diagnostics}")
-            if browser_state.get("response") != EXPECTED_RESPONSE:
-                raise AssertionError(f"Chromium fixture response mismatch: {browser_state}")
+                    })""",
+                )
+                if not isinstance(browser_state, dict):
+                    raise RuntimeError(
+                        f"Chromium fixture did not return browser state: {browser_state!r}"
+                    )
+                if browser_state.get("response") != EXPECTED_RESPONSE:
+                    raise AssertionError(
+                        f"Chromium fixture response mismatch: {browser_state}"
+                    )
 
-            wait_for_bridge_event(20.0)
+                wait_for_bridge_event(20.0)
 
-            completed_state = driver_request(
-                driver_url,
-                "POST",
-                f"/session/{session_id}/execute/sync",
-                {
-                    "script": """return {
+                final_browser_state = runtime_evaluate(
+                    cdp,
+                    browser_session,
+                    """({
                       href: location.href,
                       active: localStorage.getItem("pasi:active-operation")
-                    };""",
-                    "args": [],
-                },
-                timeout=5.0,
-            )
-            final_browser_state = completed_state.get("value")
-            if not isinstance(final_browser_state, dict):
-                raise RuntimeError(
-                    f"Chromium post-recovery state was invalid: {completed_state}"
+                    })""",
                 )
-            if final_browser_state.get("active") is not None:
-                raise AssertionError(
-                    f"Chromium recovery marker was not cleared after completion: {final_browser_state}"
-                )
-        except Exception as exc:
-            try:
-                diagnostic = driver_request(
-                    driver_url,
-                    "POST",
-                    f"/session/{session_id}/execute/sync",
-                    {"script": "return {href: location.href, body: document.body?.innerText || ''};", "args": []},
-                    timeout=2.0,
-                ) if session_id else None
-            except Exception:
-                diagnostic = None
-            browser_logs = read_browser_logs(driver_url, session_id) if session_id else []
-            stop_driver(driver_process)
-            driver_log = driver_log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
-            raise AssertionError(
-                f"Chromium WebDriver acceptance failed: {exc}; "
-                f"browser={diagnostic}; browser_logs={browser_logs[-50:]}; "
-                f"chromedriver_log={driver_log}"
-            ) from exc
-        finally:
-            if session_id:
-                try:
-                    driver_request(
-                        driver_url,
-                        "DELETE",
-                        f"/session/{session_id}",
-                        timeout=3.0,
+                if not isinstance(final_browser_state, dict):
+                    raise RuntimeError(
+                        f"Chromium post-recovery state was invalid: {final_browser_state!r}"
                     )
-                except Exception:
-                    pass
-            stop_driver(driver_process)
-            bridge.shutdown()
-            fixture.shutdown()
-            bridge.server_close()
-            fixture.server_close()
-        driver_log_path.unlink(missing_ok=True)
+                if final_browser_state.get("active") is not None:
+                    raise AssertionError(
+                        "Chromium recovery marker was not cleared after completion: "
+                        f"{final_browser_state}"
+                    )
+            except Exception as exc:
+                diagnostic = None
+                if cdp is not None and browser_session:
+                    try:
+                        diagnostic = runtime_evaluate(
+                            cdp,
+                            browser_session,
+                            """({
+                              href: location.href,
+                              active: localStorage.getItem("pasi:active-operation"),
+                              body: document.body?.innerText || ""
+                            })""",
+                            timeout=3.0,
+                        )
+                    except Exception:
+                        pass
+                chrome_log = Path(log_file.name).read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )[-5000:]
+                raise AssertionError(
+                    f"Chromium CDP acceptance failed: {exc}; "
+                    f"browser={diagnostic}; chrome_log={chrome_log}"
+                ) from exc
+            finally:
+                if cdp is not None and target_id:
+                    try:
+                        cdp.command(
+                            "Target.closeTarget",
+                            {"targetId": target_id},
+                            timeout=5.0,
+                        )
+                    except Exception:
+                        pass
+                if cdp is not None:
+                    cdp.close()
+                stop_chrome(chrome_process)
+            Path(log_file.name).unlink(missing_ok=True)
+
+        bridge.shutdown()
+        fixture.shutdown()
+        bridge.server_close()
+        fixture.server_close()
 
     payload = BridgeHandler.finished_payload
     assert payload is not None
@@ -647,7 +758,7 @@ def main() -> None:
     assert payload["response_text"] == EXPECTED_RESPONSE
     assert payload["response_text_available"] is True
     assert BridgeHandler.observations >= 1
-    print("Minimized Chromium late-response recovery WebDriver E2E: PASS")
+    print("Minimized Chromium late-response recovery CDP E2E: PASS")
 
 
 if __name__ == "__main__":
