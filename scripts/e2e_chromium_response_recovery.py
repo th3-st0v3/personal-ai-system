@@ -18,6 +18,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
+from scripts.build_chromium_extension import build_extension
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_HOST = "127.0.0.1"
@@ -576,11 +578,7 @@ def main() -> None:
             browser_session: str | None = None
             target_id: str | None = None
             try:
-                extension_dir = Path(extension_root) / "pasi-chatgpt"
-                shutil.copytree(
-                    ROOT / "automation" / "chromium" / "pasi-chatgpt",
-                    extension_dir,
-                )
+                extension_dir = build_extension(Path(extension_root) / "pasi-chatgpt")
                 debug_port = free_port()
                 profile_dir = Path(profile_root) / "profile"
                 profile_dir.mkdir()
