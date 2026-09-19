@@ -41,6 +41,16 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "PASI_NATIVE: send control unavailable",
     "PASI_NATIVE: composer unavailable",
     "PASI_NATIVE: composer disappeared",
+    "PASI_NATIVE: New chat control activation failed",
+    "PASI_NATIVE: Thinking control activation failed",
+    "PASI_NATIVE: model selector activation failed",
+    "PASI_NATIVE: model configure control activation failed",
+    "PASI_NATIVE: Thinking option activation failed",
+    "PASI_NATIVE: Thinking toggle activation failed",
+    "PASI_NATIVE: add-files control activation failed",
+    "PASI_NATIVE: Thinking menu activation failed",
+    "PASI_NATIVE: GitHub control activation failed",
+    "PASI_NATIVE: repository result activation failed",
 )
 
 
