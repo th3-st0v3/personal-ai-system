@@ -231,36 +231,26 @@
   }
 
 
+  function detectorState() {
+    return globalThis.PASIChatGPTDetectors?.detect?.() || {
+      context_exhausted: false,
+      usage_limited: false,
+      auth_required: false,
+      connection_failure: false
+    };
+  }
+
   function contextExhausted() {
-    const text = normalize(document.body?.innerText || '');
-    return [
-      'this conversation has reached its limit',
-      'conversation has reached its limit',
-      'conversation limit reached',
-      'conversation is too long',
-      'conversation is full',
-      'maximum conversation length',
-      'maximum length for this conversation',
-      'context limit reached',
-      'context window limit',
-      'context length limit',
-      'start a new chat to continue',
-      'start a new conversation to continue'
-    ].some((marker) => text.includes(marker));
+    return detectorState().context_exhausted === true;
   }
 
   function usageLimited() {
-    if (contextExhausted()) return false;
-    const text = normalize(document.body?.innerText || '');
-    return [
-      'current usage limit', 'usage limit reached', 'free tier limit', 'message limit',
-      'daily limit', 'weekly limit', 'model usage limit', 'rate limit', 'too many requests'
-    ].some((marker) => text.includes(marker));
+    const state = detectorState();
+    return state.context_exhausted !== true && state.usage_limited === true;
   }
 
   function authRequired() {
-    const text = normalize(document.body?.innerText || '');
-    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
+    return detectorState().auth_required === true;
   }
 
   function selectionState(element) {
