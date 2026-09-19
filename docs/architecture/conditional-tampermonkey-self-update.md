@@ -8,7 +8,7 @@ The controller update path is deliberately conditional:
    - `PASI_CONTROLLER_UPDATE: true`
    - `PASI_CONTROLLER_UPDATE_VERSION: <exact controller @version>`
    - `PASI_CONTROLLER_UPDATE_REASON: <technical reason>`
-2. `automation/orchestrator/controller_update.py` parses the signal and refuses to stage an update when the signal is missing, false, missing a version, mismatched with the source version, or already synchronized.
+2. `automation/legacy/controller_update.py` parses the signal and refuses to stage an update when the signal is missing, false, missing a version, mismatched with the source version, or already synchronized.
 3. The launcher writes a bounded local update request under `.runtime/chatgpt/controller-update-request.json` when the request is eligible.
 4. A controller change is still developed and tested like normal PASI code. The model signal is a trigger, not permission to execute arbitrary code.
 5. After the controller change is merged to `main`, `scripts/publish_controller_release.py` can publish a versioned `automation/tampermonkey/controller-sync.json` manifest containing the controller SHA-256 digest.
