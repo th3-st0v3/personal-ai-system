@@ -581,26 +581,31 @@
     });
   }
 
+  function labeledSendInScope(scope) {
+    if (!scope) return null;
+    const elements = scope.querySelectorAll('button, [role="button"]');
+    for (const element of elements) {
+      if (!visible(element) || disabled(element)) continue;
+      const text = label(element);
+      if (['send prompt', 'send message'].some((needle) =>
+        text === needle || text.startsWith(needle + ' ') || text.includes(' ' + needle)
+      )) {
+        return element;
+      }
+    }
+    return null;
+  }
+
   async function waitForSend(box) {
     return waitFor(() => {
       const candidates = sendCandidatesForComposer(box);
       if (candidates.length) return candidates[0];
 
-      // Use the explicit accessible label only when it is tied to the
-      // composer's form (or when the composer has no form at all).
+      // Restrict accessible-label fallback to the active composer form. If
+      // there is no form, use the composer itself as the narrow scope instead
+      // of searching the entire ChatGPT document.
       const form = box?.closest?.('form') || null;
-      if (form) {
-        return findLabeled(
-          ['send prompt', 'send message'],
-          ['button', '[role="button"]'],
-          true
-        );
-      }
-      return findLabeled(
-        ['send prompt', 'send message'],
-        ['button', '[role="button"]'],
-        true
-      );
+      return labeledSendInScope(form || box?.parentElement || null);
     }, TIMEOUTS.send);
   }
 
