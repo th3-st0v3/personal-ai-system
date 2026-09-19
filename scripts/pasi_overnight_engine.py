@@ -315,6 +315,32 @@ def completion_contract_is_satisfied(status: str, values: dict[str, str]) -> boo
     )
 
 
+def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
+    clean_env = {
+        "PATH": f"{worktree / '.venv' / 'bin'}:/usr/local/bin:/usr/bin:/bin",
+        "HOME": str(worktree / ".runtime" / "validation-home"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+        "PYTHONPATH": str(worktree),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_ASKPASS": "/bin/false",
+    }
+    Path(clean_env["HOME"]).mkdir(parents=True, exist_ok=True)
+    base = ["env", "-i", *[f"{key}={value}" for key, value in clean_env.items()], "bash", "scripts/check_all.sh"]
+    if shutil.which("unshare"):
+        sandbox_command = ["unshare", "--user", "--map-root-user", "--net", "--"] + base
+        code, output = command(sandbox_command, worktree, timeout)
+        if code == 0:
+            return output
+        if "unshare failed" not in output.lower():
+            raise OvernightError(f"sandboxed canonical validation failed:\n{output}")
+    raise OvernightError(
+        "network-isolated validation sandbox is unavailable; install/configure an "
+        "unshare-compatible user namespace before unattended validation can proceed"
+    )
+
+
 def repository_worktree_is_clean(worktree: Path) -> bool:
     code, status = command(["git", "status", "--porcelain", "--untracked-files=all"], worktree, timeout=30.0)
     return code == 0 and not status.strip()
@@ -468,9 +494,8 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
 def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     normalized_patch = normalize_patch(patch)
     output = apply_patch(worktree, normalized_patch, allow_delete)
-    code, output = command(["bash", "scripts/check_all.sh"], worktree, timeout=900.0)
-    if code != 0:
-        raise OvernightError(f"canonical validation failed:\n{output}")
+    output = run_validation_sandbox(worktree)
+
     code, status = command(["git", "status", "--porcelain"], worktree, timeout=30.0)
     if code != 0 or not status:
         raise OvernightError("verification passed but no repository changes remain")
