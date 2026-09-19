@@ -429,6 +429,9 @@ RUN CONTEXT:
 AUTOMATION OBJECTIVE:
 Keep progressing without getting trapped by a dead ChatGPT tab, transient provider limit, stale controller, repeated failed approach, or unavailable optional provider. Stand by and retry boundedly when recovery is possible; change strategy when the same failure repeats.
 
+KEEP WORKING UNTIL YOU'RE FINISHED:
+Do not stop after producing a plausible patch, finding one fix, or getting one part of the task working. Keep inspecting, implementing, testing, diagnosing, and repairing until the CURRENT TASK is genuinely finished and verified with reproducible evidence. When the CURRENT TASK is verified complete, immediately continue to the next incomplete roadmap task instead of ending the run. Do not ask the human what to do next unless an explicit human approval boundary actually requires a decision.
+
 COMPLETION CONTRACT:
 Do not mark complete until the stated requirement is implemented and reproducible evidence supports it. Never claim files changed or tests passed without evidence.
 
