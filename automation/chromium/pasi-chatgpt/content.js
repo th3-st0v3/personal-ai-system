@@ -82,14 +82,24 @@
   }
 
   function disabled(element) {
-    return Boolean(element) && (element.disabled === true || element.getAttribute('aria-disabled') === 'true');
+    return Boolean(element) && (
+      element.disabled === true ||
+      element.hasAttribute?.('disabled') ||
+      element.getAttribute('aria-disabled') === 'true'
+    );
   }
 
   function label(element) {
+    if (!element) return '';
+    const labelledBy = element.getAttribute?.('aria-labelledby');
+    const labelledText = labelledBy
+      ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ')
+      : '';
     return normalize([
-      element?.getAttribute?.('aria-label'),
-      element?.getAttribute?.('title'),
-      element?.textContent
+      element.getAttribute?.('aria-label'),
+      element.getAttribute?.('title'),
+      labelledText,
+      element.textContent
     ].filter(Boolean).join(' '));
   }
 
@@ -237,20 +247,56 @@
   function modelModeFromLabel(value) {
     const text = normalize(value);
     if (!text) return null;
-    if (/\bthinking\b/.test(text)) return 'thinking';
+    if (
+      /\b(?:thinking|think|medium|high|extra high|pro(?: standard| extended)?)\b/.test(text) ||
+      /\bextended\b/.test(text)
+    ) return 'thinking';
     if (/\binstant\b/.test(text)) return 'instant';
     if (/\bauto(?:matic)?\b/.test(text)) return 'auto';
-    if (/\bpro\b/.test(text)) return 'pro';
     return null;
   }
 
   function findModelPill() {
-    const candidates = document.querySelectorAll('button.__composer-pill, .__composer-pill, button[aria-haspopup="menu"], [role="button"][aria-haspopup="menu"]');
-    for (const element of candidates) {
-      if (!visible(element) || disabled(element)) continue;
-      const mode = modelModeFromLabel(label(element));
-      if (mode) return element;
+    const preferredSelectors = [
+      'button[data-testid*="model" i]',
+      'button[aria-label*="model" i]',
+      'button[title*="model" i]',
+      'button[data-testid*="intelligence" i]',
+      'button[aria-label*="intelligence" i]',
+      'button.__composer-pill',
+      '.__composer-pill'
+    ];
+
+    // ChatGPT may label the active selector with a model name (for example,
+    // only "GPT-5") rather than the current reasoning mode. Prefer controls
+    // whose metadata clearly identifies the model/intelligence switcher, then
+    // fall back to a nearby menu button instead of requiring the word
+    // "thinking" to already be present in its label.
+    const candidates = [];
+    const seen = new Set();
+    const collect = (selector, scope = document) => {
+      for (const element of scope.querySelectorAll(selector)) {
+        if (seen.has(element) || !visible(element) || disabled(element)) continue;
+        seen.add(element);
+        candidates.push(element);
+      }
+    };
+
+    const box = composer();
+    const localScope = box?.closest?.('form') || box?.parentElement?.parentElement || null;
+    for (const selector of preferredSelectors) {
+      if (localScope) collect(selector, localScope);
+      if (!candidates.length) collect(selector);
     }
+    if (candidates.length) return candidates[0];
+
+    // Last-resort compatibility path: a menu button adjacent to the composer
+    // is more likely to be the model selector than an unrelated page menu.
+    if (localScope) {
+      collect('button[aria-haspopup="menu"], [role="button"][aria-haspopup="menu"]', localScope);
+      if (candidates.length) return candidates[0];
+    }
+
     return null;
   }
 
@@ -261,7 +307,7 @@
   function thinkingEnabled() {
     const currentMode = currentModelMode();
     if (currentMode === 'thinking') return true;
-    if (currentMode === 'instant' || currentMode === 'auto' || currentMode === 'pro') return false;
+    if (currentMode === 'instant' || currentMode === 'auto') return false;
 
     const selected = document.querySelectorAll(
       '[aria-pressed], [aria-selected], [aria-checked], [aria-current], [data-state], [data-selected], [data-checked], [data-active]'
@@ -270,7 +316,7 @@
     for (const element of selected) {
       if (!visible(element)) continue;
       const text = label(element);
-      if (!text.includes('thinking')) continue;
+      if (!/\b(?:thinking|think|medium|high|extra high|pro(?: standard| extended)?)\b/.test(text)) continue;
       const state = selectionState(element);
       if (state === true) return true;
       if (state === false) explicitFalse = true;
@@ -407,12 +453,18 @@
     lastKnownChatUrl = current;
   }
 
+  function isReasoningLabel(value) {
+    const text = normalize(value);
+    return /\b(?:thinking|think|medium|high|extra high|pro(?: standard| extended)?)\b/.test(text) ||
+      /\bextended\b/.test(text);
+  }
+
   function findThinkingMenuOption() {
     const modal = firstVisible(['[data-testid="modal-intelligence-menu"]']);
     if (modal) {
       const radios = modal.querySelectorAll('button[role="radio"], [role="radio"]');
       for (const element of radios) {
-        if (visible(element) && label(element).includes('thinking')) return element;
+        if (visible(element) && isReasoningLabel(label(element))) return element;
       }
     }
 
@@ -421,8 +473,29 @@
       if (!visible(menu)) continue;
       const candidates = menu.querySelectorAll('[role="radio"], [role="option"], [role="menuitemradio"], [role="menuitem"], button');
       for (const element of candidates) {
-        if (visible(element) && label(element).includes('thinking')) return element;
+        if (visible(element) && isReasoningLabel(label(element))) return element;
       }
+    }
+    return null;
+  }
+
+  function findDirectThinkingControl() {
+    const exactLabels = new Set([
+      'thinking',
+      'think',
+      'medium',
+      'high',
+      'extra high',
+      'pro standard',
+      'pro extended'
+    ]);
+    const controls = document.querySelectorAll(
+      'button, [role="button"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="radio"]'
+    );
+    for (const element of controls) {
+      if (!visible(element) || disabled(element)) continue;
+      const text = label(element);
+      if (exactLabels.has(text)) return element;
     }
     return null;
   }
@@ -430,6 +503,30 @@
   async function selectThinking() {
     const initialState = thinkingEnabled();
     if (initialState === true) { reasoningMode = 'thinking'; return; }
+
+    // Free/Go and some newer ChatGPT layouts expose a direct Think control in
+    // the composer menu rather than a Thinking option in the model picker.
+    // Check that control before opening the model picker so an already-enabled
+    // reasoning mode is not misclassified as unavailable.
+    const directThinkingControl = findDirectThinkingControl();
+    if (directThinkingControl) {
+      const state = selectionState(directThinkingControl);
+      if (state === true) {
+        reasoningMode = 'thinking';
+        return;
+      }
+      if (state === false) {
+        directThinkingControl.click();
+        await sleep(CLICK_SETTLE_MS);
+        const verified = await waitFor(
+          () => thinkingEnabled() === true ? true : null,
+          5000
+        );
+        if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after direct Think control');
+        reasoningMode = 'thinking';
+        return;
+      }
+    }
 
     const pill = findModelPill();
     if (pill) {
@@ -527,7 +624,14 @@
   }
 
   async function attachGithub(repository) {
-    if (githubAttached) return;
+    repository = String(repository || '').trim();
+    if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) {
+      throw new Error('PASI_NATIVE: GitHub repository must be in owner/name form');
+    }
+    if (githubAttached) {
+      if (githubRepository === repository) return;
+      throw new Error('PASI_NATIVE: GitHub attachment conflicts with the requested repository');
+    }
     const plus = await waitFor(() => firstVisible(['button[aria-label="Add files and more"]', 'button[aria-label*="Add files"]', 'button[aria-label*="Attach"]']), TIMEOUTS.menu);
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: GitHub menu unavailable');
     plus.click();
@@ -541,7 +645,26 @@
     if (!result) throw new Error('PASI_NATIVE: requested repository unavailable');
     result.click();
     await sleep(CLICK_SETTLE_MS);
-    if (normalize(document.body?.innerText || '').includes('github needs to be connected')) throw new Error('PASI_NATIVE: GitHub connection unavailable');
+    const bodyText = normalize(document.body?.innerText || '');
+    const githubFailureMarkers = [
+      'github connection failed',
+      'github connection error',
+      'failed to connect to github',
+      'could not connect to github',
+      'unable to connect to github',
+      'github connection is unavailable',
+      'github access is unavailable',
+      'github access failed',
+      'github authentication required',
+      'github authentication failed',
+      'reconnect github',
+      'connect your github account',
+      'github needs to be connected',
+      'github app connection failed'
+    ];
+    if (githubFailureMarkers.some((marker) => bodyText.includes(marker))) {
+      throw new Error('PASI_NATIVE: GitHub connection/access unavailable');
+    }
     githubAttached = true;
     githubRepository = repository;
   }
@@ -890,9 +1013,9 @@
 
   function completionProgress(responseText) {
     const text = typeof responseText === 'string' ? responseText : '';
-    const statusMatch = text.match(/^PASI_RESULT_STATUS:\\s*(.+)$/m);
-    const progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\\s*(.+)$/m);
-    const nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\\s*(.+)$/m);
+    const statusMatch = text.match(/^PASI_RESULT_STATUS:\s*(.+)$/m);
+    const progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$/m);
+    const nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\s*(.+)$/m);
     return {
       completion_status: statusMatch ? statusMatch[1].trim().toLowerCase() : null,
       repository_progress: progressMatch ? progressMatch[1].trim().toLowerCase() : null,
