@@ -516,21 +516,44 @@
     }
   }
 
+  function findNewChatControl() {
+    const exactSelectors = [
+      'button[data-testid="new-chat-button"]',
+      '[data-testid="new-chat-button"]',
+      'button[aria-label="New chat"]',
+      '[role="button"][aria-label="New chat"]'
+    ];
+    for (const selector of exactSelectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (!visible(element) || disabled(element)) continue;
+        if (element.closest?.('nav, aside, [role="navigation"]')) continue;
+        return element;
+      }
+    }
+    for (const element of document.querySelectorAll('button, [role="button"], a')) {
+      if (!visible(element) || disabled(element)) continue;
+      if (element.closest?.('nav, aside, [role="navigation"]')) continue;
+      if (label(element) === 'new chat') return element;
+    }
+    return null;
+  }
+
   async function newChat() {
     const previousLocation = location.href;
     const previousChat = chatUrl();
     const previousSignature = conversationSignature();
-    const button = await waitFor(() => findLabeled(['new chat'], ['a', 'button', '[role="button"]']), TIMEOUTS.menu);
+    const button = await waitFor(findNewChatControl, TIMEOUTS.menu);
     if (!button || disabled(button)) throw new Error('PASI_NATIVE: New chat control unavailable');
     if (!activateControl(button)) throw new Error('PASI_NATIVE: New chat control activation failed');
 
     const ready = await waitFor(() => {
       const currentChat = chatUrl();
       const navigated = location.href !== previousLocation;
-      const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat);
+      const emptySurface = Boolean(composer()) && !generating() && userMessages().length === 0 && assistantMessages().length === 0;
+      const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat && emptySurface);
       const freshRootChat = freshChatSurface(previousLocation, previousChat);
-      const initialChatReady = !previousChat && navigated && currentChat && composer() && !generating() && userMessages().length === 0 && assistantMessages().length === 0 && conversationSignature() !== previousSignature;
-      return composer() && !generating() && (differentChat || freshRootChat || initialChatReady);
+      const initialChatReady = !previousChat && navigated && currentChat && emptySurface && conversationSignature() !== previousSignature;
+      return emptySurface && (differentChat || freshRootChat || initialChatReady);
     }, TIMEOUTS.menu + 7000);
     if (!ready) throw new Error('PASI_NATIVE: new chat did not reach a verified ready state');
 
