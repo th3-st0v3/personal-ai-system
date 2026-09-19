@@ -15,11 +15,12 @@ from automation.computer_use.research import (
 )
 from automation.computer_use.setup_requirements import capture_response_requirements
 from scripts import pasi_overnight_engine_v2 as supervisor
+from scripts.pasi_timeout_policy import load_timeout_policy
 from scripts import pasi_overnight_hardening as hardening
 
 # Keep the response ceiling aligned with the native Chromium controller's one-hour
 # generation bound. This is a ceiling, not a target duration.
-RESPONSE_TIMEOUT_SECONDS = 60 * 60
+RESPONSE_TIMEOUT_SECONDS = load_timeout_policy()["python_wait_seconds"]
 MAX_WEB_URLS = 4
 MAX_WEB_SOURCE_CHARS = 8_000
 MAX_WEB_TOTAL_CHARS = 24_000
