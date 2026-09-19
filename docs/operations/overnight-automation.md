@@ -21,7 +21,7 @@ Thinking stays enabled when the GitHub app is used.
 
 The native Chromium controller is the preferred path. During the transition, the existing PASI ChatGPT Controller Loader in Tampermonkey can remain enabled as a fallback. Keep the legacy direct controller disabled when the loader/native controller is installed.
 
-The controller-distribution service runs on `127.0.0.1:8766`; the ChatGPT bridge runs on `127.0.0.1:8765`. The browser controller reports bounded health/state/response observations. It does not grant PASI arbitrary OS access.
+The native Chromium controller talks only to the PASI bridge on `127.0.0.1:8765`. The bridge exposes bounded queue, health, state, response, cancellation, and observation endpoints; the browser controller does not grant PASI arbitrary OS access.
 
 The controller update mechanism is evidence-gated. A model response cannot directly install a controller update; it can only request one through the validated PASI controller-update signal.
 
@@ -119,13 +119,13 @@ cd ~/workspace/personal-ai-system
 git checkout main
 git pull --ff-only
 source .venv/bin/activate
-python scripts/pasi_controller_server.py
+# Legacy Tampermonkey distribution is no longer required for native runs.
 ```
 
 In another WSL terminal:
 
 ```bash
-curl -fsS http://127.0.0.1:8766/health
+curl -fsS http://127.0.0.1:8765/health
 curl -fsS http://127.0.0.1:8765/health
 ```
 
