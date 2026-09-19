@@ -9,6 +9,7 @@ from scripts.cleanup_duplicate_branches import (
     can_delete_merged_branch,
     is_disposable_name,
     list_superseded_snapshot_branches,
+    _list_merged_pr_head_shas_for_branches,
     CANONICAL_KEEP_BRANCHES,
     CANONICAL_KEEP_BRANCH_TIPS,
     missing_canonical_keep_branches,
