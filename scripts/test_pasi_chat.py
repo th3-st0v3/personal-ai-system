@@ -7,7 +7,6 @@ from unittest.mock import patch
 from typing import cast
 from pathlib import Path
 
-from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
 from automation.computer_use.contracts import AIResponse
 from automation.computer_use.chatgpt import ChatGPTAdapter
 from scripts.pasi_chat import (
@@ -16,7 +15,6 @@ from scripts.pasi_chat import (
     build_prompt,
     controller_observation_is_live,
     needs_github_context,
-    process_controller_update_signal,
     pending_operation_for_task,
     task_fingerprint,
     public_github_context_unavailable,
@@ -89,7 +87,6 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("public GitHub repository as the default source", prompt)
         self.assertIn("PASI attempts to keep Thinking/reasoning enabled for every task", prompt)
         self.assertIn("continue with the best available reasoning mode", prompt)
-        self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
     def test_build_prompt_prioritizes_literal_exact_output_requests(self) -> None:
         prompt = build_prompt(
@@ -486,19 +483,6 @@ class TestPasiChat(unittest.TestCase):
             "                checkpoint_active_operation(handoff, fallback_operation, task)",
             text,
         )
-
-    def test_controller_update_signal_requires_explicit_structured_signal(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            controller = root / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
-            controller.parent.mkdir(parents=True)
-            controller.write_text("// @version      2.4.6\n", encoding="utf-8")
-            state_path = root / ".runtime" / "chatgpt" / "controller-sync-state.json"
-            write_sync_state(state_path, version="2.4.5")
-            result = process_controller_update_signal("PASI_CONTROLLER_UPDATE: true\nPASI_CONTROLLER_UPDATE_VERSION: 2.4.6\nPASI_CONTROLLER_UPDATE_REASON: test", root)
-            self.assertTrue(result["eligible"])
-            self.assertEqual(read_last_synced_version(state_path), "2.4.5")
-
 
 if __name__ == "__main__":
     unittest.main()
