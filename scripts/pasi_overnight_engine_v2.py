@@ -694,6 +694,12 @@ def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECOND
     return -5.0 <= age <= max_age_seconds
 
 
+def sanitize_failure_evidence(code: int, output: str) -> str:
+    condition = provider_condition(code, output)
+    bounded = re.sub(r"\s+", " ", str(output or "")).strip()
+    # Do not feed raw provider/browser output back into the next model prompt.
+    return f"failure_class={condition or 'task_error'}; exit_code={code}; detail={bounded[:800]}"
+
 def provider_condition(code: int, output: str) -> str | None:
     upper = output.upper()
     if code == 90 or "CHAT_USAGE_LIMITED:" in upper:
@@ -777,7 +783,7 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
     )
     if fallback[0] == 0 and fallback[1].strip():
         return 0, fallback[1]
-    return code, output + "\n\n[PASI FALLBACK ROUTER]\n" + fallback[1]
+    return code, sanitize_failure_evidence(code, output) + " | fallback=" + sanitize_failure_evidence(fallback[0], fallback[1])
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
