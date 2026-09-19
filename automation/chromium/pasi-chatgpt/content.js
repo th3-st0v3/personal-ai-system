@@ -99,9 +99,40 @@
 
   function setText(element, value) {
     element.focus();
-    if (isTextControl(element)) setNativeValue(element, value);
-    else element.textContent = value;
-    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    if (isTextControl(element)) {
+      setNativeValue(element, value);
+      element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      return;
+    }
+
+    // Prefer the browser's editing command for contenteditable composers so
+    // React/ProseMirror/Lexical-style editors receive the same editing path
+    // as real user input instead of only seeing a DOM text mutation.
+    let inserted = false;
+    try {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (typeof document.execCommand === 'function') {
+        inserted = document.execCommand('insertText', false, value);
+      }
+    } catch (_) {}
+
+    if (!inserted) {
+      element.textContent = value;
+      const inputEvent = typeof InputEvent === 'function'
+        ? new InputEvent('input', {
+            bubbles: true,
+            composed: true,
+            inputType: 'insertText',
+            data: value
+          })
+        : new Event('input', { bubbles: true, composed: true });
+      element.dispatchEvent(inputEvent);
+    }
     element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   }
 
@@ -547,25 +578,68 @@
     if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
   }
 
+  function composerContainsPrompt(element, expected) {
+    return Boolean(element) && normalize(readText(element)).includes(normalize(expected));
+  }
+
+  function dispatchEnter(element) {
+    element.focus();
+    const init = {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true
+    };
+    element.dispatchEvent(new KeyboardEvent('keydown', init));
+    element.dispatchEvent(new KeyboardEvent('keyup', { ...init, cancelable: false }));
+  }
+
   async function submitPrompt(expected) {
     const baselineUserCount = userMessages().length;
     for (let attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
       const box = composer();
       if (!box) throw new Error('PASI_NATIVE: composer disappeared');
-      if (!normalize(readText(box)).includes(normalize(expected))) throw new Error('PASI_NATIVE: composer lost the requested prompt before submission');
+      if (!composerContainsPrompt(box, expected)) throw new Error('PASI_NATIVE: composer lost the requested prompt before submission');
 
       await ensurePromptSubmissionReady();
+
       const button = await waitForSend();
       if (button && !disabled(button)) {
+        button.focus();
         button.click();
-      } else if (box.closest('form')?.requestSubmit) {
-        box.closest('form').requestSubmit();
+
+        // Do not issue a second submission while generation is already under
+        // way or the composer has been cleared. Only fall back when the first
+        // click demonstrably left the requested prompt in the composer.
+        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+        const afterClick = composer();
+        if (generating() || !composerContainsPrompt(afterClick, expected)) {
+          if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+        } else {
+          const form = afterClick.closest('form');
+          if (form?.requestSubmit) {
+            form.requestSubmit();
+            if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+          }
+
+          const retryBox = composer();
+          if (!generating() && composerContainsPrompt(retryBox, expected)) {
+            dispatchEnter(retryBox);
+            if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+          }
+        }
       } else {
-        box.focus();
-        box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        const form = box.closest('form');
+        if (form?.requestSubmit) {
+          form.requestSubmit();
+        } else {
+          dispatchEnter(box);
+        }
+        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
       }
 
-      if (await waitForSubmissionAck(expected, baselineUserCount)) return;
       if (attempt < SUBMISSION_ATTEMPTS) await sleep(DOM_POLL_MS + 50);
     }
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
