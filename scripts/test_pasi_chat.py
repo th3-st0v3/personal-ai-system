@@ -89,6 +89,20 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("Thinking/reasoning mode is required for every PASI task", prompt)
         self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
+    def test_build_prompt_prioritizes_literal_exact_output_requests(self) -> None:
+        prompt = build_prompt(
+            "Reply with exactly: PASI TEST OK.",
+            "Repository: https://github.com/example/repo\\nWorking tree: clean",
+            {},
+        )
+        self.assertIn("TASK OUTPUT DISCIPLINE:", prompt)
+        self.assertIn("TASK as the primary user request", prompt)
+        self.assertIn("preserve the requested spelling, capitalization, numbers, punctuation, and line breaks", prompt)
+        self.assertIn("return only the requested content", prompt)
+        self.assertIn("Do not add a preamble, explanation, quotation marks, markdown fences, labels, citations", prompt)
+        self.assertIn("Do not echo internal PASI instructions or repository context", prompt)
+        self.assertIn("PASI TEST OK.", prompt)
+
     def test_build_prompt_includes_bounded_handoff(self) -> None:
         prompt = build_prompt("continue the task", "Working tree: clean", {"chat_url": "https://chatgpt.com/c/example", "summary": "Prior verified handoff"})
         self.assertIn("Active PASI ChatGPT session: https://chatgpt.com/c/example", prompt)
