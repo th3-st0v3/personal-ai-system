@@ -1,9 +1,6 @@
 name: branch-hygiene
 
 on:
-  pull_request:
-    branches: [main]
-    types: [closed]
   push:
     branches: [main]
   schedule:
@@ -16,7 +13,7 @@ permissions:
 
 concurrency:
   group: branch-hygiene
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -35,7 +32,6 @@ jobs:
 
   cleanup:
     needs: test
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -49,13 +45,4 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          args=(
-            --json
-            --keep "pasi/bridge-edge-case-tests-20260917"
-            --keep "pasi/control-plane-recovery-20260917"
-            --keep "pasi/continuation-anti-loop-20260918"
-          )
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
-            args+=(--merged-branch "${{ github.event.pull_request.head.ref }}")
-          fi
-          python scripts/cleanup_duplicate_branches.py "${args[@]}"
+          python scripts/cleanup_duplicate_branches.py --json
