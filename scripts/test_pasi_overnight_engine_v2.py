@@ -104,6 +104,22 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertIn("empty patch", prompt)
         self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
 
+    def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
+        now = datetime.now(timezone.utc)
+        current = engine.AUTOMATION_TASKS[1]
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="forward-progress-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=current,
+            recent_tasks=list(engine.AUTOMATION_TASKS),
+        )
+        self.assertEqual(engine.choose_next_task(state, current), engine.AUTOMATION_TASKS[2])
+
     def test_failed_task_is_excluded_before_next_selection(self) -> None:
         now = datetime.now(timezone.utc)
         failed = engine.AUTOMATION_TASKS[0]

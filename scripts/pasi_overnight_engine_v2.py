@@ -455,6 +455,13 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
     candidate = re.sub(r"\s+", " ", suggested).strip()
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     configured = {item.casefold(): item for item in candidates}
+    current = state.current_task.casefold().strip()
+    if candidate.casefold() == current and current in configured:
+        # A completion response that repeats the current roadmap item must advance
+        # rather than relying on the bounded recent-task window to break the loop.
+        index = next(index for index, item in enumerate(candidates) if item.casefold() == current)
+        return candidates[(index + 1) % len(candidates)]
+
     recent = {item.casefold() for item in state.recent_tasks[-12:]}
     if candidate.casefold() in configured and candidate.casefold() not in recent:
         return configured[candidate.casefold()]
