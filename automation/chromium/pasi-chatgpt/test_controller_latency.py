@@ -92,3 +92,4 @@ def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_con
     assert "clearInterval(pollTimerId)" in native
     assert "clearInterval(healthTimerId)" in native
     assert "if (extensionContextInvalidated) return;" in native
+    assert "return markThinkingUnavailable('current ChatGPT account/model does not expose a usable Thinking model option')" in native or "return markThinkingUnavailable('current ChatGPT account/model does not expose a usable Thinking model option');" in native
