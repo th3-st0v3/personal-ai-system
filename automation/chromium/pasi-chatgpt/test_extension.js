@@ -215,6 +215,40 @@ test('native transient control activation clears stale focus before ChatGPT hide
   assert.equal(clicked, true);
 });
 
+test('native assistant extraction preserves machine-readable marker and diff line breaks', () => {
+  assert.match(content, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
+  assert.match(content, /function collapseWhitespace\(value\)/);
+  assert.match(content, /function messageText\(node\)/);
+  assert.match(content, /function extractAssistant\(node\)/);
+
+  const messageStart = content.indexOf('function messageText(node)');
+  const messageEnd = content.indexOf('  function newestUserMatches', messageStart);
+  assert.ok(messageStart >= 0 && messageEnd > messageStart);
+  const messageSource = content.slice(messageStart, messageEnd);
+  const messageText = new Function(messageSource + '\nreturn messageText;')();
+  const fixture = [
+    'PASI_RESULT_STATUS: complete',
+    'PASI_RESULT_PATCH_BEGIN',
+    'diff --git a/example.txt b/example.txt',
+    '--- a/example.txt',
+    '+++ b/example.txt',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    'PASI_RESULT_PATCH_END'
+  ].join('\n');
+  const node = { innerText: fixture, textContent: fixture };
+  assert.equal(messageText(node), fixture);
+  assert.match(messageText(node), /PASI_RESULT_PATCH_BEGIN\ndiff --git/);
+  assert.match(messageText(node), /@@ -1 \+1 @@\n-old\n\+new/);
+
+  const fingerprintStart = content.indexOf('function fingerprint()');
+  const fingerprintEnd = content.indexOf('\n  async function waitForResponse', fingerprintStart);
+  assert.ok(fingerprintStart >= 0 && fingerprintEnd > fingerprintStart);
+  const fingerprintSource = content.slice(fingerprintStart, fingerprintEnd);
+  assert.match(fingerprintSource, /collapseWhitespace\(latestAssistant\(\)\)/);
+});
+
 test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
   assert.match(content, /case 'prompt': \{/);
   assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
