@@ -75,6 +75,10 @@ test('native controller reports health and preserves interrupted-operation recov
 });
 
 test('native transient control activation clears stale focus before ChatGPT hides or replaces UI', () => {
+  assert.match(content, /function accessibilityHidden\(element\)/);
+  assert.match(content, /current\.getAttribute\?\.\('aria-hidden'\) === 'true'/);
+  assert.match(content, /current\.hasAttribute\?\.\('inert'\)/);
+  assert.match(content, /if \(!element \|\| accessibilityHidden\(element\)\) return false;/);
   assert.match(content, /function clearFocusBeforeActivation\(\)/);
   assert.match(content, /const active = document\.activeElement;/);
   assert.match(content, /try \{ active\.blur\(\); \} catch \(_\) \{\}/);
