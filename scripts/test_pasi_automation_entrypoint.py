@@ -11,7 +11,7 @@ from scripts import pasi_automation_entrypoint as entrypoint
 
 class TestPasiAutomationEntrypoint(unittest.TestCase):
     def test_response_timeout_matches_native_controller_ceiling(self) -> None:
-        self.assertEqual(entrypoint.RESPONSE_TIMEOUT_SECONDS, 60 * 60)
+        self.assertEqual(entrypoint.RESPONSE_TIMEOUT_SECONDS, entrypoint.supervisor.TASK_TIMEOUT_SECONDS)
 
     def test_web_urls_are_bounded_deduplicated_and_https_only(self) -> None:
         task = (
@@ -115,20 +115,18 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
         self.assertIn("wsl", surfaces)
         self.assertIn("vscode", surfaces)
 
-    def test_main_forwards_to_hardening_with_one_hour_timeout(self) -> None:
-        seen: list[float] = []
-
+    def test_main_delegates_to_v2_without_monkeypatching(self) -> None:
+        seen: list[list[str]] = []
         def fake_main() -> int:
-            seen.append(entrypoint.supervisor.TASK_TIMEOUT_SECONDS)
+            seen.append(list(entrypoint.sys.argv))
             return 0
-
-        original = entrypoint.supervisor.TASK_TIMEOUT_SECONDS
-        try:
-            with patch.object(entrypoint.hardening, "main", side_effect=fake_main):
-                self.assertEqual(entrypoint.main(), 0)
-            self.assertEqual(seen, [float(60 * 60)])
-        finally:
-            entrypoint.supervisor.TASK_TIMEOUT_SECONDS = original
+        with patch.object(entrypoint.supervisor, "main", side_effect=fake_main):
+            with patch.object(entrypoint.Path, "is_file", return_value=False):
+                with patch.object(entrypoint.sys, "argv", ["pasi_automation_entrypoint.py", "--hours", "12", "--task", "direct v2"]):
+                    self.assertEqual(entrypoint.main(), 0)
+        self.assertEqual(seen[0][0], "pasi_overnight_engine_v2.py")
+        self.assertIn("--task", seen[0])
+        self.assertIn("direct v2", seen[0])
 
 
 if __name__ == "__main__":
