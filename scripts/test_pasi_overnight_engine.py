@@ -17,6 +17,15 @@ from scripts.pasi_overnight_hardening import validate_patch_paths
 
 
 class TestPasiOvernightEngine(unittest.TestCase):
+    def test_fresh_worktree_starts_from_launcher_head_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir) / "fresh"
+            with patch.dict(engine.os.environ, {"PASI_OVERNIGHT_BASE_REF": ""}, clear=False):
+                with patch.object(engine, "command", return_value=(0, "")) as run_command:
+                    engine.ensure_worktree(worktree, "pasi/test", resume=False)
+            command_args = run_command.call_args.args[0]
+            self.assertEqual(command_args[-1], "HEAD")
+
     def test_completion_requires_explicit_evidence_contract(self) -> None:
         values = {
             "requirements": "complete",
