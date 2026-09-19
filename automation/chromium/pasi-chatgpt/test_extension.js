@@ -106,11 +106,17 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
   assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(\)/);
 });
 
-test('native prompt submission requires explicit user-message acknowledgement and uses bounded alternate send paths', () => {
+test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
   assert.match(content, /SUBMISSION_ACK_MS = 2500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /newestUserMatches/);
   assert.match(content, /waitForSubmissionAck/);
+  assert.match(content, /function sendCandidatesForComposer\(box\)/);
+  assert.match(content, /button\[data-testid="send-button"\]/);
+  assert.match(content, /button\[aria-label="Send prompt"\]/);
+  assert.match(content, /button\[aria-label="Send message"\]/);
+  assert.match(content, /Only consider a generic submit button when it is owned by the same form as the composer/);
+  assert.match(content, /waitForSend\(box\)/);
   assert.match(content, /function composerContainsPrompt\(element, expected\)/);
   assert.match(content, /button\.focus\(\);/);
   assert.match(content, /const afterClick = composer\(\);/);
