@@ -157,7 +157,30 @@ nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$
     "$@" < /dev/null &
 pid=$!
 
-printf 'Started PASI extended runner (launcher PID %s, 168 hours).\n' "$pid"
+# Do not report a successful start until the detached runner has actually
+# acquired its runtime lock and written a live runner PID. This catches an
+# immediate startup failure from the Start path instead of leaving the user
+# with a misleading "started" message.
+runner_start_deadline=$((SECONDS + 15))
+runner_ready=0
+while (( SECONDS < runner_start_deadline )); do
+    if [[ -f "$RUNNER_PID_FILE" ]]; then
+        runner_pid="$(cat "$RUNNER_PID_FILE" 2>/dev/null || true)"
+        if [[ "$runner_pid" =~ ^[0-9]+$ ]] && kill -0 "$runner_pid" 2>/dev/null; then
+            runner_ready=1
+            break
+        fi
+    fi
+    sleep 1
+done
+
+if (( runner_ready == 0 )); then
+    printf 'error: detached PASI runner did not become live within the startup verification window.\n' >&2
+    printf 'Runner log: %s\n' "$log_file" >&2
+    exit 6
+fi
+
+printf 'Started PASI extended runner (launcher PID %s, runner PID %s, 168 hours).\n' "$pid" "$runner_pid"
 printf 'Worktree: %s\n' "$WORKTREE"
 printf 'Branch: %s\n' "$BRANCH"
 printf 'Log: %s\n' "$log_file"

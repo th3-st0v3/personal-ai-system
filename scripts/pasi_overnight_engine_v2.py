@@ -383,28 +383,22 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
     return legacy.completion_contract_is_satisfied(status, values)
 
 
-def continuation_directive(state: OvernightState, task: str) -> str:
+def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     roadmap = "\n".join(f"- {item}" for item in candidates)
     recent = "\n".join(f"- {item}" for item in state.recent_tasks[-12:]) or "- none recorded"
-    return f"""TASK CONTINUATION / ANTI-LOOP POLICY:
-- First inspect the current repository state and recent commits before deciding whether the CURRENT TASK is still incomplete.
-- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it, do not make cosmetic duplicate changes, and do not ask the human what to do next; immediately work on the next incomplete roadmap item below.
-- IF the CURRENT TASK is not yet satisfied, THEN continue it and use a materially different approach when PREVIOUS FAILURE EVIDENCE shows the prior approach failed.
-- A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
-- After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK.
-- IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
-- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: changed and provide the required patch.
-- IF the listed roadmap items are already covered by verified recent work, THEN revisit the repository for the next concrete gap and make that the next task instead of repeating an old task.
-- After any successful completion or bounded failure, continue automatically to the next incomplete roadmap task until the run deadline or an explicit operator stop; do not terminate merely because one task or one provider path finished.
+    return f"""TASK CONTINUATION:
+- Inspect the current repository state and evidence before acting.
+- Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.
+- When verified complete, immediately continue to the next incomplete roadmap task; do not wait for a follow-up.
+- If the same failure repeats, change approach instead of repeating the failed path.
+- Do not invent work or cosmetic changes; report stopped only when the task is satisfied and no concrete repository change remains.
+- Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it.
 ROADMAP PHASE: {state.phase}
 ROADMAP:
 {roadmap}
 RECENT TASKS:
-{recent}
-
-CURRENT TASK:
-{task}"""
+{recent}"""
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
     previous = f"\nPREVIOUS FAILURE EVIDENCE:\n{failure[-12_000:]}\n" if failure else ""

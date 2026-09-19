@@ -99,9 +99,40 @@
 
   function setText(element, value) {
     element.focus();
-    if (isTextControl(element)) setNativeValue(element, value);
-    else element.textContent = value;
-    element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    if (isTextControl(element)) {
+      setNativeValue(element, value);
+      element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      return;
+    }
+
+    // Prefer the browser's editing command for contenteditable composers so
+    // React/ProseMirror/Lexical-style editors receive the same editing path
+    // as real user input instead of only seeing a DOM text mutation.
+    let inserted = false;
+    try {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (typeof document.execCommand === 'function') {
+        inserted = document.execCommand('insertText', false, value);
+      }
+    } catch (_) {}
+
+    if (!inserted) {
+      element.textContent = value;
+      const inputEvent = typeof InputEvent === 'function'
+        ? new InputEvent('input', {
+            bubbles: true,
+            composed: true,
+            inputType: 'insertText',
+            data: value
+          })
+        : new Event('input', { bubbles: true, composed: true });
+      element.dispatchEvent(inputEvent);
+    }
     element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   }
 
@@ -525,8 +556,57 @@
 
   function fingerprint() { return latestAssistant().slice(-4000); }
 
-  async function waitForSend() {
-    return waitFor(() => firstVisible(['button[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send message"]', 'button[type="submit"]'], true) || findLabeled(['send prompt', 'send message'], ['button', '[role="button"]'], true), TIMEOUTS.send);
+  function sendCandidatesForComposer(box) {
+    const form = box?.closest?.('form') || null;
+    const scope = form || document;
+    const selectors = [
+      'button[data-testid="send-button"]',
+      'button[aria-label="Send prompt"]',
+      'button[aria-label="Send message"]'
+    ];
+    const candidates = [];
+    for (const selector of selectors) {
+      candidates.push(...scope.querySelectorAll(selector));
+    }
+
+    // Only consider a generic submit button when it is owned by the same
+    // form as the composer. Never click an unrelated page form.
+    if (form) candidates.push(...form.querySelectorAll('button[type="submit"]'));
+
+    const seen = new Set();
+    return candidates.filter((element) => {
+      if (seen.has(element)) return false;
+      seen.add(element);
+      return visible(element) && !disabled(element);
+    });
+  }
+
+  function labeledSendInScope(scope) {
+    if (!scope) return null;
+    const elements = scope.querySelectorAll('button, [role="button"]');
+    for (const element of elements) {
+      if (!visible(element) || disabled(element)) continue;
+      const text = label(element);
+      if (['send prompt', 'send message'].some((needle) =>
+        text === needle || text.startsWith(needle + ' ') || text.includes(' ' + needle)
+      )) {
+        return element;
+      }
+    }
+    return null;
+  }
+
+  async function waitForSend(box) {
+    return waitFor(() => {
+      const candidates = sendCandidatesForComposer(box);
+      if (candidates.length) return candidates[0];
+
+      // Restrict accessible-label fallback to the active composer form. If
+      // there is no form, use the composer itself as the narrow scope instead
+      // of searching the entire ChatGPT document.
+      const form = box?.closest?.('form') || null;
+      return labeledSendInScope(form || box?.parentElement || null);
+    }, TIMEOUTS.send);
   }
 
   async function waitForSubmissionAck(expected, baselineUserCount) {
@@ -547,25 +627,68 @@
     if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
   }
 
+  function composerContainsPrompt(element, expected) {
+    return Boolean(element) && normalize(readText(element)).includes(normalize(expected));
+  }
+
+  function dispatchEnter(element) {
+    element.focus();
+    const init = {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true
+    };
+    element.dispatchEvent(new KeyboardEvent('keydown', init));
+    element.dispatchEvent(new KeyboardEvent('keyup', { ...init, cancelable: false }));
+  }
+
   async function submitPrompt(expected) {
     const baselineUserCount = userMessages().length;
     for (let attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
       const box = composer();
       if (!box) throw new Error('PASI_NATIVE: composer disappeared');
-      if (!normalize(readText(box)).includes(normalize(expected))) throw new Error('PASI_NATIVE: composer lost the requested prompt before submission');
+      if (!composerContainsPrompt(box, expected)) throw new Error('PASI_NATIVE: composer lost the requested prompt before submission');
 
       await ensurePromptSubmissionReady();
-      const button = await waitForSend();
+
+      const button = await waitForSend(box);
       if (button && !disabled(button)) {
+        button.focus();
         button.click();
-      } else if (box.closest('form')?.requestSubmit) {
-        box.closest('form').requestSubmit();
+
+        // Do not issue a second submission while generation is already under
+        // way or the composer has been cleared. Only fall back when the first
+        // click demonstrably left the requested prompt in the composer.
+        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+        const afterClick = composer();
+        if (generating() || !composerContainsPrompt(afterClick, expected)) {
+          if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+        } else {
+          const form = afterClick.closest('form');
+          if (form?.requestSubmit) {
+            form.requestSubmit();
+            if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+          }
+
+          const retryBox = composer();
+          if (!generating() && composerContainsPrompt(retryBox, expected)) {
+            dispatchEnter(retryBox);
+            if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+          }
+        }
       } else {
-        box.focus();
-        box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        const form = box.closest('form');
+        if (form?.requestSubmit) {
+          form.requestSubmit();
+        } else {
+          dispatchEnter(box);
+        }
+        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
       }
 
-      if (await waitForSubmissionAck(expected, baselineUserCount)) return;
       if (attempt < SUBMISSION_ATTEMPTS) await sleep(DOM_POLL_MS + 50);
     }
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');

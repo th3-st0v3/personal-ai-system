@@ -14,7 +14,7 @@ from scripts import pasi_overnight_engine as legacy
 from scripts import pasi_overnight_engine_v2 as supervisor
 from scripts import pasi_overnight_hardening as hardening
 
-REPAIR_TIMEOUT_SECONDS = 600.0
+REPAIR_TIMEOUT_SECONDS = 30 * 60
 MAX_REPAIR_ATTEMPTS = 2
 RESPONSE_ARCHIVE_MAX_CHARS = 60_000
 PRIMARY_RECOVERY_WINDOW_SECONDS = 3 * 60 * 60

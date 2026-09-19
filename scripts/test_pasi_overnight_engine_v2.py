@@ -48,6 +48,20 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             )
         )
 
+    def test_continuation_helper_keeps_repair_prompt_compatibility(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="compatibility-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task="test",
+        )
+        self.assertIn("TASK CONTINUATION:", engine.continuation_directive(state, "test"))
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
@@ -83,9 +97,13 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             recent_tasks=["already completed task"],
         )
         prompt = engine.build_prompt(state.current_task, state)
-        self.assertIn("IF the CURRENT TASK is already satisfied", prompt)
-        self.assertIn("THEN do not re-implement it", prompt)
-        self.assertIn("next incomplete roadmap item", prompt)
+        self.assertIn("TASK CONTINUATION:", prompt)
+        self.assertIn("Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.", prompt)
+        self.assertIn("immediately continue to the next incomplete roadmap task", prompt)
+        self.assertIn("If the same failure repeats, change approach", prompt)
+        self.assertIn("do not invent work or cosmetic changes", prompt)
+        self.assertNotIn("KEEP WORKING UNTIL YOU'RE FINISHED:", prompt)
+        self.assertNotIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
         self.assertIn("RECENT TASKS:", prompt)
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
         self.assertIn("empty patch", prompt)

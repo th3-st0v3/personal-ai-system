@@ -59,6 +59,20 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         self.assertIn("Managed services:", status_script)
         self.assertIn("MANAGED (PID", status_script)
 
+    def test_168h_launcher_verifies_detached_runner_startup(self) -> None:
+        script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        self.assertIn("runner_start_deadline=$((SECONDS + 15))", script)
+        self.assertIn("runner_ready=0", script)
+        self.assertIn('kill -0 "$runner_pid"', script)
+        self.assertIn("detached PASI runner did not become live", script)
+
+    def test_overnight_launcher_verifies_detached_runner_startup(self) -> None:
+        script = (ROOT / "scripts" / "start_pasi_overnight.sh").read_text(encoding="utf-8")
+        self.assertIn("runner_start_deadline=$((SECONDS + 15))", script)
+        self.assertIn("runner_ready=0", script)
+        self.assertIn('kill -0 "$runner_pid"', script)
+        self.assertIn("detached PASI runner did not become live", script)
+
     def test_launchers_do_not_leak_start_lock_to_detached_children(self) -> None:
         for name in ("start_pasi_overnight.sh", "start_pasi_168h.sh"):
             script = (ROOT / "scripts" / name).read_text(encoding="utf-8")

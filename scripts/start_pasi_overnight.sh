@@ -54,7 +54,27 @@ log_file="$REPO_ROOT/.runtime/overnight/runner.log"
 nohup bash -c 'exec 9>&-; exec "$@"' _ "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_automation_entrypoint.py" --hours "$hours" "$@" < /dev/null &
 pid=$!
 
-printf 'Started PASI overnight runner (launcher PID %s, %s hours).\n' "$pid" "$hours"
+# Confirm the detached runner survives startup before declaring success.
+runner_start_deadline=$((SECONDS + 15))
+runner_ready=0
+while (( SECONDS < runner_start_deadline )); do
+    if [[ -f "$REPO_ROOT/.runtime/overnight/runner.pid" ]]; then
+        runner_pid="$(cat "$REPO_ROOT/.runtime/overnight/runner.pid" 2>/dev/null || true)"
+        if [[ "$runner_pid" =~ ^[0-9]+$ ]] && kill -0 "$runner_pid" 2>/dev/null; then
+            runner_ready=1
+            break
+        fi
+    fi
+    sleep 1
+done
+
+if (( runner_ready == 0 )); then
+    printf 'error: detached PASI runner did not become live within the startup verification window.\n' >&2
+    printf 'Runner log: %s\n' "$log_file" >&2
+    exit 6
+fi
+
+printf 'Started PASI overnight runner (launcher PID %s, runner PID %s, %s hours).\n' "$pid" "$runner_pid" "$hours"
 printf 'Log: %s\n' "$log_file"
 printf 'State: %s\n' "$REPO_ROOT/.runtime/overnight/state.json"
 printf 'Action list: %s\n' "$REPO_ROOT/.runtime/automation/action-list.md"

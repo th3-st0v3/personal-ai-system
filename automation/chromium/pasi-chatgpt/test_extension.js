@@ -106,11 +106,27 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
   assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(\)/);
 });
 
-test('native prompt submission requires explicit user-message acknowledgement', () => {
+test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
   assert.match(content, /SUBMISSION_ACK_MS = 2500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /newestUserMatches/);
   assert.match(content, /waitForSubmissionAck/);
+  assert.match(content, /function sendCandidatesForComposer\(box\)/);
+  assert.match(content, /button\[data-testid="send-button"\]/);
+  assert.match(content, /button\[aria-label="Send prompt"\]/);
+  assert.match(content, /button\[aria-label="Send message"\]/);
+  assert.match(content, /Only consider a generic submit button when it is owned by the same/);
+  assert.match(content, /form as the composer/);
+  assert.match(content, /function labeledSendInScope\(scope\)/);
+  assert.match(content, /Restrict accessible-label fallback to the active composer form/);
+  assert.match(content, /return labeledSendInScope\(form \|\| box\?\.parentElement \|\| null\)/);
+  assert.match(content, /waitForSend\(box\)/);
+  assert.match(content, /function composerContainsPrompt\(element, expected\)/);
+  assert.match(content, /button\.focus\(\);/);
+  assert.match(content, /const afterClick = composer\(\);/);
+  assert.match(content, /form\?\.requestSubmit/);
+  assert.match(content, /function dispatchEnter\(element\)/);
+  assert.match(content, /if \(!generating\(\) && composerContainsPrompt\(retryBox, expected\)\)/);
   assert.match(content, /prompt submission could not be verified after bounded attempts/);
 });
 
