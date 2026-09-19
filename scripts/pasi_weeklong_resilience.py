@@ -19,7 +19,8 @@ MAX_REPAIR_ATTEMPTS = 2
 RESPONSE_ARCHIVE_MAX_CHARS = 60_000
 PRIMARY_RECOVERY_WINDOW_SECONDS = 3 * 60 * 60
 PRIMARY_RECOVERY_POLL_SECONDS = 60.0
-MAX_RUNNER_RESTARTS = 8
+MAX_CONSECUTIVE_RUNNER_RESTARTS = 8
+RUNNER_STABILITY_RESET_SECONDS = 10 * 60
 RUNNER_RESTART_BACKOFF_SECONDS = 30.0
 _DIFF_LINE_RE = re.compile(r"^diff --git .+$", re.MULTILINE)
 
@@ -337,6 +338,7 @@ def main() -> int:
     try:
         while True:
             supervisor.STOP = False
+            run_started = supervisor.now_utc()
             sys.argv = ["pasi_automation_entrypoint.py", "--hours", str(args.hours), *resume_passthrough]
             exit_code = automation.main()
             state = supervisor.load_state()
@@ -345,7 +347,10 @@ def main() -> int:
                 return exit_code
             if supervisor.now_utc() >= deadline:
                 return exit_code
-            if restart_count >= MAX_RUNNER_RESTARTS:
+            run_duration = max(0.0, (supervisor.now_utc() - run_started).total_seconds())
+            if run_duration >= RUNNER_STABILITY_RESET_SECONDS:
+                restart_count = 0
+            if restart_count >= MAX_CONSECUTIVE_RUNNER_RESTARTS:
                 supervisor.log_event(
                     "runner_restart_budget_exhausted",
                     restarts=restart_count,

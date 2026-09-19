@@ -667,6 +667,14 @@ def run(state: OvernightState, *, push: bool) -> None:
             failure = state.last_result
 
 
+def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
+    if deadline_reached:
+        return "deadline_reached"
+    if stop_requested:
+        return "stopped"
+    return "unexpected_early_exit"
+
+
 def finish_state(state: OvernightState, reason: str) -> None:
     state.stop_reason = reason
     state.last_result = reason
@@ -675,6 +683,7 @@ def finish_state(state: OvernightState, reason: str) -> None:
 
 
 def main() -> int:
+    global STOP
     parser = argparse.ArgumentParser(description="Run PASI unattended with bounded recovery and provider fallback.")
     parser.add_argument("--hours", type=float, default=DEFAULT_HOURS)
     parser.add_argument("--task", default="")
@@ -722,7 +731,13 @@ def main() -> int:
         children = ensure_services()
         run(state, push=not args.no_push)
         if not state.stop_reason:
-            finish_state(state, "deadline_reached" if now_utc() >= datetime.fromisoformat(state.deadline_at) else "stopped")
+            finish_state(
+                state,
+                finish_reason(
+                    stop_requested=STOP,
+                    deadline_reached=now_utc() >= datetime.fromisoformat(state.deadline_at),
+                ),
+            )
         return 0
     except KeyboardInterrupt:
         if state is not None:

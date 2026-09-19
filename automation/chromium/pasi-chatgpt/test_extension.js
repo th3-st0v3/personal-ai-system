@@ -151,6 +151,15 @@ test('native new-chat creation requires a changed conversation identity or genui
   assert.match(content, /new chat control did not change conversation identity/);
 });
 
+test('activity indicator reconciles stale browser state with terminal backend operations', () => {
+  assert.match(activity, /async function backendOperation\(operationId\)/);
+  assert.match(activity, /\/operation\?operation_id=\$\{encodeURIComponent\(operationId\)\}/);
+  assert.match(activity, /\['completed', 'failed', 'cancelled'\]\.includes\(backend\.status\)/);
+  assert.match(activity, /localStorage\.removeItem\(ACTIVE_KEY\)/);
+  assert.match(activity, /let syncInFlight = false/);
+  assert.match(activity, /if \(syncInFlight\) return/);
+});
+
 test('activity indicator is isolated, non-interactive, and reduced-motion aware', () => {
   assert.match(activity, /pasi-activity-indicator/);
   assert.match(activity, /attachShadow\(\{ mode: 'closed' \}\)/);
