@@ -88,6 +88,7 @@
   let operationId = null;
   let startedAt = 0;
   let sawGeneration = false;
+  let syncInFlight = false;
 
   function generating() {
     return Boolean(document.querySelector(
@@ -136,31 +137,64 @@
     return `${minutes}m ${String(remainder).padStart(2, '0')}s`;
   }
 
-  function sync() {
-    ensureUi();
-    const active = getActiveOperation();
-    if (!active) {
-      operationId = null;
-      startedAt = 0;
-      sawGeneration = false;
-      shell.style.display = 'none';
-      return;
+  async function backendOperation(operationId) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetch(`http://127.0.0.1:8765/operation?operation_id=${encodeURIComponent(operationId)}`, {
+        credentials: 'omit',
+        signal: controller.signal
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      return payload?.operation || null;
+    } catch (_) {
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
-
-    if (active.operation_id !== operationId) {
-      operationId = active.operation_id;
-      startedAt = Date.parse(active.started_at || '') || Date.now();
-      sawGeneration = false;
-    }
-
-    const isGenerating = generating();
-    if (isGenerating) sawGeneration = true;
-    const state = isGenerating ? 'Thinking' : sawGeneration ? 'Finishing' : 'Working';
-    label.textContent = `PASI · ${state}`;
-    meta.textContent = formatElapsed(startedAt);
-    shell.style.display = 'flex';
   }
 
+  async function sync() {
+    if (syncInFlight) return;
+    syncInFlight = true;
+    try {
+      ensureUi();
+      const active = getActiveOperation();
+      if (!active) {
+        operationId = null;
+        startedAt = 0;
+        sawGeneration = false;
+        shell.style.display = 'none';
+        return;
+      }
+
+      const backend = await backendOperation(String(active.operation_id));
+      if (backend && ['completed', 'failed', 'cancelled'].includes(backend.status)) {
+        localStorage.removeItem(ACTIVE_KEY);
+        operationId = null;
+        startedAt = 0;
+        sawGeneration = false;
+        shell.style.display = 'none';
+        return;
+      }
+
+      if (active.operation_id !== operationId) {
+        operationId = active.operation_id;
+        startedAt = Date.parse(active.started_at || '') || Date.now();
+        sawGeneration = false;
+      }
+
+      const isGenerating = generating();
+      if (isGenerating) sawGeneration = true;
+      const state = isGenerating ? 'Thinking' : sawGeneration ? 'Finishing' : 'Working';
+      label.textContent = `PASI · ${state}`;
+      meta.textContent = formatElapsed(startedAt);
+      shell.style.display = 'flex';
+    } finally {
+      syncInFlight = false;
+    }
+  }
   function start() {
     sync();
     setInterval(sync, POLL_MS);
