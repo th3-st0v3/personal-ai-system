@@ -78,7 +78,7 @@ class DelayedReplacementURLChatAdapter(StaleReplacementURLChatAdapter):
 
 
 class TestPasiChat(unittest.TestCase):
-    def test_build_prompt_uses_public_repo_as_default_and_always_requires_thinking(self) -> None:
+    def test_build_prompt_uses_public_repo_as_default_and_attempts_thinking(self) -> None:
         prompt = build_prompt("inspect the bridge", "Repository: https://github.com/example/repo\nWorking tree: clean", {})
         self.assertIn("TASK:\ninspect the bridge", prompt)
         self.assertIn("REPOSITORY STATE:\nRepository: https://github.com/example/repo", prompt)
@@ -86,7 +86,8 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn(PUBLIC_REPOSITORY_URL, prompt)
         self.assertIn(PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL, prompt)
         self.assertIn("public GitHub repository as the default source", prompt)
-        self.assertIn("Thinking/reasoning mode is required for every PASI task", prompt)
+        self.assertIn("PASI attempts to keep Thinking/reasoning enabled for every task", prompt)
+        self.assertIn("continue with the best available reasoning mode", prompt)
         self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
     def test_build_prompt_prioritizes_literal_exact_output_requests(self) -> None:
