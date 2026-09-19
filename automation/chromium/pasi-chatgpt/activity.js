@@ -138,20 +138,37 @@
   }
 
   async function backendOperation(operationId) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
+    if (!globalThis.chrome?.runtime?.sendMessage) return null;
+    let timeoutId = null;
     try {
-      const response = await fetch(`http://127.0.0.1:8765/operation?operation_id=${encodeURIComponent(operationId)}`, {
-        credentials: 'omit',
-        signal: controller.signal
-      });
-      if (!response.ok) return null;
-      const payload = await response.json();
+      const response = await Promise.race([
+        new Promise((resolve, reject) => {
+          try {
+            chrome.runtime.sendMessage({
+              type: 'pasi-bridge-request',
+              path: '/operation?operation_id=' + encodeURIComponent(String(operationId)),
+              method: 'GET',
+              body: null
+            }, (value) => {
+              const runtimeError = chrome.runtime.lastError;
+              if (runtimeError) reject(new Error(runtimeError.message));
+              else resolve(value);
+            });
+          } catch (error) {
+            reject(error);
+          }
+        }),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('bridge timeout')), 2500);
+        })
+      ]);
+      if (!response?.ok || typeof response.text !== 'string') return null;
+      const payload = JSON.parse(response.text);
       return payload?.operation || null;
     } catch (_) {
       return null;
     } finally {
-      clearTimeout(timer);
+      if (timeoutId !== null) clearTimeout(timeoutId);
     }
   }
 
@@ -171,7 +188,9 @@
 
       const backend = await backendOperation(String(active.operation_id));
       if (backend && ['completed', 'failed', 'cancelled'].includes(backend.status)) {
-        localStorage.removeItem(ACTIVE_KEY);
+        // The controller owns lifecycle cleanup. The activity layer must not
+        // delete ACTIVE_KEY before content.js can persist verified completion
+        // evidence after a reload or a late backend acknowledgement.
         operationId = null;
         startedAt = 0;
         sawGeneration = false;
