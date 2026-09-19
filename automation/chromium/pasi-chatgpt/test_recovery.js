@@ -72,9 +72,12 @@ test('recovery never finalizes a partial assistant response during generation', 
   assert.equal(guardedFinalizers.length, 2);
 });
 
-test('recovery preserves response text casing while still normalizing marker checks', () => {
-  assert.match(source, /const compact =/);
-  assert.doesNotMatch(source, /const text = normalize\(markdown\[index\]/);
+test('recovery preserves response line breaks while collapsing only fingerprints', () => {
+  assert.match(source, /const preserveLineBreaks =/);
+  assert.match(source, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
+  assert.match(source, /const collapseWhitespace =/);
+  assert.doesNotMatch(source, /const compact =/);
+  assert.match(source, /collapseWhitespace\(latestAssistant\(\)\)/);
 });
 
 test('monitoring recovery keeps the normal bounded reload path before reloaded-state handling', () => {

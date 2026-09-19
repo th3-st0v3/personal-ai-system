@@ -25,31 +25,6 @@ MAX_COMPUTER_ROUNDS = 3
 MAX_COMPUTER_REQUESTS_PER_ROUND = 3
 MAX_COMPUTER_REQUEST_BYTES = 8_000
 
-_CONTEXT_LIMIT_PHRASES = (
-    "conversation has reached its limit",
-    "conversation is too long",
-    "context limit reached",
-    "start a new chat to continue",
-)
-_USAGE_LIMIT_PHRASES = (
-    "current usage limit",
-    "usage limit reached",
-    "free tier limit",
-    "message limit",
-    "daily limit",
-    "weekly limit",
-    "model usage limit",
-    "rate limit",
-    "too many requests",
-)
-_AUTH_PHRASES = (
-    "log in to continue",
-    "sign in to continue",
-    "verify you're human",
-    "security check",
-    "captcha",
-    "session has expired",
-)
 REQUEST_BEGIN = "PASI_COMPUTER_REQUEST_BEGIN"
 REQUEST_END = "PASI_COMPUTER_REQUEST_END"
 RESPONSE_MARKER = "=== CHATGPT RESPONSE ==="
@@ -92,17 +67,8 @@ def classify_observation(payload: dict[str, Any] | None) -> str | None:
             return "usage_limit"
         if data.get("auth_required") is True or data.get("login_required") is True:
             return "auth_required"
-        text = observation_text(data)
-        if any(phrase in text for phrase in _AUTH_PHRASES):
-            return "auth_required"
-        if any(phrase in text for phrase in _USAGE_LIMIT_PHRASES):
-            return "usage_limit"
         return None
 
-    if kind == "chatgpt_response":
-        text = observation_text(data)
-        if any(phrase in text for phrase in _CONTEXT_LIMIT_PHRASES):
-            return None
     return None
 
 

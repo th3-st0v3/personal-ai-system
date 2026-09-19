@@ -26,7 +26,6 @@ DEFAULT_HOURS = 10.0
 MIN_HOURS = 8.0
 MAX_HOURS = 12.0
 BRIDGE_HEALTH = "http://127.0.0.1:8765/health"
-CONTROLLER_DISTRIBUTION_HEALTH = "http://127.0.0.1:8766/health"
 MAX_PATCH_BYTES = 250_000
 MAX_OUTPUT_CHARS = 20_000
 MAX_ATTEMPTS = 3
@@ -168,9 +167,23 @@ def release_lock() -> None:
         pass
 
 
-def command(command: list[str], cwd: Path, *, timeout: float) -> tuple[int, str]:
+def command(
+    command: list[str],
+    cwd: Path,
+    *,
+    timeout: float,
+    input: str | None = None,
+) -> tuple[int, str]:
     try:
-        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            input=input,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
     output = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -190,23 +203,30 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     if not healthy(BRIDGE_HEALTH):
         log_event("service_start", service="bridge")
         children.append(subprocess.Popen([sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
-    if not healthy(CONTROLLER_DISTRIBUTION_HEALTH):
-        log_event("service_start", service="controller_distribution")
-        children.append(subprocess.Popen([sys.executable, "scripts/pasi_controller_server.py"], cwd=REPO_ROOT))
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
-        if healthy(BRIDGE_HEALTH) and healthy(CONTROLLER_DISTRIBUTION_HEALTH):
+        if healthy(BRIDGE_HEALTH):
             return children
         time.sleep(0.5)
-    raise OvernightError("local PASI bridge/distribution services did not become healthy")
+    raise OvernightError("local PASI bridge did not become healthy")
+
+
+def worktree_start_ref() -> str:
+    configured = os.environ.get("PASI_OVERNIGHT_BASE_REF", "").strip()
+    return configured or "HEAD"
 
 
 def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
-        code, output = command(["git", "worktree", "add", "-B", branch, str(path), "origin/main"], REPO_ROOT, timeout=60.0)
+        code, output = command(
+            ["git", "worktree", "add", "-B", branch, str(path), worktree_start_ref()],
+            REPO_ROOT,
+            timeout=60.0,
+        )
         if code != 0:
             raise OvernightError(f"could not create overnight worktree: {output}")
+        log_event("worktree_created", branch=branch, base_ref=worktree_start_ref(), path=str(path))
         return
     code, output = command(["git", "status", "--porcelain"], path, timeout=15.0)
     if code != 0:
@@ -298,6 +318,33 @@ def repository_worktree_is_clean(worktree: Path) -> bool:
     return code == 0 and not status.strip()
 
 
+def apply_patch(
+    worktree: Path,
+    patch: str,
+    allow_delete: bool,
+    *,
+    validator: Any = validate_patch_paths,
+) -> str:
+    validator(patch, allow_delete)
+    code, output = command(
+        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+        worktree,
+        timeout=60.0,
+        input=patch,
+    )
+    if code != 0:
+        raise OvernightError(f"git apply --check failed:\n{output}")
+    code, output = command(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        worktree,
+        timeout=60.0,
+        input=patch,
+    )
+    if code != 0:
+        raise OvernightError(f"git apply failed:\n{output}")
+    return output
+
+
 def no_change_completion_is_satisfied(
     worktree: Path,
     status: str,
@@ -355,7 +402,7 @@ RUN CONTEXT:
 COMPLETION CONTRACT:
 Do not mark complete until every stated requirement is implemented; relevant limitations have a concrete workaround or are genuinely not applicable; useful additional research/features have been implemented when appropriate; UX is working and aesthetically coherent or not applicable; backend behavior is working or not applicable; and reproducible evidence supports the result.
 
-OUTPUT — return each marker exactly once:
+OUTPUT — return exactly one fenced text block containing each marker exactly once:
 PASI_RESULT_STATUS: complete|needs_revision|blocked
 PASI_RESULT_SUMMARY: one concise sentence
 PASI_RESULT_NEXT_TASK: one concrete high-value next task
@@ -397,13 +444,7 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
 
 def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     normalized_patch = normalize_patch(patch)
-    validate_patch_paths(normalized_patch, allow_delete)
-    code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, timeout=60.0)
-    if code != 0:
-        raise OvernightError(f"git apply --check failed:\n{output}")
-    code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, timeout=60.0)
-    if code != 0:
-        raise OvernightError(f"git apply failed:\n{output}")
+    output = apply_patch(worktree, normalized_patch, allow_delete)
     code, output = command(["bash", "scripts/check_all.sh"], worktree, timeout=900.0)
     if code != 0:
         raise OvernightError(f"canonical validation failed:\n{output}")
@@ -411,7 +452,6 @@ def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     if code != 0 or not status:
         raise OvernightError("verification passed but no repository changes remain")
     return output
-
 
 def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
     code, output = command(["git", "add", "-A"], worktree, timeout=30.0)

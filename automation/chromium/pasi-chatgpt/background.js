@@ -4,6 +4,8 @@ const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
 const STALE_MS = 30 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
+const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
+const CONTROLLER_LEASE_MS = 10 * 1000;
 
 const BRIDGE_ROUTES = new Set([
   'GET /health',
@@ -65,6 +67,28 @@ async function bridgeJson(path) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'pasi-controller-claim') {
+    const tabId = sender?.tab?.id;
+    if (typeof tabId !== 'number') {
+      sendResponse({ ok: false, leader: false });
+      return undefined;
+    }
+    chrome.storage.local.get(CONTROLLER_LEASE_KEY).then((stored) => {
+      const current = stored?.[CONTROLLER_LEASE_KEY];
+      const now = Date.now();
+      const owned = current && current.tabId === tabId && now - Number(current.renewedAt || 0) < CONTROLLER_LEASE_MS;
+      const available = !current || now - Number(current.renewedAt || 0) >= CONTROLLER_LEASE_MS;
+      if (!owned && !available) {
+        sendResponse({ ok: true, leader: false });
+        return;
+      }
+      return chrome.storage.local.set({
+        [CONTROLLER_LEASE_KEY]: { tabId, renewedAt: now }
+      }).then(() => sendResponse({ ok: true, leader: true }));
+    }).catch(() => sendResponse({ ok: false, leader: false }));
+    return true;
+  }
+
   if (!message || message.type !== 'pasi-bridge-request') return undefined;
   const senderUrl = String(sender?.url || '');
   if (!/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)) {

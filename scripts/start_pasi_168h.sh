@@ -16,9 +16,7 @@ LOCK_FILE="$RUNTIME_DIR/start.lock"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
-CONTROLLER_LOG="$RUNTIME_DIR/controller-distribution.log"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
-CONTROLLER_PID_FILE="$RUNTIME_DIR/controller-distribution.pid"
 
 if [[ ! -x "$PYTHON" ]]; then
     printf 'error: expected executable Python at %s\n' "$PYTHON" >&2
@@ -115,20 +113,12 @@ start_service \
     "$BRIDGE_PID_FILE" \
     "$PYTHON" -m automation.orchestrator.bridge
 
-start_service \
-    'PASI controller distribution' \
-    'http://127.0.0.1:8766/health' \
-    "$CONTROLLER_LOG" \
-    "$CONTROLLER_PID_FILE" \
-    "$PYTHON" "$REPO_ROOT/scripts/pasi_controller_server.py"
-
 service_deadline=$((SECONDS + 20))
 while (( SECONDS < service_deadline )); do
     bridge_ok=0
     controller_ok=0
     curl -fsS --max-time 2 'http://127.0.0.1:8765/health' >/dev/null 2>&1 && bridge_ok=1 || true
-    curl -fsS --max-time 2 'http://127.0.0.1:8766/health' >/dev/null 2>&1 && controller_ok=1 || true
-    if (( bridge_ok == 1 && controller_ok == 1 )); then
+    if (( bridge_ok == 1 )); then
         printf 'PASI local services: healthy\n'
         break
     fi
@@ -141,12 +131,6 @@ if ! curl -fsS --max-time 2 'http://127.0.0.1:8765/health' >/dev/null 2>&1; then
     exit 4
 fi
 
-if ! curl -fsS --max-time 2 'http://127.0.0.1:8766/health' >/dev/null 2>&1; then
-    printf 'error: PASI controller distribution did not become healthy on 127.0.0.1:8766\n' >&2
-    printf 'Controller log: %s\n' "$CONTROLLER_LOG" >&2
-    exit 5
-fi
-
 browser_observation_ready() {
     "$PYTHON" - <<'PY'
 import json
@@ -156,7 +140,7 @@ import urllib.request
 from pathlib import Path
 
 root = Path.cwd()
-manifest_path = root / "automation" / "tampermonkey" / "controller-sync.json"
+manifest_path = root / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected_version = manifest.get("version")
@@ -176,6 +160,8 @@ if not isinstance(data, dict):
 kind = data.get("kind")
 actual_version = data.get("controller_version")
 if kind not in {"chatgpt_health", "chatgpt_state"}:
+    raise SystemExit(1)
+if data.get("native_controller") is not True:
     raise SystemExit(1)
 if not isinstance(expected_version, str) or not expected_version.strip() or actual_version != expected_version.strip():
     raise SystemExit(1)

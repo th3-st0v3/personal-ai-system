@@ -25,7 +25,7 @@ EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
-CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
+CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
 DEFAULT_HOURS = legacy.DEFAULT_HOURS
 MIN_HOURS = legacy.MIN_HOURS
@@ -285,9 +285,23 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
     legacy.validate_patch_paths(patch, allow_delete)
 
 
-def command(command: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
+def command(
+    command: list[str],
+    cwd: Path,
+    timeout: float,
+    *,
+    input: str | None = None,
+) -> tuple[int, str]:
     try:
-        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            input=input,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
     output = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -307,23 +321,30 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     if not healthy(f"{BRIDGE_URL}/health"):
         log_event("service_start", service="bridge")
         children.append(subprocess.Popen([legacy.sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
-    if not healthy("http://127.0.0.1:8766/health"):
-        log_event("service_start", service="controller_distribution")
-        children.append(subprocess.Popen([legacy.sys.executable, "scripts/pasi_controller_server.py"], cwd=REPO_ROOT))
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
-        if healthy(f"{BRIDGE_URL}/health") and healthy("http://127.0.0.1:8766/health"):
+        if healthy(f"{BRIDGE_URL}/health"):
             return children
         time.sleep(0.5)
-    raise RuntimeError("local PASI bridge/distribution services did not become healthy")
+    raise RuntimeError("local PASI bridge did not become healthy")
+
+
+def worktree_start_ref() -> str:
+    configured = os.environ.get("PASI_OVERNIGHT_BASE_REF", "").strip()
+    return configured or "HEAD"
 
 
 def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
-        code, output = command(["git", "worktree", "add", "-B", branch, str(path), "origin/main"], REPO_ROOT, 60.0)
+        code, output = command(
+            ["git", "worktree", "add", "-B", branch, str(path), worktree_start_ref()],
+            REPO_ROOT,
+            60.0,
+        )
         if code != 0:
             raise RuntimeError(f"could not create overnight worktree: {output}")
+        log_event("worktree_created", branch=branch, base_ref=worktree_start_ref(), path=str(path))
         return
     code, output = command(["git", "status", "--porcelain"], path, 15.0)
     if code != 0:
@@ -395,7 +416,12 @@ def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
         return False
     expected = expected_controller_version()
     actual = data.get("controller_version")
-    return isinstance(expected, str) and expected == actual
+    native_controller = data.get("native_controller")
+    return (
+        isinstance(expected, str)
+        and expected == actual
+        and native_controller is True
+    )
 
 
 def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECONDS) -> bool:
@@ -565,19 +591,19 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
-    validate_patch_paths(patch, allow_delete)
-    code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, 60.0)
+    output = legacy.apply_patch(
+        worktree,
+        patch,
+        allow_delete,
+        validator=validate_patch_paths,
+    )
+    code, validation_output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
     if code != 0:
-        raise RuntimeError(f"git apply --check failed:\n{output}")
-    code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, 60.0)
-    if code != 0:
-        raise RuntimeError(f"git apply failed:\n{output}")
-    code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
-    if code != 0:
-        raise RuntimeError(f"canonical validation failed:\n{output}")
+        raise RuntimeError(f"canonical validation failed:\n{validation_output}")
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
+    output = output + ("\n" if output else "") + validation_output
     commit = legacy.commit_and_push(worktree, branch, task, push)
     if push:
         promotion = command(
@@ -601,39 +627,6 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
             log_event("promotion_deferred", commit=commit, branch=branch, error=promotion[1][-4000:])
             output = output + "\n\n[PASI PROMOTION DEFERRED]\n" + promotion[1][-4000:]
     return commit, output
-
-
-def standby_until_ready(state: OvernightState) -> bool:
-    logged = False
-    while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
-        try:
-            ensure_services()
-        except Exception as exc:
-            log_event("service_recovery_failed", error=str(exc)[-4_000:])
-
-        observation = browser_observation()
-        if observation:
-            data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
-            if isinstance(data, dict) and bool(data.get("auth_required")):
-                log_event("standby_auth_required")
-                return False
-
-        if runtime_watchdog_is_live():
-            if logged:
-                log_event("standby_recovered")
-            return True
-
-        if not logged:
-            log_event(
-                "standby_started",
-                reason="browser controller/extension heartbeat is stale; waiting for browser recovery while keeping local services healthy",
-            )
-            logged = True
-
-        remaining = (datetime.fromisoformat(state.deadline_at) - now_utc()).total_seconds()
-        time.sleep(min(STANDBY_SECONDS, max(1.0, remaining)))
-    return False
-
 
 def on_signal(signum: int, _frame: object) -> None:
     global STOP

@@ -8,12 +8,49 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'u
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
 const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
+const detectors = fs.readFileSync(path.join(root, 'detectors.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
 test('native controller and recovery companion have unique recovery declarations', () => {
   assert.equal((content.match(/const RECOVERY_KEY = 'pasi:chatgpt-recovery';/g) || []).length, 1);
   assert.equal((content.match(/const MAX_CONTEXT_AUTO_RECOVERIES = 1;/g) || []).length, 1);
   assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
+});
+
+test('shared detectors scope terminal state markers away from messages and sidebar content', () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'detectors.js', 'content.js', 'recovery.js']);
+  assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.doesNotMatch(content, /function contextExhausted\(\)[\s\S]*?document\.body\?\.innerText/);
+  assert.doesNotMatch(recovery, /function contextExhausted\(\)[\s\S]*?document\.body\?\.innerText/);
+  const alert = {
+    innerText: 'Your request hit a rate limit.',
+    textContent: 'Your request hit a rate limit.',
+    closest: () => null
+  };
+  const message = {
+    innerText: 'The docs mention rate limit and captcha as examples.',
+    textContent: 'The docs mention rate limit and captcha as examples.',
+    closest: (selector) => selector.includes('data-message-author-role') ? message : null
+  };
+  const nav = {
+    innerText: 'captcha sign in to continue',
+    textContent: 'captcha sign in to continue',
+    closest: (selector) => selector === 'nav, aside, [role="navigation"], [data-testid*="sidebar" i]' ? nav : null
+  };
+  const documentMock = {
+    querySelectorAll(selector) {
+      if (selector === '[role="alert"]') return [alert, message, nav];
+      return [];
+    }
+  };
+  const scope = {};
+  const detectorFactory = new Function('document', 'globalThis', detectors + '\nreturn globalThis.PASIChatGPTDetectors;');
+  const api = detectorFactory(documentMock, scope);
+  const result = api.detect();
+  assert.equal(result.usage_limited, true);
+  assert.equal(result.auth_required, false);
+  assert.equal(result.scope_count, 1);
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
@@ -72,6 +109,181 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /CHAT_USAGE_LIMITED/);
   assert.match(content, /const current = await bridge\(`\/operation\?operation_id=/);
   assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
+});
+
+test('native transient control activation clears stale focus before ChatGPT hides or replaces UI', () => {
+  assert.match(content, /function freshChatSurface\(previousLocation, previousChat\)/);
+  assert.match(content, /freshRootChat = freshChatSurface\(previousLocation, previousChat\)/);
+  assert.match(content, /new chat control did not reach a verified fresh chat surface/);
+  assert.match(content, /const focused = document\.activeElement;/);
+
+  assert.match(content, /function accessibilityHidden\(element\)/);
+  assert.match(content, /current\.getAttribute\?\.\('aria-hidden'\) === 'true'/);
+  assert.match(content, /current\.hasAttribute\?\.\('inert'\)/);
+  assert.match(content, /if \(!element \|\| accessibilityHidden\(element\)\) return false;/);
+  assert.match(content, /function clearFocusBeforeActivation\(\)/);
+  assert.match(content, /const active = document\.activeElement;/);
+  assert.match(content, /try \{ active\.blur\(\); \} catch \(_\) \{\}/);
+  assert.match(content, /function activateControl\(element\)/);
+  assert.match(content, /clearFocusBeforeActivation\(\);\s*try \{\s*element\.click\(\);/);
+  assert.match(content, /if \(!activateControl\(button\)\) throw new Error\('PASI_NATIVE: New chat control activation failed'\)/);
+  assert.match(content, /function nativeMouseActivate\(element\) \{/);
+  const mouseActivation = content.slice(
+    content.indexOf('function nativeMouseActivate(element)'),
+    content.indexOf('async function submitPrompt(expected)')
+  );
+  assert.match(mouseActivation, /clearFocusBeforeActivation\(\);/);
+  assert.doesNotMatch(mouseActivation, /element\.focus\(\);/);
+
+  const accessibilityStart = content.indexOf('function accessibilityHidden(element)');
+  const visibleStart = content.indexOf('  function visible(element)');
+  assert.ok(accessibilityStart >= 0 && visibleStart > accessibilityStart);
+  const accessibilitySource = content.slice(accessibilityStart, visibleStart);
+  const accessibilityHidden = new Function(
+    accessibilitySource + '\nreturn accessibilityHidden;'
+  )();
+
+  const ariaAncestor = {
+    parentElement: null,
+    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
+    hasAttribute() { return false; }
+  };
+  const ariaChild = {
+    parentElement: ariaAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; }
+  };
+  const inertAncestor = {
+    parentElement: null,
+    getAttribute() { return null; },
+    hasAttribute(name) { return name === 'inert'; }
+  };
+  const inertChild = {
+    parentElement: inertAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; }
+  };
+  assert.equal(accessibilityHidden(ariaChild), true);
+  assert.equal(accessibilityHidden(inertChild), true);
+  assert.equal(accessibilityHidden({ parentElement: null, getAttribute() { return null; }, hasAttribute() { return false; } }), false);
+
+  const freshStart = content.indexOf('function freshChatSurface(previousLocation, previousChat)');
+  const freshEnd = content.indexOf('  function contextExhausted()', freshStart);
+  assert.ok(freshStart >= 0 && freshEnd > freshStart);
+  const freshSource = content.slice(freshStart, freshEnd);
+  const buildFresh = new Function(
+    'location',
+    'composer',
+    'generating',
+    'userMessages',
+    'assistantMessages',
+    freshSource + '\nreturn freshChatSurface;'
+  );
+  const freshRoot = buildFresh(
+    { href: 'https://chatgpt.com/' },
+    () => true,
+    () => false,
+    () => [],
+    () => []
+  );
+  assert.equal(freshRoot('https://chatgpt.com/old', 'https://chatgpt.com/c/old'), true);
+  const freshChatPath = buildFresh(
+    { href: 'https://chatgpt.com/c/new' },
+    () => true,
+    () => false,
+    () => [],
+    () => []
+  );
+  assert.equal(
+    freshChatPath('https://chatgpt.com/c/new', 'https://chatgpt.com/c/old'),
+    false
+  );
+
+  let blurred = false;
+  let clicked = false;
+  const hiddenAncestor = {
+    parentElement: null,
+    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
+    hasAttribute() { return false; }
+  };
+  const focusedAfterClick = {
+    parentElement: hiddenAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; },
+    blur() { blurred = true; }
+  };
+  const focusDocument = {
+    activeElement: { blur() { blurred = true; } },
+    body: {},
+    documentElement: {}
+  };
+  const focusStart = content.indexOf('function clearFocusBeforeActivation()');
+  const focusEnd = content.indexOf('  async function newChat()', focusStart);
+  assert.ok(focusStart >= 0 && focusEnd > focusStart);
+  const focusSource = content.slice(focusStart, focusEnd);
+  const buildActivation = new Function(
+    'document',
+    'visible',
+    'disabled',
+    'accessibilityHidden',
+    focusSource + '\nreturn { activateControl };'
+  );
+  const activation = buildActivation(
+    focusDocument,
+    () => true,
+    () => false,
+    (element) => {
+      for (let current = element; current; current = current.parentElement) {
+        if (current.getAttribute?.('aria-hidden') === 'true' || current.hasAttribute?.('inert')) return true;
+      }
+      return false;
+    }
+  );
+  assert.equal(
+    activation.activateControl({
+      click() {
+        clicked = true;
+        focusDocument.activeElement = focusedAfterClick;
+      }
+    }),
+    true
+  );
+  assert.equal(blurred, true);
+  assert.equal(clicked, true);
+});
+
+test('native assistant extraction preserves machine-readable marker and diff line breaks', () => {
+  assert.match(content, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
+  assert.match(content, /function collapseWhitespace\(value\)/);
+  assert.match(content, /function messageText\(node\)/);
+  assert.match(content, /function extractAssistant\(node\)/);
+
+  const messageStart = content.indexOf('function messageText(node)');
+  const messageEnd = content.indexOf('  function newestUserMatches', messageStart);
+  assert.ok(messageStart >= 0 && messageEnd > messageStart);
+  const messageSource = content.slice(messageStart, messageEnd);
+  const messageText = new Function(messageSource + '\nreturn messageText;')();
+  const fixture = [
+    'PASI_RESULT_STATUS: complete',
+    'PASI_RESULT_PATCH_BEGIN',
+    'diff --git a/example.txt b/example.txt',
+    '--- a/example.txt',
+    '+++ b/example.txt',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    'PASI_RESULT_PATCH_END'
+  ].join('\n');
+  const node = { innerText: fixture, textContent: fixture };
+  assert.equal(messageText(node), fixture);
+  assert.match(messageText(node), /PASI_RESULT_PATCH_BEGIN\ndiff --git/);
+  assert.match(messageText(node), /@@ -1 \+1 @@\n-old\n\+new/);
+
+  const fingerprintStart = content.indexOf('function fingerprint()');
+  const fingerprintEnd = content.indexOf('\n  async function waitForResponse', fingerprintStart);
+  assert.ok(fingerprintStart >= 0 && fingerprintEnd > fingerprintStart);
+  const fingerprintSource = content.slice(fingerprintStart, fingerprintEnd);
+  assert.match(fingerprintSource, /collapseWhitespace\(latestAssistant\(\)\)/);
 });
 
 test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {

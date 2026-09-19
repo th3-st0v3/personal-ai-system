@@ -37,10 +37,21 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "CHAT_EXHAUSTED:",
     "PASI_NATIVE: new chat did not reach a verified ready state",
     "PASI_NATIVE: new chat control did not change conversation identity",
+    "PASI_NATIVE: new chat control did not reach a verified fresh chat surface",
     "PASI_NATIVE: prompt submission could not be verified after bounded attempts",
     "PASI_NATIVE: send control unavailable",
     "PASI_NATIVE: composer unavailable",
     "PASI_NATIVE: composer disappeared",
+    "PASI_NATIVE: New chat control activation failed",
+    "PASI_NATIVE: Thinking control activation failed",
+    "PASI_NATIVE: model selector activation failed",
+    "PASI_NATIVE: model configure control activation failed",
+    "PASI_NATIVE: Thinking option activation failed",
+    "PASI_NATIVE: Thinking toggle activation failed",
+    "PASI_NATIVE: add-files control activation failed",
+    "PASI_NATIVE: Thinking menu activation failed",
+    "PASI_NATIVE: GitHub control activation failed",
+    "PASI_NATIVE: repository result activation failed",
 )
 
 

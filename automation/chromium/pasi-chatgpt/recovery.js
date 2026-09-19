@@ -17,7 +17,11 @@
   let inspecting = false;
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
-  const compact = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const preserveLineBreaks = (value) => String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+(?=\n)/g, '')
+    .trim();
+  const collapseWhitespace = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function bridge(path, options = {}) {
@@ -112,25 +116,30 @@
     return Boolean(document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label*="Stop"]'));
   }
 
+  function detectorState() {
+    return globalThis.PASIChatGPTDetectors?.detect?.() || {
+      context_exhausted: false,
+      usage_limited: false,
+      auth_required: false,
+      connection_failure: false
+    };
+  }
+
   function securityChallenge() {
-    const text = normalize(document.body?.innerText || '');
-    return ["verify you're human", 'captcha', 'cloudflare', 'security check', 'turnstile', 'session has expired', 'log in to continue', 'sign in to continue'].some((marker) => text.includes(marker));
+    return detectorState().auth_required === true;
   }
 
   function connectionFailure() {
-    const text = normalize(document.body?.innerText || '');
-    return ['network error', 'connection lost', 'failed to fetch', 'websocket', 'reconnecting'].some((marker) => text.includes(marker));
+    return detectorState().connection_failure === true;
   }
 
   function contextExhausted() {
-    const text = normalize(document.body?.innerText || '');
-    return ['this conversation has reached its limit', 'conversation has reached its limit', 'conversation is too long', 'conversation is full', 'maximum conversation length', 'maximum length for this conversation', 'context limit reached', 'context window limit', 'context length limit', 'start a new chat to continue', 'start a new conversation to continue'].some((marker) => text.includes(marker));
+    return detectorState().context_exhausted === true;
   }
 
   function usageLimited() {
-    if (contextExhausted()) return false;
-    const text = normalize(document.body?.innerText || '');
-    return ['current usage limit', 'usage limit reached', 'free tier limit', 'message limit', 'daily limit', 'weekly limit', 'model usage limit'].some((marker) => text.includes(marker));
+    const state = detectorState();
+    return state.context_exhausted !== true && state.usage_limited === true;
   }
 
   function replacementReason() {
@@ -158,7 +167,9 @@
     return compact(node.innerText || node.textContent || '').slice(0, 50000);
   }
 
-  function fingerprint() { return latestAssistant().slice(-4000); }
+  function fingerprint() {
+    return collapseWhitespace(latestAssistant()).slice(-4000);
+  }
 
   function readRecoveryState() {
     try {

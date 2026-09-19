@@ -31,6 +31,8 @@ TERMINAL_COMPLETIONS = frozenset({"complete", "error", "interrupted"})
 CONTROLLER_LIVENESS_TIMEOUT_SECONDS = 20.0
 CONTROLLER_MAX_OBSERVATION_AGE_SECONDS = 15.0
 RESPONSE_CAPTURE_REPAIR_ATTEMPTS = 1
+TIMEOUT_RECONCILIATION_ATTEMPTS = 8
+TIMEOUT_RECONCILIATION_INTERVAL_SECONDS = 0.5
 NEW_SESSION_URL_RECONCILE_ATTEMPTS = 6
 NEW_SESSION_URL_RECONCILE_INTERVAL_SECONDS = 0.5
 _PUBLIC_GITHUB_FAILURE_PHRASES = (
@@ -356,15 +358,18 @@ def response_capture_succeeded(response: AIResponse) -> bool:
 
 
 def reconcile_timed_out_response(adapter: ChatGPTAdapter, operation_id: str, response: AIResponse) -> AIResponse:
-    """Make one bounded final operation read before treating a wait timeout as non-terminal."""
+    """Allow a short bounded completion window before retrying a timed-out operation."""
     if response.completion != "timeout":
         return response
-    try:
-        reconciled = adapter.read_operation(operation_id)
-    except Exception:
-        return response
-    if reconciled.completion in TERMINAL_COMPLETIONS:
-        return repair_response_capture(adapter, reconciled)
+    for attempt in range(TIMEOUT_RECONCILIATION_ATTEMPTS):
+        if attempt:
+            time.sleep(TIMEOUT_RECONCILIATION_INTERVAL_SECONDS)
+        try:
+            reconciled = adapter.read_operation(operation_id)
+        except Exception:
+            continue
+        if reconciled.completion in TERMINAL_COMPLETIONS:
+            return repair_response_capture(adapter, reconciled)
     return response
 
 
