@@ -1119,7 +1119,7 @@
   }
 
 
-  async function waitForResponse(baseline) {
+  async function waitForResponse(baseline, operationId) {
     const started = Date.now();
     let sawGeneration = false;
     let stableFingerprint = '';
@@ -1148,6 +1148,16 @@
           }
           const response = latestAssistant();
           if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
+        }
+      }
+      if (operationId && Math.floor((Date.now() - started) / 2000) !== Math.floor((Date.now() - started - DOM_POLL_MS * 2) / 2000)) {
+        try {
+          const operationResponse = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
+          const current = operationResponse.ok ? operationResponse.json()?.operation : null;
+          if (current?.status === 'cancelled') throw new Error('PASI_NATIVE: operation cancelled by runner');
+          if (current?.status === 'failed') throw new Error(current.error || 'PASI_NATIVE: operation failed while generating');
+        } catch (error) {
+          if (String(error?.message || '').startsWith('PASI_NATIVE: operation ')) throw error;
         }
       }
       if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
@@ -1266,6 +1276,18 @@
     throw lastError || new Error('PASI_NATIVE: bridge completion failed');
   }
 
+  async function cancelOperation(operationId, reason) {
+    try {
+      const response = await bridge('/chat/cancel', {
+        method: 'POST',
+        body: { operation_id: operationId, reason: String(reason || 'cancelled by runner timeout') }
+      });
+      return response.ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function failOperation(operationId, error) {
     try {
       const response = await bridge('/chat/failed', { method: 'POST', body: { operation_id: operationId, error: String(error?.message || error) } });
@@ -1316,7 +1338,7 @@
           const send = await waitForSend(box);
           if (!send) throw new Error('PASI_NATIVE: send control unavailable');
           await submitPrompt(promptText);
-          const response = await waitForResponse(baseline);
+          const response = await waitForResponse(baseline, operation.operation_id);
           await finishOperation(operation.operation_id, response, true);
           finalized = true;
           return;
