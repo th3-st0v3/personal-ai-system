@@ -116,7 +116,7 @@ test('native prompt submission requires explicit acknowledgement and composer-sc
   assert.match(content, /button\[aria-label="Send prompt"\]/);
   assert.match(content, /button\[aria-label="Send message"\]/);
   assert.match(content, /Generic submit controls are safe only when owned by the exact composer/);
-  assert.match(content, /form as the composer/);
+  assert.match(content, /few ancestors from the active composer/);
   assert.match(content, /function labeledSendInScope\(scope\)/);
   assert.match(content, /Restrict accessible-label fallback to the active composer form/);
   assert.match(content, /return labeledSendInScope\(form \|\| box\?\.parentElement \|\| null\)/);
