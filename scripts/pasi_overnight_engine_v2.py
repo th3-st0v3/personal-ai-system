@@ -456,6 +456,88 @@ def command(
     return result.returncode, output[-20_000:]
 
 
+def repository_worktree_is_clean(worktree: Path) -> bool:
+    code, status = command(["git", "status", "--porcelain", "--untracked-files=all"], worktree, 30.0)
+    return code == 0 and not status.strip()
+
+
+def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
+    clean_env = {
+        "PATH": f"{worktree / '.venv' / 'bin'}:/usr/local/bin:/usr/bin:/bin",
+        "HOME": str(worktree / ".runtime" / "validation-home"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+        "PYTHONPATH": str(worktree),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_ASKPASS": "/bin/false",
+    }
+    Path(clean_env["HOME"]).mkdir(parents=True, exist_ok=True)
+    base = ["env", "-i", *[f"{key}={value}" for key, value in clean_env.items()], "bash", "scripts/check_all.sh"]
+    if shutil.which("bwrap"):
+        sandbox_command = ["bwrap", "--ro-bind", "/", "/", "--bind", str(worktree), str(worktree), "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--unshare-net", "--chdir", str(worktree), *base]
+        code, output = command(sandbox_command, worktree, timeout)
+        if code == 0:
+            return output
+        raise RuntimeError(f"sandboxed canonical validation failed:\n{output}")
+    if shutil.which("unshare"):
+        sandbox_command = ["unshare", "--user", "--map-root-user", "--net", "--"] + base
+        code, output = command(sandbox_command, worktree, timeout)
+        if code == 0:
+            return output
+    raise RuntimeError("network-isolated validation sandbox is unavailable; install bubblewrap (recommended) or enable an unshare-compatible user namespace")
+
+
+def apply_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
+    validate_patch_paths(patch, allow_delete)
+    code, summary = command(["git", "apply", "--numstat", "-z", "-"], worktree, 60.0, input=patch)
+    if code != 0:
+        raise RuntimeError(f"git apply path resolution failed:\n{summary}")
+    code, output = command(["git", "apply", "--check", "--whitespace=nowarn", "-"], worktree, 60.0, input=patch)
+    if code != 0:
+        raise RuntimeError(f"git apply --check failed:\n{output}")
+    code, output = command(["git", "apply", "--whitespace=nowarn", "-"], worktree, 60.0, input=patch)
+    if code != 0:
+        raise RuntimeError(f"git apply failed:\n{output}")
+    return output
+
+
+def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
+    code, output = command(["git", "add", "-A"], worktree, 30.0)
+    if code != 0:
+        raise RuntimeError(f"git add failed: {output}")
+    code, output = command(["git", "diff", "--cached", "--quiet"], worktree, 30.0)
+    if code == 0:
+        raise RuntimeError("task completed without producing a commit")
+    message = re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:65] or "overnight PASI task"
+    code, output = command(["git", "commit", "-m", f"pasi: {message}"], worktree, 120.0)
+    if code != 0:
+        raise RuntimeError(f"git commit failed: {output}")
+    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
+    if code != 0:
+        raise RuntimeError(f"could not read commit: {commit}")
+    if push:
+        code, output = command(["git", "push", "--set-upstream", "origin", branch], worktree, 180.0)
+        if code != 0:
+            raise RuntimeError(f"git push failed: {output}")
+    return commit
+
+
+def no_change_completion_is_satisfied(
+    worktree: Path,
+    status: str,
+    next_task: str,
+    patch: str,
+    values: dict[str, str],
+) -> bool:
+    return (
+        completion_contract(status, values)
+        and not patch
+        and values.get("repository_progress", "").lower() == "stopped"
+        and bool(next_task.strip())
+        and repository_worktree_is_clean(worktree)
+    )
+
 def healthy(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=3.0) as response:
@@ -790,13 +872,8 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
-    output = legacy.apply_patch(
-        worktree,
-        patch,
-        allow_delete,
-        validator=validate_patch_paths,
-    )
-    validation_output = legacy.run_validation_sandbox(worktree)
+    output = apply_patch(worktree, patch, allow_delete)
+    validation_output = run_validation_sandbox(worktree)
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
@@ -876,7 +953,7 @@ def run(state: OvernightState, *, push: bool) -> None:
             condition = provider_condition(code, response)
             if condition == "auth_required":
                 log_event("fallback_provider_route", reason="ChatGPT authentication challenge", task_number=state.task_number)
-                fallback = command([legacy.sys.executable, "scripts/pasi_provider_router.py", "--task", build_prompt(state.current_task, state, response), "--repo", state.worktree, "--timeout", "180"], Path(state.worktree), 225.0)
+                fallback = command([sys.executable, "scripts/pasi_provider_router.py", "--task", build_prompt(state.current_task, state, response), "--repo", state.worktree, "--timeout", "180"], Path(state.worktree), 225.0)
                 if fallback[0] == 0:
                     response = fallback[1]
                     code = 0
