@@ -615,6 +615,75 @@ def test_mismatched_browser_response_does_not_attach_to_operation(tmp_path: Path
     assert current["response_text_available"] is False
 
 
+def test_claim_lease_expiry_requeues_operation(tmp_path: Path, monkeypatch) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "lease")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+    monkeypatch.setattr(bridge_module, "CLAIM_LEASE_SECONDS", 1)
+    queue = bridge.state_manager.load_queue()
+    queue[0]["claimed_at"] = 0
+    bridge.state_manager.save_queue(queue)
+    reclaimed = bridge.claim_next_operation()
+    assert reclaimed is not None
+    assert reclaimed["operation_id"] == operation.operation_id
+    assert reclaimed["status"] == "claimed"
+    assert reclaimed["reclaimed_at"] > 0
+
+def test_queue_ttl_expires_stuck_operation(tmp_path: Path, monkeypatch) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "ttl")
+    monkeypatch.setattr(bridge_module, "QUEUE_TTL_SECONDS", 1)
+    queue = bridge.state_manager.load_queue()
+    queue[0]["expires_at"] = 0
+    bridge.state_manager.save_queue(queue)
+    assert bridge.claim_next_operation() is None
+    expired = bridge.get_operation(operation.operation_id)
+    assert expired is not None
+    assert expired["status"] == "failed"
+    assert expired["failure_reason"] == "queue_ttl_expired"
+
+def test_cancel_operation_is_terminal_and_idempotent(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "cancel")
+    bridge.claim_next_operation()
+    cancelled = bridge.cancel_operation(operation.operation_id, "runner timeout")
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+    again = bridge.cancel_operation(operation.operation_id, "second cancel")
+    assert again is not None
+    assert again["status"] == "cancelled"
+
+def test_retry_budgets_are_separate_by_failure_class(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "retry classes")
+    bridge.claim_next_operation()
+    context = bridge.fail_operation(operation.operation_id, "CHAT_EXHAUSTED: context")
+    assert context is not None and context["status"] == "queued"
+    assert context["retry_counts"]["context"] == 1
+    assert context["retry_counts"]["response"] == 0
+
+    bridge.claim_next_operation()
+    response = bridge.fail_operation(operation.operation_id, "PASI_NATIVE: ChatGPT generation timed out")
+    assert response is not None and response["status"] == "queued"
+    assert response["retry_counts"]["response"] == 1
+    assert response["retry_counts"]["context"] == 1
+
+def test_response_timeout_retry_is_bounded_separately(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "response budget")
+    for expected in (1, 2):
+        bridge.claim_next_operation()
+        recovered = bridge.fail_operation(operation.operation_id, "PASI_NATIVE: ChatGPT generation timed out")
+        assert recovered is not None
+        assert recovered["status"] == "queued"
+        assert recovered["retry_counts"]["response"] == expected
+    bridge.claim_next_operation()
+    failed = bridge.fail_operation(operation.operation_id, "PASI_NATIVE: ChatGPT generation timed out")
+    assert failed is not None
+    assert failed["status"] == "failed"
+    assert failed["failure_reason"] == "response_retry_exhausted"
+
 def test_transient_completion_ack_failure_completes_from_persisted_response(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "do not replay")
