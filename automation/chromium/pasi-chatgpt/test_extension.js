@@ -107,7 +107,7 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
 });
 
 test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
-  assert.match(content, /SUBMISSION_ACK_MS = 2500/);
+  assert.match(content, /SUBMISSION_ACK_MS = 7500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /newestUserMatches/);
   assert.match(content, /waitForSubmissionAck/);
@@ -122,6 +122,12 @@ test('native prompt submission requires explicit acknowledgement and composer-sc
   assert.match(content, /return labeledSendInScope\(form \|\| box\?\.parentElement \|\| null\)/);
   assert.match(content, /waitForSend\(box\)/);
   assert.doesNotMatch(content, /const send = await waitForSend\(\)/);
+  assert.match(content, /button\[data-testid\*="send" i\]/);
+  assert.match(content, /button\[aria-label\*="send" i\]/);
+  assert.match(content, /button\[title\*="send" i\]/);
+  assert.match(content, /function nearbyScopedControls\(box\)/);
+  assert.match(content, /unique.*generic submit buttons|multiple generic submit buttons/);
+  assert.doesNotMatch(content, /if \(generating\(\) && userMessages\(\)\.length > baselineUserCount\) return true/);
   assert.match(content, /function composerContainsPrompt\(element, expected\)/);
   assert.match(content, /button\.focus\(\);/);
   assert.match(content, /const afterClick = composer\(\);/);
