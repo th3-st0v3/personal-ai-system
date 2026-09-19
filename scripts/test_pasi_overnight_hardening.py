@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine_v2 as supervisor
-from scripts import pasi_provider_router as fallback_router
+from scripts import pasi_overnight_hardening as hardening
 from scripts.pasi_overnight_hardening import (
     nonblocking_sleep,
     nonblocking_standby,
@@ -51,7 +51,7 @@ class OvernightHardeningTests(unittest.TestCase):
             ledger = ObstacleLedger(root)
             state = self._state(root)
             with patch.object(supervisor, "runtime_watchdog_is_live", return_value=False), patch.object(
-                fallback_router, "providers_available", return_value=["ollama"]
+                hardening, "fallback_providers_available", return_value=["ollama"]
             ), patch.object(supervisor, "time") as time_mock:
                 self.assertTrue(nonblocking_standby(state, ledger=ledger))
                 time_mock.sleep.assert_not_called()
