@@ -438,6 +438,7 @@
   }
 
   async function reportHealth() {
+    if (!(await controllerClaim())) return;
     const currentUrl = chatUrl();
     if (currentUrl !== lastKnownChatUrl) {
       if (lastKnownChatUrl !== null || currentUrl !== null) {
@@ -1381,6 +1382,7 @@
 
   async function poll() {
     if (processing || activeOperationId !== null || extensionContextInvalidated) return;
+    if (!(await controllerClaim())) return;
     try {
       const recoveryOperation = recoveryOperationId();
       if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
