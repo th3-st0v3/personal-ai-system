@@ -49,18 +49,10 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         )
 
     def test_unexpected_early_exit_is_not_treated_as_operator_stop(self) -> None:
-        self.assertEqual(
-            engine.finish_reason(stop_requested=False, deadline_reached=False),
-            "unexpected_early_exit",
-        )
-        self.assertEqual(
-            engine.finish_reason(stop_requested=True, deadline_reached=False),
-            "stopped",
-        )
-        self.assertEqual(
-            engine.finish_reason(stop_requested=True, deadline_reached=True),
-            "deadline_reached",
-        )
+        finish_reason = getattr(engine, "finish_reason")
+        self.assertEqual(finish_reason(stop_requested=False, deadline_reached=False), "unexpected_early_exit")
+        self.assertEqual(finish_reason(stop_requested=True, deadline_reached=False), "stopped")
+        self.assertEqual(finish_reason(stop_requested=True, deadline_reached=True), "deadline_reached")
 
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
