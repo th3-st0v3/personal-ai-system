@@ -8,12 +8,49 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'u
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
 const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
+const detectors = fs.readFileSync(path.join(root, 'detectors.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
 test('native controller and recovery companion have unique recovery declarations', () => {
   assert.equal((content.match(/const RECOVERY_KEY = 'pasi:chatgpt-recovery';/g) || []).length, 1);
   assert.equal((content.match(/const MAX_CONTEXT_AUTO_RECOVERIES = 1;/g) || []).length, 1);
   assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
+});
+
+test('shared detectors scope terminal state markers away from messages and sidebar content', () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'detectors.js', 'content.js', 'recovery.js']);
+  assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.doesNotMatch(content, /function contextExhausted\(\)[\s\S]*?document\.body\?\.innerText/);
+  assert.doesNotMatch(recovery, /function contextExhausted\(\)[\s\S]*?document\.body\?\.innerText/);
+  const alert = {
+    innerText: 'Your request hit a rate limit.',
+    textContent: 'Your request hit a rate limit.',
+    closest: () => null
+  };
+  const message = {
+    innerText: 'The docs mention rate limit and captcha as examples.',
+    textContent: 'The docs mention rate limit and captcha as examples.',
+    closest: (selector) => selector.includes('data-message-author-role') ? message : null
+  };
+  const nav = {
+    innerText: 'captcha sign in to continue',
+    textContent: 'captcha sign in to continue',
+    closest: (selector) => selector === 'nav, aside, [role="navigation"], [data-testid*="sidebar" i]' ? nav : null
+  };
+  const documentMock = {
+    querySelectorAll(selector) {
+      if (selector === '[role="alert"]') return [alert, message, nav];
+      return [];
+    }
+  };
+  const scope = {};
+  const detectorFactory = new Function('document', 'globalThis', detectors + '\nreturn globalThis.PASIChatGPTDetectors;');
+  const api = detectorFactory(documentMock, scope);
+  const result = api.detect();
+  assert.equal(result.usage_limited, true);
+  assert.equal(result.auth_required, false);
+  assert.equal(result.scope_count, 1);
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
