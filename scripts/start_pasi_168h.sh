@@ -29,6 +29,20 @@ if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
     exit 2
 fi
 
+TOKEN_FILE="$HOME/.pasi/bridge-token"
+EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
+mkdir -p "$HOME/.pasi"
+if [[ ! -s "$TOKEN_FILE" ]]; then
+    "$PYTHON" - <<'PY' > "$TOKEN_FILE"
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+    chmod 600 "$TOKEN_FILE"
+fi
+cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
+chmod 600 "$EXTENSION_TOKEN_FILE"
+export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
+
 printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
 "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
 printf '\n=== STARTING 168-HOUR RUN ===\n'
