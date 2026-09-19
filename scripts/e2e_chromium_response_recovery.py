@@ -39,6 +39,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     finished_payload: dict | None = None
     observations = 0
     observation_payloads: list[dict] = []
+    requests: list[dict] = []
 
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -65,6 +66,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
+        BridgeHandler.requests.append({"method": "GET", "path": self.path})
+        BridgeHandler.requests = BridgeHandler.requests[-50:]
         parsed = urlparse(self.path)
         if parsed.path == "/operation":
             operation_id = parse_qs(parsed.query).get("operation_id", [""])[0]
@@ -110,6 +113,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        BridgeHandler.requests.append({"method": "POST", "path": self.path})
+        BridgeHandler.requests = BridgeHandler.requests[-50:]
         try:
             payload = self._read_json()
         except (ValueError, json.JSONDecodeError):
@@ -555,6 +560,7 @@ def main() -> None:
     BridgeHandler.finished_payload = None
     BridgeHandler.observations = 0
     BridgeHandler.observation_payloads = []
+    BridgeHandler.requests = []
 
     bridge = ThreadingHTTPServer((BRIDGE_HOST, BRIDGE_PORT), BridgeHandler)
     fixture_port = free_port()
@@ -712,7 +718,7 @@ def main() -> None:
                 raise AssertionError(
                     f"Chromium CDP acceptance failed: {exc}; "
                     f"browser={diagnostic}; observations={BridgeHandler.observation_payloads!r}; "
-                    f"chrome_log={chrome_log}"
+                    f"requests={BridgeHandler.requests!r}; chrome_log={chrome_log}"
                 ) from exc
             finally:
                 if cdp is not None and target_id:
