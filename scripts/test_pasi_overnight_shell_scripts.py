@@ -30,6 +30,8 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             '--worktree "$WORKTREE"',
             '--branch "$BRANCH"',
             'START_PID_FILE="$RUNTIME_DIR/start.pid"',
+            'printf \'%s\\n\' "$$" > "$START_PID_FILE"',
+            '[[ "$(cat "$START_PID_FILE" 2>/dev/null || true)" == "$$" ]]',
             'http://127.0.0.1:8765/health',
             'http://127.0.0.1:8766/health',
             'automation.orchestrator.bridge',

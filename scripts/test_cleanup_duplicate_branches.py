@@ -9,12 +9,7 @@ from scripts.cleanup_duplicate_branches import (
     can_delete_merged_branch,
     is_disposable_name,
     list_superseded_snapshot_branches,
-    _list_merged_pr_head_shas_for_branches,
-    CANONICAL_KEEP_BRANCHES,
-    CANONICAL_KEEP_BRANCH_TIPS,
-    missing_canonical_keep_branches,
-    restore_missing_canonical_keep_branches,
-)
+    _list_merged_pr_head_shas_for_branches,)
 
 
 class TestCleanupDuplicateBranches(unittest.TestCase):
@@ -189,63 +184,6 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         )
         self.assertEqual([item.name for item in plan.deletions], ["pasi/snapshot"])
 
-    def test_canonical_keep_branches_are_built_in(self) -> None:
-        self.assertEqual(
-            CANONICAL_KEEP_BRANCHES,
-            frozenset(
-                {
-                    "pasi/bridge-edge-case-tests-20260917",
-                    "pasi/control-plane-recovery-20260917",
-                    "pasi/continuation-anti-loop-20260918",
-                }
-            ),
-        )
-
-    def test_missing_canonical_keeper_is_detected(self) -> None:
-        branches = (
-            BranchRef("main", "mainsha"),
-            BranchRef("pasi/bridge-edge-case-tests-20260917", "bridge"),
-            BranchRef("pasi/control-plane-recovery-20260917", "recovery"),
-        )
-        self.assertEqual(
-            missing_canonical_keep_branches(branches),
-            ("pasi/continuation-anti-loop-20260918",),
-        )
-
-    def test_present_canonical_keepers_are_not_restored(self) -> None:
-        branches = (
-            BranchRef(name, sha)
-            for name, sha in CANONICAL_KEEP_BRANCH_TIPS.items()
-        )
-        with unittest.mock.patch(
-            "scripts.cleanup_duplicate_branches._create_ref"
-        ) as create_ref:
-            restored = restore_missing_canonical_keep_branches(
-                tuple(branches),
-                token="test-token",
-            )
-        create_ref.assert_not_called()
-        self.assertEqual(restored, ())
-
-    def test_missing_canonical_keeper_is_restored_at_known_tip(self) -> None:
-        branches = (
-            BranchRef("pasi/bridge-edge-case-tests-20260917", "bridge"),
-            BranchRef("pasi/control-plane-recovery-20260917", "recovery"),
-        )
-        with unittest.mock.patch(
-            "scripts.cleanup_duplicate_branches._create_ref"
-        ) as create_ref:
-            restored = restore_missing_canonical_keep_branches(
-                branches,
-                token="test-token",
-            )
-        create_ref.assert_called_once_with(
-            "pasi/continuation-anti-loop-20260918",
-            "0f9047ad6e4e8ca4637372e391faa26ecdb49a85",
-            token="test-token",
-        )
-        self.assertEqual(restored, ("pasi/continuation-anti-loop-20260918",))
-
     def test_explicit_keeper_is_never_deleted(self) -> None:
         branches = (
             BranchRef("pasi/canonical", "abc"),
@@ -317,19 +255,45 @@ class TestCleanupDuplicateBranches(unittest.TestCase):
         )
         self.assertEqual(plan.deletions, ())
 
-    def test_merged_branch_can_be_deleted_only_when_not_open_or_main(self) -> None:
+    def test_merged_branch_can_be_deleted_only_when_proven_safe(self) -> None:
+        safe = frozenset({"pasi/merged"})
         self.assertTrue(
-            can_delete_merged_branch("pasi/merged", open_pr_heads=frozenset())
+            can_delete_merged_branch(
+                "pasi/merged",
+                deletable_branches=safe,
+                open_pr_heads=frozenset(),
+            )
         )
         self.assertFalse(
-            can_delete_merged_branch("main", open_pr_heads=frozenset())
+            can_delete_merged_branch(
+                "pasi/unproven",
+                deletable_branches=safe,
+                open_pr_heads=frozenset(),
+            )
+        )
+        self.assertFalse(
+            can_delete_merged_branch(
+                "main",
+                deletable_branches=safe,
+                open_pr_heads=frozenset(),
+            )
         )
         self.assertFalse(
             can_delete_merged_branch(
                 "pasi/merged",
+                deletable_branches=safe,
                 open_pr_heads=frozenset({"pasi/merged"}),
             )
         )
+
+    def test_closed_unmerged_branch_is_not_deleted_without_proof(self) -> None:
+        branches = (BranchRef("feature/closed", "feature-tip"),)
+        plan = build_cleanup_plan(
+            branches,
+            open_pr_heads=frozenset(),
+            merged_pr_heads={},
+        )
+        self.assertEqual(plan.deletions, ())
 
 
 if __name__ == "__main__":
