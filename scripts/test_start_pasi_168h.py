@@ -14,6 +14,7 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
         self.assertLess(preflight, runner)
         self.assertIn("http://127.0.0.1:8765/browser/observation", self.source)
         self.assertIn('actual_version != expected_version.strip()', self.source)
+        self.assertIn('if data.get("native_controller") is not True:', self.source)
         self.assertIn("auth_required", self.source)
         self.assertIn("browser_deadline=$((SECONDS + 30))", self.source)
         self.assertIn("exit 8", self.source)

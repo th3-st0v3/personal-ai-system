@@ -395,7 +395,12 @@ def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
         return False
     expected = expected_controller_version()
     actual = data.get("controller_version")
-    return isinstance(expected, str) and expected == actual
+    native_controller = data.get("native_controller")
+    return (
+        isinstance(expected, str)
+        and expected == actual
+        and native_controller is True
+    )
 
 
 def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECONDS) -> bool:

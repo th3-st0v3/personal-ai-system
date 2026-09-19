@@ -61,6 +61,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             "kind": "chatgpt_state",
             "controller_version": "2.4.11",
             "captured_at": timestamp,
+            "native_controller": True,
         }
         stale = dict(current, controller_version="2.4.10")
         missing = dict(current)
@@ -72,6 +73,24 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         ):
             with mock.patch.object(engine, "browser_observation", side_effect=[current, stale, missing]):
                 self.assertTrue(engine.runtime_watchdog_is_live())
+                self.assertFalse(engine.runtime_watchdog_is_live())
+                self.assertFalse(engine.runtime_watchdog_is_live())
+
+    def test_controller_observation_rejects_legacy_controller_even_with_current_version(self) -> None:
+        now = datetime.now(timezone.utc)
+        legacy_observation = {
+            "kind": "chatgpt_state",
+            "controller_version": "2.4.11",
+            "captured_at": now.isoformat(),
+            "native_controller": False,
+        }
+        native_missing = dict(legacy_observation)
+        native_missing.pop("native_controller")
+        with mock.patch(
+            "scripts.pasi_overnight_engine_v2.expected_controller_version",
+            return_value="2.4.11",
+        ):
+            with mock.patch.object(engine, "browser_observation", side_effect=[legacy_observation, native_missing]):
                 self.assertFalse(engine.runtime_watchdog_is_live())
                 self.assertFalse(engine.runtime_watchdog_is_live())
 

@@ -177,6 +177,8 @@ kind = data.get("kind")
 actual_version = data.get("controller_version")
 if kind not in {"chatgpt_health", "chatgpt_state"}:
     raise SystemExit(1)
+if data.get("native_controller") is not True:
+    raise SystemExit(1)
 if not isinstance(expected_version, str) or not expected_version.strip() or actual_version != expected_version.strip():
     raise SystemExit(1)
 if data.get("auth_required") is True:
