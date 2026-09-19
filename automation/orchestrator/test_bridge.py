@@ -816,6 +816,57 @@ def test_non_transient_failure_remains_terminal(tmp_path: Path) -> None:
     assert "failure_reason" not in failed
 
 
+def test_http_next_operation_is_post_only(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "post-only")
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        conn.request("GET", "/next-operation")
+        response = conn.getresponse()
+        assert response.status == 404
+        response.read()
+        conn.close()
+
+        conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        conn.request("POST", "/next-operation", body=b"{}", headers={"Content-Type": "application/json"})
+        response = conn.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        conn.close()
+        assert response.status == 200
+        assert body["operation"]["operation_id"] == operation.operation_id
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+def test_http_cancel_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "cancel over http")
+    bridge.claim_next_operation()
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        body = json.dumps({"operation_id": operation.operation_id, "reason": "timeout"}).encode()
+        conn.request("POST", "/chat/cancel", body=body, headers={"Content-Type": "application/json"})
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        conn.close()
+        assert response.status == 200
+        assert payload["operation"]["status"] == "cancelled"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
 def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
