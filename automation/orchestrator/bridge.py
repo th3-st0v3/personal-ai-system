@@ -322,8 +322,14 @@ class BridgeState:
         with self.lock:
             self._persist_verified_response_observation(observation)
             data = observation.get("data")
-            if isinstance(data, dict) and data.get("kind") == "chatgpt_response":
-                self.state_manager.save_browser_response(observation)
+            if isinstance(data, dict):
+                kind = data.get("kind")
+                if kind == "chatgpt_response":
+                    self.state_manager.save_browser_response(observation)
+                elif kind == "chatgpt_health":
+                    self.state_manager.save_browser_health(observation)
+                elif kind == "chatgpt_state":
+                    self.state_manager.save_browser_state(observation)
 
             current = self.state_manager.load_browser_results()
             incoming_priority = self._browser_observation_priority(observation)
@@ -349,6 +355,16 @@ class BridgeState:
         with self.lock:
             response = self.state_manager.load_browser_response()
             return response if response else None
+
+    def get_browser_health(self) -> dict[str, Any] | None:
+        with self.lock:
+            health = self.state_manager.load_browser_health()
+            return health if health else None
+
+    def get_browser_state(self) -> dict[str, Any] | None:
+        with self.lock:
+            state = self.state_manager.load_browser_state()
+            return state if state else None
 
     def get_browser_observation(
         self,
