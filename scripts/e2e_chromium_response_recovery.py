@@ -38,6 +38,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     finished_payload: dict | None = None
     observations = 0
+    observation_payloads: list[dict] = []
 
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -117,6 +118,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         if self.path == "/browser/observation":
             BridgeHandler.observations += 1
+            BridgeHandler.observation_payloads.append(payload)
+            BridgeHandler.observation_payloads = BridgeHandler.observation_payloads[-20:]
             self._send_json(200, {"ok": True})
             return
 
@@ -551,6 +554,7 @@ def stop_chrome(chrome_process: subprocess.Popen | None) -> None:
 def main() -> None:
     BridgeHandler.finished_payload = None
     BridgeHandler.observations = 0
+    BridgeHandler.observation_payloads = []
 
     bridge = ThreadingHTTPServer((BRIDGE_HOST, BRIDGE_PORT), BridgeHandler)
     fixture_port = free_port()
@@ -707,7 +711,8 @@ def main() -> None:
                 )[-5000:]
                 raise AssertionError(
                     f"Chromium CDP acceptance failed: {exc}; "
-                    f"browser={diagnostic}; chrome_log={chrome_log}"
+                    f"browser={diagnostic}; observations={BridgeHandler.observation_payloads!r}; "
+                    f"chrome_log={chrome_log}"
                 ) from exc
             finally:
                 if cdp is not None and target_id:
