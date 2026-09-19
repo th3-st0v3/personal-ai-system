@@ -707,7 +707,6 @@
       operation_id: operationId,
       started_ms: startedMs,
       baseline: fingerprint(),
-      chat_url: location.href,
       reload_count: 0,
       phase: 'monitoring',
       chat_url: typeof current.chat_url === 'string' ? current.chat_url : location.href,
