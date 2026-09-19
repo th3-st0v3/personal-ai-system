@@ -74,6 +74,22 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
 });
 
+test('native transient control activation clears stale focus before ChatGPT hides or replaces UI', () => {
+  assert.match(content, /function clearFocusBeforeActivation\(\)/);
+  assert.match(content, /const active = document\.activeElement;/);
+  assert.match(content, /try \{ active\.blur\(\); \} catch \(_\) \{\}/);
+  assert.match(content, /function activateControl\(element\)/);
+  assert.match(content, /clearFocusBeforeActivation\(\);\s*try \{\s*element\.click\(\);/);
+  assert.match(content, /if \(!activateControl\(button\)\) throw new Error\('PASI_NATIVE: New chat control activation failed'\)/);
+  assert.match(content, /function nativeMouseActivate\(element\) \{/);
+  const mouseActivation = content.slice(
+    content.indexOf('function nativeMouseActivate(element)'),
+    content.indexOf('async function submitPrompt(expected)')
+  );
+  assert.match(mouseActivation, /clearFocusBeforeActivation\(\);/);
+  assert.doesNotMatch(mouseActivation, /element\.focus\(\);/);
+});
+
 test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
   assert.match(content, /case 'prompt': \{/);
   assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
