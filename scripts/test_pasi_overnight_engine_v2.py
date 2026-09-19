@@ -10,6 +10,43 @@ from scripts import pasi_overnight_engine_v2 as engine
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
+    def test_parse_response_requires_all_markers_exactly_once_and_preserves_patch_lines(self) -> None:
+        response = """PASI_RESULT_STATUS: complete
+PASI_RESULT_SUMMARY: parser seam
+PASI_RESULT_NEXT_TASK: next
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: handled
+PASI_RESULT_RESEARCH: not_applicable
+PASI_RESULT_UX: verified
+PASI_RESULT_BACKEND: verified
+PASI_RESULT_EVIDENCE: multiline patch preserved
+PASI_RESULT_REPOSITORY_PROGRESS: changed
+PASI_RESULT_ALLOW_DELETE: false
+PASI_RESULT_PATCH_BEGIN
+diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+PASI_RESULT_PATCH_END"""
+        status, summary, next_task, patch, allow_delete, values = engine.parse_response(response)
+        self.assertEqual(status, "complete")
+        self.assertEqual(summary, "parser seam")
+        self.assertEqual(next_task, "next")
+        self.assertFalse(allow_delete)
+        self.assertIn("@@ -1 +1 @@
+-old
++new", patch)
+        self.assertEqual(values["repository_progress"], "changed")
+
+    def test_parse_response_rejects_missing_marker(self) -> None:
+        response = "PASI_RESULT_STATUS: complete
+PASI_RESULT_PATCH_BEGIN
+PASI_RESULT_PATCH_END"
+        with self.assertRaisesRegex(ValueError, "each marker exactly once"):
+            engine.parse_response(response)
+
     def test_automation_gate_requires_consistent_evidence(self) -> None:
         self.assertTrue(
             engine.automation_gate_is_satisfied(
