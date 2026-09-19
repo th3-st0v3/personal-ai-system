@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,43 @@ class TestPasiOvernightEngine(unittest.TestCase):
                     engine.ensure_worktree(worktree, "pasi/test", resume=False)
             command_args = run_command.call_args.args[0]
             self.assertEqual(command_args[-1], "HEAD")
+
+    def test_apply_patch_feeds_real_diff_to_git_stdin(self) -> None:
+        patch = """diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir)
+            subprocess.run(["git", "init", "-q"], cwd=worktree, check=True)
+            subprocess.run(["git", "config", "user.email", "pasi@test.invalid"], cwd=worktree, check=True)
+            subprocess.run(["git", "config", "user.name", "PASI Test"], cwd=worktree, check=True)
+            (worktree / "example.txt").write_text("old\n", encoding="utf-8")
+            subprocess.run(["git", "add", "example.txt"], cwd=worktree, check=True)
+            subprocess.run(["git", "commit", "-qm", "initial"], cwd=worktree, check=True)
+
+            engine.apply_patch(worktree, patch, False)
+
+            self.assertEqual((worktree / "example.txt").read_text(encoding="utf-8"), "new\n")
+
+    def test_apply_patch_rejects_invalid_patch_before_mutating_repository(self) -> None:
+        patch = """diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -4 +4 @@
+-missing
++new
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir)
+            subprocess.run(["git", "init", "-q"], cwd=worktree, check=True)
+            (worktree / "example.txt").write_text("old\n", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                engine.apply_patch(worktree, patch, False)
+            self.assertEqual((worktree / "example.txt").read_text(encoding="utf-8"), "old\n")
 
     def test_completion_requires_explicit_evidence_contract(self) -> None:
         values = {
