@@ -121,6 +121,7 @@ test('native prompt submission requires explicit acknowledgement and composer-sc
   assert.match(content, /Restrict accessible-label fallback to the active composer form/);
   assert.match(content, /return labeledSendInScope\(form \|\| box\?\.parentElement \|\| null\)/);
   assert.match(content, /waitForSend\(box\)/);
+  assert.doesNotMatch(content, /const send = await waitForSend\(\)/);
   assert.match(content, /function composerContainsPrompt\(element, expected\)/);
   assert.match(content, /button\.focus\(\);/);
   assert.match(content, /const afterClick = composer\(\);/);
