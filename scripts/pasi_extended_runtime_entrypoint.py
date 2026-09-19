@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as supervisor
-from scripts import pasi_overnight_engine as legacy
 
 DEFAULT_TASK_FILE = Path.home() / ".pasi" / "current-project-task.md"
 MAX_TASK_FILE_CHARS = 120_000
@@ -18,8 +17,8 @@ Treat the assigned objective as implementation-heavy engineering work. Understan
 
 
 def validate_hours(hours: float) -> float:
-    if not math.isfinite(hours) or hours < legacy.MIN_HOURS:
-        raise ValueError(f"--hours must be a finite value >= {legacy.MIN_HOURS:g}")
+    if not math.isfinite(hours) or hours < supervisor.MIN_HOURS:
+        raise ValueError(f"--hours must be a finite value >= {supervisor.MIN_HOURS:g}")
     return hours
 
 
