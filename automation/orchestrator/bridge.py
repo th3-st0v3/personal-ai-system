@@ -746,7 +746,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
         self.send_response(status)
 
-        if origin in allowed_origins:
+        if origin in allowed_origins or origin.startswith("chrome-extension://"):
             self.send_header(
                 "Access-Control-Allow-Origin",
                 origin,
