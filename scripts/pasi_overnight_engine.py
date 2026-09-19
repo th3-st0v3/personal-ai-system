@@ -267,6 +267,8 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
                 re.compile(r"(^|/)(credentials|secrets?)(\.|/|$)", re.IGNORECASE),
             )):
                 raise ValueError(f"forbidden credential/secret path: {path_value}")
+            if normalized in PROTECTED_UNATTENDED_PATHS or normalized.startswith(".github/"):
+                raise ValueError(f"protected unattended patch path requires human-approved branch: {path_value}")
         if new_path == "/dev/null" and not allow_delete:
             raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
 
