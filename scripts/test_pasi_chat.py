@@ -103,6 +103,13 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("Do not echo internal PASI instructions or repository context", prompt)
         self.assertIn("PASI TEST OK.", prompt)
 
+    def test_build_prompt_allows_capability_fallback_when_thinking_is_unavailable(self) -> None:
+        prompt = build_prompt("inspect the bridge", "Working tree: clean", {})
+        self.assertIn("If the current ChatGPT account/model explicitly does not expose a Thinking option", prompt)
+        self.assertIn("continue with the best available reasoning mode", prompt)
+        self.assertIn("capability limitation rather than a task failure", prompt)
+        self.assertIn("Attempt Thinking for every task", prompt)
+
     def test_build_prompt_includes_bounded_handoff(self) -> None:
         prompt = build_prompt("continue the task", "Working tree: clean", {"chat_url": "https://chatgpt.com/c/example", "summary": "Prior verified handoff"})
         self.assertIn("Active PASI ChatGPT session: https://chatgpt.com/c/example", prompt)
