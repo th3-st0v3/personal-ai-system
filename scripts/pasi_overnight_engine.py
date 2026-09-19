@@ -318,6 +318,33 @@ def repository_worktree_is_clean(worktree: Path) -> bool:
     return code == 0 and not status.strip()
 
 
+def apply_patch(
+    worktree: Path,
+    patch: str,
+    allow_delete: bool,
+    *,
+    validator: Any = validate_patch_paths,
+) -> str:
+    validator(patch, allow_delete)
+    code, output = command(
+        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+        worktree,
+        timeout=60.0,
+        input=patch,
+    )
+    if code != 0:
+        raise OvernightError(f"git apply --check failed:\n{output}")
+    code, output = command(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        worktree,
+        timeout=60.0,
+        input=patch,
+    )
+    if code != 0:
+        raise OvernightError(f"git apply failed:\n{output}")
+    return output
+
+
 def no_change_completion_is_satisfied(
     worktree: Path,
     status: str,
@@ -375,7 +402,7 @@ RUN CONTEXT:
 COMPLETION CONTRACT:
 Do not mark complete until every stated requirement is implemented; relevant limitations have a concrete workaround or are genuinely not applicable; useful additional research/features have been implemented when appropriate; UX is working and aesthetically coherent or not applicable; backend behavior is working or not applicable; and reproducible evidence supports the result.
 
-OUTPUT — return each marker exactly once:
+OUTPUT — return exactly one fenced text block containing each marker exactly once:
 PASI_RESULT_STATUS: complete|needs_revision|blocked
 PASI_RESULT_SUMMARY: one concise sentence
 PASI_RESULT_NEXT_TASK: one concrete high-value next task
@@ -417,13 +444,7 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
 
 def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     normalized_patch = normalize_patch(patch)
-    validate_patch_paths(normalized_patch, allow_delete)
-    code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, timeout=60.0)
-    if code != 0:
-        raise OvernightError(f"git apply --check failed:\n{output}")
-    code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, timeout=60.0)
-    if code != 0:
-        raise OvernightError(f"git apply failed:\n{output}")
+    output = apply_patch(worktree, normalized_patch, allow_delete)
     code, output = command(["bash", "scripts/check_all.sh"], worktree, timeout=900.0)
     if code != 0:
         raise OvernightError(f"canonical validation failed:\n{output}")
@@ -431,7 +452,6 @@ def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     if code != 0 or not status:
         raise OvernightError("verification passed but no repository changes remain")
     return output
-
 
 def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
     code, output = command(["git", "add", "-A"], worktree, timeout=30.0)
