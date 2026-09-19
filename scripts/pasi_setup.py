@@ -17,7 +17,6 @@ if str(REPO_ROOT) not in sys.path:
 from automation.computer_use.setup_requirements import MARKDOWN_RELATIVE_PATH, RUNTIME_RELATIVE_PATH
 CATALOG_PATH = REPO_ROOT / "config" / "automation" / "setup_catalog.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
-CONTROLLER_URL = "http://127.0.0.1:8766"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -83,7 +82,6 @@ def build_report() -> dict[str, Any]:
     python_path = REPO_ROOT / ".venv" / "bin" / "python"
     observation = _runtime_observation()
     bridge_health = _health(BRIDGE_URL + "/health")
-    controller_health = _health(CONTROLLER_URL + "/health")
     runtime_data: dict[str, Any] = {}
     if observation is not None:
         observed_data = observation.get("data")
@@ -102,8 +100,7 @@ def build_report() -> dict[str, Any]:
         },
         "runtime": {
             "bridge_health": bridge_health or {"status": "unavailable"},
-            "controller_distribution_health": controller_health or {"status": "unavailable"},
-            "browser_observation": observation or {"status": "unavailable"},
+            "browser_health": observation or {"status": "unavailable"},
             "chatgpt_login_required": runtime_data.get("auth_required") is True,
             "chatgpt_usage_limited": runtime_data.get("provider_usage_limited") is True,
             "chatgpt_context_exhausted": runtime_data.get("conversation_context_exhausted") is True,
@@ -149,9 +146,9 @@ def print_report(report: dict[str, Any]) -> None:
     print()
     print("Runtime")
     bridge = report["runtime"]["bridge_health"].get("status", "unavailable")
-    distribution = report["runtime"]["controller_distribution_health"].get("status", "unavailable")
+    browser = report["runtime"]["browser_health"].get("status", "unavailable")
     print(f"  Bridge: {bridge}")
-    print(f"  Controller distribution: {distribution}")
+    print(f"  Browser health: {browser}")
     if report["runtime"]["chatgpt_login_required"]:
         print("  ChatGPT: ACTION REQUIRED — authenticate / complete the interactive security check in the browser.")
     elif report["runtime"]["chatgpt_usage_limited"]:
