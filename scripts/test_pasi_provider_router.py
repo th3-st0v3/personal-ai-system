@@ -3,6 +3,7 @@ from __future__ import annotations
 from email.message import Message
 import unittest
 from pathlib import Path
+import tempfile
 from unittest.mock import patch
 
 from scripts import pasi_provider_router
@@ -216,18 +217,26 @@ class TestProviderRouter(unittest.TestCase):
                 )
 
     def test_opencode_uses_disposable_copy_and_denies_tools(self) -> None:
-        with patch("shutil.which", return_value="/usr/bin/opencode"):
-            with patch.object(pasi_provider_router.subprocess, "run") as run:
-                run.return_value.returncode = 0
-                run.return_value.stdout = "response"
-                run.return_value.stderr = ""
-                result = pasi_provider_router.call_opencode("task", Path("."), 20.0)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "private.txt").write_text("sensitive", encoding="utf-8")
+            with patch("shutil.which", return_value="/usr/bin/opencode"):
+                with patch.object(pasi_provider_router.shutil, "copytree") as copytree:
+                    with patch.object(pasi_provider_router.subprocess, "run") as run:
+                        run.return_value.returncode = 0
+                        run.return_value.stdout = "response"
+                        run.return_value.stderr = ""
+                        result = pasi_provider_router.call_opencode("task", repo, 20.0)
 
         self.assertEqual(result, "response")
-        call = run.call_args
-        self.assertIn("--standalone", call.args[0])
-        self.assertEqual(call.args[1], "run") if False else None
-        env = call.kwargs["env"]
+        copy_args = copytree.call_args.args
+        self.assertEqual(copy_args[0], repo)
+        sandbox = copy_args[1]
+        self.assertNotEqual(sandbox, repo)
+        command = run.call_args.args[0]
+        self.assertEqual(command[:3], ["/usr/bin/opencode", "run", "--standalone"])
+        self.assertEqual(command[command.index("--dir") + 1], str(sandbox))
+        env = run.call_args.kwargs["env"]
         self.assertEqual(env["OPENCODE_DISABLE_DEFAULT_PLUGINS"], "true")
         self.assertEqual(env["OPENCODE_DISABLE_LSP_DOWNLOAD"], "true")
         for permission in ("edit", "bash", "webfetch", "websearch", "task", "skill", "external_directory", "question"):
