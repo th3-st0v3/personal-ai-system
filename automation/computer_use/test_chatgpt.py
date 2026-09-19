@@ -414,7 +414,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         transport = ObservationFailingTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed"}},
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed", "response_text": "late answer", "response_text_available": True}},
-        ])
+        ], fail_path="/browser/response")
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
         response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
         self.assertEqual(response.completion, "complete")
