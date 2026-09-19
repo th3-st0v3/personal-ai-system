@@ -458,13 +458,30 @@
     return null;
   }
 
+  function clearFocusBeforeActivation() {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) return;
+    try { active.blur(); } catch (_) {}
+  }
+
+  function activateControl(element) {
+    if (!element || !visible(element) || disabled(element)) return false;
+    clearFocusBeforeActivation();
+    try {
+      element.click();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function newChat() {
     const previousLocation = location.href;
     const previousChat = chatUrl();
     const previousSignature = conversationSignature();
     const button = await waitFor(() => findLabeled(['new chat'], ['a', 'button', '[role="button"]']), TIMEOUTS.menu);
     if (!button || disabled(button)) throw new Error('PASI_NATIVE: New chat control unavailable');
-    button.click();
+    if (!activateControl(button)) throw new Error('PASI_NATIVE: New chat control activation failed');
 
     const ready = await waitFor(() => {
       const currentChat = chatUrl();
@@ -546,7 +563,7 @@
         return;
       }
       if (state === false) {
-        directThinkingControl.click();
+        if (!activateControl(directThinkingControl)) throw new Error('PASI_NATIVE: Thinking control activation failed');
         await sleep(CLICK_SETTLE_MS);
         const verified = await waitFor(
           () => thinkingEnabled() === true ? true : null,
@@ -563,7 +580,7 @@
       const mode = currentModelMode();
       if (mode === 'thinking') { reasoningMode = 'thinking'; return; }
 
-      pill.click();
+      if (!activateControl(pill)) throw new Error('PASI_NATIVE: model selector activation failed');
       await sleep(CLICK_SETTLE_MS);
 
       const configure = await waitFor(
@@ -573,7 +590,7 @@
       );
 
       if (configure && visible(configure)) {
-        configure.click();
+        if (!activateControl(configure)) throw new Error('PASI_NATIVE: model configure control activation failed');
         await sleep(CLICK_SETTLE_MS);
       }
 
@@ -586,7 +603,7 @@
       if (optionState === true) {
         await waitFor(() => currentModelMode() === 'thinking' || thinkingEnabled() === true ? true : null, 3000);
       } else {
-        thinkingOption.click();
+        if (!activateControl(thinkingOption)) throw new Error('PASI_NATIVE: Thinking option activation failed');
       }
 
       const verified = await waitFor(
@@ -610,7 +627,7 @@
         return;
       }
       if (state === false) {
-        control.click();
+        if (!activateControl(control)) throw new Error('PASI_NATIVE: Thinking toggle activation failed');
         await sleep(CLICK_SETTLE_MS);
         const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after toggle');
@@ -630,7 +647,7 @@
       TIMEOUTS.menu
     );
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: Thinking/model selection control unavailable');
-    plus.click();
+    if (!activateControl(plus)) throw new Error('PASI_NATIVE: add-files control activation failed');
     await sleep(CLICK_SETTLE_MS);
 
     const menuThinking = await waitFor(findThinkingMenuOption, TIMEOUTS.menu);
@@ -643,7 +660,7 @@
       return;
     }
     if (menuState === false) {
-      menuThinking.click();
+      if (!activateControl(menuThinking)) throw new Error('PASI_NATIVE: Thinking menu activation failed');
       await sleep(CLICK_SETTLE_MS);
       const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
       if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after menu selection');
@@ -664,16 +681,16 @@
     }
     const plus = await waitFor(() => firstVisible(['button[aria-label="Add files and more"]', 'button[aria-label*="Add files"]', 'button[aria-label*="Attach"]']), TIMEOUTS.menu);
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: GitHub menu unavailable');
-    plus.click();
+    if (!activateControl(plus)) throw new Error('PASI_NATIVE: add-files control activation failed');
     const github = await waitFor(() => findLabeled(['github'], ['button', '[role="button"]', '[role="menuitem"]', '[role="option"]']), TIMEOUTS.menu);
     if (!github) throw new Error('PASI_NATIVE: GitHub app unavailable');
-    github.click();
+    if (!activateControl(github)) throw new Error('PASI_NATIVE: GitHub control activation failed');
     const picker = await waitFor(() => firstVisible(['input[placeholder*="repository" i]', 'input[placeholder*="repo" i]', '[role="dialog"] input[type="text"]']), TIMEOUTS.menu);
     if (!picker) throw new Error('PASI_NATIVE: repository picker unavailable');
     setText(picker, repository);
     const result = await waitFor(() => findLabeled([repository], ['button', '[role="button"]', '[role="option"]', '[role="menuitem"]', 'a']), TIMEOUTS.menu);
     if (!result) throw new Error('PASI_NATIVE: requested repository unavailable');
-    result.click();
+    if (!activateControl(result)) throw new Error('PASI_NATIVE: repository result activation failed');
     await sleep(CLICK_SETTLE_MS);
     const bodyText = normalize(document.body?.innerText || '');
     const githubFailureMarkers = [
@@ -912,7 +929,7 @@
 
   function nativeMouseActivate(element) {
     if (!element) return false;
-    element.focus();
+    clearFocusBeforeActivation();
     const init = {
       bubbles: true,
       cancelable: true,
