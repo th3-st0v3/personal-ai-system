@@ -835,12 +835,17 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/browser/response":
             response = self.bridge_state.get_browser_response()
+            self._send_json({"observation": response})
+            return
 
-            self._send_json(
-                {
-                    "observation": response
-                }
-            )
+        if path == "/browser/health":
+            health = self.bridge_state.get_browser_health()
+            self._send_json({"observation": health})
+            return
+
+        if path == "/browser/state":
+            state = self.bridge_state.get_browser_state()
+            self._send_json({"observation": state})
             return
 
         if path == "/operation":
