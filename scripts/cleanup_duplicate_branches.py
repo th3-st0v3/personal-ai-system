@@ -249,7 +249,6 @@ def list_superseded_snapshot_branches(
             canonical is None
             or canonical.name == default_branch
             or canonical.name in open_pr_heads
-            or canonical.name in keep_branches
             or is_disposable_name(canonical.name)
         ):
             continue
