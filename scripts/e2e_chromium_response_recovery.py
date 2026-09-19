@@ -23,7 +23,8 @@ BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 8765
 OPERATION_ID = "pasi-e2e-late-response"
 EXPECTED_RESPONSE = "response recovered by the real Chromium controller"
-CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS = 30.0
+CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS = 45.0
+CHROMEDRIVER_START_ATTEMPTS = 2
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
@@ -293,6 +294,81 @@ def wait_for_bridge_event(timeout: float) -> None:
     raise AssertionError("Chromium did not submit the recovered response evidence")
 
 
+def start_driver(
+    chromedriver_binary: str,
+    driver_port: int,
+    log_file,
+) -> subprocess.Popen:
+    return subprocess.Popen(
+        [
+            chromedriver_binary,
+            f"--port={driver_port}",
+            "--host=127.0.0.1",
+            "--log-level=SEVERE",
+        ],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+    )
+
+
+def stop_driver(driver_process: subprocess.Popen | None) -> None:
+    if driver_process is None or driver_process.poll() is not None:
+        return
+    driver_process.terminate()
+    try:
+        driver_process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        driver_process.kill()
+        driver_process.wait(timeout=3)
+
+
+def create_driver_session(
+    driver_url: str,
+    chrome_binary: str,
+    profile_dir: Path,
+) -> str:
+    created = driver_request(
+        driver_url,
+        "POST",
+        "/session",
+        {
+            "capabilities": {
+                "alwaysMatch": {
+                    "browserName": "chrome",
+                    "goog:chromeOptions": {
+                        "binary": chrome_binary,
+                        "args": [
+                            "--headless=new",
+                            "--no-sandbox",
+                            "--disable-gpu",
+                            "--disable-dev-shm-usage",
+                            "--no-first-run",
+                            "--no-default-browser-check",
+                            "--disable-sync",
+                            "--disable-extensions",
+                            "--disable-background-networking",
+                            "--disable-component-update",
+                            "--disable-default-apps",
+                            "--remote-allow-origins=*",
+                            f"--user-data-dir={profile_dir}",
+                        ],
+                    },
+                }
+            }
+        },
+        timeout=CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS,
+    )
+    value = created.get("value")
+    if not isinstance(value, dict):
+        raise RuntimeError(
+            f"ChromeDriver returned invalid session payload: {created}"
+        )
+    session_id = value.get("sessionId") or created.get("sessionId")
+    if not isinstance(session_id, str) or not session_id:
+        raise RuntimeError(f"ChromeDriver did not return a session id: {created}")
+    return session_id
+
+
 def main() -> None:
     BridgeHandler.finished_payload = None
     BridgeHandler.observations = 0
@@ -305,69 +381,48 @@ def main() -> None:
     bridge_thread.start()
     fixture_thread.start()
 
-    driver_port = free_port()
     chrome_binary = find_chrome()
     chromedriver_binary = find_chromedriver()
 
     with (
-        tempfile.TemporaryDirectory(prefix="pasi-chromium-e2e-") as profile_dir,
+        tempfile.TemporaryDirectory(prefix="pasi-chromium-e2e-") as profile_root,
         tempfile.NamedTemporaryFile(
             prefix="pasi-chromedriver-", suffix=".log", delete=False
         ) as log_file,
     ):
         driver_log_path = Path(log_file.name)
-        driver_process = subprocess.Popen(
-            [
-                chromedriver_binary,
-                f"--port={driver_port}",
-                "--host=127.0.0.1",
-                "--log-level=SEVERE",
-            ],
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-        )
-
-        driver_url = f"http://127.0.0.1:{driver_port}"
+        driver_process: subprocess.Popen | None = None
+        driver_url = ""
         session_id: str | None = None
         try:
-            wait_for_driver(driver_url, 10.0)
-            created = driver_request(
-                driver_url,
-                "POST",
-                "/session",
-                {
-                    "capabilities": {
-                        "alwaysMatch": {
-                            "browserName": "chrome",
-                            "goog:chromeOptions": {
-                                "binary": chrome_binary,
-                                "args": [
-                                    "--headless=new",
-                                    "--no-sandbox",
-                                    "--disable-gpu",
-                                    "--disable-dev-shm-usage",
-                                    "--no-first-run",
-                                    "--no-default-browser-check",
-                                    "--disable-sync",
-                                    "--remote-allow-origins=*",
-                                    f"--user-data-dir={profile_dir}",
-                                ],
-                            },
-                        }
-                    }
-                },
-                # Chrome can take longer than the short health-check window to
-                # finish creating a headless session on a loaded CI runner.
-                # Keep this bounded, but do not fail the acceptance test merely
-                # because browser startup is slower than normal.
-                timeout=CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS,
-            )
-            value = created.get("value")
-            if not isinstance(value, dict):
-                raise RuntimeError(f"ChromeDriver returned invalid session payload: {created}")
-            session_id = value.get("sessionId") or created.get("sessionId")
-            if not isinstance(session_id, str) or not session_id:
-                raise RuntimeError(f"ChromeDriver did not return a session id: {created}")
+            last_startup_error: Exception | None = None
+            for attempt in range(CHROMEDRIVER_START_ATTEMPTS):
+                driver_port = free_port()
+                driver_url = f"http://127.0.0.1:{driver_port}"
+                attempt_profile = Path(profile_root) / f"attempt-{attempt + 1}"
+                attempt_profile.mkdir()
+                driver_process = start_driver(
+                    chromedriver_binary, driver_port, log_file
+                )
+                try:
+                    wait_for_driver(driver_url, 10.0)
+                    session_id = create_driver_session(
+                        driver_url,
+                        chrome_binary,
+                        attempt_profile,
+                    )
+                    break
+                except Exception as exc:
+                    last_startup_error = exc
+                    stop_driver(driver_process)
+                    driver_process = None
+                    if attempt + 1 < CHROMEDRIVER_START_ATTEMPTS:
+                        time.sleep(0.5)
+            if not session_id:
+                raise RuntimeError(
+                    "ChromeDriver session startup failed after "
+                    f"{CHROMEDRIVER_START_ATTEMPTS} bounded attempts: {last_startup_error}"
+                )
 
             driver_request(
                 driver_url,
@@ -432,12 +487,7 @@ def main() -> None:
                 ) if session_id else None
             except Exception:
                 diagnostic = None
-            driver_process.terminate()
-            try:
-                driver_process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                driver_process.kill()
-                driver_process.wait(timeout=3)
+            stop_driver(driver_process)
             driver_log = driver_log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
             raise AssertionError(
                 f"Chromium WebDriver acceptance failed: {exc}; "
@@ -454,13 +504,7 @@ def main() -> None:
                     )
                 except Exception:
                     pass
-            if driver_process.poll() is None:
-                driver_process.terminate()
-                try:
-                    driver_process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    driver_process.kill()
-                    driver_process.wait(timeout=3)
+            stop_driver(driver_process)
             bridge.shutdown()
             fixture.shutdown()
             bridge.server_close()
