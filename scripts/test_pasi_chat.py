@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import tempfile
 import unittest
+from unittest.mock import patch
 from typing import cast
 from pathlib import Path
 
