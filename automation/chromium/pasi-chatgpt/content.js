@@ -1,14 +1,13 @@
 (() => {
   'use strict';
 
-  const BRIDGE = 'http://127.0.0.1:8765';
   const CONTROLLER_VERSION = '2.4.11';
   const POLL_MS = 2000;
   const HEALTH_MS = 15000;
   const DOM_POLL_MS = 250;
   const CLICK_SETTLE_MS = 250;
   const RESPONSE_SETTLE_MS = 200;
-  const SUBMISSION_ACK_MS = 2500;
+  const SUBMISSION_ACK_MS = 7500;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
@@ -25,24 +24,54 @@
   let lastKnownChatUrl = null;
 
   async function bridge(path, options = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeout || 10000);
-    try {
-      const response = await fetch(BRIDGE + path, {
-        method: options.method || 'GET',
-        headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-        credentials: 'omit'
-      });
-      const text = await response.text();
-      return { ok: response.ok, status: response.status, text, json: () => JSON.parse(text) };
-    } finally {
-      clearTimeout(timer);
+    if (!globalThis.chrome?.runtime?.sendMessage) {
+      throw new Error('PASI_NATIVE: extension messaging API unavailable');
     }
-  }
-
-  const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const timeoutMs = Number(options.timeout || 10000);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timerId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error('PASI_NATIVE: bridge message timed out'));
+      }, timeoutMs);
+      try {
+        chrome.runtime.sendMessage({
+          type: 'pasi-bridge-request',
+          path: String(path || ''),
+          method: String(options.method || 'GET').toUpperCase(),
+          body: options.body ?? null
+        }, (response) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timerId);
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError) {
+            reject(new Error('PASI_NATIVE: extension bridge error: ' + runtimeError.message));
+            return;
+          }
+          if (!response || typeof response !== 'object') {
+            reject(new Error('PASI_NATIVE: invalid bridge response'));
+            return;
+          }
+          const text = typeof response.text === 'string' ? response.text : '';
+          const error = typeof response.error === 'string' ? response.error : '';
+          resolve({
+            ok: response.ok === true,
+            status: Number(response.status || 0),
+            text,
+            error,
+            json: () => JSON.parse(text)
+          });
+        });
+      } catch (error) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timerId);
+        reject(error);
+      }
+    });
+  }  const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   function visible(element) {
@@ -144,7 +173,7 @@
     return Boolean(firstVisible(['button[data-testid="stop-button"]', 'button[aria-label="Stop generating"]', 'button[aria-label*="Stop"]']));
   }
 
-  function chatUrl() { return /^https:\/\/chatgpt\.com\/c\//.test(location.href) ? location.href : null; }
+  function chatUrl() { return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null; }
 
   function contextExhausted() {
     const text = normalize(document.body?.innerText || '');
@@ -556,6 +585,39 @@
 
   function fingerprint() { return latestAssistant().slice(-4000); }
 
+  function nearbyScopedControls(box) {
+    const controls = [];
+    const seen = new Set();
+    let scope = box?.parentElement || null;
+
+    // ChatGPT has used both form-owned and generic submit controls over time.
+    // Walk only a few ancestors from the active composer so a fallback cannot
+    // bind to an unrelated form elsewhere on the page.
+    for (let depth = 0; scope && depth < 5; depth += 1, scope = scope.parentElement) {
+      const candidates = scope.querySelectorAll(
+        'button[data-testid*="send" i], button[aria-label*="send" i], button[title*="send" i]'
+      );
+      for (const element of candidates) {
+        if (seen.has(element) || !visible(element) || disabled(element)) continue;
+        seen.add(element);
+        controls.push(element);
+      }
+
+      const submits = Array.from(scope.querySelectorAll('button[type="submit"]')).filter(
+        (element) => visible(element) && !disabled(element) && !seen.has(element)
+      );
+      if (submits.length === 1) {
+        seen.add(submits[0]);
+        controls.push(submits[0]);
+      } else if (submits.length > 1 && depth > 0) {
+        // Do not guess among multiple generic submit buttons in a wider
+        // ancestor; the exact composer-scoped selectors above remain safe.
+        break;
+      }
+    }
+    return controls;
+  }
+
   function sendCandidatesForComposer(box) {
     const form = box?.closest?.('form') || null;
     const scope = form || document;
@@ -569,9 +631,12 @@
       candidates.push(...scope.querySelectorAll(selector));
     }
 
-    // Only consider a generic submit button when it is owned by the same
-    // form as the composer. Never click an unrelated page form.
-    if (form) candidates.push(...form.querySelectorAll('button[type="submit"]'));
+    // Generic submit controls are safe only when owned by the exact composer
+    // form or uniquely identified within a small ancestor scope around it.
+    if (form) {
+      candidates.push(...form.querySelectorAll('button[type="submit"]'));
+    }
+    candidates.push(...nearbyScopedControls(box));
 
     const seen = new Set();
     return candidates.filter((element) => {
@@ -587,7 +652,7 @@
     for (const element of elements) {
       if (!visible(element) || disabled(element)) continue;
       const text = label(element);
-      if (['send prompt', 'send message'].some((needle) =>
+      if (['send prompt', 'send message', 'send'].some((needle) =>
         text === needle || text.startsWith(needle + ' ') || text.includes(' ' + needle)
       )) {
         return element;
@@ -601,9 +666,6 @@
       const candidates = sendCandidatesForComposer(box);
       if (candidates.length) return candidates[0];
 
-      // Restrict accessible-label fallback to the active composer form. If
-      // there is no form, use the composer itself as the narrow scope instead
-      // of searching the entire ChatGPT document.
       const form = box?.closest?.('form') || null;
       return labeledSendInScope(form || box?.parentElement || null);
     }, TIMEOUTS.send);
@@ -612,8 +674,11 @@
   async function waitForSubmissionAck(expected, baselineUserCount) {
     const started = Date.now();
     while (Date.now() - started < SUBMISSION_ACK_MS) {
+      // A submission acknowledgement must identify PASI's exact prompt. Merely
+      // observing generation plus an increased user-message count can be caused
+      // by another message and can falsely advance the controller into the
+      // one-hour response wait.
       if (newestUserMatches(expected, baselineUserCount)) return true;
-      if (generating() && userMessages().length > baselineUserCount) return true;
       await sleep(DOM_POLL_MS);
     }
     return false;
@@ -639,10 +704,65 @@
       keyCode: 13,
       which: 13,
       bubbles: true,
-      cancelable: true
+      cancelable: true,
+      composed: true
     };
     element.dispatchEvent(new KeyboardEvent('keydown', init));
+    element.dispatchEvent(new KeyboardEvent('keypress', init));
     element.dispatchEvent(new KeyboardEvent('keyup', { ...init, cancelable: false }));
+  }
+
+  function nativeMouseActivate(element) {
+    if (!element) return false;
+    element.focus();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      button: 0,
+      buttons: 1,
+      detail: 1
+    };
+    try {
+      if (typeof PointerEvent === 'function') {
+        element.dispatchEvent(new PointerEvent('pointerdown', { ...init, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
+      }
+    } catch (_) {}
+    element.dispatchEvent(new MouseEvent('mousedown', init));
+    try {
+      if (typeof PointerEvent === 'function') {
+        element.dispatchEvent(new PointerEvent('pointerup', { ...init, pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true }));
+      }
+    } catch (_) {}
+    element.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
+    element.click();
+    return true;
+  }
+
+  async function waitForSubmissionAck(expected, baselineUserCount) {
+    const started = Date.now();
+    while (Date.now() - started < SUBMISSION_ACK_MS) {
+      if (newestUserMatches(expected, baselineUserCount)) return true;
+      const current = composer();
+      if (!current || !composerContainsPrompt(current, expected)) {
+        if (generating()) return true;
+      }
+      await sleep(DOM_POLL_MS);
+    }
+    return false;
+  }
+
+  async function ensurePromptSubmissionReady() {
+    if (authRequired()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
+    if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
+    if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
+    if (thinkingEnabled() !== true) await selectThinking();
+    if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
+  }
+
+  function composerContainsPrompt(element, expected) {
+    return Boolean(element) && normalize(readText(element)).includes(normalize(expected));
   }
 
   async function submitPrompt(expected) {
@@ -655,37 +775,26 @@
       await ensurePromptSubmissionReady();
 
       const button = await waitForSend(box);
-      if (button && !disabled(button)) {
-        button.focus();
-        button.click();
+      const form = (button || box)?.closest?.('form') || box.closest?.('form') || null;
 
-        // Do not issue a second submission while generation is already under
-        // way or the composer has been cleared. Only fall back when the first
-        // click demonstrably left the requested prompt in the composer.
-        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-        const afterClick = composer();
-        if (generating() || !composerContainsPrompt(afterClick, expected)) {
+      if (form?.requestSubmit) {
+        try {
+          const buttonType = String(button?.getAttribute?.('type') || 'submit').toLowerCase();
+          if (!button || buttonType === 'submit') form.requestSubmit(button || undefined);
+          else form.requestSubmit();
           if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-        } else {
-          const form = afterClick.closest('form');
-          if (form?.requestSubmit) {
-            form.requestSubmit();
-            if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-          }
+        } catch (_) {}
+      }
 
-          const retryBox = composer();
-          if (!generating() && composerContainsPrompt(retryBox, expected)) {
-            dispatchEnter(retryBox);
-            if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-          }
-        }
-      } else {
-        const form = box.closest('form');
-        if (form?.requestSubmit) {
-          form.requestSubmit();
-        } else {
-          dispatchEnter(box);
-        }
+      const currentButton = sendCandidatesForComposer(composer())[0] || button;
+      if (currentButton && !disabled(currentButton)) {
+        nativeMouseActivate(currentButton);
+        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+      }
+
+      const retryBox = composer();
+      if (retryBox && composerContainsPrompt(retryBox, expected) && !generating()) {
+        dispatchEnter(retryBox);
         if (await waitForSubmissionAck(expected, baselineUserCount)) return;
       }
 
@@ -695,6 +804,7 @@
     if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
     throw new Error('PASI_NATIVE: prompt submission could not be verified after bounded attempts');
   }
+
 
   async function waitForResponse(baseline) {
     const started = Date.now();

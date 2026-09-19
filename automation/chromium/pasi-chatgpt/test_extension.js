@@ -40,8 +40,11 @@ test('native controller reports roadmap completion and repository progress marke
   assert.match(content, /next_task: nextTaskMatch/);
 });
 
-test('native content controller uses standard fetch instead of GM APIs', () => {
-  assert.match(content, /fetch\(BRIDGE/);
+test('native content controller uses extension messaging instead of page-side loopback fetch', () => {
+  assert.match(content, /chrome\.runtime\.sendMessage/);
+  assert.match(content, /type: 'pasi-bridge-request'/);
+  assert.doesNotMatch(content, /fetch\(['"]?BRIDGE/);
+  assert.doesNotMatch(content, /127\.0\.0\.1:8765/);
   assert.doesNotMatch(content, /GM_xmlhttpRequest|GM_getValue|GM_setValue/);
   assert.match(content, /new_chat/);
   assert.match(content, /select_reasoning/);
@@ -107,7 +110,7 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
 });
 
 test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
-  assert.match(content, /SUBMISSION_ACK_MS = 2500/);
+  assert.match(content, /SUBMISSION_ACK_MS = 7500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /newestUserMatches/);
   assert.match(content, /waitForSubmissionAck/);
@@ -115,19 +118,37 @@ test('native prompt submission requires explicit acknowledgement and composer-sc
   assert.match(content, /button\[data-testid="send-button"\]/);
   assert.match(content, /button\[aria-label="Send prompt"\]/);
   assert.match(content, /button\[aria-label="Send message"\]/);
-  assert.match(content, /Only consider a generic submit button when it is owned by the same/);
-  assert.match(content, /form as the composer/);
+  assert.match(content, /Generic submit controls are safe only when owned by the exact composer/);
+  assert.match(content, /few ancestors from the active composer/);
   assert.match(content, /function labeledSendInScope\(scope\)/);
-  assert.match(content, /Restrict accessible-label fallback to the active composer form/);
+  assert.match(content, /const form = box\?\.closest\?\.\('form'\) \|\| null/);
   assert.match(content, /return labeledSendInScope\(form \|\| box\?\.parentElement \|\| null\)/);
   assert.match(content, /waitForSend\(box\)/);
   assert.doesNotMatch(content, /const send = await waitForSend\(\)/);
+  assert.match(content, /button\[data-testid\*="send" i\]/);
+  assert.match(content, /button\[aria-label\*="send" i\]/);
+  assert.match(content, /button\[title\*="send" i\]/);
+  assert.match(content, /function nearbyScopedControls\(box\)/);
+  assert.match(content, /unique.*generic submit buttons|multiple generic submit buttons/);
+  assert.doesNotMatch(content, /if \(generating\(\) && userMessages\(\)\.length > baselineUserCount\) return true/);
   assert.match(content, /function composerContainsPrompt\(element, expected\)/);
-  assert.match(content, /button\.focus\(\);/);
-  assert.match(content, /const afterClick = composer\(\);/);
+  assert.match(content, /element\.focus\(\);/);
+  assert.match(content, /const currentButton = sendCandidatesForComposer\(composer\(\)\)\[0\] \|\| button/);
   assert.match(content, /form\?\.requestSubmit/);
+  assert.match(content, /const buttonType = String\(button\?\.getAttribute\?\.\('type'\) \|\| 'submit'\)/);
+  assert.match(content, /if \(!button \|\| buttonType === 'submit'\) form\.requestSubmit\(button \|\| undefined\);/);
+  assert.match(content, /else form\.requestSubmit\(\)/);
+  assert.doesNotMatch(content, /form\.requestSubmit\(afterClick\)/);
+  assert.doesNotMatch(content, /form\.requestSubmit\(afterClick\)/);
   assert.match(content, /function dispatchEnter\(element\)/);
-  assert.match(content, /if \(!generating\(\) && composerContainsPrompt\(retryBox, expected\)\)/);
+  assert.match(content, /function nativeMouseActivate\(element\)/);
+  assert.match(content, /form\.requestSubmit\(button \|\| undefined\)/);
+  assert.match(content, /nativeMouseActivate\(currentButton\)/);
+  assert.match(content, /dispatchEnter\(retryBox\)/);
+  assert.match(content, /const current = composer\(\)/);
+  assert.match(content, /new KeyboardEvent\('keypress', init\)/);
+  assert.match(content, /const retryBox = composer\(\);/);
+  assert.match(content, /if \(retryBox && composerContainsPrompt\(retryBox, expected\) && !generating\(\)\)/);
   assert.match(content, /prompt submission could not be verified after bounded attempts/);
 });
 
@@ -153,9 +174,10 @@ test('native new-chat creation requires a changed conversation identity or genui
 
 test('activity indicator reconciles stale browser state with terminal backend operations', () => {
   assert.match(activity, /async function backendOperation\(operationId\)/);
-  assert.match(activity, /\/operation\?operation_id=\$\{encodeURIComponent\(operationId\)\}/);
+  assert.ok(activity.includes("path: '/operation?operation_id=' + encodeURIComponent(String(operationId))"));
   assert.match(activity, /\['completed', 'failed', 'cancelled'\]\.includes\(backend\.status\)/);
-  assert.match(activity, /localStorage\.removeItem\(ACTIVE_KEY\)/);
+  assert.doesNotMatch(activity, /localStorage\.removeItem\(ACTIVE_KEY\)/);
+  assert.match(activity, /The controller owns lifecycle cleanup/);
   assert.match(activity, /let syncInFlight = false/);
   assert.match(activity, /if \(syncInFlight\) return/);
 });
@@ -171,6 +193,13 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
+test('native recovery retries completed prompt evidence before clearing the active marker', () => {
+  assert.match(recovery, /if \(current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'\) \{/);
+  assert.match(recovery, /finishVisibleResponse\(operationId, current, ''\)/);
+  assert.match(recovery, /else if \(current\.status !== 'completed'\)/);
+  assert.match(recovery, /clearInterruptedState\(\)/);
+});
+
 test('native recovery companion preserves response text without blocking completion acknowledgement', () => {
   assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
   assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
@@ -184,6 +213,32 @@ test('native recovery companion preserves response text without blocking complet
   assert.match(recovery, /response_text: bounded/);
   assert.match(recovery, /await report\('chatgpt_response'/);
   assert.match(recovery, /current\.status === 'failed'/);
+});
+
+test('operation lookup route is accepted by the MV3 service worker allowlist', () => {
+  assert.ok(background.includes("const BRIDGE_OPERATION_RE = /^\\/operation\\?operation_id=[^&]{1,200}$/;"));
+});
+
+test('loopback bridge access is confined to the MV3 service worker', () => {
+  assert.doesNotMatch(background, /targetAddressSpace/);
+  assert.ok(background.includes("cache: 'no-store'"));
+  assert.ok(!activity.includes("fetch(`http://127.0.0.1:8765"));
+  assert.ok(!recovery.includes("fetch(BRIDGE"));
+  assert.ok(background.includes("const BRIDGE_ROUTES = new Set(["));
+  assert.ok(background.includes("function allowedBridgeRequest(method, path)"));
+  assert.match(background, /BRIDGE_OPERATION_RE/);
+  assert.match(background, /operation_id=/);
+  assert.ok(background.includes("chrome.runtime.onMessage.addListener"));
+  assert.ok(background.includes("message.type !== 'pasi-bridge-request'"));
+  assert.ok(background.includes("https://chatgpt.com/"));
+  assert.ok(background.includes("https://www.chatgpt.com/") || background.includes("www.chatgpt.com"));
+  assert.ok(background.includes("allowedBridgeRequest(method, path)"));
+  assert.ok(background.includes("bridgeFetch(path, method, body, 10000)"));
+  assert.ok(manifest.host_permissions.includes("http://127.0.0.1:8765/*"));
+  assert.ok(!content.includes("fetch(BRIDGE"));
+  assert.ok(!content.includes("http://127.0.0.1:8765/operation"));
+  assert.ok(!activity.includes("http://127.0.0.1:8765/operation"));
+  assert.ok(!recovery.includes("fetch(BRIDGE"));
 });
 
 test('background service worker performs bounded stale-tab recovery', () => {
