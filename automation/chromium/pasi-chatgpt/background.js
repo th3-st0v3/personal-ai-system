@@ -12,13 +12,14 @@ const BRIDGE_ROUTES = new Set([
   'GET /status',
   'GET /browser/observation',
   'GET /browser/response',
-  'GET /next-operation',
+  'POST /next-operation',
   'POST /browser/observation',
   'POST /queue',
   'POST /chat/claim',
   'POST /chat/heartbeat',
   'POST /chat/finished',
-  'POST /chat/failed'
+  'POST /chat/failed',
+  'POST /chat/cancel'
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
