@@ -207,83 +207,17 @@
     } catch (_) {}
   }
 
-  async function finishExisting(operationId, responseText) {
+  async function observeExisting(operationId, responseText) {
     const bounded = String(responseText || '').slice(0, 50000);
-    const available = Boolean(bounded.trim());
-    if (!available) return false;
-
+    if (!bounded.trim()) return false;
     await report('chatgpt_response', {
       active_operation_id: operationId,
       response_text: bounded,
       response_text_available: true,
       chat_exhausted: contextExhausted(),
-      recovery_action: 'preserve_response'
+      recovery_action: 'observe_response_only'
     });
-
-    let lastError = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const finished = await bridge('/chat/finished', {
-          method: 'POST',
-          body: {
-            operation_id: operationId,
-            chat_url: location.href,
-            response_text: bounded,
-            response_text_available: true
-          }
-        });
-        if (finished.ok) return true;
-        const acknowledged = await operation(operationId);
-        if (
-          acknowledged?.status === 'completed' &&
-          acknowledged?.response_text_available === true &&
-          typeof acknowledged?.response_text === 'string' &&
-          Boolean(acknowledged.response_text.trim())
-        ) {
-          return true;
-        }
-        lastError = new Error(`bridge completion failed: HTTP ${finished.status}`);
-      } catch (error) {
-        lastError = error;
-      }
-      if (attempt < 3) await sleep(Math.min(POLL_MS, 500));
-    }
-    await report('chatgpt_recovery', {
-      phase: 'completion_ack_failed',
-      operation_id: operationId,
-      recovery_action: 'retry_runner',
-      error: String(lastError?.message || lastError || 'unknown completion acknowledgement failure')
-    });
-    return false;
-  }
-
-  async function markRetryableFailure(operationId, message, recoveryContext = null) {
-    try {
-      const body = { operation_id: operationId, error: message };
-      if (recoveryContext) body.recovery_context = recoveryContext;
-      const response = await bridge('/chat/failed', {
-        method: 'POST',
-        body
-      });
-      return response.ok;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function persistedResponse(current) {
-    const text = current?.response_text;
-    return (
-      current?.response_text_available === true &&
-      typeof text === 'string' &&
-      Boolean(text.trim())
-    ) ? text : '';
-  }
-
-  async function finishPersistedResponse(current) {
-    const response = persistedResponse(current);
-    if (!response) return false;
-    return finishExisting(current.operation_id, response);
+    return true;
   }
 
   function clearInterruptedState() {
@@ -297,7 +231,7 @@
     const response = latestAssistant();
     const currentFingerprint = fingerprint();
     if (generating() || !response || currentFingerprint === String(baseline || '')) return false;
-    return finishExisting(operationId, response);
+    return observeExisting(operationId, response);
   }
 
   async function handleContextExhausted(state) {
@@ -562,7 +496,7 @@
       }
       await report('chatgpt_recovery', { phase: 'ready_for_retry', operation_id: operationId, recovery_action: 'fresh_chat_prepared', replacement_reason: reason });
     } catch (error) {
-      await markRetryableFailure(operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}`);
+      await report('chatgpt_recovery', { phase: 'retryable_failure_observed', operation_id: operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}` });
       await report('chatgpt_recovery', { phase: 'failed', operation_id: operationId, recovery_action: 'retry_runner', error: String(error?.message || error) });
     }
     if (readRecoveryState()?.resume_operation_id === operationId) return;
