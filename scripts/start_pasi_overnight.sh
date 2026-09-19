@@ -29,9 +29,9 @@ if ! flock -n 9; then
     exit 1
 fi
 
-printf '%s\n' "$" > "$START_PID_FILE"
+printf '%s\n' "$$" > "$START_PID_FILE"
 cleanup_start_pid() {
-    if [[ -f "$START_PID_FILE" ]] && [[ "$(cat "$START_PID_FILE" 2>/dev/null || true)" == "$" ]]; then
+    if [[ -f "$START_PID_FILE" ]] && [[ "$(cat "$START_PID_FILE" 2>/dev/null || true)" == "$$" ]]; then
         rm -f "$START_PID_FILE"
     fi
 }
