@@ -96,4 +96,11 @@ def test_native_extraction_parser_patch_apply_and_commit_seam(tmp_path: Path) ->
     commit = engine.commit_and_push(worktree, "pasi/seam-test", "native seam", push=False)
     assert commit
     assert subprocess.run(["git", "status", "--porcelain"], cwd=worktree, capture_output=True, text=True, check=True).stdout == ""
-    assert "new" in subprocess.run(["git", "show", "--format=", "--stat", "HEAD"], cwd=worktree, capture_output=True, text=True, check=True).stdout
+    committed_text = subprocess.run(
+        ["git", "show", "--format=", "HEAD:example.txt"],
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert committed_text == "new\n"
