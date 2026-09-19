@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts.pasi_overnight_engine_v2 import choose_run_start_task, load_roadmap_selection_history
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
@@ -108,7 +109,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             guard_path = Path(temp_dir) / "roadmap-loop-guard.json"
             with mock.patch.object(engine, "ROADMAP_LOOP_GUARD_PATH", guard_path):
-                first, guarded, repeats = engine.choose_run_start_task("automation", "", "run-1")
+                first, guarded, repeats = choose_run_start_task("automation", "", "run-1")
                 self.assertEqual(first, engine.AUTOMATION_TASKS[0])
                 self.assertFalse(guarded)
                 self.assertEqual(repeats, 0)
@@ -123,7 +124,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                 self.assertTrue(guarded)
                 self.assertEqual(repeats, 2)
 
-                history = engine.load_roadmap_selection_history()
+                history = load_roadmap_selection_history()
                 self.assertEqual([item["task"] for item in history[-3:]], [
                     engine.AUTOMATION_TASKS[0],
                     engine.AUTOMATION_TASKS[0],
