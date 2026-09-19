@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine_v2 as supervisor
+from scripts import pasi_provider_router as fallback_router
 from scripts.pasi_overnight_hardening import (
     nonblocking_sleep,
     nonblocking_standby,
@@ -44,13 +45,29 @@ class OvernightHardeningTests(unittest.TestCase):
             self.assertEqual(len(ledger.pending()), 1)
             self.assertEqual(ledger.pending()[0]["kind"], "retry_backoff_deferred")
 
-    def test_stale_browser_is_recorded_but_does_not_pause_runner(self) -> None:
+    def test_stale_browser_uses_fallback_without_entering_standby(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             ledger = ObstacleLedger(root)
             state = self._state(root)
-            with patch.object(supervisor, "runtime_watchdog_is_live", return_value=False):
+            with patch.object(supervisor, "runtime_watchdog_is_live", return_value=False), patch.object(
+                fallback_router, "providers_available", return_value=["ollama"]
+            ), patch.object(supervisor, "time") as time_mock:
                 self.assertTrue(nonblocking_standby(state, ledger=ledger))
+                time_mock.sleep.assert_not_called()
+            self.assertEqual(ledger.pending()[0]["kind"], "runtime_unavailable")
+
+    def test_stale_browser_without_fallback_waits_instead_of_burning_task_attempts(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger = ObstacleLedger(root)
+            state = self._state(root)
+            watchdog = iter([False, True])
+            with patch.object(supervisor, "runtime_watchdog_is_live", side_effect=lambda: next(watchdog)), patch.object(
+                fallback_router, "providers_available", return_value=[]
+            ), patch.object(supervisor, "time.sleep") as sleep_mock:
+                self.assertTrue(nonblocking_standby(state, ledger=ledger))
+                sleep_mock.assert_called_once()
             self.assertEqual(ledger.pending()[0]["kind"], "runtime_unavailable")
 
     def test_missing_browser_uses_fallback_route_without_waiting_for_chatgpt(self) -> None:
