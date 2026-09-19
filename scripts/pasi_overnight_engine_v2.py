@@ -781,20 +781,37 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
+    if not isinstance(response, str):
+        raise ValueError("model response must be text")
     values: dict[str, str] = {}
+    missing_or_duplicate: list[str] = []
     for key, pattern in MARKERS.items():
-        match = pattern.search(response)
-        if match:
-            values[key] = match.group(1).strip()
-    allow_delete = bool(re.search(r"^PASI_RESULT_ALLOW_DELETE:\s*true$", response, re.MULTILINE | re.IGNORECASE))
-    raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0] if PATCH_BEGIN in response and PATCH_END in response else ""
+        matches = pattern.findall(response)
+        if len(matches) != 1:
+            missing_or_duplicate.append(key)
+            if matches:
+                values[key] = matches[0].strip()
+        else:
+            values[key] = matches[0].strip()
+    if missing_or_duplicate:
+        raise ValueError(
+            "PASI response contract must contain each marker exactly once: "
+            + ", ".join(sorted(missing_or_duplicate))
+        )
+    if response.count(PATCH_BEGIN) != 1 or response.count(PATCH_END) != 1:
+        raise ValueError("PASI response patch fence must occur exactly once")
+    status = values["status"].strip().lower()
+    summary = values["summary"].strip()
+    next_task = values["next_task"].strip()
+    allow_delete = values["allow_delete"].strip().lower() == "true" if "allow_delete" in values else False
+    raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0]
     patch = normalize_patch(raw_patch)
     values["automation_continue"] = "true" if re.search(
         r"^PASI_AUTOMATION_CONTINUE:\s*true$",
         response,
         re.MULTILINE | re.IGNORECASE,
     ) else "false"
-    return parsed[0], parsed[1], parsed[2], parsed[3], parsed[4], values
+    return status, summary, next_task, patch, allow_delete, values
 
 
 def completion_contract(status: str, values: dict[str, str]) -> bool:
@@ -847,7 +864,7 @@ RUN CONTEXT:
 - Canonical public repository: https://github.com/th3-st0v3/personal-ai-system
 - Thinking is required for every ChatGPT task.
 - Public GitHub repository is the default context source.
-- OpenRouter, Perplexity, OpenCode, and direct HTTPS research are permitted fallback evidence/model sources when ChatGPT is unavailable.
+- Local Ollama/OpenCode are permitted fallback evidence/model sources when ChatGPT is unavailable. OpenRouter/Perplexity remote APIs receive repository context only when PASI_ALLOW_REMOTE_CODE=1 is explicitly set.
 
 {continuation_directive(state, task)}
 
