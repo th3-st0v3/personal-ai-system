@@ -18,7 +18,7 @@ test('native controller and recovery companion have unique recovery declarations
 });
 
 test('shared detectors scope terminal state markers away from messages and sidebar content', () => {
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'detectors.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
   assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
   assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
   assert.doesNotMatch(content, /function contextExhausted\(\)[\s\S]*?document\.body\?\.innerText/);
@@ -332,7 +332,7 @@ test('native prompt submission uses stable model selection and fail-closed Think
   assert.match(content, /currentModelMode\(\) === 'thinking'/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
-  assert.match(content, /await submitPrompt\(operation\.prompt\)/);
+  assert.match(content, /await submitPrompt\(promptText\)/);
   assert.match(content, /const DOM_POLL_MS = 250;/);
 });
 
@@ -460,19 +460,15 @@ test('native recovery retries completed prompt evidence before clearing the acti
   assert.match(recovery, /clearInterruptedState\(\)/);
 });
 
-test('native recovery companion preserves response text without blocking completion acknowledgement', () => {
-  assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
-  assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
-  assert.match(recovery, /location\.reload\(\)/);
-  assert.match(recovery, /function usageLimited\(\)/);
-  assert.match(recovery, /function replacementReason\(\)/);
-  assert.match(recovery, /phase: 'preserve_current_chat'/);
-  assert.match(recovery, /no_verified_usage_or_context_exhaustion/);
-  assert.match(recovery, /CHAT_RECOVERED_RETRY/);
-  assert.match(recovery, /operation_type: 'new_chat'/);
-  assert.match(recovery, /response_text: bounded/);
-  assert.match(recovery, /await report\('chatgpt_response'/);
-  assert.match(recovery, /current\.status === 'failed'/);
+test('native recovery companion is observation-only', () => {
+  assert.match(recovery, /recovery_action: 'observe_only'/);
+  assert.match(recovery, /recovery_action: 'observe_response_only'/);
+  assert.doesNotMatch(recovery, /location\.reload\(\)/);
+  assert.doesNotMatch(recovery, /\/chat\/finished/);
+  assert.doesNotMatch(recovery, /\/chat\/failed/);
+  assert.doesNotMatch(recovery, /\/queue/);
+  assert.doesNotMatch(recovery, /\/next-operation/);
+  assert.match(content, /content\.js owns completion and retry mutation/);
 });
 
 test('operation lookup route is accepted by the MV3 service worker allowlist', () => {
