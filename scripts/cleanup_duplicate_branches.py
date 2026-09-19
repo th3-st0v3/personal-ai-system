@@ -217,12 +217,75 @@ def _keeper_key(branch: BranchRef) -> tuple[int, int, str]:
     )
 
 
+def list_superseded_snapshot_branches(
+    branches: Iterable[BranchRef],
+    *,
+    token: str,
+    open_pr_heads: frozenset[str],
+    keep_branches: frozenset[str],
+    default_branch: str = DEFAULT_BRANCH,
+) -> frozenset[str]:
+    """Find disposable suffix branches whose unsuffixed sibling contains their tip.
+
+    The deletion is only considered safe when the sibling branch is a real,
+    non-disposable ref and GitHub proves the candidate is an ancestor of it.
+    """
+    branch_by_name = {branch.name: branch for branch in branches}
+    superseded: set[str] = set()
+    for branch in branches:
+        if (
+            branch.name == default_branch
+            or branch.name in open_pr_heads
+            or branch.name in keep_branches
+            or not is_disposable_name(branch.name)
+        ):
+            continue
+        match = DISPOSABLE_SUFFIX_RE.search(branch.name.rstrip("/"))
+        if match is None:
+            continue
+        canonical_name = branch.name[: match.start()].rstrip("-/")
+        canonical = branch_by_name.get(canonical_name)
+        if (
+            canonical is None
+            or canonical.name == default_branch
+            or canonical.name in open_pr_heads
+            or canonical.name in keep_branches
+            or is_disposable_name(canonical.name)
+        ):
+            continue
+        encoded_branch = urllib.parse.quote(branch.name, safe="")
+        encoded_canonical = urllib.parse.quote(canonical.name, safe="")
+        payload = _request_json(
+            f"compare/{encoded_branch}...{encoded_canonical}",
+            token=token,
+        )
+        if not isinstance(payload, dict):
+            raise BranchCleanupError(
+                f"GitHub compare response was not an object for {branch.name}"
+            )
+        ahead_by = payload.get("ahead_by")
+        behind_by = payload.get("behind_by")
+        status = payload.get("status")
+        if (
+            isinstance(ahead_by, int)
+            and not isinstance(ahead_by, bool)
+            and isinstance(behind_by, int)
+            and not isinstance(behind_by, bool)
+            and status == "ahead"
+            and ahead_by > 0
+            and behind_by == 0
+        ):
+            superseded.add(branch.name)
+    return frozenset(superseded)
+
+
 def build_cleanup_plan(
     branches: Iterable[BranchRef],
     *,
     open_pr_heads: frozenset[str],
     merged_pr_heads: Mapping[str, frozenset[str]],
     fully_merged_branches: frozenset[str] = frozenset(),
+    superseded_branches: frozenset[str] = frozenset(),
     default_branch: str = DEFAULT_BRANCH,
     keep_branches: frozenset[str] = frozenset(),
 ) -> CleanupPlan:
@@ -270,6 +333,18 @@ def build_cleanup_plan(
                 continue
             deletions[branch.name] = branch
 
+    # A disposable snapshot whose tip is fully contained in its canonical
+    # unsuffixed sibling is redundant even when neither branch is contained in main.
+    for branch_name in superseded_branches:
+        branch = branch_by_name.get(branch_name)
+        if branch is None:
+            continue
+        if branch_name == default_branch or branch_name in open_pr_heads or branch_name in keep_branches:
+            continue
+        if branch_name in keep:
+            continue
+        deletions.setdefault(branch_name, branch)
+
     # A branch whose current tip is exactly the head commit of a merged PR has
     # no newer work on that ref. It can be removed safely unless it is explicitly
     # kept, is main, or currently backs another open PR. A branch that advanced
@@ -292,7 +367,12 @@ def build_cleanup_plan(
         branch = branch_by_name.get(branch_name)
         if branch is None:
             continue
-        if branch_name == default_branch or branch_name in open_pr_heads or branch_name in keep_branches:
+        if (
+            branch_name == default_branch
+            or branch_name in open_pr_heads
+            or branch_name in keep_branches
+            or branch_name in keep
+        ):
             continue
         deletions.setdefault(branch_name, branch)
 
@@ -326,11 +406,18 @@ def cleanup(
         open_pr_heads=open_heads,
         keep_branches=keep_branches,
     )
+    superseded = list_superseded_snapshot_branches(
+        branches,
+        token=token,
+        open_pr_heads=open_heads,
+        keep_branches=keep_branches,
+    )
     plan = build_cleanup_plan(
         branches,
         open_pr_heads=open_heads,
         merged_pr_heads=merged_heads,
         fully_merged_branches=fully_merged,
+        superseded_branches=superseded,
         keep_branches=keep_branches,
     )
     merged_to_delete = (
