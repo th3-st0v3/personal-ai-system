@@ -46,7 +46,7 @@ PROTECTED_UNATTENDED_PATHS = frozenset({
 })
 TIMEOUT_POLICY = load_timeout_policy()
 TASK_TIMEOUT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
-WATCHDOG_MAX_AGE_SECONDS = 30.0
+WATCHDOG_MAX_AGE_SECONDS = TIMEOUT_POLICY["stale_seconds"]
 STANDBY_SECONDS = 30.0
 AUTOMATION_TASKS_PER_GATE = 2
 MAX_PROVIDER_LIMIT_PAUSES = 3
@@ -633,8 +633,19 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
 
 
 def browser_observation() -> dict[str, Any] | None:
+    token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not token:
+        try:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+    request = urllib.request.Request(
+        f"{BRIDGE_URL}/browser/health",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
     try:
-        with urllib.request.urlopen(f"{BRIDGE_URL}/browser/observation", timeout=3.0) as response:
+        with urllib.request.urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read(2_000_000).decode("utf-8"))
     except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
         return None
