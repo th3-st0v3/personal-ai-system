@@ -217,7 +217,7 @@ fi
 if (( browser_ready == 0 )); then
     printf 'error: native PASI ChatGPT browser heartbeat was not verified within 30 seconds.\n' >&2
     printf 'Open https://chatgpt.com/ in the Chromium browser with PASI ChatGPT Controller enabled and reload the extension.\n' >&2
-    printf 'Browser observation endpoint: http://127.0.0.1:8765/browser/observation\n' >&2
+    printf 'Browser health endpoint: http://127.0.0.1:8765/browser/health\n' >&2
     exit 8
 fi
 
