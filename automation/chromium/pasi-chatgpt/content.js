@@ -1124,6 +1124,7 @@
     let sawGeneration = false;
     let stableFingerprint = '';
     let stableSince = 0;
+    let lastOperationCheckAt = 0;
     while (Date.now() - started < TIMEOUTS.generation) {
       if (generating()) {
         sawGeneration = true;
@@ -1150,7 +1151,8 @@
           if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
         }
       }
-      if (operationId && Math.floor((Date.now() - started) / 2000) !== Math.floor((Date.now() - started - DOM_POLL_MS * 2) / 2000)) {
+      if (operationId && Date.now() - lastOperationCheckAt >= 2000) {
+        lastOperationCheckAt = Date.now();
         try {
           const operationResponse = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
           const current = operationResponse.ok ? operationResponse.json()?.operation : null;
@@ -1465,7 +1467,7 @@
             method: 'POST',
             body: { operation_id: recoveryOperation }
           })
-        : await bridge('/next-operation');
+        : await bridge('/next-operation', { method: 'POST', body: {} });
       if (!response.ok) {
         if (recoveryOperation) {
           try {
