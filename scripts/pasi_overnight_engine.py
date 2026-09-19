@@ -354,7 +354,7 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
         raise OvernightError(f"sandboxed canonical validation failed:\n{output}")
     if shutil.which("unshare"):
         sandbox_command = ["unshare", "--user", "--map-root-user", "--net", "--"] + base
-        code, output = command(sandbox_command, worktree, timeout)
+        code, output = command(sandbox_command, worktree, timeout=timeout)
         if code == 0:
             return output
     raise OvernightError(
