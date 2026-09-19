@@ -93,7 +93,7 @@
     if (!element) return '';
     const labelledBy = element.getAttribute?.('aria-labelledby');
     const labelledText = labelledBy
-      ? labelledBy.split(/\\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ')
+      ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ')
       : '';
     return normalize([
       element.getAttribute?.('aria-label'),
@@ -960,9 +960,9 @@
 
   function completionProgress(responseText) {
     const text = typeof responseText === 'string' ? responseText : '';
-    const statusMatch = text.match(/^PASI_RESULT_STATUS:\\s*(.+)$/m);
-    const progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\\s*(.+)$/m);
-    const nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\\s*(.+)$/m);
+    const statusMatch = text.match(/^PASI_RESULT_STATUS:\s*(.+)$/m);
+    const progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$/m);
+    const nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\s*(.+)$/m);
     return {
       completion_status: statusMatch ? statusMatch[1].trim().toLowerCase() : null,
       repository_progress: progressMatch ? progressMatch[1].trim().toLowerCase() : null,
