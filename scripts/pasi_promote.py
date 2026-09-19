@@ -22,7 +22,7 @@ HIGH_RISK_PATH_PREFIXES = (
     "automation/computer_use/preapproval.py",
     "automation/computer_use/recovery.py",
     "automation/computer_use/research.py",
-    "scripts/pasi_controller_server.py",
+    "automation/legacy/",
     "scripts/pasi_chat_guard.py",
     "scripts/pasi_provider_router.py",
     "scripts/pasi_promote.py",
