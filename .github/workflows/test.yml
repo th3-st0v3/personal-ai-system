@@ -7,6 +7,10 @@ on:
     branches: [main, 'pasi/**']
   workflow_dispatch:
 
+concurrency:
+  group: pasi-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
