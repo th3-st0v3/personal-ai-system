@@ -147,6 +147,78 @@ if ! curl -fsS --max-time 2 'http://127.0.0.1:8766/health' >/dev/null 2>&1; then
     exit 5
 fi
 
+browser_observation_ready() {
+    "$PYTHON" - <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+root = Path.cwd()
+manifest_path = root / "automation" / "tampermonkey" / "controller-sync.json"
+try:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected_version = manifest.get("version")
+    with urllib.request.urlopen(
+        "http://127.0.0.1:8765/browser/observation",
+        timeout=3.0,
+    ) as response:
+        payload = json.loads(response.read(2_000_000).decode("utf-8"))
+except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
+    raise SystemExit(1)
+
+observation = payload.get("observation") if isinstance(payload, dict) else None
+data = observation.get("data") if isinstance(observation, dict) and isinstance(observation.get("data"), dict) else observation
+if not isinstance(data, dict):
+    raise SystemExit(1)
+
+kind = data.get("kind")
+actual_version = data.get("controller_version")
+if kind not in {"chatgpt_health", "chatgpt_state"}:
+    raise SystemExit(1)
+if not isinstance(expected_version, str) or not expected_version.strip() or actual_version != expected_version.strip():
+    raise SystemExit(1)
+if data.get("auth_required") is True:
+    raise SystemExit(2)
+raise SystemExit(0)
+PY
+}
+
+printf '
+=== VERIFYING NATIVE CHATGPT BROWSER ===
+'
+browser_deadline=$((SECONDS + 30))
+browser_ready=0
+browser_auth_required=0
+while (( SECONDS < browser_deadline )); do
+    if browser_observation_ready; then
+        browser_ready=1
+        break
+    else
+        status=$?
+        if (( status == 2 )); then
+            browser_auth_required=1
+            break
+        fi
+    fi
+    sleep 1
+done
+
+if (( browser_auth_required == 1 )); then
+    printf 'error: the native PASI ChatGPT extension is reporting that authentication/security verification is required. Complete it in the browser, then restart the launcher.\n' >&2
+    exit 7
+fi
+
+if (( browser_ready == 0 )); then
+    printf 'error: native PASI ChatGPT browser heartbeat was not verified within 30 seconds.\n' >&2
+    printf 'Open https://chatgpt.com/ in the Chromium browser with PASI ChatGPT Controller enabled and reload the extension.\n' >&2
+    printf 'Browser observation endpoint: http://127.0.0.1:8765/browser/observation\n' >&2
+    exit 8
+fi
+
+printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
+
 log_file="$RUNTIME_DIR/runner.log"
 # Close the launcher's flock descriptor in the detached runner as well so the
 # lock protects startup only and is not retained for the lifetime of the run.

@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: branch-hygiene
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   test:
