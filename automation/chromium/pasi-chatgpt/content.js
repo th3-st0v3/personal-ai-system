@@ -2,15 +2,22 @@
   'use strict';
 
   const CONTROLLER_VERSION = '2.4.11';
-  const POLL_MS = 2000;
-  const HEALTH_MS = 15000;
-  const DOM_POLL_MS = 250;
+  const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || globalThis.PASI_TIMEOUT_POLICY?.defaults || {};
+  const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;
+  const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
+  const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 250;
   const CLICK_SETTLE_MS = 250;
   const THINKING_VERIFY_MS = 5000;
   const RESPONSE_SETTLE_MS = 3500;
   const SUBMISSION_ACK_MS = 7500;
   const SUBMISSION_ATTEMPTS = 3;
-  const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
+  const TIMEOUTS = {
+    menu: TIMEOUT_POLICY.menuMs || 8000,
+    composer: TIMEOUT_POLICY.composerMs || 15000,
+    send: TIMEOUT_POLICY.sendMs || 10000,
+    submit: TIMEOUT_POLICY.submitMs || 5000,
+    generation: TIMEOUT_POLICY.generationMs || 1500 * 1000
+  };
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
@@ -1496,6 +1503,7 @@
   }
 
   async function start() {
+    await globalThis.PASI_TIMEOUT_POLICY?.load?.();
     await recoverInterruptedOperation();
     try { await reportHealth(); } catch (_) {}
     await poll();
