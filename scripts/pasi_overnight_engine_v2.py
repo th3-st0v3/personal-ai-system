@@ -921,12 +921,25 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
     if candidate:
         return candidate
     recent = {item.casefold() for item in state.recent_tasks[-12:]}
-    for configured in candidates:
+    current_index = next(
+        (index for index, item in enumerate(candidates) if item.casefold() == state.current_task.casefold()),
+        -1,
+    )
+    ordered = (
+        list(candidates[current_index + 1:]) + list(candidates[: max(0, current_index + 1)])
+        if current_index >= 0
+        else list(candidates)
+    )
+    for configured in ordered:
         if task_key(configured) in completed:
             continue
-        if configured.casefold() not in recent:
-            return configured
-    return choose_unique([item for item in candidates if task_key(item) not in completed] or list(candidates), state)
+        if configured.casefold() in recent and configured.casefold() != state.current_task.casefold():
+            continue
+        return configured
+    return next(
+        (item for item in ordered if task_key(item) not in completed),
+        choose_unique([item for item in candidates if task_key(item) not in completed] or list(candidates), state),
+    )
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
