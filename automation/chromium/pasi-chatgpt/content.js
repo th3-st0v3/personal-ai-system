@@ -1341,16 +1341,32 @@
           await restoreRecoveryContext(operation.recovery_context);
           await selectThinking();
           if (reasoningMode !== 'unavailable') reasoningMode = 'thinking';
+
+          const promptText = operationPrompt(operation);
+          const activeState = readJsonStorage(ACTIVE_KEY) || {};
+          const recoveryState = readJsonStorage(RECOVERY_KEY) || {};
+          const savedBaseline = typeof activeState.baseline === 'string'
+            ? activeState.baseline
+            : (typeof recoveryState.baseline === 'string' ? recoveryState.baseline : '');
+
+          if (userMessageExistsForOperation(operation.operation_id)) {
+            if (typeof operation.response_text === 'string' && operation.response_text.trim()) {
+              await finishOperation(operation.operation_id, operation.response_text, true);
+              finalized = true;
+              return;
+            }
+            if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
+            const response = await waitForResponse(savedBaseline, operation.operation_id);
+            await finishOperation(operation.operation_id, response, true);
+            finalized = true;
+            return;
+          }
+
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
           const box = await waitFor(composer, TIMEOUTS.composer);
           if (!box) throw new Error('PASI_NATIVE: composer unavailable');
-          const promptText = operationPrompt(operation);
           const baseline = fingerprint();
-          let activeState = {};
-          try {
-            activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
-          } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           setText(box, '');
           insertText(box, promptText);
@@ -1414,9 +1430,12 @@
 
   async function recoverInterruptedOperation() {
     try {
-      const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
-      if (!stored?.operation_id) return;
-      const current = await bridge(`/operation?operation_id=${encodeURIComponent(stored.operation_id)}`);
+      if (!(await controllerClaim())) return;
+      const stored = readJsonStorage(ACTIVE_KEY);
+      const recovery = readJsonStorage(RECOVERY_KEY);
+      const operationId = stored?.operation_id || recovery?.operation_id;
+      if (!operationId) return;
+      const current = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
       const payload = current.ok ? current.json() : null;
       const operation = payload?.operation;
       if (!operation) return;
@@ -1429,7 +1448,7 @@
         const responseAvailable = Boolean(responseText.trim());
         if (responseAvailable) {
           try {
-            await finishOperation(stored.operation_id, responseText, true);
+            await finishOperation(operationId, responseText, true);
           } catch (_) {
             // Keep the active marker so the next controller start can reconcile again.
             return;
@@ -1440,7 +1459,7 @@
           const visibleFingerprint = fingerprint();
           if (visibleResponse && visibleFingerprint !== baseline) {
             try {
-              await finishOperation(stored.operation_id, visibleResponse, true);
+              await finishOperation(operationId, visibleResponse, true);
             } catch (_) {
               // Keep the active marker so recovery.js can retry against the same operation.
               return;
@@ -1450,8 +1469,34 @@
         localStorage.removeItem(ACTIVE_KEY);
       } else if (operation.status === 'failed' || operation.status === 'cancelled') {
         localStorage.removeItem(ACTIVE_KEY);
+        localStorage.removeItem(RECOVERY_KEY);
+      } else if (operation.operation_type === 'prompt') {
+        const baseline = typeof stored?.baseline === 'string'
+          ? stored.baseline
+          : (typeof recovery?.baseline === 'string' ? recovery.baseline : '');
+        if (contextExhausted()) {
+          await newChat();
+          await failOperation(operationId, new Error('CHAT_EXHAUSTED: verified conversation context exhaustion; fresh chat prepared for retry.'));
+          localStorage.removeItem(ACTIVE_KEY);
+          localStorage.removeItem(RECOVERY_KEY);
+          return;
+        }
+        if (userMessageExistsForOperation(operationId)) {
+          const response = await waitForResponse(baseline, operationId);
+          await finishOperation(operationId, response, true);
+          localStorage.removeItem(ACTIVE_KEY);
+          localStorage.removeItem(RECOVERY_KEY);
+          return;
+        }
+        await failOperation(operationId, new Error('PASI_NATIVE: browser page reloaded during operation'));
+        localStorage.removeItem(ACTIVE_KEY);
+        localStorage.removeItem(RECOVERY_KEY);
+      } else {
+        await failOperation(operationId, new Error('PASI_NATIVE: browser page reloaded during operation'));
+        localStorage.removeItem(ACTIVE_KEY);
+        localStorage.removeItem(RECOVERY_KEY);
       }
-      // Preserve non-terminal operations for the dedicated bounded recovery companion.
+      // content.js owns completion and retry mutation; recovery.js is observe-only.
     } catch (_) {}
   }
 
