@@ -219,6 +219,24 @@ class BridgeState:
             status="generating",
         )
 
+    @staticmethod
+    def _browser_observation_priority(observation: dict[str, Any]) -> int:
+        schema_version = observation.get("schema_version")
+        data = observation.get("data")
+        kind = data.get("kind") if isinstance(data, dict) else None
+
+        if schema_version == "pasi-native-chromium-v2" and kind in {
+            "chatgpt_health",
+            "chatgpt_state",
+            "chatgpt_response",
+        }:
+            return 100
+        if schema_version == "chatgpt-controller-v2":
+            return 90
+        if schema_version == "pasi-chatgpt-recovery-v3":
+            return 50
+        return 10
+
     def save_browser_observation(
         self,
         observation: dict[str, Any],
@@ -228,9 +246,12 @@ class BridgeState:
             data = observation.get("data")
             if isinstance(data, dict) and data.get("kind") == "chatgpt_response":
                 self.state_manager.save_browser_response(observation)
-            self.state_manager.save_browser_results(
-                observation
-            )
+
+            current = self.state_manager.load_browser_results()
+            incoming_priority = self._browser_observation_priority(observation)
+            current_priority = self._browser_observation_priority(current)
+            if incoming_priority >= current_priority:
+                self.state_manager.save_browser_results(observation)
 
         return observation
 
