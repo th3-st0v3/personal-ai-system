@@ -306,7 +306,7 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Route PASI to a lightweight fallback model provider without applying changes.")
-    parser.add_argument("--task", required=True)
+    parser.add_argument("--task")
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--list-providers", action="store_true")
@@ -314,6 +314,8 @@ def main() -> int:
     if args.list_providers:
         print(" ".join(providers_available()) or "none")
         return 0
+    if not isinstance(args.task, str) or not args.task.strip():
+        parser.error("--task is required unless --list-providers is specified")
     repo = args.repo.expanduser().resolve()
     if not repo.is_dir():
         print(f"error: repository does not exist: {repo}", file=sys.stderr)
