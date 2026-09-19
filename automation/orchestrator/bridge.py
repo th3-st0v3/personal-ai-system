@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -220,6 +221,19 @@ class BridgeState:
         )
 
     @staticmethod
+    def _browser_observation_time(observation: dict[str, Any]) -> float | None:
+        captured_at = observation.get("captured_at")
+        if not isinstance(captured_at, str):
+            return None
+        try:
+            value = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.timestamp()
+
+    @staticmethod
     def _browser_observation_priority(observation: dict[str, Any]) -> int:
         schema_version = observation.get("schema_version")
         data = observation.get("data")
@@ -250,7 +264,17 @@ class BridgeState:
             current = self.state_manager.load_browser_results()
             incoming_priority = self._browser_observation_priority(observation)
             current_priority = self._browser_observation_priority(current)
-            if incoming_priority >= current_priority:
+
+            incoming_time = self._browser_observation_time(observation)
+            current_time = self._browser_observation_time(current)
+            should_replace = incoming_priority > current_priority
+            if incoming_priority == current_priority:
+                if current_time is None:
+                    should_replace = True
+                elif incoming_time is not None and incoming_time >= current_time:
+                    should_replace = True
+
+            if should_replace:
                 self.state_manager.save_browser_results(observation)
 
         return observation
