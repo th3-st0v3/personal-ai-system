@@ -247,67 +247,9 @@ def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: Obstac
 
 
 def main() -> int:
-    ledger = ObstacleLedger(supervisor.REPO_ROOT)
-    original_validate = supervisor.validate_patch_paths
-    original_watchdog = supervisor.runtime_watchdog_is_live
-    original_sleep = supervisor.sleep_until_retry
-    original_invoke = supervisor.invoke_chat
-    original_log = supervisor.log_event
-    original_gate = supervisor.automation_gate_is_satisfied
-    original_parse = supervisor.parse_response
-    original_services = supervisor.ensure_services
-    automation_continue_requested = False
+    """Compatibility entrypoint; active unattended execution is owned by v2."""
+    return supervisor.main()
 
-    def parse_response(response: str):
-        nonlocal automation_continue_requested
-        parsed = original_parse(response)
-        if _AUTOMATION_CONTINUE_RE.search(response):
-            automation_continue_requested = True
-            status, summary, next_task, patch, allow_delete, values = parsed
-            values = dict(values)
-            values["automation_continue"] = "true"
-            summary = (summary + " PASI_AUTOMATION_CONTINUE: true").strip()
-            return status, summary, next_task, patch, allow_delete, values
-        return parsed
 
-    def log_event(kind: str, **data: Any) -> None:
-        nonlocal automation_continue_requested
-        original_log(kind, **data)
-        _record_event_obstacle(ledger, kind, data)
-        if kind == "task_failed":
-            ledger.record(
-                "task_failed",
-                "A task exhausted its bounded retry budget.",
-                "Continue with the next non-repeating task; use the recorded failure evidence to inform future recovery work.",
-                task_id=_task_id(data),
-                status="pending",
-                details={"error": str(data.get("error", ""))[-3000:]},
-            )
-
-    def gate(evidence: dict[str, object]) -> bool:
-        nonlocal automation_continue_requested
-        if automation_continue_requested:
-            automation_continue_requested = False
-            return False
-        return original_gate(evidence)
-
-    supervisor.validate_patch_paths = validate_patch_paths
-    supervisor.log_event = log_event
-    supervisor.runtime_watchdog_is_live = original_watchdog
-    supervisor.ensure_services = lambda: nonblocking_ensure_services(ledger=ledger)
-    supervisor.standby_until_ready = lambda state: nonblocking_standby(state, ledger=ledger)
-    supervisor.sleep_until_retry = lambda state, seconds: nonblocking_sleep(state, seconds, ledger=ledger)
-    supervisor.invoke_chat = lambda task, state, failure: resilient_invoke_chat(task, state, failure, ledger=ledger)
-    supervisor.automation_gate_is_satisfied = gate
-    supervisor.parse_response = parse_response
-    try:
-        return supervisor.main()
-    finally:
-        supervisor.validate_patch_paths = original_validate
-        supervisor.runtime_watchdog_is_live = original_watchdog
-        supervisor.ensure_services = original_services
-        supervisor.sleep_until_retry = original_sleep
-        supervisor.invoke_chat = original_invoke
-        supervisor.log_event = original_log
-        supervisor.automation_gate_is_satisfied = original_gate
-        supervisor.parse_response = original_parse
+if __name__ == "__main__":
+    raise SystemExit(main())
