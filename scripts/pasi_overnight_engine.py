@@ -491,10 +491,16 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
     )
 
 
-def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
+def verify_patch(
+    worktree: Path,
+    patch: str,
+    allow_delete: bool,
+    *,
+    sandbox: bool = True,
+) -> str:
     normalized_patch = normalize_patch(patch)
     output = apply_patch(worktree, normalized_patch, allow_delete)
-    output = run_validation_sandbox(worktree)
+    output = run_validation_sandbox(worktree) if sandbox else ""
 
     code, status = command(["git", "status", "--porcelain"], worktree, timeout=30.0)
     if code != 0 or not status:
