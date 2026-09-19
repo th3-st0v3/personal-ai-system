@@ -97,6 +97,88 @@ test('native transient control activation clears stale focus before ChatGPT hide
   );
   assert.match(mouseActivation, /clearFocusBeforeActivation\(\);/);
   assert.doesNotMatch(mouseActivation, /element\.focus\(\);/);
+
+  const accessibilityStart = content.indexOf('function accessibilityHidden(element)');
+  const visibleStart = content.indexOf('  function visible(element)');
+  assert.ok(accessibilityStart >= 0 && visibleStart > accessibilityStart);
+  const accessibilitySource = content.slice(accessibilityStart, visibleStart);
+  const accessibilityHidden = new Function(
+    accessibilitySource + '\\nreturn accessibilityHidden;'
+  )();
+
+  const ariaAncestor = {
+    parentElement: null,
+    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
+    hasAttribute() { return false; }
+  };
+  const ariaChild = {
+    parentElement: ariaAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; }
+  };
+  const inertAncestor = {
+    parentElement: null,
+    getAttribute() { return null; },
+    hasAttribute(name) { return name === 'inert'; }
+  };
+  const inertChild = {
+    parentElement: inertAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; }
+  };
+  assert.equal(accessibilityHidden(ariaChild), true);
+  assert.equal(accessibilityHidden(inertChild), true);
+  assert.equal(accessibilityHidden({ parentElement: null, getAttribute() { return null; }, hasAttribute() { return false; } }), false);
+
+  const freshStart = content.indexOf('function freshChatSurface(previousLocation, previousChat)');
+  const freshEnd = content.indexOf('  function contextExhausted()', freshStart);
+  assert.ok(freshStart >= 0 && freshEnd > freshStart);
+  const freshSource = content.slice(freshStart, freshEnd);
+  const buildFresh = new Function(
+    'location',
+    'composer',
+    'generating',
+    'userMessages',
+    'assistantMessages',
+    freshSource + '\\nreturn freshChatSurface;'
+  );
+  const fresh = buildFresh(
+    { href: 'https://chatgpt.com/' },
+    () => true,
+    () => false,
+    () => [],
+    () => []
+  );
+  assert.equal(fresh('https://chatgpt.com/old', 'https://chatgpt.com/c/old'), true);
+  assert.equal(
+    fresh('https://chatgpt.com/c/new', 'https://chatgpt.com/c/old'),
+    false
+  );
+
+  let blurred = false;
+  let clicked = false;
+  const focusStart = content.indexOf('function clearFocusBeforeActivation()');
+  const focusEnd = content.indexOf('  async function newChat()', focusStart);
+  assert.ok(focusStart >= 0 && focusEnd > focusStart);
+  const focusSource = content.slice(focusStart, focusEnd);
+  const buildActivation = new Function(
+    'document',
+    'visible',
+    'disabled',
+    focusSource + '\\nreturn { activateControl };'
+  );
+  const activation = buildActivation(
+    {
+      activeElement: { blur() { blurred = true; } },
+      body: {},
+      documentElement: {}
+    },
+    () => true,
+    () => false
+  );
+  assert.equal(activation.activateControl({ click() { clicked = true; } }), true);
+  assert.equal(blurred, true);
+  assert.equal(clicked, true);
 });
 
 test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
