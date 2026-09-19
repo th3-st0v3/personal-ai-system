@@ -383,6 +383,7 @@ def create_driver_session(
                             "--disable-sync",
                             "--disable-component-update",
                             "--disable-default-apps",
+                            "--enable-unsafe-extension-debugging",
                             "--remote-allow-origins=*",
                             "--ignore-certificate-errors",
                             "--host-resolver-rules=MAP chatgpt.com 127.0.0.1",
