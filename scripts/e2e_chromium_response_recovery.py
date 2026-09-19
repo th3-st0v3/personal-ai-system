@@ -614,6 +614,17 @@ def main() -> None:
             target_id: str | None = None
             try:
                 extension_dir = build_extension(Path(extension_root) / "pasi-chatgpt")
+                mutation = os.environ.get("PASI_E2E_MUTATION", "").strip()
+                if mutation == "collapse_response_whitespace":
+                    mutated_content_path = extension_dir / "content.js"
+                    mutated_content = mutated_content_path.read_text(encoding="utf-8")
+                    mutated_content = mutated_content.replace(
+                        ".replace(/\\r\\n?/g, '\\n')\\n      .replace(/[ \\t]+(?=\\n)/g, '')",
+                        ".replace(/\\s+/g, ' ')"
+                    )
+                    mutated_content_path.write_text(mutated_content, encoding="utf-8")
+                elif mutation:
+                    raise ValueError(f"unknown PASI_E2E_MUTATION: {mutation}")
                 debug_port = free_port()
                 profile_dir = Path(profile_root) / "profile"
                 profile_dir.mkdir()
