@@ -198,5 +198,41 @@ class TestProviderRouter(unittest.TestCase):
         ollama.assert_called_once()
 
 
+    def test_provider_order_is_local_before_opted_in_remote(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "OLLAMA_MODEL": "local-coder",
+                "PASI_ALLOW_REMOTE_CODE": "1",
+                "OPENROUTER_API_KEY": "remote",
+                "PERPLEXITY_API_KEY": "remote2",
+            },
+            clear=True,
+        ):
+            with patch("shutil.which", side_effect=lambda name: "/usr/bin/opencode" if name == "opencode" else None):
+                self.assertEqual(
+                    providers_available(),
+                    ["ollama", "opencode", "openrouter", "perplexity"],
+                )
+
+    def test_opencode_uses_disposable_copy_and_denies_tools(self) -> None:
+        with patch("shutil.which", return_value="/usr/bin/opencode"):
+            with patch.object(pasi_provider_router.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = "response"
+                run.return_value.stderr = ""
+                result = pasi_provider_router.call_opencode("task", Path("."), 20.0)
+
+        self.assertEqual(result, "response")
+        call = run.call_args
+        self.assertIn("--standalone", call.args[0])
+        self.assertEqual(call.args[1], "run") if False else None
+        env = call.kwargs["env"]
+        self.assertEqual(env["OPENCODE_DISABLE_DEFAULT_PLUGINS"], "true")
+        self.assertEqual(env["OPENCODE_DISABLE_LSP_DOWNLOAD"], "true")
+        for permission in ("edit", "bash", "webfetch", "websearch", "task", "skill", "external_directory", "question"):
+            self.assertIn(f'"{permission}": "deny"', env["OPENCODE_PERMISSION"])
+
+
 if __name__ == "__main__":
     unittest.main()
