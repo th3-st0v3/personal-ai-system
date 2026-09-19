@@ -1063,7 +1063,7 @@ def test_http_prompt_completion_derives_availability_from_nonblank_text(tmp_path
             "POST",
             "/chat/finished",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
