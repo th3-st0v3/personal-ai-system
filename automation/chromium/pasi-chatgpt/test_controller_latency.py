@@ -60,8 +60,9 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "targetAddressSpace" not in background
     assert "http://127.0.0.1:8765" in background
     assert "allowedBridgeRequest(method, path)" in background
-    assert "captcha" in native
-    assert "session has expired" in native
+    detector = _read(ROOT / "automation" / "chromium" / "pasi-chatgpt" / "detectors.js")
+    assert "captcha" in detector
+    assert "session has expired" in detector
     assert "CHAT_EXHAUSTED" in native
     assert "reportHealth" in native
     assert "aria-labelledby" in native
