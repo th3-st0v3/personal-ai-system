@@ -19,6 +19,7 @@
   const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
   let processing = false;
+  let controllerLeader = false;
   let reasoningMode = null;
   let githubAttached = false;
   let githubRepository = null;
@@ -243,6 +244,27 @@
   function contextExhausted() {
     return detectorState().context_exhausted === true;
   }
+  function controllerClaim() {
+    if (!globalThis.chrome?.runtime?.sendMessage) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'pasi-controller-claim' }, (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError || !response || response.ok !== true) {
+            controllerLeader = false;
+            resolve(false);
+            return;
+          }
+          controllerLeader = response.leader === true;
+          resolve(controllerLeader);
+        });
+      } catch (_) {
+        controllerLeader = false;
+        resolve(false);
+      }
+    });
+  }
+
 
   function usageLimited() {
     const state = detectorState();
