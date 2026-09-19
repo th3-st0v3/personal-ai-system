@@ -721,7 +721,11 @@
         } else {
           const form = afterClick.closest('form');
           if (form?.requestSubmit) {
-            form.requestSubmit(afterClick);
+            const submitter = sendCandidatesForComposer(afterClick).find(
+              (element) => element?.tagName === 'BUTTON' || element?.getAttribute?.('type') === 'submit'
+            ) || null;
+            if (submitter) form.requestSubmit(submitter);
+            else form.requestSubmit();
             if (await waitForSubmissionAck(expected, baselineUserCount)) return;
           }
 
