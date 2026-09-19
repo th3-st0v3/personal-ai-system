@@ -328,6 +328,9 @@ PASI_RESULT_PATCH_END"""
 
         self.assertEqual(service_checks, ["checked", "checked"])
 
+    def test_legacy_v1_engine_is_retired(self) -> None:
+        self.assertFalse((engine.REPO_ROOT / "scripts" / "pasi_overnight_engine.py").exists())
+
     def test_state_round_trip_uses_schema_v2(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
