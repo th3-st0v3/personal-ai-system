@@ -19,9 +19,12 @@ HOST = "127.0.0.1"
 PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 50_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
+CLAIM_LEASE_SECONDS = 70 * 60
+QUEUE_TTL_SECONDS = 24 * 60 * 60
 MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 MAX_IDEMPOTENCY_KEY_CHARS = 128
+RETRY_BUDGETS = {"controller": 3, "response": 2, "context": 1}
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -98,10 +101,53 @@ class BridgeState:
                 status="queued",
             )
             item = operation.to_dict()
+            now = time.time()
             item["retry_count"] = 0
+            item["retry_counts"] = {"controller": 0, "response": 0, "context": 0}
+            item["expires_at"] = now + QUEUE_TTL_SECONDS
+            item["updated_at"] = now
             queue.append(item)
             self.state_manager.save_queue(queue)
             return operation
+
+    def _sweep_queue_locked(self, queue: list[dict[str, Any]]) -> bool:
+        now = time.time()
+        changed = False
+        for item in queue:
+            expires_at = float(item.get("expires_at", 0) or 0)
+            if expires_at and now >= expires_at and item.get("status") in {"queued", "claimed", "generating"}:
+                current = str(item.get("status", ""))
+                validate_transition(current, "failed")
+                item["status"] = "failed"
+                item["error"] = "operation queue TTL expired"
+                item["failure_reason"] = "queue_ttl_expired"
+                item["updated_at"] = now
+                changed = True
+                continue
+
+            claimed_at = float(item.get("claimed_at", 0) or 0)
+            if current := str(item.get("status", "")):
+                if current in {"claimed", "generating"} and claimed_at and now - claimed_at >= CLAIM_LEASE_SECONDS:
+                    validate_transition(current, "queued")
+                    item["status"] = "queued"
+                    item.pop("claimed_at", None)
+                    item["reclaimed_at"] = now
+                    item["updated_at"] = now
+                    item["failure_reason"] = "claim_lease_expired"
+                    changed = True
+        if changed:
+            self.state_manager.save_queue(queue)
+        return changed
+
+    @classmethod
+    def _mark_claimed(cls, item: dict[str, Any]) -> dict[str, Any]:
+        now = time.time()
+        current = str(item.get("status", ""))
+        validate_transition(current, "claimed")
+        item["status"] = "claimed"
+        item["claimed_at"] = now
+        item["updated_at"] = now
+        return item
 
     def claim_operation(
         self,
@@ -109,37 +155,25 @@ class BridgeState:
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
-
+            self._sweep_queue_locked(queue)
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
                 if item.get("status") != "queued":
                     return None
-
-                validate_transition("queued", "claimed")
-                item["status"] = "claimed"
-                item["claimed_at"] = time.time()
-                self.state_manager.save_queue(queue)
-                return dict(item)
-
+                return dict(self._mark_claimed(item))
         return None
 
     def claim_next_operation(self) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
-
+            self._sweep_queue_locked(queue)
             for item in queue:
                 if item.get("status") != "queued":
                     continue
-
-                validate_transition("queued", "claimed")
-                item["status"] = "claimed"
-                item["claimed_at"] = time.time()
-
+                claimed = self._mark_claimed(item)
                 self.state_manager.save_queue(queue)
-
-                return item
-
+                return dict(claimed)
         return None
 
     def get_operation(
@@ -221,6 +255,24 @@ class BridgeState:
             status="failed",
             error=error,
         )
+
+    def cancel_operation(self, operation_id: str, reason: str = "cancelled by runner") -> dict[str, Any] | None:
+        with self.lock:
+            queue = self.state_manager.load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                current = str(item.get("status", ""))
+                if current in {"completed", "failed", "cancelled"}:
+                    return dict(item)
+                validate_transition(current, "cancelled")
+                item["status"] = "cancelled"
+                item["error"] = str(reason)[:MAX_ERROR_CHARS]
+                item["cancelled_at"] = time.time()
+                item["updated_at"] = time.time()
+                self.state_manager.save_queue(queue)
+                return dict(item)
+        return None
 
     def heartbeat(
         self,
@@ -325,6 +377,7 @@ class BridgeState:
                     counts.get(status, 0) + 1
                 )
 
+            self._sweep_queue_locked(queue)
             active_statuses = {
                 "queued",
                 "claimed",
@@ -432,6 +485,14 @@ class BridgeState:
         )
         return True
 
+    @staticmethod
+    def _retry_class(error: str) -> str:
+        if error.startswith("CHAT_EXHAUSTED:"):
+            return "context"
+        if error.startswith("PASI_NATIVE: ChatGPT generation timed out") or error.startswith("PASI_NATIVE: response text unavailable"):
+            return "response"
+        return "controller"
+
     def _retry_operation(
         self,
         operation_id: str,
@@ -440,13 +501,15 @@ class BridgeState:
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
-
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
-
                 current_status = str(item.get("status", ""))
-                retry_count = int(item.get("retry_count", 0) or 0)
+                retry_counts = item.get("retry_counts")
+                if not isinstance(retry_counts, dict):
+                    retry_counts = {"controller": int(item.get("retry_count", 0) or 0), "response": 0, "context": 0}
+                retry_class = self._retry_class(error)
+                count = int(retry_counts.get(retry_class, 0) or 0)
 
                 if (
                     item.get("operation_type") == "prompt"
@@ -458,27 +521,33 @@ class BridgeState:
                     item["status"] = "completed"
                     item["completion_recovery_reason"] = "browser_response_observation_after_transient_failure"
                     item["recovery_error"] = error[:MAX_ERROR_CHARS]
+                    item["updated_at"] = time.time()
                     self.state_manager.save_queue(queue)
-                    return item
+                    return dict(item)
 
-                if retry_count >= MAX_TRANSIENT_FAILURE_RETRIES:
+                if count >= RETRY_BUDGETS[retry_class]:
                     validate_transition(current_status, "failed")
                     item["status"] = "failed"
                     item["error"] = error[:MAX_ERROR_CHARS]
-                    item["failure_reason"] = "transient_retry_exhausted"
+                    item["failure_reason"] = f"{retry_class}_retry_exhausted"
+                    item["updated_at"] = time.time()
                     self.state_manager.save_queue(queue)
-                    return item
+                    return dict(item)
 
+                retry_counts = dict(retry_counts)
+                retry_counts[retry_class] = count + 1
                 validate_transition(current_status, "queued")
                 item["status"] = "queued"
-                item["retry_count"] = retry_count + 1
+                item["retry_counts"] = retry_counts
+                item["retry_count"] = sum(int(value or 0) for value in retry_counts.values())
                 item["last_retry_error"] = error[:MAX_ERROR_CHARS]
                 if item.get("operation_type") == "prompt" and recovery_context:
                     item["recovery_context"] = dict(recovery_context)
+                item.pop("claimed_at", None)
                 item["requeued_at"] = time.time()
+                item["updated_at"] = time.time()
                 self.state_manager.save_queue(queue)
-                return item
-
+                return dict(item)
         return None
 
     @staticmethod
