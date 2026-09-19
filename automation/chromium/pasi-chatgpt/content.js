@@ -222,7 +222,6 @@
     element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   }
 
-  function insertText(element, text) { setText(element, text); }
 
   function readText(element) { return isTextControl(element) ? String(element.value || '') : String(element?.innerText || element?.textContent || ''); }
 
@@ -818,8 +817,6 @@
     if (!githubAttached) await attachGithub(repository);
   }
 
-  function assistants() { return assistantMessages(); }
-
   function extractAssistant(node) {
     const markdown = Array.from(node.querySelectorAll?.('.markdown, [class*="markdown"]') || []).filter(visible);
     for (let i = markdown.length - 1; i >= 0; i -= 1) {
@@ -833,7 +830,7 @@
   }
 
   function latestAssistant() {
-    const nodes = assistants();
+    const nodes = assistantMessages();
     return nodes.length ? extractAssistant(nodes[nodes.length - 1]) : '';
   }
 
