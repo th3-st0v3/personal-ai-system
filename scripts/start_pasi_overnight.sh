@@ -66,7 +66,7 @@ log_file="$REPO_ROOT/.runtime/overnight/runner.log"
 
 # Close the launcher's flock descriptor in the detached runner so the lock
 # protects startup only and is not retained for the lifetime of the run.
-nohup bash -c 'exec 9>&-; exec "$@"' _ "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/pasi_automation_entrypoint.py" --hours "$hours" "$@" < /dev/null &
+nohup bash -c 'exec 9>&-; exec "$@"' _ "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$PYTHON" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" --hours "$hours" "$@" < /dev/null &
 pid=$!
 
 # Confirm the detached runner survives startup before declaring success.
