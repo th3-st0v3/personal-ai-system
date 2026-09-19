@@ -215,6 +215,10 @@ test('native recovery companion preserves response text without blocking complet
   assert.match(recovery, /current\.status === 'failed'/);
 });
 
+test('operation lookup route is accepted by the MV3 service worker allowlist', () => {
+  assert.match(background, /const BRIDGE_OPERATION_RE = \/\\^\\/operation\\\\\?operation_id=\[\^&\]\{1,200\}\$\\/;/);
+});
+
 test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.doesNotMatch(background, /targetAddressSpace/);
   assert.ok(background.includes("cache: 'no-store'"));
