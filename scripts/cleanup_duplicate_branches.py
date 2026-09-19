@@ -292,7 +292,12 @@ def build_cleanup_plan(
         branch = branch_by_name.get(branch_name)
         if branch is None:
             continue
-        if branch_name == default_branch or branch_name in open_pr_heads or branch_name in keep_branches:
+        if (
+            branch_name == default_branch
+            or branch_name in open_pr_heads
+            or branch_name in keep_branches
+            or branch_name in keep
+        ):
             continue
         deletions.setdefault(branch_name, branch)
 
