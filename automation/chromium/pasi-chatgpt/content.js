@@ -6,6 +6,7 @@
   const HEALTH_MS = 15000;
   const DOM_POLL_MS = 250;
   const CLICK_SETTLE_MS = 250;
+  const THINKING_VERIFY_MS = 5000;
   const RESPONSE_SETTLE_MS = 200;
   const SUBMISSION_ACK_MS = 7500;
   const SUBMISSION_ATTEMPTS = 3;
@@ -684,12 +685,48 @@
     return false;
   }
 
+  async function verifyThinkingState() {
+    return waitFor(() => {
+      const state = thinkingEnabled();
+      return state === true ? true : null;
+    }, THINKING_VERIFY_MS);
+  }
+
+  async function ensureThinkingReady() {
+    let state = thinkingEnabled();
+    if (state === true) {
+      reasoningMode = 'thinking';
+      return true;
+    }
+
+    // The model selector can report null briefly while ChatGPT is closing
+    // the intelligence menu. Give the DOM a chance to settle before trying
+    // to toggle the control again.
+    state = await verifyThinkingState();
+    if (state) {
+      reasoningMode = 'thinking';
+      return true;
+    }
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      await selectThinking();
+      if (await verifyThinkingState()) {
+        reasoningMode = 'thinking';
+        return true;
+      }
+      if (attempt < 2) await sleep(CLICK_SETTLE_MS);
+    }
+
+    return false;
+  }
+
   async function ensurePromptSubmissionReady() {
     if (authRequired()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-    if (thinkingEnabled() !== true) await selectThinking();
-    if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
+    if (!(await ensureThinkingReady())) {
+      throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
+    }
   }
 
   function composerContainsPrompt(element, expected) {
@@ -740,30 +777,6 @@
     return true;
   }
 
-  async function waitForSubmissionAck(expected, baselineUserCount) {
-    const started = Date.now();
-    while (Date.now() - started < SUBMISSION_ACK_MS) {
-      if (newestUserMatches(expected, baselineUserCount)) return true;
-      const current = composer();
-      if (!current || !composerContainsPrompt(current, expected)) {
-        if (generating()) return true;
-      }
-      await sleep(DOM_POLL_MS);
-    }
-    return false;
-  }
-
-  async function ensurePromptSubmissionReady() {
-    if (authRequired()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
-    if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-    if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-    if (thinkingEnabled() !== true) await selectThinking();
-    if (thinkingEnabled() !== true) throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
-  }
-
-  function composerContainsPrompt(element, expected) {
-    return Boolean(element) && normalize(readText(element)).includes(normalize(expected));
-  }
 
   async function submitPrompt(expected) {
     const baselineUserCount = userMessages().length;
