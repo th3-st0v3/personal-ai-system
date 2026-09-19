@@ -216,7 +216,7 @@ def consecutive_roadmap_selection_count(
 
 def choose_run_start_task(phase: str, requested_task: str, run_id: str) -> tuple[str, bool, int]:
     candidates = AUTOMATION_TASKS if phase == "automation" else ENGINEERING_TASKS
-    candidate = re.sub(r"\\s+", " ", requested_task).strip()
+    candidate = re.sub(r"\s+", " ", requested_task).strip()
     configured = {item.casefold(): item for item in candidates}
 
     if candidate and candidate.casefold() not in configured:
