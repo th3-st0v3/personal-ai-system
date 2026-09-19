@@ -68,6 +68,7 @@ MARKERS = {
     "backend": re.compile(r"^PASI_RESULT_BACKEND:\s*(.+)$", re.MULTILINE),
     "evidence": re.compile(r"^PASI_RESULT_EVIDENCE:\s*(.+)$", re.MULTILINE),
     "repository_progress": re.compile(r"^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$", re.MULTILINE),
+    "allow_delete": re.compile(r"^PASI_RESULT_ALLOW_DELETE:\s*(true|false)$", re.MULTILINE | re.IGNORECASE),
 }
 
 AUTOMATION_TASKS = (
