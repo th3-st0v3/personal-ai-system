@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Sweep exact duplicate branch refs
+      - name: Sweep safe duplicate and closed-PR branch refs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
