@@ -188,10 +188,9 @@ async function inspect() {
   if (observationAge(health.observation) <= STALE_MS) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
-  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
-  const matchingTab = targetChatUrl
-    ? tabs.find((tab) => tab.url === targetChatUrl)
-    : (tabs[0] || null);
+  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url.trim() : '';
+  if (!targetChatUrl) return;
+  const matchingTab = tabs.find((tab) => tab.url === targetChatUrl);
   // If the exact conversation tab is gone, recreate only the verified target
   // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
   if (!matchingTab) {
