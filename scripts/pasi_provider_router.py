@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -202,18 +203,45 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
     executable = shutil.which("opencode")
     if not executable:
         raise RuntimeError("opencode executable is not installed")
+
     safe_prompt = prompt + "\nDo not use edit, write, bash, deploy, or other mutation tools even if they are available. Return text only."
-    try:
-        result = subprocess.run(
-            [executable, "run", "--dir", str(repo), safe_prompt],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("OpenCode timed out") from exc
+    scrubbed_environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {
+            "PASI_BRIDGE_TOKEN",
+            "GITHUB_TOKEN",
+            "OPENROUTER_API_KEY",
+            "PERPLEXITY_API_KEY",
+            "NVIDIA_API_KEY",
+            "ANTHROPIC_API_KEY",
+        }
+    }
+    ignored = shutil.ignore_patterns(".git", ".runtime", ".venv", "__pycache__", "*.pyc")
+    with tempfile.TemporaryDirectory(prefix="pasi-opencode-") as temp_dir:
+        sandbox = Path(temp_dir) / "repo"
+        shutil.copytree(repo, sandbox, symlinks=False, ignore=ignored)
+        for directory in sorted(
+            (item for item in sandbox.rglob("*") if item.is_dir()),
+            key=lambda item: len(item.parts),
+            reverse=True,
+        ):
+            directory.chmod(0o555)
+        for file_path in (item for item in sandbox.rglob("*") if item.is_file()):
+            file_path.chmod(0o444)
+        try:
+            result = subprocess.run(
+                [executable, "run", "--dir", str(sandbox), safe_prompt],
+                cwd=sandbox,
+                env=scrubbed_environment,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("OpenCode timed out") from exc
     output = ((result.stdout or "") + (result.stderr or "")).strip()
     if result.returncode != 0:
         raise RuntimeError(bounded_text(output or "OpenCode failed", 4000))
