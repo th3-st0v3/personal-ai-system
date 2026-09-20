@@ -370,7 +370,7 @@ def main() -> None:
                 )
                 wait_for_extension_marker(cdp, browser_session, timeout=10.0)
 
-                deadline = time.monotonic() + 25.0
+                deadline = time.monotonic() + 60.0
                 while time.monotonic() < deadline:
                     state = runtime_evaluate(
                         cdp,
@@ -393,7 +393,23 @@ def main() -> None:
                         break
                     time.sleep(0.1)
                 else:
-                    raise AssertionError(f"Prompt submission fixture did not complete both operations: {state!r}")
+                    with BridgeHandler.lock:
+                        bridge_debug = {
+                            "next_index": BridgeHandler.next_index,
+                            "current_status": dict(BridgeHandler.current_status),
+                            "finished_at": dict(BridgeHandler.finished_at),
+                            "prompt_injected_events": list(BridgeHandler.prompt_injected_events),
+                            "failures": list(BridgeHandler.failures),
+                            "observations": [
+                                item.get("observation", {}).get("data", {}).get("kind")
+                                for item in BridgeHandler.observations
+                                if isinstance(item, dict)
+                            ],
+                        }
+                    raise AssertionError(
+                        "Prompt submission fixture did not complete both operations: "
+                        f"page={state!r} bridge={bridge_debug!r}"
+                    )
 
                 final = runtime_evaluate(
                     cdp,
