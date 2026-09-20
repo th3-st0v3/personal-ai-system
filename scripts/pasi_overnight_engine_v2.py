@@ -630,12 +630,15 @@ def no_change_completion_is_satisfied(
     next_task: str,
     patch: str,
     values: dict[str, str],
+    task_already_completed: bool,
 ) -> bool:
     return (
         completion_contract(status, values)
         and not patch
         and values.get("repository_progress", "").lower() == "stopped"
         and bool(next_task.strip())
+        and bool(values.get("evidence", "").strip())
+        and task_already_completed
         and repository_worktree_is_clean(worktree)
     )
 
@@ -1192,7 +1195,12 @@ def run(state: OvernightState, *, push: bool) -> None:
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
             if contract_ok and no_change_completion_is_satisfied(
-                Path(state.worktree), status, next_task, patch, values
+                Path(state.worktree),
+                status,
+                next_task,
+                patch,
+                values,
+                task_key(state.current_task) in completed_task_keys(),
             ):
                 state.completed_tasks += 1
                 record_task_ledger(
