@@ -323,16 +323,14 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
     if pr_number is None:
         pr_number, pr_url = _create_pr(branch, title, body)
     elif pr_state == "CLOSED":
-        reopened, output = _reopen_pr(pr_number)
-        if not reopened:
-            return PromotionResult(
-                branch,
-                pr_number,
-                pr_url,
-                risk,
-                False,
-                f"existing closed PR could not be reopened; no duplicate PR created: {output[-2000:]}",
-            )
+        return PromotionResult(
+            branch,
+            pr_number,
+            pr_url,
+            risk,
+            False,
+            "an existing PR for this branch is closed; it remains closed and no duplicate PR was created",
+        )
     elif pr_state == "MERGED":
         pr_number, pr_url = _create_pr(branch, title, body)
     if not pr_number:
