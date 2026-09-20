@@ -22,6 +22,19 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_native_extension_package_contains_no_python_sources_or_cache(self) -> None:
+        extension = ROOT / "automation" / "chromium" / "pasi-chatgpt"
+        offenders = [
+            path.relative_to(extension).as_posix()
+            for path in extension.rglob("*")
+            if path.is_file()
+            and (
+                path.suffix in {".py", ".pyc", ".pyo"}
+                or any(part == "__pycache__" for part in path.parts)
+            )
+        ]
+        self.assertEqual(offenders, [], f"Python source/cache must not be shipped in the unpacked browser extension: {offenders}")
+
     def test_168h_launcher_contains_isolation_and_service_guards(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
