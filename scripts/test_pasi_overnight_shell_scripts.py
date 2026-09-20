@@ -19,9 +19,10 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         script = (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
         self.assertIn("find_expr=(find .)", script)
         self.assertIn('for dir in "${pruned_dirs[@]}"; do', script)
+        self.assertIn('find_expr+=( -type d -name "${dir#./}" -prune -o )', script)
         self.assertIn("find_expr+=( -type f )", script)
-        self.assertIn("-name 'node_modules'", script)
-        self.assertIn("-name '.runtime'", script)
+        self.assertIn("./node_modules", script)
+        self.assertIn("./.runtime", script)
 
     def test_check_all_discovers_and_runs_supported_javascript_suites(self) -> None:
         script = (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
