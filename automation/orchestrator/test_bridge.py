@@ -112,6 +112,24 @@ def test_bridge_suppresses_successful_http_access_log_noise() -> None:
     assert _bridge_access_log_should_emit('malformed access log') is True
 
 
+def test_retry_budgets_are_separate_by_failure_class(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "retry classes")
+    bridge.claim_next_operation()
+
+    controller_retry = bridge.fail_operation(
+        operation.operation_id,
+        "PASI_NATIVE: composer disappeared",
+    )
+    assert controller_retry is not None
+    assert controller_retry["retry_class"] == "controller"
+    assert controller_retry["retry_counts"]["controller"] == 1
+    assert controller_retry["retry_counts"]["response"] == 0
+    assert controller_retry["retry_counts"]["context"] == 0
+
+    claimed = bridge.claim_operation(operation.operation_id)
+    assert claimed is None
+
 def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     first = bridge.queue_operation("prompt", "same prompt", idempotency_key="key-1")
