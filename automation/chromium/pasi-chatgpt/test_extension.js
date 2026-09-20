@@ -200,7 +200,12 @@ test('native prompt submission uses a single send strategy and never duplicates 
   assert.match(content, /dispatchEnter\(box\)/);
   assert.match(content, /const fired = await strategies\[attempt - 1\]\(readyBox, button\)/);
   assert.match(content, /Once a send strategy has fired, never/);
-  assert.match(content, /return \{ via: via \|\| 'sent_unverified'/);
+  assert.match(content, /const injectedAtMs = Date\.now\(\)/);
+  assert.match(content, /injected_at_ms: injectedAtMs/);
+  assert.match(content, /ack_at_ms: Date\.now\(\)/);
+  assert.match(content, /user_messages_added: countNewUserMessages\(userMessages\(\), snapshot\)/);
+  assert.match(content, /ack_verified: via === 'verified'/);
+  assert.match(content, /submission_via: finalVia/);
   assert.match(content, /composer holds unrelated text; refusing to overwrite/);
   assert.doesNotMatch(content, /newestUserMatches/);
 });
@@ -213,6 +218,9 @@ test('native completion captures responses through the event-driven waiter and b
   assert.match(content, /PASI_NATIVE: ChatGPT generation timed out/);
   assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
   assert.match(content, /response_text: responseText\.slice\(0, MAX_RESPONSE_TEXT_CHARS\)/);
+  assert.match(content, /browserTiming\.generation_start_ms = generationStartMs/);
+  assert.match(content, /browserTiming\.completed_at_ms = Date\.now\(\)/);
+  assert.match(content, /finishOperation\(operation\.operation_id, response, true, browserTiming\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
   assert.match(content, /void reportObservation\('chatgpt_response'/);
