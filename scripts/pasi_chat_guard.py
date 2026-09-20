@@ -53,19 +53,6 @@ def request_json(path: str, timeout: float = 3.0) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def observation_text(data: Any) -> str:
-    if not isinstance(data, dict):
-        return ""
-    values: list[str] = []
-    for key in ("error", "message", "response_text", "text", "signals", "status", "reason"):
-        value = data.get(key)
-        if isinstance(value, str):
-            values.append(value)
-        elif isinstance(value, list):
-            values.extend(str(item) for item in value)
-    return " ".join(values).strip().lower()
-
-
 def classify_observation(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
@@ -74,17 +61,17 @@ def classify_observation(payload: dict[str, Any] | None) -> str | None:
     if not isinstance(data, dict):
         return None
 
+    # Terminal provider/security classifications must come from structured
+    # controller health fields only. Never scan response/message text: model
+    # output, sidebar titles, documentation, and prior error text can mention
+    # words such as "captcha" or "rate limit" without an actual live condition.
     kind = data.get("kind")
-    if kind == "chatgpt_health":
-        if data.get("provider_usage_limited") is True or data.get("usage_limited") is True or data.get("rate_limited") is True:
-            return "usage_limit"
-        if data.get("auth_required") is True or data.get("login_required") is True:
-            return "auth_required"
-        text = observation_text(data)
-        if any(marker in text for marker in ("message limit", "usage limit reached", "rate limit", "too many requests", "daily limit", "weekly limit", "free tier limit")):
-            return "usage_limit"
+    if kind != "chatgpt_health":
         return None
-
+    if data.get("provider_usage_limited") is True or data.get("usage_limited") is True or data.get("rate_limited") is True:
+        return "usage_limit"
+    if data.get("auth_required") is True or data.get("login_required") is True:
+        return "auth_required"
     return None
 
 
