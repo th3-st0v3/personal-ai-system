@@ -144,7 +144,7 @@ def _invoke_repair(task: str, state: Any, response: str, failure: str) -> tuple[
     return supervisor.command(
         [
             sys.executable,
-            "scripts/pasi_chat_guard.py",
+            str(supervisor.control_script("pasi_chat_guard.py")),
             prompt,
             "--github",
             "auto",
@@ -160,7 +160,7 @@ def _invoke_provider_fallback(task: str, state: Any) -> tuple[int, str]:
     return supervisor.command(
         [
             sys.executable,
-            "scripts/pasi_provider_router.py",
+            str(supervisor.control_script("pasi_provider_router.py")),
             "--task",
             _repair_prompt(task, "", "primary ChatGPT provider is unavailable or restricted"),
             "--repo",
