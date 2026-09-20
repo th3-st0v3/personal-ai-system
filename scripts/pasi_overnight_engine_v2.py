@@ -574,7 +574,7 @@ def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
             candidate.relative_to(root)
         except ValueError as exc:
             raise RuntimeError(f"git apply resolved an unsafe path: {path_value}") from exc
-        if path_value in PROTECTED_UNATTENDED_PATHS or path_value.startswith(".github/"):
+        if path_value in PROTECTED_UNATTENDED_PATHS or any(path_value.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES):
             raise RuntimeError(f"git apply resolved a protected unattended path: {path_value}")
 
 

@@ -3,7 +3,7 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TAMPERMONKEY = ROOT / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
+TAMPERMONKEY = ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
 NATIVE = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 BACKGROUND = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "background.js"
 

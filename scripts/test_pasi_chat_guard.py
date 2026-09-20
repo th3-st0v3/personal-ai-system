@@ -4,7 +4,6 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
-from unittest import mock
 
 from scripts import pasi_chat_guard as guard
 from scripts.pasi_chat_guard import classify_observation
@@ -62,8 +61,18 @@ class TestPasiChatGuard(unittest.TestCase):
         }
         self.assertEqual(classify_observation(payload), "auth_required")
 
-    def test_typed_health_text_classification_detects_provider_limit_without_boolean_flags(self) -> None:
+    def test_structured_health_classification_detects_provider_limit_without_text_scanning(self) -> None:
         payload = {
+            "observation": {
+                "data": {
+                    "kind": "chatgpt_health",
+                    "provider_usage_limited": True,
+                }
+            }
+        }
+        self.assertEqual(classify_observation(payload), "usage_limit")
+
+        text_only = {
             "observation": {
                 "data": {
                     "kind": "chatgpt_health",
@@ -71,8 +80,7 @@ class TestPasiChatGuard(unittest.TestCase):
                 }
             }
         }
-        self.assertEqual(classify_observation(payload), "usage_limit")
-        self.assertIn("message limit", observation_text(payload["observation"]["data"]))
+        self.assertIsNone(classify_observation(text_only))
 
     def test_response_text_that_mentions_usage_limit_is_not_a_provider_limit_signal(self) -> None:
         payload = {

@@ -13,8 +13,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
-CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
+MANIFEST_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json"
+CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
 RECOVERY_PATH = REPOSITORY_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "recovery.js"
 HOST = "127.0.0.1"
 PORT = 8766

@@ -844,21 +844,9 @@ def test_http_bridge_rejects_bad_auth_host_origin_and_content_type(tmp_path: Pat
         assert response.status == 401
         connection.close()
 
-        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        connection.request(
-            "POST",
-            "/next-operation",
-            body=body,
-            headers={
-                "Content-Type": "text/plain",
-                "Authorization": "Bearer test-bridge-token",
-                "Host": "evil.example",
-            },
-        )
-        response = connection.getresponse()
-        response.read()
-        assert response.status == 401
-        connection.close()
+        current = bridge.get_operation(operation.operation_id)
+        assert current is not None
+        assert current["status"] == "queued"
 
         connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
         connection.request(
@@ -874,6 +862,22 @@ def test_http_bridge_rejects_bad_auth_host_origin_and_content_type(tmp_path: Pat
         response = connection.getresponse()
         response.read()
         assert response.status == 200
+        connection.close()
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/next-operation",
+            body=body,
+            headers={
+                "Content-Type": "text/plain",
+                "Authorization": "Bearer test-bridge-token",
+                "Host": "evil.example",
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 401
         connection.close()
 
         connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
@@ -909,7 +913,7 @@ def test_http_bridge_rejects_bad_auth_host_origin_and_content_type(tmp_path: Pat
 
         current = bridge.get_operation(operation.operation_id)
         assert current is not None
-        assert current["status"] == "queued"
+        assert current["status"] == "claimed"
     finally:
         server.shutdown()
         server.server_close()
