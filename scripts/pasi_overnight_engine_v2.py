@@ -560,13 +560,22 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
 
 def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
     root = worktree.resolve()
-    for record in summary.split("\x00"):
-        if not record:
+    fields: list[str] = []
+    for token in summary.split("\x00"):
+        if not token:
             continue
-        fields = record.split("\t")
-        if len(fields) != 3:
-            raise RuntimeError("git apply returned an unexpected numstat record")
-        path_value = fields[2]
+        if "\t" in token:
+            parts = token.split("\t")
+            if len(parts) != 3:
+                raise RuntimeError("git apply returned an unexpected numstat record")
+            fields.append(parts[2])
+        else:
+            # --numstat -z emits a second NUL-delimited pathname for rename
+            # records. Treat it as another resolved path rather than rejecting
+            # a legitimate rename outright.
+            fields.append(token)
+
+    for path_value in fields:
         if not path_value or path_value == "/dev/null":
             continue
         candidate = (root / path_value).resolve()
