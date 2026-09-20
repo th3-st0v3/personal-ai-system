@@ -161,6 +161,19 @@ if (( REUSE_EXISTING_WORKTREE == 1 )); then
         printf '%s\\n' "$worktree_status" >&2
         exit 3
     fi
+
+    # The dedicated worktree may have been left behind by an earlier run.
+    # Bring it to the latest remote branch without overwriting any local commits.
+    if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+        if ! git -C "$WORKTREE" merge-base --is-ancestor "$BRANCH" "origin/$BRANCH" 2>/dev/null; then
+            if ! git -C "$WORKTREE" merge-base --is-ancestor "origin/$BRANCH" "$BRANCH" 2>/dev/null; then
+                printf 'error: existing PASI worktree branch %s has diverged from origin/%s; refusing to overwrite it.\\n' "$BRANCH" "$BRANCH" >&2
+                exit 3
+            fi
+        else
+            git -C "$WORKTREE" merge --ff-only "origin/$BRANCH"
+        fi
+    fi
 else
     if [[ -e "$WORKTREE" ]]; then
         printf 'error: selected fresh-run worktree path already exists: %s\\n' "$WORKTREE" >&2
