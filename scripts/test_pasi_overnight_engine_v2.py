@@ -309,7 +309,7 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                 with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=False):
                     with mock.patch.object(engine, "log_event"):
                         with mock.patch("time.sleep"):
-                            with mock.patch.object(engine, "now_utc", side_effect=[now, now, now + timedelta(seconds=2), now + timedelta(seconds=2)]):
+                            with mock.patch.object(engine, "now_utc", side_effect=[now, now, now, now + timedelta(seconds=2), now + timedelta(seconds=6), now + timedelta(seconds=6)]):
                                 self.assertFalse(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=5.0))
 
     def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
