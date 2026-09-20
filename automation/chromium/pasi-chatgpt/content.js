@@ -36,6 +36,7 @@
   let extensionContextInvalidated = false;
   let pollTimerId = null;
   let healthTimerId = null;
+  let leaseTimerId = null;
 
   function isExtensionContextInvalidatedError(error) {
     return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
@@ -1331,6 +1332,12 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
+    if (leaseTimerId !== null) clearInterval(leaseTimerId);
+    leaseTimerId = setInterval(() => {
+      controllerClaim().catch(() => {
+        controllerLeader = false;
+      });
+    }, 3000);
     localStorage.setItem(ACTIVE_KEY, JSON.stringify({
       operation_id: operation.operation_id,
       operation_type: operation.operation_type,
@@ -1439,6 +1446,10 @@
     } finally {
       activeOperationId = null;
       processing = false;
+      if (leaseTimerId !== null) {
+        clearInterval(leaseTimerId);
+        leaseTimerId = null;
+      }
       if (finalized) {
         localStorage.removeItem(ACTIVE_KEY);
         if (recoveryResumeOperationId() === operation.operation_id) {
