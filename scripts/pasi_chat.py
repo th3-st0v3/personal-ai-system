@@ -57,6 +57,7 @@ _PUBLIC_GITHUB_FAILURE_PHRASES = (
 
 class ChatGPTRoutingAdapter(Protocol):
     def read_browser_observation(self) -> Mapping[str, Any] | None: ...
+    def read_browser_state(self) -> Mapping[str, Any] | None: ...
     def new_session(self) -> str: ...
     def attach_github_repository(self, repository: str) -> str: ...
     def select_reasoning_mode(self, mode: str) -> None: ...
@@ -271,7 +272,7 @@ def needs_github_context(_task: str, *, override: str = "auto") -> bool:
 
 def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
     try:
-        observation = adapter.read_browser_observation()
+        observation = adapter.read_browser_state()
     except Exception:
         return {}
     if not isinstance(observation, Mapping):
@@ -289,7 +290,7 @@ def controller_observation_is_live(
     if max_age_seconds <= 0 or not isinstance(observation, Mapping):
         return False
     data = observation.get("data")
-    if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
+    if not isinstance(data, Mapping) or data.get("kind") not in {"chatgpt_state", "chatgpt_health"}:
         return False
     captured_at_value = data.get("captured_at")
     if not isinstance(captured_at_value, str) or not captured_at_value.strip():
