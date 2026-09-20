@@ -1228,6 +1228,7 @@
 
     localStorage.setItem(RECOVERY_KEY, JSON.stringify({
       operation_id: operation.operation_id,
+      recovery_operation_id: operation.operation_id,
       operation_type: operation.operation_type,
       started_at: startedAt,
       started_ms: Date.parse(startedAt) || Date.now(),
