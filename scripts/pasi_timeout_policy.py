@@ -21,6 +21,10 @@ DEFAULTS: dict[str, float] = {
     "python_wait_seconds": 1800.0,
     "bridge_claim_lease_seconds": 1800.0,
     "queue_ttl_seconds": 86400.0,
+    "click_settle_ms": 75.0,
+    "thinking_verify_ms": 3000.0,
+    "response_settle_ms": 750.0,
+    "submission_ack_ms": 2500.0,
 }
 
 
