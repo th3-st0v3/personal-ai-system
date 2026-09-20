@@ -222,3 +222,109 @@ def test_http_finished_duplicate_terminal_completion_can_persist_late_verified_r
         assert retry_body["operation"]["response_source"] == "completion_ack"
     finally:
         stop_server(server, thread)
+
+
+def test_http_finished_persists_and_exposes_timing(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    server, thread = start_server(bridge)
+
+    try:
+        operation = bridge.queue_operation("prompt", "timed completion")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        timing = {
+            "injected_at_ms": 1_000,
+            "ack_at_ms": 1_050,
+            "generation_start_ms": 2_000,
+            "completed_at_ms": 62_000,
+            "user_messages_added": 1,
+            "ack_verified": True,
+            "submission_via": "verified",
+        }
+        status, body = post_json(
+            server,
+            "/chat/finished",
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/timing",
+                "response_text": "timed response",
+                "response_text_available": True,
+                "timing": timing,
+            },
+        )
+
+        assert status == 200
+        assert body["operation"]["timing"] == timing
+        persisted = bridge.get_operation(operation.operation_id)
+        assert persisted is not None
+        assert persisted["timing"] == timing
+        assert persisted["status"] == "completed"
+    finally:
+        stop_server(server, thread)
+
+
+def test_http_finished_rejects_non_monotonic_timing(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    server, thread = start_server(bridge)
+
+    try:
+        operation = bridge.queue_operation("prompt", "bad timing")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        status, body = post_json(
+            server,
+            "/chat/finished",
+            {
+                "operation_id": operation.operation_id,
+                "response_text": "response",
+                "response_text_available": True,
+                "timing": {
+                    "injected_at_ms": 2_000,
+                    "ack_at_ms": 1_000,
+                    "ack_verified": True,
+                },
+            },
+        )
+        assert status == 400
+        assert body["error"] == "invalid timing payload."
+    finally:
+        stop_server(server, thread)
+
+
+def test_recovery_observations_are_append_only_on_operation(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "recovery telemetry")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    for i in range(2):
+        bridge.save_browser_observation(
+            {
+                "schema_version": "pasi-chatgpt-recovery-v3",
+                "captured_at": f"2026-09-20T12:00:0{i}Z",
+                "data": {
+                    "kind": "chatgpt_recovery",
+                    "operation_id": operation.operation_id,
+                    "phase": "reloading" if i == 0 else "ready_for_retry",
+                    "recovery_reason": "no_progress",
+                    "recovery_duration_ms": 90_000 if i else None,
+                    "outcome": "resumed" if i else None,
+                },
+            }
+        )
+
+    persisted = bridge.get_operation(operation.operation_id)
+    assert persisted is not None
+    events = persisted.get("recovery_events")
+    assert isinstance(events, list)
+    assert len(events) == 2
+    assert events[0]["phase"] == "reloading"
+    assert events[1]["recovery_duration_ms"] == 90_000
