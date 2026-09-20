@@ -123,12 +123,16 @@ class AcquisitionEngine:
     policy: PreapprovalPolicy | None = None
     obstacles: ObstacleLedger | None = None
     acquisition_dir: Path | None = None
+    state_root: Path | None = None
 
     def __post_init__(self) -> None:
         self.repo_root = self.repo_root.expanduser().resolve()
-        state_root = resolve_state_root(self.repo_root)
-        self.policy = self.policy or PreapprovalPolicy(self.repo_root)
-        self.obstacles = self.obstacles or ObstacleLedger(self.repo_root)
+        state_root = resolve_state_root(self.repo_root, self.state_root)
+        self.policy = self.policy or PreapprovalPolicy(
+            self.repo_root,
+            state_root / DEFAULT_POLICY_PATH,
+        )
+        self.obstacles = self.obstacles or ObstacleLedger(self.repo_root, state_root)
         directory = self.acquisition_dir or (state_root / DEFAULT_ACQUISITION_DIR)
         directory = directory.expanduser()
         if not directory.is_absolute():
