@@ -489,7 +489,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
                         }
                     }
                 if method == "POST" and path == "/chat/cancel":
-                    self.calls.append((method, path, payload or {}))
+                    self.requests.append((method, path, payload or {}))
                     return {"operation": {"operation_id": "op-1", "status": "cancelled"}}
                 return super().request(method, path, payload)
 
@@ -502,7 +502,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         )
         response = adapter.wait_for_completion("op-1")
         self.assertEqual(response.completion, "timeout")
-        self.assertTrue(any(path == "/chat/cancel" for _method, path, _payload in transport.calls))
+        self.assertTrue(any(path == "/chat/cancel" for _method, path, _payload in transport.requests))
 
     def test_wait_timeout_is_explicit_timeout(self) -> None:
         transport = RepeatingTransport({"operation": {"operation_id": "op-1", "status": "generating"}})
