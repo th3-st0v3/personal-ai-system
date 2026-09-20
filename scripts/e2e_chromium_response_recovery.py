@@ -384,6 +384,19 @@ def wait_for_bridge_event(timeout: float) -> None:
     raise AssertionError("Chromium did not submit the recovered response evidence")
 
 
+def wait_for_health_observation(timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if any(
+            isinstance(item.get("observation", {}), dict)
+            and item.get("observation", {}).get("data", {}).get("kind") == "chatgpt_health"
+            for item in BridgeHandler.observation_payloads
+        ):
+            return
+        time.sleep(0.1)
+    raise AssertionError("Chromium did not report native health observation")
+
+
 def start_driver(
     chromedriver_binary: str,
     driver_port: int,
@@ -718,6 +731,8 @@ def main() -> None:
                     )
 
                 wait_for_bridge_event(20.0)
+                # Health reporting is intentionally interval-based; a successful response can arrive before the next heartbeat.
+                wait_for_health_observation(20.0)
 
                 response_observations = [
                     item.get("observation", {})
