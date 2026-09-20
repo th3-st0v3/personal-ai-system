@@ -309,7 +309,19 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                 with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=False):
                     with mock.patch.object(engine, "log_event"):
                         with mock.patch("time.sleep"):
-                            with mock.patch.object(engine, "now_utc", side_effect=[now, now, now, now + timedelta(seconds=2), now + timedelta(seconds=6), now + timedelta(seconds=6)]):
+                            with mock.patch.object(
+                                engine,
+                                "now_utc",
+                                side_effect=[
+                                    now,
+                                    now,
+                                    now,
+                                    now + timedelta(seconds=2),
+                                    now + timedelta(seconds=6),
+                                    now + timedelta(seconds=6),
+                                    now + timedelta(seconds=6),
+                                ],
+                            ):
                                 self.assertFalse(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=5.0))
 
     def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
@@ -423,6 +435,10 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                 return 0, "automation/chromium/pasi-chatgpt/content.js\n"
             if argv[:2] == [engine.legacy.sys.executable, "-m"]:
                 return 0, "1 passed"
+            if argv[:2] == ["node", "--check"]:
+                return 0, ""
+            if argv[:2] == ["node", "--test"]:
+                return 0, "2 tests passed"
             if argv[:3] == ["git", "status", "--porcelain"]:
                 return 0, " M automation/chromium/pasi-chatgpt/content.js"
             raise AssertionError(f"unexpected command: {argv!r}")
