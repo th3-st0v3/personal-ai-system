@@ -36,6 +36,8 @@ WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
 AUTOMATION_TASKS_PER_GATE = 2
 MAX_PROVIDER_LIMIT_PAUSES = 3
+AUTH_RECOVERY_WAIT_SECONDS = 300.0
+AUTH_RECOVERY_POLL_SECONDS = 5.0
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 
@@ -427,6 +429,15 @@ def provider_condition(code: int, output: str) -> str | None:
         return "runtime_guard"
     return None
 
+def browser_auth_required() -> bool:
+    observation = browser_observation()
+    if not observation:
+        return False
+    data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
+    if not isinstance(data, dict):
+        return False
+    return data.get("auth_required") is True or data.get("login_required") is True
+
 
 def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool:
     gate = evidence.get("automation_gate")
@@ -459,6 +470,10 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
         Path(state.worktree),
         TASK_TIMEOUT_SECONDS + 45.0,
     )
+    if provider_condition(code, output) == "auth_required":
+        # Authentication/security challenges remain a human-control boundary. Preserve
+        # the active ChatGPT session long enough for interactive recovery before fallback.
+        return code, output
     if provider_condition(code, output) is None:
         return code, output
     fallback = command(
@@ -603,23 +618,43 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     return commit, output
 
 
-def standby_until_ready(state: OvernightState) -> bool:
+def standby_until_ready(
+    state: OvernightState,
+    *,
+    wait_for_auth: bool = False,
+    max_wait_seconds: float | None = None,
+) -> bool:
     logged = False
-    while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
+    auth_logged = False
+    run_deadline = datetime.fromisoformat(state.deadline_at)
+    wait_deadline = run_deadline
+    if max_wait_seconds is not None:
+        if max_wait_seconds <= 0:
+            raise ValueError("max_wait_seconds must be positive")
+        wait_deadline = min(run_deadline, now_utc() + timedelta(seconds=max_wait_seconds))
+    while not STOP and now_utc() < wait_deadline:
         try:
             ensure_services()
         except Exception as exc:
             log_event("service_recovery_failed", error=str(exc)[-4_000:])
 
-        observation = browser_observation()
-        if observation:
-            data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
-            if isinstance(data, dict) and bool(data.get("auth_required")):
+        if browser_auth_required():
+            if not wait_for_auth:
                 log_event("standby_auth_required")
                 return False
+            if not auth_logged:
+                log_event(
+                    "auth_recovery_wait_started",
+                    reason="interactive ChatGPT authentication/security challenge detected; preserving the active conversation while waiting for human-visible recovery",
+                    max_wait_seconds=max_wait_seconds,
+                )
+                auth_logged = True
+            remaining = (wait_deadline - now_utc()).total_seconds()
+            time.sleep(min(AUTH_RECOVERY_POLL_SECONDS, max(0.5, remaining)))
+            continue
 
         if runtime_watchdog_is_live():
-            if logged:
+            if logged or auth_logged:
                 log_event("standby_recovered")
             return True
 
@@ -630,8 +665,10 @@ def standby_until_ready(state: OvernightState) -> bool:
             )
             logged = True
 
-        remaining = (datetime.fromisoformat(state.deadline_at) - now_utc()).total_seconds()
+        remaining = (wait_deadline - now_utc()).total_seconds()
         time.sleep(min(STANDBY_SECONDS, max(1.0, remaining)))
+    if auth_logged and browser_auth_required() and not STOP and now_utc() < run_deadline:
+        log_event("auth_recovery_wait_expired", max_wait_seconds=max_wait_seconds)
     return False
 
 
@@ -689,7 +726,19 @@ def run(state: OvernightState, *, push: bool) -> None:
             code, response = invoke_chat(state.current_task, state, failure)
             condition = provider_condition(code, response)
             if condition == "auth_required":
-                log_event("fallback_provider_route", reason="ChatGPT authentication challenge", task_number=state.task_number)
+                log_event("auth_recovery_required", reason="ChatGPT authentication challenge", task_number=state.task_number)
+                recovered = standby_until_ready(
+                    state,
+                    wait_for_auth=True,
+                    max_wait_seconds=AUTH_RECOVERY_WAIT_SECONDS,
+                )
+                if recovered:
+                    failure = ""
+                    log_event("auth_recovery_resumed", task_number=state.task_number)
+                    continue
+                if STOP or now_utc() >= datetime.fromisoformat(state.deadline_at):
+                    return
+                log_event("fallback_provider_route", reason="ChatGPT authentication challenge persisted beyond bounded human-recovery wait", task_number=state.task_number)
                 fallback = command([legacy.sys.executable, "scripts/pasi_provider_router.py", "--task", build_prompt(state.current_task, state, response), "--repo", state.worktree, "--timeout", "180"], Path(state.worktree), 225.0)
                 if fallback[0] == 0:
                     response = fallback[1]
