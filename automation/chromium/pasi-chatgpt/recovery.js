@@ -165,14 +165,17 @@
       const current = await operation(String(activeOperationId));
       if (!current) {
         const now = Date.now();
-        const missingSince = Number(state?.missing_operation_since_ms || now);
+        const existingMissingSince = Number(state?.missing_operation_since_ms || 0);
+        const missingSince = Number.isFinite(existingMissingSince) && existingMissingSince > 0
+          ? existingMissingSince
+          : now;
         const lastReported = Number(state?.missing_operation_last_report_ms || 0);
-        if (!state || !Number.isFinite(Number(state.missing_operation_since_ms))) {
+        if (!Number.isFinite(existingMissingSince) || existingMissingSince <= 0) {
           try {
             const next = {
               ...(state || {}),
               operation_id: String(activeOperationId),
-              missing_operation_since_ms: now,
+              missing_operation_since_ms: missingSince,
               missing_operation_last_report_ms: 0
             };
             localStorage.setItem(RECOVERY_KEY, JSON.stringify(next));
