@@ -698,8 +698,8 @@ def continuation_directive(state: OvernightState, _task: str | None = None) -> s
     """
     return """TASK CONTINUATION:
 - Work continuously on CURRENT TASK until it is implemented, tested, diagnosed, and verified.
+- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it or make cosmetic duplicates; return the required completion contract and a concrete next task.
 - Inspect the current repository state before editing; do not assume a prior attempt succeeded.
-- If the CURRENT TASK is already satisfied by verified repository changes, do not re-implement it or make cosmetic duplicates. Return the required completion contract and a concrete next task.
 - If the same failure repeats, change approach rather than repeating the failed path; use only the supplied PREVIOUS FAILURE EVIDENCE.
 - After verified completion, set PASI_RESULT_NEXT_TASK to one concrete high-value follow-up. The scheduler owns the full roadmap and will choose/validate the next task; do not reproduce the roadmap in this response.
 - If no concrete repository change remains, report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch. Do not invent work or cosmetic changes.
