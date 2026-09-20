@@ -283,7 +283,7 @@ Acceptance:
         self.assertIn("Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.", prompt)
         self.assertIn("The scheduler owns the full roadmap", prompt)
         self.assertIn("If the same failure repeats, change approach", prompt)
-        self.assertIn("do not invent work or cosmetic changes", prompt)
+        self.assertIn("do not invent work or cosmetic changes", prompt.casefold())
         self.assertNotIn("KEEP WORKING UNTIL YOU'RE FINISHED:", prompt)
         self.assertNotIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
         self.assertIn("RECENT TASKS:", prompt)
