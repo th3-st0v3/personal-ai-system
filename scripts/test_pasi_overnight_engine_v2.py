@@ -163,6 +163,12 @@ PASI_RESULT_PATCH_END"""
             command_args = run_command.call_args.args[0]
             self.assertEqual(command_args[-1], "HEAD")
 
+    def test_task_key_canonicalizes_whitespace_for_commit_recovery(self) -> None:
+        first = engine.task_key("one\n two")
+        second = engine.task_key("one two")
+        self.assertEqual(first, second)
+        self.assertEqual(first, engine.task_key("  one   two  "))
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
