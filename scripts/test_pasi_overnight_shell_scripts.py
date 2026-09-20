@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = (
     ROOT / "scripts" / "start_pasi_overnight.sh",
     ROOT / "scripts" / "start_pasi_168h.sh",
+    ROOT / "scripts" / "pasi_168h_supervisor.sh",
     ROOT / "scripts" / "stop_pasi_overnight.sh",
     ROOT / "scripts" / "status_pasi_overnight.sh",
 )
