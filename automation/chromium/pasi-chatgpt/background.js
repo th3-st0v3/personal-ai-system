@@ -27,16 +27,13 @@ const BRIDGE_ROUTES = new Set([
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
-let bridgeTokenPromise = null;
-
-function bridgeToken() {
-  if (!bridgeTokenPromise) {
-    bridgeTokenPromise = fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' })
-      .then((response) => response.ok ? response.text() : '')
-      .then((value) => value.trim())
-      .catch(() => '');
+async function bridgeToken() {
+  try {
+    const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
+    return response.ok ? (await response.text()).trim() : '';
+  } catch (_) {
+    return '';
   }
-  return bridgeTokenPromise;
 }
 
 function allowedBridgeRequest(method, path) {
