@@ -128,7 +128,8 @@ def test_retry_budgets_are_separate_by_failure_class(tmp_path: Path) -> None:
     assert controller_retry["retry_counts"]["context"] == 0
 
     claimed = bridge.claim_operation(operation.operation_id)
-    assert claimed is None
+    assert claimed is not None
+    assert claimed["status"] == "claimed"
 
 def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
