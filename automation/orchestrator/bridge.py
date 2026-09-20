@@ -1324,6 +1324,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if isinstance(response_text, str) and response_text.strip():
             response_text_available = True
 
+        normalized_timing = None
+        if timing is not None:
+            normalized_timing = self.bridge_state.normalize_timing(timing)
+            if normalized_timing is None:
+                self._send_json(
+                    {"error": "invalid timing payload."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+
         existing_operation = self.bridge_state.get_operation(operation_id)
         if existing_operation is None:
             self._send_json(
@@ -1383,16 +1393,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             # without its original response payload.
             response_text = existing_operation.get("response_text")
             response_text_available = True
-
-        normalized_timing = None
-        if timing is not None:
-            normalized_timing = self.bridge_state.normalize_timing(timing)
-            if normalized_timing is None:
-                self._send_json(
-                    {"error": "invalid timing payload."},
-                    HTTPStatus.BAD_REQUEST,
-                )
-                return
 
         try:
             operation = self.bridge_state.complete_operation(
