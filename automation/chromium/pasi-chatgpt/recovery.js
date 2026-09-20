@@ -4,10 +4,11 @@
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
-  const POLL_MS = 2000;
-  const GENERATION_TIMEOUT_MS = 25 * 60 * 1000;
-  const RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS;
-  const RECOVERY_GRACE_MS = 10 * 60 * 1000;
+  const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
+  const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
+  const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY.generationMs || 60 * 60 * 1000;
+  const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY.recoveryTriggerMs || GENERATION_TIMEOUT_MS;
+  const RECOVERY_GRACE_MS = TIMEOUT_POLICY.recoveryGraceMs || 10 * 60 * 1000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
   const MAX_CONTEXT_RECOVERIES = 1;
@@ -576,7 +577,19 @@
       if (!current) {
         const missingSince = Number(state.missing_operation_since_ms || Date.now());
         const now = Date.now();
+        const age = now - missingSince;
         const lastReported = Number(state.missing_operation_last_report_ms || 0);
+        if (age >= MISSING_OPERATION_GRACE_MS) {
+          await report('chatgpt_recovery', {
+            phase: 'operation_missing_expired',
+            operation_id: state.operation_id,
+            recovery_action: 'clear_stale_state',
+            missing_operation_age_ms: age,
+            grace_ms: MISSING_OPERATION_GRACE_MS
+          });
+          clearInterruptedState();
+          return;
+        }
         const nextState = { ...state };
         if (!state.missing_operation_since_ms) nextState.missing_operation_since_ms = missingSince;
         if (!lastReported || now - lastReported >= MISSING_OPERATION_REPORT_MS) {
@@ -586,7 +599,7 @@
             phase: 'operation_lookup_unavailable',
             operation_id: state.operation_id,
             recovery_action: 'wait_for_operation_state',
-            missing_operation_age_ms: now - missingSince,
+            missing_operation_age_ms: age,
             grace_ms: MISSING_OPERATION_GRACE_MS
           });
         } else if (!state.missing_operation_since_ms) {
