@@ -36,6 +36,16 @@ def test_browser_json_and_python_loader_share_the_same_fast_normal_path_policy()
     assert policy["python_wait_seconds"] == 3600
 
 
+def test_timeout_policy_uses_fast_defaults_when_file_is_absent() -> None:
+    policy = load_timeout_policy(ROOT / "missing-timeout-policy.json")
+    assert policy["menu_ms"] == 5000
+    assert policy["composer_ms"] == 10000
+    assert policy["send_ms"] == 5000
+    assert policy["submit_ms"] == 2500
+    assert policy["dom_poll_ms"] == 20
+    assert policy["response_settle_ms"] == 20
+
+
 def test_timeout_policy_enforces_safe_relationships() -> None:
     policy = load_timeout_policy()
     assert policy["stale_seconds"] >= policy["heartbeat_seconds"] * 3
