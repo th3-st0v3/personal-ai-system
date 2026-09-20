@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from typing import Any, Mapping, Sequence
 
 from scripts import pasi_overnight_engine as legacy
 from scripts import pasi_prompt_compiler as prompt_compiler
+from scripts.pasi_stage_events import StageTimer, classify_failure
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
@@ -27,7 +29,8 @@ EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
-CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
+CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json"
+BRIDGE_QUEUE_PATH = REPO_ROOT / ".ai" / "queue.json"
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
 DEFAULT_HOURS = legacy.DEFAULT_HOURS
 MIN_HOURS = legacy.MIN_HOURS
@@ -364,6 +367,92 @@ def control_script(name: str) -> Path:
     return candidate
 
 
+def queue_file_bytes() -> int | None:
+    try:
+        return BRIDGE_QUEUE_PATH.stat().st_size
+    except OSError:
+        return None
+
+
+def extract_operation_id(output: str) -> str | None:
+    match = re.search(
+        r"(?:Prompt operation|Retry prompt operation|Resuming persisted ChatGPT operation|GitHub fallback prompt operation):\s*([A-Za-z0-9._:-]+)",
+        output or "",
+    )
+    return match.group(1) if match else None
+
+
+def bridge_operation(operation_id: str) -> dict[str, Any] | None:
+    token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not token:
+        try:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+    request = urllib.request.Request(
+        f"{BRIDGE_URL}/operation?operation_id={urllib.parse.quote(operation_id, safe='')}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3.0) as response:
+            payload = json.loads(response.read(2_000_000).decode("utf-8"))
+    except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    operation = payload.get("operation") if isinstance(payload, dict) else None
+    return dict(operation) if isinstance(operation, dict) else None
+
+
+def emit_operation_metrics(task: str, attempt: int, output: str) -> None:
+    operation_id = extract_operation_id(output)
+    if not operation_id:
+        return
+    log_event(
+        "prompt_queued",
+        task_id=task_key(task),
+        attempt=attempt,
+        operation_id=operation_id,
+        queue_file_bytes=queue_file_bytes(),
+    )
+    operation = bridge_operation(operation_id)
+    if not operation:
+        return
+    timing = operation.get("timing")
+    if isinstance(timing, dict):
+        log_event(
+            "browser_timing",
+            task_id=task_key(task),
+            attempt=attempt,
+            operation_id=operation_id,
+            **timing,
+        )
+    response_text = operation.get("response_text")
+    if isinstance(response_text, str):
+        log_event(
+            "response_received",
+            task_id=task_key(task),
+            attempt=attempt,
+            operation_id=operation_id,
+            chars=len(response_text),
+        )
+    events = operation.get("recovery_events")
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            duration = event.get("recovery_duration_ms")
+            if isinstance(duration, (int, float)) and not isinstance(duration, bool):
+                log_event(
+                    "recovery_finished",
+                    task_id=task_key(task),
+                    attempt=attempt,
+                    operation_id=operation_id,
+                    reason=str(event.get("recovery_reason") or event.get("reason") or "unknown"),
+                    duration_ms=duration,
+                    outcome=str(event.get("outcome") or ""),
+                )
+
+
 def command(
     command: list[str],
     cwd: Path,
@@ -400,15 +489,12 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     if not healthy(f"{BRIDGE_URL}/health"):
         log_event("service_start", service="bridge")
         children.append(subprocess.Popen([legacy.sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
-    if not healthy("http://127.0.0.1:8766/health"):
-        log_event("service_start", service="controller_distribution")
-        children.append(subprocess.Popen([legacy.sys.executable, "scripts/pasi_controller_server.py"], cwd=REPO_ROOT))
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
-        if healthy(f"{BRIDGE_URL}/health") and healthy("http://127.0.0.1:8766/health"):
+        if healthy(f"{BRIDGE_URL}/health"):
             return children
         time.sleep(0.5)
-    raise RuntimeError("local PASI bridge/distribution services did not become healthy")
+    raise RuntimeError("local PASI bridge service did not become healthy")
 
 
 def worktree_start_ref() -> str:
@@ -883,14 +969,25 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         gate_mode=gate_mode,
         started_at=verify_started_at,
     )
-    code, output = command(
-        ["git", "apply", "--check", "--whitespace=nowarn"],
-        worktree,
-        60.0,
-        input_text=patch,
-    )
-    if code != 0:
-        raise RuntimeError(f"git apply --check failed:\n{output}")
+    with StageTimer(
+        log_event,
+        "gate",
+        tier=0,
+        task_id=task_key(task),
+        task_number=None,
+        attempt=None,
+        gate="git_apply_check",
+    ) as timer:
+        code, output = command(
+            ["git", "apply", "--check", "--whitespace=nowarn"],
+            worktree,
+            60.0,
+            input_text=patch,
+        )
+        if code != 0:
+            timer.result = "fail"
+            timer.classification = classify_failure("git_apply_check", code, output)
+            raise RuntimeError(f"git apply --check failed:\n{output}")
     code, output = command(
         ["git", "apply", "--whitespace=nowarn"],
         worktree,
@@ -899,17 +996,32 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     )
     if code != 0:
         raise RuntimeError(f"git apply failed:\n{output}")
-    if gate_mode == "fast":
-        output = fast_local_gate(worktree)
-        log_event("fast_local_gate_passed")
-    elif gate_mode in {"", "full"}:
-        code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
-        if code != 0:
-            raise RuntimeError(f"canonical validation failed:\n{output}")
-    else:
-        raise RuntimeError(
-            f"unsupported PASI_LOCAL_GATE_MODE={gate_mode!r}; expected fast or full"
-        )
+    gate_name = "fast_local" if gate_mode == "fast" else "check_all"
+    with StageTimer(
+        log_event,
+        "gate",
+        tier=1,
+        task_id=task_key(task),
+        task_number=None,
+        attempt=None,
+        gate=gate_name,
+    ) as timer:
+        try:
+            if gate_mode == "fast":
+                output = fast_local_gate(worktree)
+                log_event("fast_local_gate_passed")
+            elif gate_mode in {"", "full"}:
+                code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
+                if code != 0:
+                    raise RuntimeError(f"canonical validation failed:\n{output}")
+            else:
+                raise RuntimeError(
+                    f"unsupported PASI_LOCAL_GATE_MODE={gate_mode!r}; expected fast or full"
+                )
+        except Exception as exc:
+            timer.result = "fail"
+            timer.classification = classify_failure("gate", 1, str(exc))
+            raise
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
@@ -1062,7 +1174,16 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.current_attempt = attempt
             save_state(state)
             log_event("task_attempt_started", phase=state.phase, task_number=state.task_number, attempt=attempt, task=state.current_task)
+            log_event(
+                "prompt_dispatch_started",
+                task_id=task_key(state.current_task),
+                task_number=state.task_number,
+                attempt=attempt,
+                mode=state.phase,
+                queue_file_bytes=queue_file_bytes(),
+            )
             code, response = invoke_chat(state.current_task, state, failure)
+            emit_operation_metrics(state.current_task, attempt, response)
             condition = provider_condition(code, response)
             if condition == "auth_required":
                 log_event("auth_recovery_required", reason="ChatGPT authentication challenge", task_number=state.task_number)
@@ -1096,7 +1217,21 @@ def run(state: OvernightState, *, push: bool) -> None:
                 continue
 
             if code != 0:
-                failure = response[-12_000:] or "ChatGPT fallback returned a non-zero exit status"
+                classification = classify_failure("chat", code, response)
+                log_event(
+                    "failure_classified",
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    stage="chat",
+                    classification=classification,
+                )
+                if classification == "infra":
+                    failure = "INFRASTRUCTURE FAILURE (NOT EVALUATED): resend the same patch; do not modify it.\n" + (response[-12_000:] or "ChatGPT/controller infrastructure failed.")
+                elif classification == "not_evaluated":
+                    failure = "RESULT NOT EVALUATED: evidence is ambiguous or infrastructure-related; do not invent a code repair.\n" + (response[-12_000:] or "No reliable evaluation evidence was produced.")
+                else:
+                    failure = response[-12_000:] or "ChatGPT returned a code/protocol failure."
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
@@ -1141,7 +1276,16 @@ def run(state: OvernightState, *, push: bool) -> None:
                 commit, verification = verify_and_commit(Path(state.worktree), state.branch, state.current_task, patch, allow_delete, push=push)
             except Exception as exc:
                 failure = str(exc)
-                log_event("verification_failed", task_number=state.task_number, attempt=attempt, error=failure[-6000:])
+                classification = classify_failure("verification", 1, failure)
+                log_event(
+                    "failure_classified",
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    stage="verification",
+                    classification=classification,
+                )
+                log_event("verification_failed", task_number=state.task_number, attempt=attempt, error=failure[-6000:], classification=classification)
                 command(["git", "reset", "--hard", "HEAD"], Path(state.worktree), 60.0)
                 command(["git", "clean", "-fd"], Path(state.worktree), 60.0)
                 continue
