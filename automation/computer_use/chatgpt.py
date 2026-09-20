@@ -225,7 +225,18 @@ class ChatGPTAdapter(AIAdapter):
                     return self._recheck_completed_response(operation_id, response)
                 return response
             if time.monotonic() - started >= limit:
-                return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
+                try:
+                    self.cancel_operation(operation_id, "ChatGPT adapter wait timeout")
+                except ChatGPTAdapterError:
+                    pass
+                return AIResponse(
+                    response_id=f"{operation_id}:timeout",
+                    session_id=self.session_id,
+                    provider=self.provider,
+                    operation_id=operation_id,
+                    text="",
+                    completion="timeout",
+                )
             time.sleep(self.poll_interval_seconds)
 
     def _recheck_completed_response(self, operation_id: str, response: AIResponse) -> AIResponse:
