@@ -198,7 +198,8 @@ def load_state() -> OvernightState | None:
 
 
 def task_key(task: str) -> str:
-    return hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+    canonical = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def load_task_ledger() -> dict[str, dict[str, Any]]:
