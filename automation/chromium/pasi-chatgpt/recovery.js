@@ -325,6 +325,21 @@
 
   function clearRecoveryState() {
     localStorage.removeItem(RECOVERY_KEY);
+    progressOperationId = null;
+    progressTracker = null;
+  }
+
+  function recoveryCompletionFields(state, outcome) {
+    const finishedAtMs = Date.now();
+    const startedAtMs = Number(state?.recovery_started_at_ms || 0);
+    return {
+      recovery_finished_at_ms: finishedAtMs,
+      ...(Number.isFinite(startedAtMs) && startedAtMs > 0
+        ? { recovery_duration_ms: Math.max(0, finishedAtMs - startedAtMs) }
+        : {}),
+      recovery_reason: state?.recovery_reason || 'page_reload',
+      outcome
+    };
   }
 
   async function operation(operationId) {
@@ -531,7 +546,8 @@
             operation_id: operationId,
             recovery_action: 'fresh_chat_prepared',
             replacement_reason: 'context_exhausted',
-            retry_count: Number(afterRetry.retry_count || 0)
+            retry_count: Number(afterRetry.retry_count || 0),
+            ...recoveryCompletionFields(state, 'resumed')
           });
           return;
         }
@@ -696,7 +712,13 @@
     const recoveryContext = state.recovery_context || recoveryContextFromActiveState();
     const reason = replacementReason();
     if (!reason) {
-      await report('chatgpt_recovery', { phase: 'preserve_current_chat', operation_id: operationId, recovery_action: 'preserve_current_chat', reason: 'no_verified_usage_or_context_exhaustion' });
+      await report('chatgpt_recovery', {
+        phase: 'preserve_current_chat',
+        operation_id: operationId,
+        recovery_action: 'preserve_current_chat',
+        reason: 'no_verified_usage_or_context_exhaustion',
+        ...recoveryCompletionFields(state, 'resumed')
+      });
       await markRetryableFailure(
         operationId,
         'PASI_NATIVE: browser page reloaded during operation; no verified usage/context exhaustion; current chat preserved for bounded retry.',
@@ -733,10 +755,22 @@
           phase: 'retry_ready'
         });
       }
-      await report('chatgpt_recovery', { phase: 'ready_for_retry', operation_id: operationId, recovery_action: 'fresh_chat_prepared', replacement_reason: reason });
+      await report('chatgpt_recovery', {
+        phase: 'ready_for_retry',
+        operation_id: operationId,
+        recovery_action: 'fresh_chat_prepared',
+        replacement_reason: reason,
+        ...recoveryCompletionFields(state, 'resumed')
+      });
     } catch (error) {
       await markRetryableFailure(operationId, `CHAT_RECOVERY_FAILED: ${String(error?.message || error)}`);
-      await report('chatgpt_recovery', { phase: 'failed', operation_id: operationId, recovery_action: 'retry_runner', error: String(error?.message || error) });
+      await report('chatgpt_recovery', {
+        phase: 'failed',
+        operation_id: operationId,
+        recovery_action: 'retry_runner',
+        error: String(error?.message || error),
+        ...recoveryCompletionFields(state, 'failed')
+      });
     }
     if (readRecoveryState()?.resume_operation_id === operationId) return;
     clearRecoveryState();
