@@ -46,7 +46,7 @@ class ObstacleLedgerTests(unittest.TestCase):
 
     def test_redacts_credentials_from_persisted_details(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            ledger = ObstacleLedger(Path(directory))
+            ledger = ObstacleLedger(Path(directory), Path(directory) / "operator-state")
             ledger.record(
                 "provider_error",
                 "request failed",
