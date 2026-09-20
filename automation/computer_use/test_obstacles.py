@@ -58,14 +58,17 @@ class ObstacleLedgerTests(unittest.TestCase):
 
     def test_redacts_credentials_from_persisted_details(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            ledger = ObstacleLedger(Path(directory), Path(directory) / "operator-state")
+            root = Path(directory) / "worktree"
+            state_root = Path(directory) / "operator-state"
+            root.mkdir()
+            ledger = ObstacleLedger(root, state_root)
             ledger.record(
                 "provider_error",
                 "request failed",
                 "retry later",
                 details={"Authorization": "Bearer super-secret-token", "api_key": "secret-value"},
             )
-            raw = (Path(directory) / "operator-state" / "automation" / "obstacles.jsonl").read_text(encoding="utf-8")
+            raw = (state_root / "automation" / "obstacles.jsonl").read_text(encoding="utf-8")
             self.assertNotIn("super-secret-token", raw)
             self.assertNotIn("secret-value", raw)
             self.assertIn("[redacted]", raw)
