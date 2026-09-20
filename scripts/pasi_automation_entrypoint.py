@@ -257,7 +257,7 @@ def _record_self_improvement_surfaces(worktree: Path, commit: str) -> None:
         return
     paths = {line.strip() for line in output.splitlines() if line.strip()}
     surface_map = {
-        "tampermonkey": any(path.startswith("automation/tampermonkey/") for path in paths),
+        "tampermonkey": any(path.startswith("automation/legacy/tampermonkey/") for path in paths),
         "chromium": any(path.startswith("automation/chromium/") for path in paths),
         "wsl": any(path.startswith("scripts/") or path.startswith("automation/") for path in paths),
         "vscode": any(path.startswith(".vscode/") or "vscode" in path.casefold() for path in paths),
