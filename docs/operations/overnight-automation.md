@@ -170,7 +170,7 @@ Successful task commits already made to the dedicated overnight branch remain in
 
 ```bash
 cd ~/workspace/personal-ai-system
-bash scripts/pasi_overnight.py --resume
+bash scripts/start_pasi_168h.sh --resume
 ```
 
 Interrupted uncommitted task changes in the dedicated overnight worktree are cleaned before resume. Runtime state is schema-validated so stale incompatible state cannot silently alter the safety model.
