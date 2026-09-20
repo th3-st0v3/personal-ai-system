@@ -10,6 +10,45 @@ const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
+
+test('native extension packages and loads the shared timeout policy resource', () => {
+  assert.deepEqual(manifest.web_accessible_resources, [{
+    resources: ['timeout-policy.json'],
+    matches: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
+  }]);
+  const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
+  assert.match(timeoutConfig, /chrome\.runtime\.getURL\('timeout-policy\.json'\)/);
+});
+
+test('native background controller serializes concurrent lease claims', () => {
+  assert.match(background, /CONTROLLER_LEASE_KEY/);
+  assert.match(background, /CONTROLLER_LEASE_MS = 10 \* 1000/);
+  assert.match(background, /let controllerClaimTail = Promise\.resolve\(\);/);
+  assert.match(background, /function serializeControllerClaim\(task\)/);
+  assert.match(background, /controllerClaimTail\.then\(task, task\)/);
+  assert.match(background, /message\?\.type === 'pasi-controller-claim'/);
+});
+
+test('native background watchdog reacts to explicit connection failures even with a fresh observation', () => {
+  assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
+  assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
+  assert.match(background, /if \(!connectionFailure && !observationStale\) return;/);
+  assert.match(background, /if \(connectionFailure\)/);
+  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
+});
+
+test('native recovery companion expires vanished operations after the bounded grace period', () => {
+  assert.match(recovery, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
+  assert.match(recovery, /operation_missing_expired/);
+  assert.match(recovery, /clearInterruptedState\(\)/);
+  assert.match(recovery, /missing_operation_age_ms: age/);
+});
+
+test('native recovery companion uses the shared long-response timeout policy', () => {
+  assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
+  assert.match(recovery, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
+});
+
 test('native controller and recovery companion have unique recovery declarations', () => {
   assert.equal((content.match(/const RECOVERY_KEY = 'pasi:chatgpt-recovery';/g) || []).length, 1);
   assert.equal((content.match(/const MAX_CONTEXT_AUTO_RECOVERIES = 1;/g) || []).length, 1);
@@ -26,7 +65,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'activity.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller chains the next queued operation immediately after terminal completion', () => {
@@ -98,7 +137,7 @@ test('native prompt submission retains stable Thinking selectors while using bes
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
-  assert.match(content, /const DOM_POLL_MS = 50;/);
+  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 20/);
   assert.match(content, /const PREVIOUS_RESPONSE_WAIT_MS = 5 \* 60 \* 1000;/);
   assert.match(content, /const GENERATION_START_WAIT_MS = 30 \* 1000;/);
 });
@@ -112,8 +151,8 @@ test('native Thinking selection prefers the composer model pill and stable intel
 
 test('native prompt submission uses best-effort Thinking and event-driven acknowledgement', () => {
   assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
-  assert.match(content, /const DOM_POLL_MS = 50;/);
-  assert.match(content, /function waitUntil\(predicate, timeoutMs, pollMs = 50\)/);
+  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 20/);
+  assert.match(content, /function waitUntil\(predicate, timeoutMs, pollMs = DOM_POLL_MS\)/);
   assert.match(content, /MutationObserver/);
   assert.match(content, /function snapshotUserMessages\(\)/);
   assert.match(content, /function promptFingerprints\(prompt\)/);
@@ -134,7 +173,7 @@ test('native prompt submission uses best-effort Thinking and event-driven acknow
 });
 
 test('native prompt submission uses a single send strategy and never duplicates a fired send', () => {
-  assert.match(content, /const SUBMISSION_ACK_MS = 5000/);
+  assert.match(content, /const SUBMISSION_ACK_MS = TIMEOUT_POLICY\.submissionAckMs \|\| 1000/);
   assert.match(content, /const SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /const snapshot = snapshotUserMessages\(\)/);
   assert.match(content, /const \{ head, tail \} = promptFingerprints\(expected\)/);
