@@ -411,12 +411,22 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     raise RuntimeError("local PASI bridge/distribution services did not become healthy")
 
 
+def worktree_start_ref() -> str:
+    configured = os.environ.get("PASI_OVERNIGHT_BASE_REF", "").strip()
+    return configured or "origin/main"
+
+
 def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
+    start_ref = worktree_start_ref()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
-        code, output = command(["git", "worktree", "add", "-B", branch, str(path), "origin/main"], REPO_ROOT, 60.0)
+        code, output = command(
+            ["git", "worktree", "add", "-B", branch, str(path), start_ref],
+            REPO_ROOT,
+            60.0,
+        )
         if code != 0:
-            raise RuntimeError(f"could not create overnight worktree: {output}")
+            raise RuntimeError(f"could not create overnight worktree from {start_ref}: {output}")
         return
     code, output = command(["git", "status", "--porcelain"], path, 15.0)
     if code != 0:
@@ -433,9 +443,9 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     if code != 0:
         raise RuntimeError(f"could not select overnight branch: {output}")
 
-    code, counts = command(["git", "rev-list", "--left-right", "--count", f"{branch}...origin/main"], path, 30.0)
+    code, counts = command(["git", "rev-list", "--left-right", "--count", f"{branch}...{start_ref}"], path, 30.0)
     if code != 0:
-        raise RuntimeError(f"could not compare overnight branch with origin/main: {counts}")
+        raise RuntimeError(f"could not compare overnight branch with {start_ref}: {counts}")
     parts = counts.split()
     if len(parts) != 2:
         raise RuntimeError(f"could not parse overnight branch ancestry: {counts}")
@@ -444,15 +454,12 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     except ValueError as exc:
         raise RuntimeError(f"could not parse overnight branch ancestry: {counts}") from exc
     if behind > 0 and ahead == 0:
-        merge_code, merge_output = command(["git", "merge", "--ff-only", "origin/main"], path, 60.0)
+        merge_code, merge_output = command(["git", "merge", "--ff-only", start_ref], path, 60.0)
         if merge_code != 0:
-            raise RuntimeError(f"could not fast-forward overnight branch to origin/main: {merge_output}")
+            raise RuntimeError(f"could not fast-forward overnight branch to {start_ref}: {merge_output}")
         log_event("resume_branch_fast_forwarded", branch=branch, commits=behind)
     elif behind > 0 and ahead > 0:
-        log_event("resume_branch_diverged", branch=branch, ahead=ahead, behind=behind)
-
-
-def browser_observation() -> dict[str, Any] | None:
+        log_event("resume_branch_diverged", branch=branch, ahead=ahead, behind=behind)def browser_observation() -> dict[str, Any] | None:
     token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
     if not token:
         try:
