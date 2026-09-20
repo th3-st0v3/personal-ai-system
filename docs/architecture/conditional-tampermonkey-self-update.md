@@ -11,8 +11,8 @@ The controller update path is deliberately conditional:
 2. `automation/legacy/controller_update.py` parses the signal and refuses to stage an update when the signal is missing, false, missing a version, mismatched with the source version, or already synchronized.
 3. The launcher writes a bounded local update request under `.runtime/chatgpt/controller-update-request.json` when the request is eligible.
 4. A controller change is still developed and tested like normal PASI code. The model signal is a trigger, not permission to execute arbitrary code.
-5. After the controller change is merged to `main`, `scripts/publish_controller_release.py` can publish a versioned `automation/tampermonkey/controller-sync.json` manifest containing the controller SHA-256 digest.
-6. The one-time-installed `automation/tampermonkey/chatgpt-controller-loader.user.js` checks that manifest. It only loads a controller when `enabled` is true and the published version/hash differ from its last verified release.
+5. After the controller change is merged to `main`, `scripts/publish_controller_release.py` can publish a versioned `automation/legacy/tampermonkey/controller-sync.json` manifest containing the controller SHA-256 digest.
+6. The one-time-installed `automation/legacy/tampermonkey/chatgpt-controller-loader.user.js` checks that manifest. It only loads a controller when `enabled` is true and the published version/hash differ from its last verified release.
 7. Before execution, the loader restricts the source URL to this repository's `main` raw GitHub path and verifies the downloaded controller against the manifest SHA-256 digest.
 
 ## One-time browser setup
