@@ -1,0 +1,20 @@
+{
+  "heartbeat_seconds": 15,
+  "stale_seconds": 45,
+  "controller_poll_ms": 500,
+  "dom_poll_ms": 20,
+  "menu_ms": 5000,
+  "composer_ms": 10000,
+  "send_ms": 5000,
+  "submit_ms": 2500,
+  "generation_seconds": 3600,
+  "recovery_trigger_seconds": 3600,
+  "recovery_grace_seconds": 600,
+  "python_wait_seconds": 3600,
+  "bridge_claim_lease_seconds": 1800,
+  "queue_ttl_seconds": 86400,
+  "click_settle_ms": 20,
+  "thinking_verify_ms": 3000,
+  "response_settle_ms": 20,
+  "submission_ack_ms": 1000
+}
