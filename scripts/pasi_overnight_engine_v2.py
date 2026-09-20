@@ -114,6 +114,7 @@ class OvernightState:
     last_result: str = ""
     next_task: str = ""
     stop_reason: str = ""
+    last_provider: str = "chatgpt_browser"
     recent_tasks: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -137,6 +138,7 @@ class OvernightState:
             "last_result": self.last_result,
             "next_task": self.next_task,
             "stop_reason": self.stop_reason,
+            "last_provider": self.last_provider,
             "recent_tasks": self.recent_tasks[-12:],
         }
 
@@ -193,6 +195,7 @@ def load_state() -> OvernightState | None:
             last_result=str(raw.get("last_result", "")),
             next_task=str(raw.get("next_task", "")),
             stop_reason=str(raw.get("stop_reason", "")),
+            last_provider=str(raw.get("last_provider", "chatgpt_browser")),
             recent_tasks=recent_tasks[-12:],
         )
     except (KeyError, TypeError, ValueError):
@@ -866,24 +869,44 @@ def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
 
 
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
+    state.last_provider = "chatgpt_browser"
     prompt = build_prompt(task, state, failure)
     code, output = command(
         [sys.executable, "scripts/pasi_chat_guard.py", prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS)],
         Path(state.worktree),
         TASK_TIMEOUT_SECONDS + 45.0,
     )
-    if provider_condition(code, output) is None:
+    condition = provider_condition(code, output)
+    if condition is None:
         return code, output
+    if condition != "auth_required":
+        # Runtime-guard/browser failures must not be converted into provider
+        # fallback. The runner owns bounded standby/recovery for that class.
+        return code, sanitize_failure_evidence(code, output)
     if os.environ.get("PASI_PRIMARY_CHATGPT_ONLY", "").strip().casefold() in {"1", "true", "yes"}:
         return code, sanitize_failure_evidence(code, output)
+
     fallback = command(
         [sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
         Path(state.worktree),
         225.0,
     )
-    if fallback[0] == 0 and fallback[1].strip():
-        return 0, fallback[1]
-    return code, sanitize_failure_evidence(code, output) + " | fallback=" + sanitize_failure_evidence(fallback[0], fallback[1])
+    if fallback[0] != 0 or not fallback[1].strip():
+        return code, sanitize_failure_evidence(code, output) + " | fallback=" + sanitize_failure_evidence(fallback[0], fallback[1])
+
+    raw_fallback = fallback[1].strip()
+    lines = raw_fallback.splitlines()
+    marker = lines[0].strip() if lines else ""
+    if not marker.startswith("PASI_FALLBACK_PROVIDER:"):
+        return code, "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
+    provider = marker.split(":", 1)[1].strip()
+    if not provider or len(provider) > 80:
+        return code, "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
+    response = "\n".join(lines[1:]).lstrip()
+    if not response.strip():
+        return code, "failure_class=fallback_empty_response; provider router returned no response body"
+    state.last_provider = f"fallback:{provider}"
+    return 0, response
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
@@ -1159,44 +1182,11 @@ def run(state: OvernightState, *, push: bool) -> None:
             save_state(state)
             log_event("task_attempt_started", phase=state.phase, task_number=state.task_number, attempt=attempt, task=state.current_task)
             code, response = invoke_chat(state.current_task, state, failure)
+            provider_source = state.last_provider
             condition = provider_condition(code, response)
             if condition == "auth_required":
-                log_event("fallback_provider_route", reason="ChatGPT authentication challenge", task_number=state.task_number)
-                fallback_failure = sanitize_failure_evidence(code, response)
-                fallback = command(
-                    [
-                        sys.executable,
-                        "scripts/pasi_provider_router.py",
-                        "--task",
-                        build_prompt(state.current_task, state, fallback_failure),
-                        "--repo",
-                        state.worktree,
-                        "--timeout",
-                        "180",
-                    ],
-                    Path(state.worktree),
-                    225.0,
-                )
-                if fallback[0] == 0:
-                    raw_fallback = str(fallback[1] or "").strip()
-                    fallback_lines = raw_fallback.splitlines()
-                    provider_marker = fallback_lines[0].strip() if fallback_lines else ""
-                    if not provider_marker.startswith("PASI_FALLBACK_PROVIDER:"):
-                        failure = "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
-                        log_event("fallback_provider_rejected", task_number=state.task_number, reason="missing provenance marker")
-                        continue
-                    fallback_provider = provider_marker.split(":", 1)[1].strip()
-                    if not fallback_provider or len(fallback_provider) > 80:
-                        failure = "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
-                        log_event("fallback_provider_rejected", task_number=state.task_number, reason="invalid provenance marker")
-                        continue
-                    response = "\n".join(fallback_lines[1:]).lstrip()
-                    if not response.strip():
-                        failure = "failure_class=fallback_empty_response; provider router returned no response body"
-                        continue
-                    provider_source = f"fallback:{fallback_provider}"
-                    code = 0
-                    log_event("fallback_provider_response", task_number=state.task_number, provider=fallback_provider, promotion="disabled")
+                failure = sanitize_failure_evidence(code, response) or "failure_class=auth_required"
+                continue
             elif condition in {"provider_usage_limit", "runtime_guard"}:
                 if condition == "provider_usage_limit":
                     state.provider_limit_pauses += 1
