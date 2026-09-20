@@ -704,7 +704,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     def _request_is_authorized(self, *, require_token: bool) -> bool:
         host = self.headers.get("Host", "")
         bound_port = self.server.server_address[1] if isinstance(self.server.server_address, tuple) else PORT
-        if host not in {f"{HOST}:{bound_port}", HOST}:
+        if host != f"{HOST}:{bound_port}":
             return False
         origin = self.headers.get("Origin", "").strip()
         # Browser-originated requests must come from an installed PASI
