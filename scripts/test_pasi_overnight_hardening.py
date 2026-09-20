@@ -87,6 +87,15 @@ class OvernightHardeningTests(unittest.TestCase):
             self.assertIn("scripts/pasi_provider_router.py", command)
             self.assertNotIn("scripts/pasi_chat_guard.py", command)
 
+    def test_nonblocking_service_recovery_is_native_bridge_only(self) -> None:
+        import inspect
+
+        source = inspect.getsource(nonblocking_ensure_services)
+        self.assertIn("127.0.0.1:8765/health", source)
+        self.assertNotIn("127.0.0.1:8766", source)
+        self.assertNotIn("pasi_controller_server.py", source)
+        self.assertNotIn("controller_distribution", source)
+
     def test_patch_guard_rejects_secret_and_symlink_paths(self) -> None:
         with self.assertRaises(ValueError):
             validate_patch_paths(
