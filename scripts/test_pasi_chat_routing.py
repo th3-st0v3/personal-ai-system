@@ -14,6 +14,9 @@ class FakeAdapter:
     def read_browser_observation(self) -> dict[str, Any] | None:
         return self.observation
 
+    def read_browser_state(self) -> dict[str, Any] | None:
+        return self.observation
+
     def new_session(self) -> str:
         self.new_sessions += 1
         return f"new-chat-{self.new_sessions}"
