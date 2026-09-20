@@ -742,14 +742,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "",
         )
 
-        allowed_origins = {
-            "https://chatgpt.com",
-            "https://www.chatgpt.com",
-        }
-
         self.send_response(status)
 
-        if origin in allowed_origins or origin.startswith("chrome-extension://"):
+        if origin.startswith("chrome-extension://"):
             self.send_header(
                 "Access-Control-Allow-Origin",
                 origin,
