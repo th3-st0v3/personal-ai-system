@@ -328,6 +328,13 @@ test('native new-chat selection excludes navigation and requires an empty target
   assert.match(content, /currentChat !== previousChat && emptySurface/);
 });
 
+test('native active operation renews the controller lease until completion', () => {
+  assert.match(content, /let leaseTimerId = null/);
+  assert.match(content, /leaseTimerId = setInterval\(\(\) =>/);
+  assert.match(content, /controllerClaim\(\)\.catch/);
+  assert.match(content, /clearInterval\(leaseTimerId\)/);
+});
+
 test('native controller elects one tab through a renewable lease', () => {
   assert.match(content, /type: 'pasi-controller-claim'/);
   assert.match(content, /await controllerClaim\(\)/);
