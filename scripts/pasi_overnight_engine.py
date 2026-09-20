@@ -464,7 +464,16 @@ def commit_and_push(
     if code == 0:
         raise OvernightError("task completed without producing a commit")
     message = re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:65] or "overnight PASI task"
-    code, output = command(["git", "commit", "-m", f"pasi: {message}"], worktree, timeout=120.0)
+    code, output = command(
+        [
+            "git",
+            "-c", "user.name=PASI Automation",
+            "-c", "user.email=pasi@local.invalid",
+            "commit", "-m", f"pasi: {message}",
+        ],
+        worktree,
+        timeout=120.0,
+    )
     if code != 0:
         raise OvernightError(f"git commit failed: {output}")
     code, commit = command(["git", "rev-parse", "HEAD"], worktree, timeout=15.0)
