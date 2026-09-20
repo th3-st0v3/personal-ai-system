@@ -409,6 +409,58 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertEqual(restored.phase, "engineering_os")
         self.assertEqual(restored.provider_limit_pauses, 1)
 
+    def test_verify_and_commit_records_gate_timing_and_supports_fast_gate(self) -> None:
+        events: list[str] = []
+
+        def fake_command(argv, cwd, timeout):
+            if argv[:3] == ["git", "apply", "--check"]:
+                return 0, ""
+            if argv[:3] == ["git", "apply", "--whitespace=nowarn"]:
+                return 0, ""
+            if argv[:3] == ["git", "diff", "--check"]:
+                return 0, ""
+            if argv[:3] == ["git", "diff", "--name-only"]:
+                return 0, "automation/chromium/pasi-chatgpt/content.js\n"
+            if argv[:2] == [engine.legacy.sys.executable, "-m"]:
+                return 0, "1 passed"
+            if argv[:3] == ["git", "status", "--porcelain"]:
+                return 0, " M automation/chromium/pasi-chatgpt/content.js"
+            raise AssertionError(f"unexpected command: {argv!r}")
+
+        with tempfile.TemporaryDirectory() as root:
+            worktree = Path(root)
+            changed = worktree / "automation" / "chromium" / "pasi-chatgpt"
+            changed.mkdir(parents=True)
+            (changed / "content.js").write_text("console.log('fixture');\n", encoding="utf-8")
+
+            with mock.patch.dict("os.environ", {"PASI_LOCAL_GATE_MODE": "fast"}, clear=False):
+                with mock.patch.object(engine, "command", side_effect=fake_command):
+                    with mock.patch.object(engine, "validate_patch_paths"):
+                        with mock.patch.object(
+                            engine,
+                            "log_event",
+                            side_effect=lambda name, **_kwargs: events.append(name),
+                        ):
+                            with mock.patch.object(
+                                engine.legacy,
+                                "commit_and_push",
+                                return_value="deadbeef",
+                            ):
+                                commit, output = engine.verify_and_commit(
+                                    worktree,
+                                    "test",
+                                    "latency regression",
+                                    "diff --git a/automation/chromium/pasi-chatgpt/content.js "
+                                    "b/automation/chromium/pasi-chatgpt/content.js\n",
+                                    False,
+                                    push=False,
+                                )
+
+        self.assertEqual(commit, "deadbeef")
+        self.assertIn("FAST LOCAL GATE PASSED", output)
+        self.assertIn("verify_started", events)
+        self.assertIn("verify_finished", events)
+
 
 if __name__ == "__main__":
     unittest.main()
