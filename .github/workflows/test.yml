@@ -68,6 +68,8 @@ jobs:
           node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js
       - name: Run minimized Chromium response-recovery acceptance test
         run: python scripts/e2e_chromium_response_recovery.py
+      - name: Run Chromium prompt-submission and chaining acceptance test
+        run: python scripts/e2e_chromium_prompt_submission.py
       - name: Run Tampermonkey controller contract tests
         run: node --test automation/tampermonkey/chatgpt-controller.test.js
       - name: Run Tampermonkey controller loader contract tests
