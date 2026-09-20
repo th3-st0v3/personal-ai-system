@@ -210,6 +210,29 @@ new file mode 100644
         self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
         self.assertIn("machine-read as task evidence", prompt)
 
+    def test_prompt_compiler_preserves_multiline_task_requirements(self) -> None:
+        task = """Implement the feature.
+Requirements:
+- Preserve existing behavior.
+- Add deterministic regression coverage.
+Acceptance:
+- Run the canonical gate."""
+        prompt = prompt_compiler.compile_task_prompt(
+            task,
+            run_id="run-multiline",
+            task_number=1,
+            attempt=1,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="engineering_os",
+        )
+        self.assertIn(
+            "CONTINUE WORKING ON THE CURRENT TASK:\nImplement the feature.\nRequirements:\n- Preserve existing behavior.",
+            prompt,
+        )
+        self.assertIn("Acceptance:\n- Run the canonical gate.", prompt)
+
     def test_prompt_compiler_hash_is_stable_for_identical_prompt(self) -> None:
         prompt = "deterministic prompt\n"
         self.assertEqual(
