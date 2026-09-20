@@ -393,12 +393,23 @@ def release_lock() -> None:
         pass
 
 
-def validate_patch_paths(patch: str, allow_delete: bool) -> None:
+def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None = None) -> None:
     if len(patch.encode("utf-8")) > MAX_PATCH_BYTES:
         raise ValueError("model patch exceeds configured size bound")
-    if "new file mode 120000" in patch or "new file mode 160000" in patch:
+    if any(marker in patch for marker in ("new file mode 120000", "new file mode 160000", "new mode 120000", "new mode 160000")):
         raise ValueError("symlink and submodule additions are not allowed in unattended patches")
     matches = re.findall(r"^diff --git a/(.+) b/(.+)$", patch, re.MULTILINE)
+    sections = re.split(r"(?m)^diff --git ", patch)[1:]
+    deleted_paths: set[str] = set()
+    for section in sections:
+        if re.search(r"(?m)^\\+\\+\\+ /dev/null$", section):
+            header = section.splitlines()[0] if section.splitlines() else ""
+            header_match = re.match(r"a/(\\S+) b/(\\S+)$", header)
+            if header_match:
+                deleted_paths.add(header_match.group(2))
+    if deleted_paths and not allow_delete:
+        raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true: " + ", ".join(sorted(deleted_paths)[:10]))
+
     if not matches:
         raise ValueError("model response did not contain a unified git diff")
     for old_path, new_path in matches:
@@ -418,6 +429,14 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
                 raise ValueError(f"forbidden credential/secret path: {path_value}")
             if normalized in PROTECTED_UNATTENDED_PATHS or any(normalized.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES):
                 raise ValueError(f"protected unattended patch path requires human-approved branch: {path_value}")
+            if worktree is not None:
+                ignored = subprocess.run(
+                    ["git", "-C", str(worktree), "check-ignore", "-q", "--", normalized],
+                    capture_output=True,
+                    check=False,
+                )
+                if ignored.returncode == 0:
+                    raise ValueError(f"patch path is Git-ignored and outside the tracked change boundary: {path_value}")
         if new_path == "/dev/null" and not allow_delete:
             raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
 
@@ -588,7 +607,7 @@ def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
 
 
 def apply_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
-    validate_patch_paths(patch, allow_delete)
+    validate_patch_paths(patch, allow_delete, worktree)
     code, summary = command(["git", "apply", "--numstat", "-z", "-"], worktree, 60.0, input=patch)
     if code != 0:
         raise RuntimeError(f"git apply path resolution failed:\n{summary}")
