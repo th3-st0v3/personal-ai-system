@@ -321,6 +321,20 @@ def test_recovery_observations_are_append_only_on_operation(
             }
         )
 
+    duplicate = {
+        "schema_version": "pasi-chatgpt-recovery-v3",
+        "captured_at": "2026-09-20T12:00:01Z",
+        "data": {
+            "kind": "chatgpt_recovery",
+            "operation_id": operation.operation_id,
+            "phase": "ready_for_retry",
+            "recovery_reason": "no_progress",
+            "recovery_duration_ms": 90_000,
+            "outcome": "resumed",
+        },
+    }
+    bridge.save_browser_observation(duplicate)
+
     persisted = bridge.get_operation(operation.operation_id)
     assert persisted is not None
     events = persisted.get("recovery_events")
