@@ -707,7 +707,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if host not in {f"{HOST}:{bound_port}", HOST}:
             return False
         origin = self.headers.get("Origin", "").strip()
-        if origin and not (origin in {"https://chatgpt.com", "https://www.chatgpt.com"} or origin.startswith("chrome-extension://")):
+        # Browser-originated requests must come from an installed PASI
+        # extension. Host-local Python clients intentionally omit Origin and
+        # remain authorized by the launch token.
+        if origin and not origin.startswith("chrome-extension://"):
             return False
         if not require_token:
             return True
