@@ -84,10 +84,27 @@ class BridgeState:
         operation_type: str,
         prompt: str,
         idempotency_key: str | None = None,
+        completion_markers: list[str] | None = None,
     ) -> ChatOperation:
         if idempotency_key is not None:
             if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS:
                 raise ValueError("idempotency_key must be a nonblank bounded string")
+        if completion_markers is not None:
+            if (
+                not isinstance(completion_markers, list)
+                or not completion_markers
+                or len(completion_markers) > 4
+                or any(
+                    not isinstance(marker, str)
+                    or not marker.strip()
+                    or len(marker.strip()) > 120
+                    or "\n" in marker
+                    or "\r" in marker
+                    for marker in completion_markers
+                )
+            ):
+                raise ValueError("completion_markers must be 1-4 bounded single-line strings")
+            completion_markers = list(dict.fromkeys(marker.strip() for marker in completion_markers))
 
         with self.lock:
             queue = self.state_manager.load_queue()
@@ -107,6 +124,7 @@ class BridgeState:
                 operation_type=operation_type,
                 prompt=prompt,
                 idempotency_key=idempotency_key,
+                completion_markers=completion_markers,
                 status="queued",
             )
             item = operation.to_dict()
@@ -1105,6 +1123,22 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         )
 
         idempotency_key = payload.get("idempotency_key")
+        completion_markers = payload.get("completion_markers")
+        if completion_markers is not None and (
+            not isinstance(completion_markers, list)
+            or not completion_markers
+            or len(completion_markers) > 4
+            or any(
+                not isinstance(marker, str)
+                or not marker.strip()
+                or len(marker.strip()) > 120
+                or "\n" in marker
+                or "\r" in marker
+                for marker in completion_markers
+            )
+        ):
+            self._send_json({"error": "completion_markers must be 1-4 bounded single-line strings."}, HTTPStatus.BAD_REQUEST)
+            return
         if idempotency_key is not None and (
             not isinstance(idempotency_key, str)
             or not idempotency_key.strip()
@@ -1154,6 +1188,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 operation_type=operation_type,
                 prompt=prompt,
                 idempotency_key=idempotency_key,
+                completion_markers=completion_markers,
             )
         )
 
