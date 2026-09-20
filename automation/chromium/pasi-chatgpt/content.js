@@ -2,13 +2,13 @@
   'use strict';
 
   const CONTROLLER_VERSION = '2.4.11';
-  const POLL_MS = 2000;
+  const POLL_MS = 250;
   const HEALTH_MS = 15000;
-  const DOM_POLL_MS = 250;
+  const DOM_POLL_MS = 50;
   const CLICK_SETTLE_MS = 250;
   const THINKING_VERIFY_MS = 5000;
   const RESPONSE_SETTLE_MS = 200;
-  const SUBMISSION_ACK_MS = 7500;
+  const SUBMISSION_ACK_MS = 5000;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
   const ACTIVE_KEY = 'pasi:active-operation';
@@ -26,6 +26,17 @@
   let extensionContextInvalidated = false;
   let pollTimerId = null;
   let healthTimerId = null;
+  let immediatePollQueued = false;
+
+  function scheduleImmediatePoll() {
+    if (immediatePollQueued || extensionContextInvalidated) return;
+    immediatePollQueued = true;
+    queueMicrotask(() => {
+      immediatePollQueued = false;
+      if (!processing && activeOperationId === null && !extensionContextInvalidated) void poll();
+    });
+  }
+
 
   function isExtensionContextInvalidatedError(error) {
     return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
@@ -102,6 +113,52 @@
     });
   }  const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /* Event-driven waits: MutationObserver reacts immediately; the interval is only a backstop. */
+  function waitUntil(predicate, timeoutMs, pollMs = 50) {
+    return new Promise((resolve) => {
+      let done = false;
+      let lastCheck = 0;
+      let observer = null;
+      let interval = null;
+      let timeout = null;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        if (observer) observer.disconnect();
+        if (interval !== null) clearInterval(interval);
+        if (timeout !== null) clearTimeout(timeout);
+        resolve(value);
+      };
+      const check = () => {
+        if (done) return;
+        const now = Date.now();
+        if (now - lastCheck < 10) return;
+        lastCheck = now;
+        try {
+          const value = predicate();
+          if (value) finish(value);
+        } catch (_) {}
+      };
+      const root = document.documentElement || document;
+      if (typeof MutationObserver === 'function' && root) {
+        observer = new MutationObserver(() => check());
+        try {
+          observer.observe(root, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true
+          });
+        } catch (_) {
+          observer = null;
+        }
+      }
+      interval = setInterval(check, pollMs);
+      timeout = setTimeout(() => finish(null), timeoutMs);
+      check();
+    });
+  }
 
   function visible(element) {
     if (!element) return false;
@@ -359,15 +416,61 @@
     return String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
-  function newestUserMatches(expected, baselineCount) {
+  function snapshotUserMessages() {
     const nodes = userMessages();
-    if (nodes.length <= baselineCount) return false;
-    const needle = normalize(expected);
-    for (let index = nodes.length - 1; index >= baselineCount; index -= 1) {
-      const text = normalize(messageText(nodes[index]));
-      if (text === needle || text.includes(needle)) return true;
+    return {
+      keys: new Set(nodes.map((node) => node.getAttribute?.('data-message-id')).filter(Boolean)),
+      nodes: new WeakSet(nodes),
+      count: nodes.length
+    };
+  }
+
+  function promptFingerprints(prompt) {
+    const text = normalize(prompt);
+    return { head: text.slice(0, 80), tail: text.slice(-80) };
+  }
+
+  // returns 'match' | 'new_unmatched' | null
+  function classifyNewUserMessages(nodes, snapshot, head, tail, textOf) {
+    let unmatched = false;
+    for (const node of nodes) {
+      const key = node.getAttribute?.('data-message-id');
+      const known = key ? snapshot.keys.has(key) : snapshot.nodes.has(node);
+      if (known) continue;
+      const text = normalize(textOf(node));
+      if ((head && text.includes(head)) || (tail && text.includes(tail))) return 'match';
+      unmatched = true;
     }
-    return false;
+    return unmatched ? 'new_unmatched' : null;
+  }
+
+  function captureUiDiagnostics() {
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
+      .filter(visible).slice(0, 30)
+      .map((element) => ({
+        l: label(element).slice(0, 40),
+        t: element.getAttribute('data-testid') || '',
+        d: disabled(element) ? 1 : 0
+      }));
+    return {
+      vis: document.visibilityState,
+      gen: generating(),
+      composer: Boolean(composer()),
+      auth: authRequired(),
+      limited: usageLimited(),
+      exhausted: contextExhausted(),
+      users: userMessages().length,
+      assistants: assistantMessages().length,
+      mode: reasoningMode,
+      buttons
+    };
+  }
+
+  function clearMonitoringStateFor(operationId) {
+    try {
+      const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
+      if (state && state.operation_id === operationId && state.phase === 'monitoring') localStorage.removeItem(RECOVERY_KEY);
+    } catch (_) {}
   }
 
   function conversationSignature() {
@@ -449,13 +552,7 @@
   }
 
   async function waitFor(select, timeout) {
-    const started = Date.now();
-    while (Date.now() - started < timeout) {
-      const value = select();
-      if (value) return value;
-      await sleep(DOM_POLL_MS);
-    }
-    return null;
+    return waitUntil(select, timeout, DOM_POLL_MS);
   }
 
   async function newChat() {
@@ -830,64 +927,49 @@
     }, TIMEOUTS.send);
   }
 
-  async function waitForSubmissionAck(expected, baselineUserCount) {
-    const started = Date.now();
-    while (Date.now() - started < SUBMISSION_ACK_MS) {
-      // A submission acknowledgement must identify PASI's exact prompt. Merely
-      // observing generation plus an increased user-message count can be caused
-      // by another message and can falsely advance the controller into the
-      // one-hour response wait.
-      if (newestUserMatches(expected, baselineUserCount)) return true;
-      await sleep(DOM_POLL_MS);
-    }
-    return false;
-  }
-
-  async function verifyThinkingState() {
-    return waitFor(() => {
-      const state = thinkingEnabled();
-      return state === true ? true : null;
-    }, THINKING_VERIFY_MS);
-  }
-
-  async function ensureThinkingReady() {
-    let state = thinkingEnabled();
-    if (state === true) {
-      reasoningMode = 'thinking';
-      return true;
-    }
-    if (reasoningMode === 'unavailable') return true;
-
-    // The model selector can report null briefly while ChatGPT is closing
-    // the intelligence menu. Give the DOM a chance to settle before trying
-    // to toggle the control again.
-    state = await verifyThinkingState();
-    if (state) {
-      reasoningMode = 'thinking';
-      return true;
-    }
-    if (reasoningMode === 'unavailable') return true;
-
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const selected = await selectThinking();
-      if (selected === false && reasoningMode === 'unavailable') return true;
-      if (await verifyThinkingState()) {
+  async function ensureThinkingBestEffort() {
+    if (reasoningMode === 'thinking' || reasoningMode === 'unavailable') return reasoningMode;
+    try {
+      if (thinkingEnabled() === true) {
         reasoningMode = 'thinking';
-        return true;
+        return reasoningMode;
       }
-      if (attempt < 2) await sleep(CLICK_SETTLE_MS);
+      await selectThinking();
+      if (thinkingEnabled() === true) reasoningMode = 'thinking';
+    } catch (error) {
+      reasoningMode = 'unavailable';
+      void reportObservation('chatgpt_reasoning_capability', {
+        chat_url: chatUrl(),
+        thinking_available: false,
+        reasoning_mode: 'unavailable',
+        reason: String(error?.message || error).slice(0, 300),
+        native_controller: true
+      });
+      closeOpenMenus();
     }
+    return reasoningMode;
+  }
 
-    return false;
+  function closeOpenMenus() {
+    const target = document.activeElement || document.body;
+    for (const type of ['keydown', 'keyup']) {
+      target.dispatchEvent(new KeyboardEvent(type, {
+        key: 'Escape',
+        code: 'Escape',
+        keyCode: 27,
+        which: 27,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      }));
+    }
   }
 
   async function ensurePromptSubmissionReady() {
     if (authRequired()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-    if (!(await ensureThinkingReady())) {
-      throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
-    }
+    await ensureThinkingBestEffort();
   }
 
   function composerContainsPrompt(element, expected) {
@@ -940,79 +1022,87 @@
 
 
   async function submitPrompt(expected) {
-    const baselineUserCount = userMessages().length;
+    const snapshot = snapshotUserMessages();
+    const { head, tail } = promptFingerprints(expected);
+    const newMessageState = () => classifyNewUserMessages(userMessages(), snapshot, head, tail, messageText);
+    const accepted = () => {
+      const state = newMessageState();
+      if (state === 'match') return 'verified';
+      if (state === 'new_unmatched' && generating()) return 'new_message_generating';
+      return null;
+    };
 
-    for (let attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
-      // ChatGPT can rerender or replace the composer node during controlled
-      // input updates. Confirm the message was not already accepted before
-      // treating a missing composer value as a failure.
-      if (newestUserMatches(expected, baselineUserCount)) return;
+    const strategies = [
+      async (box, button) => {
+        const form = (button || box).closest?.('form') || box.closest?.('form') || null;
+        if (!form || typeof form.requestSubmit !== 'function') return false;
+        try {
+          const type = String(button?.getAttribute?.('type') || 'submit').toLowerCase();
+          if (!button || type === 'submit') form.requestSubmit(button || undefined);
+          else form.requestSubmit();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      },
+      async (_box, button) => {
+        if (!button || disabled(button)) return false;
+        nativeMouseActivate(button);
+        return true;
+      },
+      async (box) => {
+        if (!composerContainsPrompt(box, expected)) return false;
+        dispatchEnter(box);
+        return true;
+      }
+    ];
+
+    let fired = false;
+    for (let attempt = 1; attempt <= strategies.length; attempt += 1) {
+      let via = accepted();
+      if (via) return { via, attempt, verified: via === 'verified' };
 
       await ensurePromptSubmissionReady();
-
       let box = composer();
       if (!box) throw new Error('PASI_NATIVE: composer disappeared');
 
-      // Re-acquire the composer after readiness checks. Restore the requested
-      // prompt only when the new composer is empty; never overwrite unrelated
-      // text that may have been entered independently.
-      if (!composerContainsPrompt(box, expected)) {
-        const currentText = normalize(readText(box));
-        if (!currentText) {
-          insertText(box, expected);
-          box = await waitFor(
-            () => {
-              const current = composer();
-              return current && composerContainsPrompt(current, expected) ? current : null;
-            },
-            2000
-          ) || composer();
-        }
+      const composerNow = composer();
+      const composerEmptied = fired && (!composerNow || !composerContainsPrompt(composerNow, expected));
+      if (generating() || newMessageState() || composerEmptied) {
+        via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
+        return { via: via || 'sent_unverified', attempt, verified: via === 'verified' };
       }
 
-      if (newestUserMatches(expected, baselineUserCount)) return;
+      if (!composerContainsPrompt(box, expected)) {
+        if (normalize(readText(box))) {
+          throw new Error('PASI_NATIVE: composer holds unrelated text; refusing to overwrite');
+        }
+        insertText(box, expected);
+        box = await waitUntil(() => {
+          const current = composer();
+          return current && composerContainsPrompt(current, expected) ? current : null;
+        }, 2000, DOM_POLL_MS) || composer();
+      }
 
       if (!box || !composerContainsPrompt(box, expected)) {
-        if (attempt < SUBMISSION_ATTEMPTS) {
-          await sleep(DOM_POLL_MS + 50);
-          continue;
-        }
+        if (attempt < strategies.length) continue;
         throw new Error('PASI_NATIVE: composer lost the requested prompt before submission after bounded recovery');
       }
 
       const button = await waitForSend(box);
-      const form = (button || box)?.closest?.('form') || box.closest?.('form') || null;
+      if (!button) throw new Error('PASI_NATIVE: send control unavailable');
+      fired = await strategies[attempt - 1](box, button);
+      if (!fired) continue;
 
-      if (form?.requestSubmit) {
-        try {
-          const buttonType = String(button?.getAttribute?.('type') || 'submit').toLowerCase();
-          if (!button || buttonType === 'submit') form.requestSubmit(button || undefined);
-          else form.requestSubmit();
-          if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-        } catch (_) {}
-      }
-
-      if (newestUserMatches(expected, baselineUserCount)) return;
-
-      const currentBox = composer();
-      const currentButton = sendCandidatesForComposer(currentBox)[0] || button;
-      if (currentButton && !disabled(currentButton)) {
-        nativeMouseActivate(currentButton);
-        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-      }
-
-      const retryBox = composer();
-      if (retryBox && composerContainsPrompt(retryBox, expected) && !generating()) {
-        dispatchEnter(retryBox);
-        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-      }
-
-      if (attempt < SUBMISSION_ATTEMPTS) await sleep(DOM_POLL_MS + 50);
+      // Once a send strategy has fired, the only safe next action is observation.
+      // Never reinsert or click another send control merely because the DOM ack lags.
+      via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
+      if (via) return { via, attempt, verified: via === 'verified' };
     }
 
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-    throw new Error('PASI_NATIVE: prompt submission could not be verified after bounded attempts');
+    return { via: 'sent_unverified', attempt: strategies.length, verified: false };
   }
 
 
@@ -1098,6 +1188,8 @@
   }
 
   async function finishOperation(operationId, responseText = '', requireResponseText = false) {
+    const responseReceivedAt = new Date().toISOString();
+    void reportObservation('chat_response_received', { operation_id: operationId, phase: 'response_complete', captured_at: responseReceivedAt });
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
       throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
     }
@@ -1174,26 +1266,44 @@
         case 'attach_github': await attachGithub(operation.prompt); break;
         case 'prompt': {
           await restoreRecoveryContext(operation.recovery_context);
-          await selectThinking();
-          if (reasoningMode !== 'unavailable') reasoningMode = 'thinking';
+          await ensureThinkingBestEffort();
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-          const box = await waitFor(composer, TIMEOUTS.composer);
-          if (!box) throw new Error('PASI_NATIVE: composer unavailable');
+          // Never inject into a composer while an earlier response is still generating.
+          const box = await waitUntil(() => {
+            const current = composer();
+            return current && !generating() ? current : null;
+          }, PREVIOUS_RESPONSE_WAIT_MS, DOM_POLL_MS);
+          if (!box) throw new Error(generating() ? 'PASI_NATIVE: previous response still generating' : 'PASI_NATIVE: composer unavailable');
           const baseline = fingerprint();
           let activeState = {};
           try {
             activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
           } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
-          setText(box, '');
-          insertText(box, operation.prompt);
-          // Scope the preflight check to the exact composer already being used.
-          // A document-wide send lookup can bind to an unrelated control while the
-          // bounded submitPrompt() path is still waiting for the real composer send action.
-          const send = await waitForSend(box);
-          if (!send) throw new Error('PASI_NATIVE: send control unavailable');
-          await submitPrompt(operation.prompt);
+          const submission = await submitPrompt(operation.prompt);
+          if (!submission.verified) {
+            void reportObservation('chatgpt_submit_unverified', {
+              operation_id: operation.operation_id,
+              via: submission.via,
+              attempt: submission.attempt
+            });
+          }
+          if (!(await waitUntil(() => generating() || fingerprint() !== baseline, GENERATION_START_WAIT_MS, DOM_POLL_MS))) {
+            throw new Error('PASI_NATIVE: submission accepted but generation did not start');
+          }
+          void reportObservation('chat_response_received', {
+            operation_id: operation.operation_id,
+            phase: 'generation_started',
+            captured_at: new Date().toISOString()
+          });
+          void reportObservation('prompt_injected', {
+            operation_id: operation.operation_id,
+            captured_at: new Date().toISOString(),
+            submission_via: submission.via,
+            submission_attempt: submission.attempt,
+            submission_verified: submission.verified
+          });
           const response = await waitForResponse(baseline);
           await finishOperation(operation.operation_id, response, true);
           finalized = true;
@@ -1230,7 +1340,8 @@
         )
           ? new Error('PASI_NATIVE: context recovery exhausted: ' + errorMessage)
           : error;
-        finalized = await failOperation(operation.operation_id, failure);
+        const detail = errorMessage + ' | ui=' + JSON.stringify(captureUiDiagnostics()).slice(0, 1400);
+        finalized = await failOperation(operation.operation_id, new Error(detail));
       }
       throw error;
     } finally {
@@ -1241,8 +1352,10 @@
         if (recoveryResumeOperationId() === operation.operation_id) {
           localStorage.removeItem(RECOVERY_KEY);
         }
+        clearMonitoringStateFor(operation.operation_id);
       }
-      await reportHealth();
+      void reportHealth();
+      if (finalized) scheduleImmediatePoll();
     }
   }
 
