@@ -44,7 +44,7 @@ ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
-AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\\s*true$", re.MULTILINE | re.IGNORECASE)
+AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
     "Audit the PASI computer-use control plane end to end and implement concrete changes that reduce repeated human input, improve state continuity, improve browser recovery, and preserve all existing safety boundaries.",
