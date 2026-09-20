@@ -812,6 +812,7 @@ def automation_gate_evidence(state: OvernightState) -> dict[str, str]:
         value for value in ledger.values()
         if isinstance(value, dict) and value.get("phase") == "automation" and value.get("status") == "completed"
     ]
+    automation_entries.sort(key=lambda value: str(value.get("updated_at", "")))
     recent = automation_entries[-AUTOMATION_TASKS_PER_GATE:]
     if len(recent) < AUTOMATION_TASKS_PER_GATE:
         return {
