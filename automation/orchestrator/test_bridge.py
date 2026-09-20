@@ -176,6 +176,51 @@ def test_queue_idempotency_does_not_cross_prompt_or_operation_type(tmp_path: Pat
     assert len({first.operation_id, second.operation_id, third.operation_id}) == 3
 
 
+def test_http_get_next_operation_claims_oldest_queued_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "first queued")
+    second = bridge.queue_operation("prompt", "second queued")
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def get_next() -> tuple[int, dict]:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        try:
+            connection.request(
+                "GET",
+                "/next-operation",
+                headers={"Authorization": "Bearer test-bridge-token"},
+            )
+            response = connection.getresponse()
+            body = json.loads(response.read().decode("utf-8"))
+            return response.status, body
+        finally:
+            connection.close()
+
+    try:
+        status, body = get_next()
+        assert status == 200
+        assert body["operation"]["operation_id"] == first.operation_id
+        assert body["operation"]["status"] == "claimed"
+
+        status, body = get_next()
+        assert status == 200
+        assert body["operation"]["operation_id"] == second.operation_id
+        assert body["operation"]["status"] == "claimed"
+
+        status, body = get_next()
+        assert status == 200
+        assert body["operation"] is None
+        assert bridge.get_status()["queue_size"] == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_http_queue_response_loss_is_recovered_without_duplicate_operation(tmp_path: Path) -> None:
     DropFirstQueueResponseHandler.dropped = False
     bridge = make_bridge(tmp_path)
