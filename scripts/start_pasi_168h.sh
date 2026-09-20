@@ -249,10 +249,10 @@ pid=$!
 # Do not report a successful start until the detached supervisor and its
 # engine child are actually live. This catches an immediate startup failure
 # instead of leaving the user with a misleading "started" message.
-supervisor_start_deadline=$((SECONDS + 15))
+runner_start_deadline=$((SECONDS + 15))
 supervisor_ready=0
 runner_ready=0
-while (( SECONDS < supervisor_start_deadline )); do
+while (( SECONDS < runner_start_deadline )); do
     supervisor_pid=""
     runner_pid=""
     if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
@@ -274,12 +274,12 @@ while (( SECONDS < supervisor_start_deadline )); do
 done
 
 if (( supervisor_ready == 0 || runner_ready == 0 )); then
-    printf 'error: detached PASI 168-hour supervisor/runner did not become live within the startup verification window.\n' >&2
+    printf 'error: detached PASI runner did not become live within the startup verification window (supervisor and runner are both required).\n' >&2
     printf 'Runner log: %s\n' "$log_file" >&2
     exit 6
 fi
 
-printf 'Started PASI 168-hour supervisor (supervisor PID %s, runner PID %s, 168 hours).\n' "$supervisor_pid" "$runner_pid"
+printf 'Started PASI extended runner under 168-hour supervisor (supervisor PID %s, runner PID %s, 168 hours).\n' "$supervisor_pid" "$runner_pid"
 printf 'Worktree: %s\n' "$WORKTREE"
 printf 'Branch: %s\n' "$BRANCH"
 printf 'Log: %s\n' "$log_file"
