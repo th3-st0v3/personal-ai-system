@@ -41,6 +41,23 @@ class TestProviderRouter(unittest.TestCase):
                 result = pasi_provider_router.call_ollama("task", 20.0)
         self.assertEqual(result, "PASI_RESULT_STATUS: complete")
 
+    def test_opencode_fallback_runs_from_read_only_scrubbed_snapshot(self) -> None:
+        import os
+
+        source = Path(pasi_provider_router.__file__).read_text(encoding="utf-8")
+        self.assertIn('shutil.copytree(repo, sandbox', source)
+        self.assertIn('directory.chmod(0o555)', source)
+        self.assertIn('file_path.chmod(0o444)', source)
+        for secret_name in (
+            "PASI_BRIDGE_TOKEN",
+            "GITHUB_TOKEN",
+            "OPENROUTER_API_KEY",
+            "PERPLEXITY_API_KEY",
+            "NVIDIA_API_KEY",
+            "ANTHROPIC_API_KEY",
+        ):
+            self.assertIn(repr(secret_name), source)
+
     def test_repo_path_remains_a_path_object_for_callers(self) -> None:
         self.assertIsInstance(Path("."), Path)
 
