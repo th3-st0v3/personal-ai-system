@@ -154,11 +154,11 @@ class ChatGPTAdapter(AIAdapter):
         if result.completion != "complete":
             raise ChatGPTAdapterError(f"ChatGPT reasoning-mode selection did not complete: {result.completion}")
 
-    def submit_prompt(self, prompt: str) -> str:
+    def submit_prompt(self, prompt: str, *, completion_markers: list[str] | None = None) -> str:
         if not prompt.strip():
             raise ValueError("prompt is required")
         idempotency_key = hashlib.sha256(f"{self.session_id}\0{prompt.strip()}".encode("utf-8")).hexdigest()
-        operation_id = self._operation_id(self._queue("prompt", prompt, idempotency_key=idempotency_key))
+        operation_id = self._operation_id(self._queue("prompt", prompt, idempotency_key=idempotency_key, completion_markers=completion_markers))
         self.current_operation_id = operation_id
         return operation_id
 
@@ -257,10 +257,19 @@ class ChatGPTAdapter(AIAdapter):
                 return latest
         return latest
 
-    def _queue(self, operation_type: str, prompt: str, *, idempotency_key: str | None = None) -> Mapping[str, Any]:
+    def _queue(
+        self,
+        operation_type: str,
+        prompt: str,
+        *,
+        idempotency_key: str | None = None,
+        completion_markers: list[str] | None = None,
+    ) -> Mapping[str, Any]:
         body: dict[str, Any] = {"operation_type": operation_type, "prompt": prompt}
         if idempotency_key is not None:
             body["idempotency_key"] = idempotency_key
+        if completion_markers is not None:
+            body["completion_markers"] = completion_markers
         payload = self.transport.request("POST", "/queue", body)
         operation = payload.get("operation")
         if not isinstance(operation, Mapping):
