@@ -344,7 +344,7 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
                         if delay:
                             time.sleep(delay)
                         try:
-                            return provider, call_openrouter(prompt, min(per_provider, remaining_after_delay))
+                            return provider, call_openrouter(provider_prompt, min(per_provider, remaining_after_delay))
                         except urllib.error.HTTPError as retry_exc:
                             errors.append(f"{provider}: HTTP {retry_exc.code} after bounded 429 retry")
                         except (OSError, TimeoutError, ValueError, RuntimeError, urllib.error.URLError) as retry_exc:
