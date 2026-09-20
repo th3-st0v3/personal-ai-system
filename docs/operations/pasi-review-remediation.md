@@ -10,15 +10,13 @@ Persistent recovery/checkpoint for the external review remediation checklist. Th
 
 Immediate verification sequence:
 
-1. Confirm the stable branch head completes the canonical GitHub Actions suite without failures.
+1. Preserve the green exact-head CI evidence below.
 
-2. If CI is green, run/record the available real-Chromium baseline and mutation checks and inspect their diagnostics.
+2. Run the live M0/M1/M2 harnesses on the authenticated local Chromium session and attach their evidence artifacts.
 
-3. Verify the milestone gates that can be exercised in CI; explicitly leave only genuinely interactive ChatGPT-only gates pending if the environment cannot perform them.
+3. Do not mark a live gate complete until its artifact proves the required runtime behavior.
 
-4. Reconcile the final documentation/bundle inventory and record the exact head SHA here.
-
-5. Do not restart implementation unless CI or acceptance evidence identifies a concrete defect.
+4. Do not restart implementation unless the live evidence identifies a concrete defect.
 
 ## Already Verified Before This Remediation
 
@@ -105,6 +103,6 @@ When asked "what step are we on?", report the unchecked item under **Current Ste
 - 2026-09-19: T1-T4 implementation completed in source; end-to-end M0 gate still pending.
 - 2026-09-19: T5-T15 implementation work completed in source; M1/M2/M3 gates still require deterministic and/or real-runtime evidence.
 - 2026-09-19: T17-T19 implementation completed in source; T20 remains incomplete pending remote-provider privacy opt-in.
-- 2026-09-19: latest checkpoint: M0/M1/M2 live gates remain pending runtime evidence; T16/T20 implementation is complete and covered by deterministic tests; final CI validation is in progress.
-
-- 2026-09-19: implementation frozen for final verification at branch head after T21/T22/T23 source changes; CI run 2363 is the current validation attempt.
+- 2026-09-19: M0/M1/M2 live gates remain pending runtime evidence; T16/T20 implementation is complete and covered by deterministic tests.
+- 2026-09-20: exact-head CI run 2553 passed on head `aaf3225c3869c6680a343325e6def53d47b2a68e`; canonical validation reported 938 passing tests, static type check reported 0 errors, targeted regressions passed, minimized Chromium recovery E2E passed, and both controller contract suites passed.
+- 2026-09-20: executable runtime evidence harnesses added at `scripts/run_m0_live_acceptance.sh`, `scripts/run_m1_live_acceptance.py`, and `scripts/run_m2_live_acceptance.sh`; procedure documented in `docs/operations/runtime-acceptance-gates.md`.
