@@ -48,17 +48,6 @@
     return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null;
   }
 
-  function latestAssistant() {
-    const nodes = document.querySelectorAll('[data-message-author-role="assistant"] .markdown, [data-message-author-role="assistant"]');
-    for (let index = nodes.length - 1; index >= 0; index -= 1) {
-      const text = String(nodes[index].innerText || nodes[index].textContent || '')
-        .replace(/\r\n?/g, '\n')
-        .replace(/[ \t]+(?=\n)/g, '')
-        .trim();
-      if (text) return text.slice(0, 50000);
-    }
-    return '';
-  }
 
   function readRecoveryState() {
     try {
@@ -234,15 +223,6 @@
         recovery_phase: state?.phase || 'untracked',
         recovery_action: 'observe_only'
       };
-
-      if (responseText) {
-        await report('chatgpt_response', {
-          active_operation_id: String(activeOperationId),
-          response_text: responseText,
-          response_text_available: true,
-          recovery_action: 'observe_response_only'
-        });
-      }
 
       await report('chatgpt_recovery', stateData);
     } finally {
