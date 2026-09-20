@@ -1389,10 +1389,11 @@
       finalized = true;
     } catch (error) {
       const errorMessage = String(error?.message || error);
+      const contextRetryCount = Number(operation.retry_counts?.context || 0);
       const contextRecoveryEligible =
         operation.operation_type === 'prompt' &&
         errorMessage.startsWith('CHAT_EXHAUSTED:') &&
-        Number(operation.retry_count || 0) < MAX_CONTEXT_AUTO_RECOVERIES;
+        contextRetryCount < MAX_CONTEXT_AUTO_RECOVERIES;
 
       const responseRecoveryEligible =
         operation.operation_type === 'prompt' &&
@@ -1410,7 +1411,7 @@
       } else {
         const failure = (
           errorMessage.startsWith('CHAT_EXHAUSTED:') &&
-          Number(operation.retry_count || 0) >= MAX_CONTEXT_AUTO_RECOVERIES
+          contextRetryCount >= MAX_CONTEXT_AUTO_RECOVERIES
         )
           ? new Error('PASI_NATIVE: context recovery exhausted: ' + errorMessage)
           : error;
