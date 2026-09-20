@@ -110,3 +110,13 @@ def test_native_controller_has_immediate_terminal_poll_and_event_driven_waits() 
     assert "chat_response_received" in source
     assert "prompt_injected" in source
     assert "ui=" in source
+
+
+def test_native_controller_uses_event_driven_response_capture() -> None:
+    source = _read(NATIVE)
+
+    assert "async function waitForResponse(baseline)" in source
+    assert "const response = await waitUntil(() =>" in source
+    assert "let sawGeneration = false" in source
+    assert "PASI_NATIVE: ChatGPT generation timed out" in source
+    assert "const MAX_RESPONSE_TEXT_CHARS = 120_000;" in source
