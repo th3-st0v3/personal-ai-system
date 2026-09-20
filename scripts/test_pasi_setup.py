@@ -4,6 +4,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+import sys
 
 from automation.computer_use import setup_requirements
 
@@ -23,6 +25,16 @@ PASI_SETUP_REQUIREMENTS_END"""
 PASI_SETUP_REQUIREMENTS_END"""
         with self.assertRaises(ValueError):
             setup_requirements.parse_requirements(response)
+
+
+    def test_main_check_builds_complete_prerequisite_report(self) -> None:
+        import scripts.pasi_setup as pasi_setup
+
+        with patch.object(pasi_setup, "_runtime_observation", return_value=None):
+            with patch.object(pasi_setup, "_health", return_value={"status": "ok"}):
+                with patch.object(pasi_setup.shutil, "which", side_effect=lambda name: "/usr/bin/" + name):
+                    with patch.object(sys, "argv", ["pasi_setup.py", "--check"]):
+                        self.assertEqual(pasi_setup.main(), 0)
 
     def test_record_requirements_deduplicates_and_never_writes_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
