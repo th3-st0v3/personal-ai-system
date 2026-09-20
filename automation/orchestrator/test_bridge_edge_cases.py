@@ -146,7 +146,7 @@ def test_http_finished_accepts_persisted_verified_response_when_retry_payload_is
         bridge.heartbeat(operation.operation_id)
 
         observation = {
-            "schema_version": "1.0",
+            "schema_version": "pasi-native-chromium-v2",
             "captured_at": 123.0,
             "data": {
                 "kind": "chatgpt_response",
