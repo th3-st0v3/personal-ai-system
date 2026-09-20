@@ -29,6 +29,15 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js', 'recovery.js']);
 });
 
+test('native controller chains the next queued operation immediately after terminal completion', () => {
+  assert.match(content, /let immediatePollQueued = false;/);
+  assert.match(content, /function scheduleImmediatePoll\(\)/);
+  assert.match(content, /queueMicrotask\(\(\) =>/);
+  assert.match(content, /if \(finalized\) scheduleImmediatePoll\(\)/);
+  assert.match(content, /void reportHealth\(\)/);
+  assert.match(content, /const detail = errorMessage \+ ' \\| ui=' \+ JSON\.stringify\(captureUiDiagnostics\(\)\)/);
+});
+
 test('native controller reports roadmap completion and repository progress markers', () => {
   assert.match(content, /const CONTROLLER_VERSION = ['"]2\.4\.11['"]/);
   assert.match(content, /function completionProgress\(responseText\)/);
@@ -99,73 +108,43 @@ test('native Thinking selection prefers the composer model pill and stable intel
   assert.match(content, /button\[role="radio"\]/);
 });
 
-test('native prompt submission re-checks auth, exhaustion, and Thinking at the send boundary', () => {
-  assert.match(content, /const THINKING_VERIFY_MS = 5000;/);
-  assert.match(content, /async function verifyThinkingState\(\)/);
-  assert.match(content, /return waitFor\(\(\) => \{/);
-  assert.match(content, /\}, THINKING_VERIFY_MS\)/);
-  assert.match(content, /async function ensureThinkingReady\(\)/);
-  assert.match(content, /if \(state === true\) \{/);
-  assert.match(content, /state = await verifyThinkingState\(\)/);
-  assert.match(content, /for \(let attempt = 1; attempt <= 2; attempt \+= 1\)/);
+test('native prompt submission uses best-effort Thinking and event-driven acknowledgement', () => {
+  assert.match(content, /const DOM_POLL_MS = 50;/);
+  assert.match(content, /function waitUntil\(predicate, timeoutMs, pollMs = 50\)/);
+  assert.match(content, /MutationObserver/);
+  assert.match(content, /function snapshotUserMessages\(\)/);
+  assert.match(content, /function promptFingerprints\(prompt\)/);
+  assert.match(content, /function classifyNewUserMessages\(nodes, snapshot, head, tail, textOf\)/);
+  assert.match(content, /async function ensureThinkingBestEffort\(\)/);
   assert.match(content, /await selectThinking\(\)/);
-  assert.match(content, /if \(await verifyThinkingState\(\)\)/);
-  assert.match(content, /if \(!\(await ensureThinkingReady\(\)\)\)/);
-  assert.match(content, /PASI_NATIVE: Thinking state could not be verified before prompt submission/);
-  assert.match(content, /function markThinkingUnavailable\(reason\)/);
-  assert.match(content, /thinking_available: false/);
   assert.match(content, /reasoning_mode: 'unavailable'/);
-  assert.match(content, /current ChatGPT account\/model does not expose a usable Thinking model option/);
-  assert.match(content, /current ChatGPT menu does not expose a usable Thinking option/);
-  assert.match(content, /if \(reasoningMode !== 'unavailable'\) reasoningMode = 'thinking';/);
-  assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(box\)/);
-  assert.equal((content.match(/async function waitForSubmissionAck\(expected, baselineUserCount\)/g) || []).length, 1);
-  assert.equal((content.match(/async function ensurePromptSubmissionReady\(\)/g) || []).length, 1);
-  assert.equal((content.match(/function composerContainsPrompt\(element, expected\)/g) || []).length, 1);
+  assert.match(content, /closeOpenMenus\(\)/);
+  assert.doesNotMatch(content, /async function ensureThinkingReady\(\)/);
+  assert.doesNotMatch(content, /async function verifyThinkingState\(\)/);
+  assert.doesNotMatch(content, /async function waitForSubmissionAck\(expected, baselineUserCount\)/);
+  assert.doesNotMatch(content, /newestUserMatches\(expected, baselineUserCount\)/);
+  assert.match(content, /await ensureThinkingBestEffort\(\)/);
+  assert.match(content, /PASI_NATIVE: previous response still generating/);
+  assert.match(content, /PASI_NATIVE: submission accepted but generation did not start/);
+  assert.match(content, /clearMonitoringStateFor\(operation\.operation_id\)/);
 });
 
-test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
-  assert.match(content, /SUBMISSION_ACK_MS = 7500/);
-  assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
-  assert.match(content, /newestUserMatches/);
-  assert.match(content, /waitForSubmissionAck/);
-  assert.match(content, /function sendCandidatesForComposer\(box\)/);
-  assert.match(content, /button\[data-testid="send-button"\]/);
-  assert.match(content, /button\[aria-label="Send prompt"\]/);
-  assert.match(content, /button\[aria-label="Send message"\]/);
-  assert.match(content, /Generic submit controls are safe only when owned by the exact composer/);
-  assert.match(content, /few ancestors from the active composer/);
-  assert.match(content, /function labeledSendInScope\(scope\)/);
-  assert.match(content, /const form = box\?\.closest\?\.\('form'\) \|\| null/);
-  assert.match(content, /return labeledSendInScope\(form \|\| box\?\.parentElement \|\| null\)/);
-  assert.match(content, /waitForSend\(box\)/);
-  assert.doesNotMatch(content, /const send = await waitForSend\(\)/);
-  assert.match(content, /button\[data-testid\*="send" i\]/);
-  assert.match(content, /button\[aria-label\*="send" i\]/);
-  assert.match(content, /button\[title\*="send" i\]/);
-  assert.match(content, /function nearbyScopedControls\(box\)/);
-  assert.match(content, /unique.*generic submit buttons|multiple generic submit buttons/);
-  assert.doesNotMatch(content, /if \(generating\(\) && userMessages\(\)\.length > baselineUserCount\) return true/);
-  assert.match(content, /function composerContainsPrompt\(element, expected\)/);
-  assert.match(content, /element\.focus\(\);/);
-  assert.match(content, /const currentBox = composer\(\);/);
-  assert.match(content, /const currentButton = sendCandidatesForComposer\(currentBox\)\[0\] \|\| button/);
-  assert.match(content, /form\?\.requestSubmit/);
-  assert.match(content, /const buttonType = String\(button\?\.getAttribute\?\.\('type'\) \|\| 'submit'\)/);
-  assert.match(content, /if \(!button \|\| buttonType === 'submit'\) form\.requestSubmit\(button \|\| undefined\);/);
-  assert.match(content, /else form\.requestSubmit\(\)/);
-  assert.doesNotMatch(content, /form\.requestSubmit\(afterClick\)/);
-  assert.doesNotMatch(content, /form\.requestSubmit\(afterClick\)/);
-  assert.match(content, /function dispatchEnter\(element\)/);
-  assert.match(content, /function nativeMouseActivate\(element\)/);
+test('native prompt submission uses a single send strategy and never duplicates a fired send', () => {
+  assert.match(content, /const SUBMISSION_ACK_MS = 5000/);
+  assert.match(content, /const SUBMISSION_ATTEMPTS = 3/);
+  assert.match(content, /const snapshot = snapshotUserMessages\(\)/);
+  assert.match(content, /const \{ head, tail \} = promptFingerprints\(expected\)/);
+  assert.match(content, /state === 'match'/);
+  assert.match(content, /state === 'new_unmatched' && generating\(\)/);
+  assert.match(content, /const strategies = \[/);
   assert.match(content, /form\.requestSubmit\(button \|\| undefined\)/);
-  assert.match(content, /nativeMouseActivate\(currentButton\)/);
-  assert.match(content, /dispatchEnter\(retryBox\)/);
-  assert.doesNotMatch(content, /if \(!current \|\| !composerContainsPrompt\(current, expected\)\) \{\s*if \(generating\(\)\) return true;/);
-  assert.match(content, /new KeyboardEvent\('keypress', init\)/);
-  assert.match(content, /const retryBox = composer\(\);/);
-  assert.match(content, /if \(retryBox && composerContainsPrompt\(retryBox, expected\) && !generating\(\)\)/);
-  assert.match(content, /prompt submission could not be verified after bounded attempts/);
+  assert.match(content, /nativeMouseActivate\(button\)/);
+  assert.match(content, /dispatchEnter\(box\)/);
+  assert.match(content, /const fired = await strategies\[attempt - 1\]\(readyBox, button\)/);
+  assert.match(content, /Once a send strategy has fired, never/);
+  assert.match(content, /return \{ via: via \|\| 'sent_unverified'/);
+  assert.match(content, /composer holds unrelated text; refusing to overwrite/);
+  assert.doesNotMatch(content, /newestUserMatches/);
 });
 
 test('native completion persists response text before bounded acknowledgement retries', () => {
