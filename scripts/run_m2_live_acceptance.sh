@@ -198,8 +198,16 @@ def sig(v):
     return (int(m.group(1)),int(m.group(2))) if m else None
 before=sig(p.get("pre_restart_signature"))
 after=sig(data.get("conversation_signature") if isinstance(data,dict) else None)
-if before and after and (after[0]-before[0] != 1 or after[1]-before[1] != 1):
+if not before or not after:
+    raise SystemExit("M2 requires both pre- and post-restart conversation signatures")
+if after[0]-before[0] != 1 or after[1]-before[1] != 1:
     raise SystemExit("conversation signature delta was not exactly +1/+1")
+before_url=str(p.get("pre_restart_chat_url") or "")
+after_url=str(data.get("chat_url") or "")
+if not before_url or not after_url:
+    raise SystemExit("M2 requires both pre- and post-restart exact chat URLs")
+if before_url != after_url:
+    raise SystemExit("conversation identity changed during M2 recovery")
 p.update({
     "status":"PASS",
     "latest_operation":op,
