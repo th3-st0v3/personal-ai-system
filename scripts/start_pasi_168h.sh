@@ -32,7 +32,8 @@ if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
     exit 2
 fi
 
-printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'\nprintf 'Local validation mode: %s\n' "$PASI_LOCAL_GATE_MODE"
+printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
+printf 'Local validation mode: %s\n' "$PASI_LOCAL_GATE_MODE"
 "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
 printf '\n=== STARTING 168-HOUR RUN ===\n'
 
