@@ -959,7 +959,17 @@ def fast_local_gate(worktree: Path) -> str:
     return "FAST LOCAL GATE PASSED: " + ", ".join(checks) + f"; changed={len(changed)} files"
 
 
-def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
+def verify_and_commit(
+    worktree: Path,
+    branch: str,
+    task: str,
+    patch: str,
+    allow_delete: bool,
+    *,
+    push: bool,
+    task_number: int | None = None,
+    attempt: int | None = None,
+) -> tuple[str, str]:
     validate_patch_paths(patch, allow_delete, worktree)
     gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower() or "full"
     verify_started_at = now_utc().isoformat()
@@ -974,8 +984,8 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         "gate",
         tier=0,
         task_id=task_key(task),
-        task_number=None,
-        attempt=None,
+        task_number=task_number,
+        attempt=attempt,
         gate="git_apply_check",
     ) as timer:
         code, output = command(
@@ -1002,8 +1012,8 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         "gate",
         tier=1,
         task_id=task_key(task),
-        task_number=None,
-        attempt=None,
+        task_number=task_number,
+        attempt=attempt,
         gate=gate_name,
     ) as timer:
         try:
@@ -1210,6 +1220,15 @@ def run(state: OvernightState, *, push: bool) -> None:
                         failure = response[-12_000:] or "provider usage limit persisted across bounded pauses"
                         log_event("provider_pause_budget_exhausted", task_number=state.task_number, count=state.provider_limit_pauses)
                         break
+                log_event(
+                    "failure_classified",
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    stage="provider",
+                    classification="infra",
+                    condition=condition,
+                )
                 log_event("provider_pause", condition=condition, count=state.provider_limit_pauses)
                 if not sleep_until_retry(state, 30.0 if condition == "runtime_guard" else 300.0):
                     return
@@ -1273,7 +1292,16 @@ def run(state: OvernightState, *, push: bool) -> None:
                 failure = summary or response[-12_000:] or "provider returned no usable completion contract"
                 continue
             try:
-                commit, verification = verify_and_commit(Path(state.worktree), state.branch, state.current_task, patch, allow_delete, push=push)
+                commit, verification = verify_and_commit(
+                    Path(state.worktree),
+                    state.branch,
+                    state.current_task,
+                    patch,
+                    allow_delete,
+                    push=push,
+                    task_number=state.task_number,
+                    attempt=attempt,
+                )
             except Exception as exc:
                 failure = str(exc)
                 classification = classify_failure("verification", 1, failure)
