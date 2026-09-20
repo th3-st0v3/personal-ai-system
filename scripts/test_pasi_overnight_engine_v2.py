@@ -11,6 +11,23 @@ from scripts import pasi_overnight_engine_v2 as engine
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
+    def test_git_resolved_path_validator_rejects_protected_resolved_paths(self) -> None:
+        for record in (
+            ".githooks/pre-commit",
+            "hooks/pre-push",
+            ".github/workflows/test.yml",
+            "scripts/check_all.sh",
+        ):
+            summary = "0\t0\t" + record + "\x00"
+            with self.assertRaisesRegex(RuntimeError, "protected unattended path"):
+                engine.validate_git_resolved_paths(Path.cwd(), summary)
+
+    def test_git_resolved_path_validator_accepts_normal_paths(self) -> None:
+        engine.validate_git_resolved_paths(
+            Path.cwd(),
+            "1\t0\tREADME.md\x00",
+        )
+
     def test_unattended_patch_rejects_hooks_and_validator_paths(self) -> None:
         safe_patch = """diff --git a/app.py b/app.py
 --- a/app.py
