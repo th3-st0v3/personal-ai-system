@@ -32,6 +32,27 @@ if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
     exit 2
 fi
 
+TOKEN_FILE="$HOME/.pasi/bridge-token"
+EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
+mkdir -p "$HOME/.pasi"
+bridge_already_healthy=0
+if curl -fsS --max-time 3 'http://127.0.0.1:8765/health' >/dev/null 2>&1; then
+    bridge_already_healthy=1
+fi
+if (( bridge_already_healthy == 0 )); then
+    "$PYTHON" - <<'PY' > "$TOKEN_FILE"
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+    chmod 600 "$TOKEN_FILE"
+elif [[ ! -s "$TOKEN_FILE" ]]; then
+    printf 'error: bridge is already healthy but its managed token file is missing; stop the bridge and restart via this launcher.\n' >&2
+    exit 3
+fi
+cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
+chmod 600 "$EXTENSION_TOKEN_FILE"
+export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
+
 printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
 printf 'Local validation mode: %s\n' "$PASI_LOCAL_GATE_MODE"
 "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
@@ -162,10 +183,13 @@ manifest_path = root / "automation" / "tampermonkey" / "controller-sync.json"
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected_version = manifest.get("version")
-    with urllib.request.urlopen(
+    token = (os.environ.get("PASI_BRIDGE_TOKEN", "") or (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8")).strip()
+    request = urllib.request.Request(
         "http://127.0.0.1:8765/browser/observation",
-        timeout=3.0,
-    ) as response:
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=3.0) as response:
         payload = json.loads(response.read(2_000_000).decode("utf-8"))
 except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
     raise SystemExit(1)
