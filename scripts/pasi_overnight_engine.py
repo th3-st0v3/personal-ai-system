@@ -14,7 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
@@ -411,7 +411,7 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
 
 def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     normalized_patch = normalize_patch(patch)
-    validate_patch_paths(normalized_patch, allow_delete, worktree)
+    validate_patch_paths(normalized_patch, allow_delete)
     code, output = command(
         ["git", "apply", "--check", "--whitespace=nowarn"],
         worktree,
