@@ -128,7 +128,7 @@ start_service() {
     printf '%s\n' "$service_pid" > "$pid_file"
 }
 
-# The direct PASI ChatGPT Controller 2.4.x talks to this localhost bridge.
+# The direct PASI ChatGPT Controller talks to this localhost bridge.
 # The Loader is not required when the direct controller is installed.
 start_service \
     'PASI bridge' \
@@ -159,16 +159,18 @@ browser_observation_ready() {
     "$PYTHON" - <<'PY'
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 root = Path.cwd()
-manifest_path = root / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
+controller_source_path = root / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 try:
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    expected_version = manifest.get("version")
+    controller_source = controller_source_path.read_text(encoding="utf-8")
+    match = re.search(r"""\bconst\s+CONTROLLER_VERSION\s*=\s*['"]([^'"]+)['"]""", controller_source)
+    expected_version = match.group(1).strip() if match else None
     token = (os.environ.get("PASI_BRIDGE_TOKEN", "") or (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8")).strip()
     request = urllib.request.Request(
         "http://127.0.0.1:8765/browser/health",
