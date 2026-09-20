@@ -115,33 +115,42 @@ pruned_dirs=(
     ./third_party
 )
 
-find_expr=(find .)
-for dir in "${pruned_dirs[@]}"; do
-    find_expr+=( -path "*/${dir#./}" -prune -o )
-done
-find_expr+=( -type f )
+find_files() {
+    local prune_expr=( "(" "-type" "d" "(" )
+    local dir
+    local first=1
+    for dir in "${pruned_dirs[@]}"; do
+        if (( first == 0 )); then
+            prune_expr+=( "-o" )
+        fi
+        prune_expr+=( "-name" "${dir#./}" )
+        first=0
+    done
+    prune_expr+=( ")" ")" "-prune" "-o" "-type" "f" )
+    find . "${prune_expr[@]}" "$@"
+}
 
 mapfile -d '' PYTHON_FILES < <(
-    "${find_expr[@]}" -name '*.py' -print0 | sort -z
+    find_files -name '*.py' -print0 | sort -z
 )
 mapfile -d '' PYTHON_TEST_FILES < <(
-    "${find_expr[@]}" \( -name 'test_*.py' -o -name '*_test.py' \) -print0 | sort -z
+    find_files \( -name 'test_*.py' -o -name '*_test.py' \) -print0 | sort -z
 )
 mapfile -d '' JAVASCRIPT_FILES < <(
-    "${find_expr[@]}" \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0 | sort -z
+    find_files \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0 | sort -z
 )
 mapfile -d '' JAVASCRIPT_TEST_FILES < <(
-    "${find_expr[@]}" \(
+    find_files \(
         -name 'test_*.js' -o -name '*_test.js' -o -name '*.test.js' -o -name '*.spec.js' \
         -o -name 'test_*.mjs' -o -name '*_test.mjs' -o -name '*.test.mjs' -o -name '*.spec.mjs' \
         -o -name 'test_*.cjs' -o -name '*_test.cjs' -o -name '*.test.cjs' -o -name '*.spec.cjs'
     \) -print0 | sort -z
 )
 mapfile -d '' SHELL_FILES < <(
-    "${find_expr[@]}" -name '*.sh' -print0 | sort -z
+    find_files -name '*.sh' -print0 | sort -z
 )
 mapfile -d '' JSON_FILES < <(
-    "${find_expr[@]}" -name '*.json' -print0 | sort -z
+    find_files -name '*.json' -print0 | sort -z
 )
 
 printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript files, %d JavaScript test suites, %d shell files, %d JSON files\n' \
