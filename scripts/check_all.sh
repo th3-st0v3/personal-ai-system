@@ -116,18 +116,17 @@ pruned_dirs=(
 )
 
 find_files() {
-    local prune_expr=( "(" "-type" "d" "(" )
-    local dir
-    local first=1
-    for dir in "${pruned_dirs[@]}"; do
-        if (( first == 0 )); then
-            prune_expr+=( "-o" )
-        fi
-        prune_expr+=( "-name" "${dir#./}" )
-        first=0
-    done
-    prune_expr+=( ")" ")" "-prune" "-o" "-type" "f" )
-    find . "${prune_expr[@]}" "$@"
+    find . -type d \(
+        -name '.git' -o -name '.venv' -o -name 'venv' -o -name 'env' \
+        -o -name '.tox' -o -name '.nox' -o -name 'nox' -o -name 'node_modules' \
+        -o -name '__pycache__' -o -name '.pytest_cache' -o -name '.mypy_cache' \
+        -o -name '.ruff_cache' -o -name '.pyright' -o -name '.cache' \
+        -o -name '.next' -o -name '.turbo' -o -name '.parcel-cache' \
+        -o -name '.runtime' -o -name 'runtime' -o -name 'dist' -o -name 'build' \
+        -o -name 'coverage' -o -name 'htmlcov' -o -name 'generated' \
+        -o -name 'artifacts' -o -name 'tmp' -o -name 'site-packages' \
+        -o -name 'vendor' -o -name 'third_party' \
+    \) -prune -o -type f "$@"
 }
 
 mapfile -d '' PYTHON_FILES < <(
