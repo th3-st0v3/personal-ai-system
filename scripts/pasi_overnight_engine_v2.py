@@ -43,6 +43,11 @@ PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/pasi_overnight_engine_v2.py",
     "automation/chromium/pasi-chatgpt/manifest.json",
 })
+PROTECTED_UNATTENDED_PREFIXES = (
+    ".github/",
+    ".githooks/",
+    "hooks/",
+)
 TIMEOUT_POLICY = load_timeout_policy()
 TASK_TIMEOUT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
 WATCHDOG_MAX_AGE_SECONDS = TIMEOUT_POLICY["stale_seconds"]
@@ -411,7 +416,7 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
                 re.compile(r"(^|/)(credentials|secrets?)(\.|/|$)", re.IGNORECASE),
             )):
                 raise ValueError(f"forbidden credential/secret path: {path_value}")
-            if normalized in PROTECTED_UNATTENDED_PATHS or normalized.startswith(".github/"):
+            if normalized in PROTECTED_UNATTENDED_PATHS or any(normalized.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES):
                 raise ValueError(f"protected unattended patch path requires human-approved branch: {path_value}")
         if new_path == "/dev/null" and not allow_delete:
             raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
