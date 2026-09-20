@@ -35,11 +35,22 @@ def test_tampermonkey_controller_uses_bounded_idle_polling_and_recovery_state() 
 
 def test_native_controller_uses_bounded_idle_polling() -> None:
     source = _read(NATIVE)
+    policy = __import__("json").loads(
+        (ROOT / "automation" / "chromium" / "pasi-chatgpt" / "timeout-policy.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
-    assert 50 <= _number(source, "POLL_MS") <= 500
-    assert _number(source, "DOM_POLL_MS") <= 50
-    assert _number(source, "CLICK_SETTLE_MS") <= 300
-    assert _number(source, "RESPONSE_SETTLE_MS") <= 250
+    assert policy["controller_poll_ms"] <= 500
+    assert policy["dom_poll_ms"] <= 20
+    assert policy["click_settle_ms"] <= 20
+    assert policy["response_settle_ms"] <= 20
+    assert policy["submission_ack_ms"] <= 1000
+    assert "const POLL_MS = TIMEOUT_POLICY.pollMs || 500;" in source
+    assert "const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;" in source
+    assert "const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;" in source
+    assert "const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;" in source
+    assert "const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;" in source
     assert "const ACTIVE_KEY = 'pasi:active-operation';" in source
     assert "localStorage.setItem(ACTIVE_KEY" in source
     assert "localStorage.removeItem(ACTIVE_KEY);" in source
@@ -100,9 +111,9 @@ def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_con
 def test_native_controller_has_immediate_terminal_poll_and_event_driven_waits() -> None:
     source = _read(NATIVE)
 
-    assert "const POLL_MS = 250;" in source
-    assert "const DOM_POLL_MS = 50;" in source
-    assert "function waitUntil(predicate, timeoutMs, pollMs = 50)" in source
+    assert "const POLL_MS = TIMEOUT_POLICY.pollMs || 500;" in source
+    assert "const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;" in source
+    assert "function waitUntil(predicate, timeoutMs, pollMs = DOM_POLL_MS)" in source
     assert "new MutationObserver" in source
     assert "queueMicrotask(() =>" in source
     assert "scheduleImmediatePoll()" in source
