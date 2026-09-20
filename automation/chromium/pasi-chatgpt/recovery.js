@@ -14,6 +14,7 @@
   const MISSING_OPERATION_GRACE_MS = 60 * 1000;
   const MISSING_OPERATION_REPORT_MS = 10 * 1000;
   const RECOVERY_VERSION = '1.0.6';
+  const MAX_RESPONSE_TEXT_CHARS = 120_000;
   let inspecting = false;
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -153,9 +154,9 @@
     const markdown = Array.from(node.querySelectorAll?.('.markdown, [class*="markdown"]') || []);
     for (let index = markdown.length - 1; index >= 0; index -= 1) {
       const text = compact(markdown[index].innerText || markdown[index].textContent || '');
-      if (text) return text.slice(0, 50000);
+      if (text) return text.slice(0, MAX_RESPONSE_TEXT_CHARS);
     }
-    return compact(node.innerText || node.textContent || '').slice(0, 50000);
+    return compact(node.innerText || node.textContent || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
   }
 
   function fingerprint() { return latestAssistant().slice(-4000); }
@@ -202,7 +203,7 @@
   }
 
   async function finishExisting(operationId, responseText) {
-    const bounded = String(responseText || '').slice(0, 50000);
+    const bounded = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
     const available = Boolean(bounded.trim());
     if (!available) return false;
 
