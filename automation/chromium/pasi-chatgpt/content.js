@@ -454,6 +454,16 @@
     return unmatched ? 'new_unmatched' : null;
   }
 
+  function countNewUserMessages(nodes, snapshot) {
+    let count = 0;
+    for (const node of nodes) {
+      const key = node.getAttribute?.('data-message-id');
+      const known = key ? snapshot.keys.has(key) : snapshot.nodes.has(node);
+      if (!known) count += 1;
+    }
+    return count;
+  }
+
   function captureUiDiagnostics() {
     const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
       .filter(visible).slice(0, 30)
@@ -1070,7 +1080,18 @@
 
     for (let attempt = 1; attempt <= strategies.length; attempt += 1) {
       let via = accepted();
-      if (via) return { via, attempt, verified: via === 'verified' };
+      if (via) return {
+        via,
+        attempt,
+        verified: via === 'verified',
+        timing: {
+          injected_at_ms: null,
+          ack_at_ms: Date.now(),
+          user_messages_added: countNewUserMessages(userMessages(), snapshot),
+          ack_verified: via === 'verified',
+          submission_via: via
+        }
+      };
 
       await ensurePromptSubmissionReady();
       const box = composer();
@@ -1108,11 +1129,24 @@
       // Once a send strategy has fired, never invoke another send mechanism:
       // the delayed acknowledgement may simply trail the real submission, and
       // a second click can duplicate work.
+      const injectedAtMs = Date.now();
       const fired = await strategies[attempt - 1](readyBox, button);
       if (!fired) continue;
 
       via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
-      return { via: via || 'sent_unverified', attempt, verified: via === 'verified' };
+      const finalVia = via || 'sent_unverified';
+      return {
+        via: finalVia,
+        attempt,
+        verified: via === 'verified',
+        timing: {
+          injected_at_ms: injectedAtMs,
+          ack_at_ms: Date.now(),
+          user_messages_added: countNewUserMessages(userMessages(), snapshot),
+          ack_verified: via === 'verified',
+          submission_via: finalVia
+        }
+      };
     }
 
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
@@ -1223,7 +1257,7 @@
     };
   }
 
-  async function finishOperation(operationId, responseText = '', requireResponseText = false) {
+  async function finishOperation(operationId, responseText = '', requireResponseText = false, timing = null) {
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
       throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
     }
@@ -1233,6 +1267,7 @@
       response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
+    if (timing && typeof timing === 'object') body.timing = timing;
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
     // Response evidence is submitted asynchronously so bridge observation
     // latency cannot sit between one completed generation and the next prompt.
@@ -1242,6 +1277,7 @@
       response_text: body.response_text,
       response_text_available: body.response_text_available,
       ...(typeof responseText === 'string' ? completionProgress(responseText) : {}),
+      ...(body.timing ? { timing: body.timing } : {}),
       conversation_context_exhausted: contextExhausted(),
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
@@ -1320,12 +1356,14 @@
           } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           const submission = await submitPrompt(operation.prompt);
+          const browserTiming = { ...(submission.timing || {}) };
           void reportObservation('prompt_injected', {
             operation_id: operation.operation_id,
             captured_at: new Date().toISOString(),
             submission_via: submission.via,
             submission_attempt: submission.attempt,
-            submission_verified: submission.verified
+            submission_verified: submission.verified,
+            timing: browserTiming
           });
           if (!submission.verified) {
             void reportObservation('chatgpt_submit_unverified', {
@@ -1334,11 +1372,18 @@
               attempt: submission.attempt
             });
           }
-          if (!(await waitUntil(() => generating() || fingerprint() !== baseline, GENERATION_START_WAIT_MS, DOM_POLL_MS))) {
+          let generationStartMs = null;
+          if (!(await waitUntil(() => {
+            const started = generating() || fingerprint() !== baseline;
+            if (started && generationStartMs === null) generationStartMs = Date.now();
+            return started;
+          }, GENERATION_START_WAIT_MS, DOM_POLL_MS))) {
             throw new Error('PASI_NATIVE: submission accepted but generation did not start');
           }
+          browserTiming.generation_start_ms = generationStartMs;
           const response = await waitForResponse(baseline);
-          await finishOperation(operation.operation_id, response, true);
+          browserTiming.completed_at_ms = Date.now();
+          await finishOperation(operation.operation_id, response, true, browserTiming);
           finalized = true;
           return;
         }
