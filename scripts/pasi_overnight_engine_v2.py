@@ -1084,7 +1084,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 continue
 
             if code != 0:
-                failure = response[-12_000:] or "ChatGPT fallback returned a non-zero exit status"
+                failure = sanitize_failure_evidence(code, response)
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
@@ -1132,8 +1132,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 state.current_task,
                 "completed",
                 commit=commit,
-                evidence=(summary + "
-" + verification).strip(),
+                evidence=(summary + "\n" + verification).strip(),
                 phase=state.phase,
                 automation_continue=values.get("automation_continue", "").lower() == "true",
             )
