@@ -56,7 +56,17 @@ RESPONSE_MARKER = "=== CHATGPT RESPONSE ==="
 
 
 def request_json(path: str, timeout: float = 3.0) -> dict[str, Any] | None:
-    request = Request(f"{BRIDGE_URL}{path}", method="GET")
+    token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not token:
+        try:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+    request = Request(
+        f"{BRIDGE_URL}{path}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
     try:
         with urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read(2_000_000).decode("utf-8"))
