@@ -154,6 +154,11 @@ PASI_RESULT_PATCH_END"""
         self.assertIn('if code != 0:', source)
         self.assertIn('saved = load_state() if args.resume else None', source)
 
+    def test_promotion_command_uses_immutable_launcher_checkout(self) -> None:
+        source = Path(engine.__file__).read_text(encoding="utf-8")
+        self.assertIn('promotion_path = REPO_ROOT / "scripts" / "pasi_promote.py"', source)
+        self.assertIn('            REPO_ROOT,\n            90.0,', source)
+
     def test_invoke_chat_executes_guard_and_fallback_from_launcher_checkout(self) -> None:
         state = engine.OvernightState(
             schema_version=2,
