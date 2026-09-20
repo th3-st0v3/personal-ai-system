@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from scripts.pasi_timeout_policy import load_timeout_policy
-from scripts.pasi_response_contract import CONTRACT as RESPONSE_CONTRACT, PATCH_BEGIN, PATCH_END, REQUIRED_MARKERS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
@@ -40,6 +39,7 @@ MAX_OUTPUT_CHARS = 20_000
 MAX_ATTEMPTS = 3
 PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_all.sh",
+    "scripts/check_offline.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
     "automation/chromium/pasi-chatgpt/manifest.json",
@@ -60,6 +60,21 @@ ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
 
+PATCH_BEGIN = "PASI_RESULT_PATCH_BEGIN"
+PATCH_END = "PASI_RESULT_PATCH_END"
+MARKERS = {
+    "status": re.compile(r"^PASI_RESULT_STATUS:\s*(.+)$", re.MULTILINE),
+    "summary": re.compile(r"^PASI_RESULT_SUMMARY:\s*(.+)$", re.MULTILINE),
+    "next_task": re.compile(r"^PASI_RESULT_NEXT_TASK:\s*(.+)$", re.MULTILINE),
+    "requirements": re.compile(r"^PASI_RESULT_REQUIREMENTS:\s*(.+)$", re.MULTILINE),
+    "limitations": re.compile(r"^PASI_RESULT_LIMITATIONS:\s*(.+)$", re.MULTILINE),
+    "research": re.compile(r"^PASI_RESULT_RESEARCH:\s*(.+)$", re.MULTILINE),
+    "ux": re.compile(r"^PASI_RESULT_UX:\s*(.+)$", re.MULTILINE),
+    "backend": re.compile(r"^PASI_RESULT_BACKEND:\s*(.+)$", re.MULTILINE),
+    "evidence": re.compile(r"^PASI_RESULT_EVIDENCE:\s*(.+)$", re.MULTILINE),
+    "repository_progress": re.compile(r"^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$", re.MULTILINE),
+    "allow_delete": re.compile(r"^PASI_RESULT_ALLOW_DELETE:\s*(true|false)$", re.MULTILINE | re.IGNORECASE),
+}
 AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
@@ -455,7 +470,7 @@ def repository_worktree_is_clean(worktree: Path) -> bool:
 
 
 def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
-    """Run canonical validation from an isolated filesystem/network view."""
+    """Run offline validation from an isolated filesystem/network view."""
     if not shutil.which("bwrap"):
         raise RuntimeError(
             "bubblewrap is required for network/filesystem-isolated validation; "
@@ -872,23 +887,7 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
         raise ValueError("model response must be text")
     values: dict[str, str] = {}
     missing_or_duplicate: list[str] = []
-    marker_patterns = {
-        "status": re.compile(r"^PASI_RESULT_STATUS:\s*(.+)$", re.MULTILINE),
-        "summary": re.compile(r"^PASI_RESULT_SUMMARY:\s*(.+)$", re.MULTILINE),
-        "next_task": re.compile(r"^PASI_RESULT_NEXT_TASK:\s*(.+)$", re.MULTILINE),
-        "requirements": re.compile(r"^PASI_RESULT_REQUIREMENTS:\s*(.+)$", re.MULTILINE),
-        "limitations": re.compile(r"^PASI_RESULT_LIMITATIONS:\s*(.+)$", re.MULTILINE),
-        "research": re.compile(r"^PASI_RESULT_RESEARCH:\s*(.+)$", re.MULTILINE),
-        "ux": re.compile(r"^PASI_RESULT_UX:\s*(.+)$", re.MULTILINE),
-        "backend": re.compile(r"^PASI_RESULT_BACKEND:\s*(.+)$", re.MULTILINE),
-        "evidence": re.compile(r"^PASI_RESULT_EVIDENCE:\s*(.+)$", re.MULTILINE),
-        "repository_progress": re.compile(r"^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$", re.MULTILINE),
-        "allow_delete": re.compile(r"^PASI_RESULT_ALLOW_DELETE:\s*(true|false)$", re.MULTILINE | re.IGNORECASE),
-    }
-    for key, pattern in marker_patterns.items():
-        marker_name = pattern.pattern.lstrip("^").split(":", 1)[0]
-        if marker_name not in REQUIRED_MARKERS:
-            raise RuntimeError(f"response marker parser configuration drifted: {key}")
+    for key, pattern in MARKERS.items():
         matches = pattern.findall(response)
         if len(matches) != 1:
             missing_or_duplicate.append(key)
@@ -910,6 +909,11 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
     values["automation_continue"] = "true" if AUTOMATION_CONTINUE_RE.search(response) else "false"
     raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0]
     patch = normalize_patch(raw_patch)
+    values["automation_continue"] = "true" if re.search(
+        r"^PASI_AUTOMATION_CONTINUE:\s*true$",
+        response,
+        re.MULTILINE | re.IGNORECASE,
+    ) else "false"
     return status, summary, next_task, patch, allow_delete, values
 
 
@@ -974,9 +978,22 @@ Keep progressing without getting trapped by a dead ChatGPT tab, transient provid
 COMPLETION CONTRACT:
 Do not mark complete until the stated requirement is implemented and reproducible evidence supports it. Never claim files changed or tests passed without evidence.
 
-OUTPUT — return the following shared completion contract exactly once:
-${RESPONSE_CONTRACT}
+OUTPUT — return each marker exactly once:
+PASI_RESULT_STATUS: complete|needs_revision|blocked
+PASI_RESULT_SUMMARY: one concise sentence
+PASI_RESULT_NEXT_TASK: one concrete high-value next task
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: handled|none|not_applicable
+PASI_RESULT_RESEARCH: performed|not_applicable
+PASI_RESULT_UX: verified|not_applicable
+PASI_RESULT_BACKEND: verified|not_applicable
+PASI_RESULT_EVIDENCE: concise tests/verification evidence
+PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped
+PASI_RESULT_ALLOW_DELETE: true|false
 PASI_AUTOMATION_CONTINUE: true   # optional; include only when another automation capability is materially necessary
+PASI_RESULT_PATCH_BEGIN
+<one unified git diff>
+PASI_RESULT_PATCH_END
 
 The patch must apply with git apply, modify only repository files, and contain no symlink or submodule additions. Do not use shell commands as the change mechanism.
 {previous}"""
@@ -1174,20 +1191,7 @@ def run(state: OvernightState, *, push: bool) -> None:
             if code != 0:
                 failure = sanitize_failure_evidence(code, response)
                 continue
-            try:
-                status, summary, next_task, patch, allow_delete, values = parse_response(response)
-            except ValueError as exc:
-                failure = sanitize_failure_evidence(
-                    1,
-                    f"failure_class=contract_error; parser={str(exc)}",
-                )
-                log_event(
-                    "response_contract_failed",
-                    task_number=state.task_number,
-                    attempt=attempt,
-                    error=failure[-6000:],
-                )
-                continue
+            status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
             if contract_ok and no_change_completion_is_satisfied(
                 Path(state.worktree), status, next_task, patch, values
