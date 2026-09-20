@@ -9,7 +9,7 @@ from scripts import pasi_overnight_hardening as hardening
 
 
 def test_obstacle_ledger_keeps_recent_pending_actions_after_compaction(tmp_path: Path) -> None:
-    ledger = ObstacleLedger(tmp_path)
+    ledger = ObstacleLedger(tmp_path, tmp_path / ".operator-state")
     ledger.log_path.parent.mkdir(parents=True, exist_ok=True)
     with ledger.log_path.open("w", encoding="utf-8") as handle:
         for index in range(12_000):
@@ -56,7 +56,7 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     monkeypatch.setattr(supervisor, "healthy", lambda _url: False)
     monkeypatch.setattr(supervisor, "log_event", lambda *_args, **_kwargs: None)
 
-    ledger = ObstacleLedger(tmp_path)
+    ledger = ObstacleLedger(tmp_path, tmp_path / ".operator-state")
     children = hardening.nonblocking_ensure_services(ledger=ledger)
 
     assert len(children) == 1
