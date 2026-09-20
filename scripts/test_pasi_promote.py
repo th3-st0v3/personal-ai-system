@@ -46,17 +46,16 @@ class TestPasiPromote(unittest.TestCase):
         self.assertFalse(result.auto_merge_requested)
         self.assertIn("not authenticated", result.message)
 
-    def test_standard_auto_merge_requires_green_checks(self) -> None:
+    def test_standard_auto_merge_is_requested_before_checks_finish(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
                 with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
                     with patch.object(promote, "_branch_pr", return_value=(41, "https://github.com/th3-st0v3/personal-ai-system/pull/41", "OPEN")):
-                        with patch.object(promote, "_checks_green", return_value=(False, "test: fail")):
-                            with patch.object(promote, "_enable_auto_merge") as enable:
-                                result = promote.promote("abc123", "pasi/test", "task")
-        enable.assert_not_called()
-        self.assertFalse(result.auto_merge_requested)
-        self.assertIn("withheld until all GitHub checks pass", result.message)
+                        with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")) as enable:
+                            result = promote.promote("abc123", "pasi/test", "task")
+        enable.assert_called_once_with(41)
+        self.assertTrue(result.auto_merge_requested)
+        self.assertIn("required checks", result.message)
 
     def test_standard_auto_merge_proceeds_after_green_checks(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
@@ -69,16 +68,15 @@ class TestPasiPromote(unittest.TestCase):
         enable.assert_called_once_with(42)
         self.assertTrue(result.auto_merge_requested)
 
-    def test_standard_auto_merge_refuses_missing_or_failed_checks(self) -> None:
+    def test_standard_auto_merge_does_not_require_reported_checks(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
                 with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
                     with patch.object(promote, "_branch_pr", return_value=(43, "https://github.com/th3-st0v3/personal-ai-system/pull/43", "OPEN")):
-                        with patch.object(promote, "_checks_green", return_value=(False, "no GitHub checks are currently reported for this PR")):
-                            with patch.object(promote, "_enable_auto_merge") as enable:
-                                result = promote.promote("abc123", "pasi/test", "task")
-        enable.assert_not_called()
-        self.assertFalse(result.auto_merge_requested)
+                        with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")) as enable:
+                            result = promote.promote("abc123", "pasi/test", "task")
+        enable.assert_called_once_with(43)
+        self.assertTrue(result.auto_merge_requested)
 
     def test_open_task_pr_is_fast_forwarded_and_reused(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
@@ -96,8 +94,7 @@ class TestPasiPromote(unittest.TestCase):
                                 return_value=(True, "fast-forwarded"),
                             ) as fast_forward:
                                 with patch.object(promote, "_create_pr") as create:
-                                    with patch.object(promote, "_checks_green", return_value=(True, "all reported checks passed")):
-                                        with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")):
+                                                    with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")):
                                             result = promote.promote("abc123", "pasi/new-branch", "task")
         fast_forward.assert_called_once_with("pasi/existing", "abc123", "base123")
         create.assert_not_called()
