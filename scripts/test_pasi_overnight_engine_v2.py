@@ -142,6 +142,12 @@ PASI_RESULT_PATCH_END"""
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=False), "stopped")
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=True), "deadline_reached")
 
+    def test_offline_remote_fetch_is_deferred_not_fatal(self) -> None:
+        source = Path(engine.__file__).read_text(encoding="utf-8")
+        self.assertIn('log_event("git_fetch_deferred"', source)
+        self.assertIn('if code != 0:', source)
+        self.assertIn('saved = load_state() if args.resume else None', source)
+
     def test_fresh_worktree_starts_from_launcher_head_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             worktree = Path(temp_dir) / "fresh"
