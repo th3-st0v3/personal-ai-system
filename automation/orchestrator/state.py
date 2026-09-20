@@ -21,6 +21,8 @@ class StateManager:
         self.retry_state_path = ai_dir / "retry-state.json"
         self.test_results_path = ai_dir / "test-results.json"
         self.browser_results_path = ai_dir / "browser-results.json"
+        self.browser_health_path = ai_dir / "browser-health.json"
+        self.browser_state_path = ai_dir / "browser-state.json"
         self.browser_response_path = ai_dir / "browser-response.json"
         self.context_package_path = ai_dir / "context-package.json"
         self.research_state_path = ai_dir / "research-state.json"
@@ -160,6 +162,24 @@ class StateManager:
         self.write_json(
             self.test_results_path,
             results,
+        )
+
+    def save_browser_health(self, health: dict[str, Any]) -> None:
+        self.write_json(self.browser_health_path, health)
+
+    def load_browser_health(self) -> dict[str, Any]:
+        return self.require_dict(
+            self.browser_health_path,
+            self.read_json(self.browser_health_path, {}),
+        )
+
+    def save_browser_state(self, state: dict[str, Any]) -> None:
+        self.write_json(self.browser_state_path, state)
+
+    def load_browser_state(self) -> dict[str, Any]:
+        return self.require_dict(
+            self.browser_state_path,
+            self.read_json(self.browser_state_path, {}),
         )
 
     def save_browser_results(
