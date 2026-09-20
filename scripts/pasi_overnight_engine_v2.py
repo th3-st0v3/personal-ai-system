@@ -29,7 +29,7 @@ EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
-CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json"
+CONTROLLER_SOURCE_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 BRIDGE_QUEUE_PATH = REPO_ROOT / ".ai" / "queue.json"
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
 DEFAULT_HOURS = legacy.DEFAULT_HOURS
@@ -582,11 +582,11 @@ def _observation_time(observation: dict[str, Any]) -> datetime | None:
 
 def expected_controller_version() -> str | None:
     try:
-        raw = json.loads(CONTROLLER_MANIFEST_PATH.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        text = CONTROLLER_SOURCE_PATH.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
         return None
-    version = raw.get("version") if isinstance(raw, dict) else None
-    return version.strip() if isinstance(version, str) and version.strip() else None
+    match = re.search(r"\bCONTROLLER_VERSION\s*=\s*['\"]([^'\"]+)['\"]", text)
+    return match.group(1).strip() if match and match.group(1).strip() else None
 
 
 def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
