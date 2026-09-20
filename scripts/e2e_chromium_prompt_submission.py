@@ -125,8 +125,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 if self.next_index < len(OPERATIONS):
                     operation = OPERATIONS[self.next_index]
                     if self.current_status[operation["operation_id"]] == "queued":
-                        self.current_status[operation["operation_id"]] = "claimed"
-                        self.next_index += 1
+                        type(self).current_status[operation["operation_id"]] = "claimed"
+                        type(self).next_index += 1
                         self._send_json(200, {"operation": self.operation(operation["operation_id"])})
                         return
                 self._send_json(200, {"operation": None})
