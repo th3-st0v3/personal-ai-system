@@ -2,17 +2,25 @@
   'use strict';
 
   const CONTROLLER_VERSION = '2.4.11';
-  const POLL_MS = 250;
-  const HEALTH_MS = 15000;
-  const DOM_POLL_MS = 50;
-  const CLICK_SETTLE_MS = 250;
-  const RESPONSE_SETTLE_MS = 200;
+  const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
+  const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
+  const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
+  const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;
+  const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;
+  const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
+  const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;
   const PREVIOUS_RESPONSE_WAIT_MS = 5 * 60 * 1000;
   const GENERATION_START_WAIT_MS = 30 * 1000;
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
-  const SUBMISSION_ACK_MS = 5000;
+  const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;
   const SUBMISSION_ATTEMPTS = 3;
-  const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
+  const TIMEOUTS = {
+    menu: TIMEOUT_POLICY.menuMs || 8000,
+    composer: TIMEOUT_POLICY.composerMs || 15000,
+    send: TIMEOUT_POLICY.sendMs || 10000,
+    submit: TIMEOUT_POLICY.submitMs || 5000,
+    generation: TIMEOUT_POLICY.generationMs || 60 * 60 * 1000
+  };
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
@@ -649,7 +657,7 @@
         await sleep(CLICK_SETTLE_MS);
         const verified = await waitFor(
           () => thinkingEnabled() === true ? true : null,
-          5000
+          THINKING_VERIFY_MS
         );
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after direct Think control');
         reasoningMode = 'thinking';
@@ -711,7 +719,7 @@
       if (state === false) {
         control.click();
         await sleep(CLICK_SETTLE_MS);
-        const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+        const verified = await waitFor(() => thinkingEnabled() === true ? true : null, THINKING_VERIFY_MS);
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after toggle');
         reasoningMode = 'thinking';
         return;
@@ -744,7 +752,7 @@
     if (menuState === false) {
       menuThinking.click();
       await sleep(CLICK_SETTLE_MS);
-      const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+      const verified = await waitFor(() => thinkingEnabled() === true ? true : null, THINKING_VERIFY_MS);
       if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after menu selection');
       reasoningMode = 'thinking';
       return;
