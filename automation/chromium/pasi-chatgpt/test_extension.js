@@ -54,6 +54,14 @@ test('shared detectors scope terminal state markers away from messages and sideb
   assert.equal(result.scope_count, 1);
 });
 
+test('timeout policy is packaged as an explicitly web-accessible extension resource', () => {
+  assert.deepEqual(manifest.web_accessible_resources, [{
+    resources: ['timeout-policy.json'],
+    matches: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
+  }]);
+  assert.match(fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8'), /chrome\.runtime\.getURL\('timeout-policy\.json'\)/);
+});
+
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
   assert.equal(manifest.version, '1.1.1');
   assert.equal(manifest.manifest_version, 3);
