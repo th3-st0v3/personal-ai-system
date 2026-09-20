@@ -10,6 +10,12 @@ from scripts.pasi_chat_guard import classify_observation
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_guard_passes_repository_as_data_not_execution_cwd(self) -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--repo", type=Path, default=REPO_ROOT)', source)
+        self.assertIn("requests = execute_computer_requests(response, repo)", source)
+        self.assertIn('"--repo"', source)
+
     def test_guard_timeout_cancels_active_bridge_operation(self) -> None:
         health = {"observation": {"data": {"kind": "chatgpt_health", "active_operation_id": "op-123"}}}
         captured = {}
