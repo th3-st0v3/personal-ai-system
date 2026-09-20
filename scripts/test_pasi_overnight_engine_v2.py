@@ -180,6 +180,70 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
         self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
 
+    def test_auth_recovery_waits_for_interactive_recovery_before_resuming_same_session(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="auth-recovery-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(minutes=5)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with mock.patch.object(engine, "ensure_services", return_value=[]):
+            with mock.patch.object(engine, "browser_auth_required", side_effect=[True, False]):
+                with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
+                    with mock.patch.object(engine, "log_event") as log_event:
+                        with mock.patch("time.sleep"):
+                            self.assertTrue(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=30.0))
+        events = [call.args[0] for call in log_event.call_args_list if call.args]
+        self.assertIn("auth_recovery_wait_started", events)
+        self.assertIn("standby_recovered", events)
+
+    def test_auth_condition_is_deferred_before_provider_fallback(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="auth-boundary-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(minutes=5)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with mock.patch.object(
+            engine,
+            "command",
+            return_value=(91, "CHAT_AUTH_REQUIRED: interactive authentication is required"),
+        ) as command:
+            code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual(code, 91)
+        self.assertIn("CHAT_AUTH_REQUIRED", output)
+        self.assertEqual(command.call_count, 1)
+
+    def test_auth_recovery_wait_budget_is_bounded(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="auth-budget-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(minutes=5)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with mock.patch.object(engine, "ensure_services", return_value=[]):
+            with mock.patch.object(engine, "browser_auth_required", return_value=True):
+                with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=False):
+                    with mock.patch.object(engine, "log_event"):
+                        with mock.patch("time.sleep"):
+                            with mock.patch.object(engine, "now_utc", side_effect=[now, now + timedelta(seconds=10), now + timedelta(seconds=10), now + timedelta(seconds=10)]):
+                                self.assertFalse(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=5.0))
+
     def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
