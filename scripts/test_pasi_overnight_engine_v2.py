@@ -154,6 +154,31 @@ PASI_RESULT_PATCH_END"""
         self.assertIn('if code != 0:', source)
         self.assertIn('saved = load_state() if args.resume else None', source)
 
+    def test_invoke_chat_executes_guard_and_fallback_from_launcher_checkout(self) -> None:
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="immutable-tooling",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            deadline_at=(datetime.now(timezone.utc) + timedelta(hours=8)).isoformat(),
+            worktree="/tmp/pasi-worktree",
+            branch="pasi/test",
+            phase="automation",
+            current_task="test",
+        )
+        calls = []
+        with mock.patch.object(
+            engine,
+            "command",
+            side_effect=lambda command, cwd, timeout, **kwargs: calls.append((command, cwd, timeout)) or (1, "runtime_guard"),
+        ):
+            with mock.patch.object(engine, "build_prompt", return_value="prompt"):
+                result = engine.invoke_chat("task", state, "")
+        self.assertEqual(result[0], 1)
+        self.assertEqual(calls[0][1], engine.REPO_ROOT)
+        self.assertIn(str(engine.REPO_ROOT / "scripts" / "pasi_chat_guard.py"), calls[0][0])
+        self.assertIn("--repo", calls[0][0])
+        self.assertIn("/tmp/pasi-worktree", calls[0][0])
+
     def test_fresh_worktree_starts_from_launcher_head_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             worktree = Path(temp_dir) / "fresh"
