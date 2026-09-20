@@ -59,6 +59,19 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         self.assertIn("Managed services:", status_script)
         self.assertIn("MANAGED (PID", status_script)
 
+    def test_168h_launcher_provisions_managed_bridge_token(self) -> None:
+        script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        for required in (
+            'TOKEN_FILE="$HOME/.pasi/bridge-token"',
+            'EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"',
+            'secrets.token_urlsafe(48)',
+            'export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"',
+            'Authorization": f"Bearer {token}',
+            'chmod 600 "$TOKEN_FILE"',
+            'chmod 600 "$EXTENSION_TOKEN_FILE"',
+        ):
+            self.assertIn(required, script)
+
     def test_168h_launcher_verifies_detached_runner_startup(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         self.assertIn("runner_start_deadline=$((SECONDS + 15))", script)
