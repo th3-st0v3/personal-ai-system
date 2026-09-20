@@ -885,7 +885,8 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
     values: dict[str, str] = {}
     missing_or_duplicate: list[str] = []
     for key, pattern in MARKERS.items():
-        if pattern.pattern.split(":", 1)[0] not in REQUIRED_MARKERS:
+        marker_name = pattern.pattern.lstrip("^").split(":", 1)[0]
+        if marker_name not in REQUIRED_MARKERS:
             raise RuntimeError(f"response marker parser configuration drifted: {key}")
         matches = pattern.findall(response)
         if len(matches) != 1:
