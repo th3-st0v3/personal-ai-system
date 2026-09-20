@@ -47,7 +47,7 @@ def select_task_source(
     operator_task_file: Path | None = None,
 ) -> str:
     """Select the task using the documented precedence:
-    --task > explicit --task-file > PASI_TASK > PASI_TASK_FILE > local default file.
+    --task > explicit --task-file > PASI_TASK > PASI_TASK_FILE > operator task file > local default file.
     """
     selected = cli_task.strip()
     if selected:
@@ -65,7 +65,7 @@ def select_task_source(
 
     # The operator file is intentionally checked before the legacy default task
     # file so a human can provide one focused objective without editing code.
-    if operator_task_file.is_file() and operator_task_file.read_text(encoding="utf-8").strip():
+    if operator_task_file is not None and operator_task_file.is_file() and operator_task_file.read_text(encoding="utf-8").strip():
         return load_task_file(operator_task_file)
 
     if default_task_file.is_file():
