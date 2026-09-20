@@ -14,6 +14,7 @@ PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 LOCK_FILE="$RUNTIME_DIR/start.lock"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
+SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
@@ -238,37 +239,47 @@ printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
 log_file="$RUNTIME_DIR/runner.log"
 # Close the launcher's flock descriptor in the detached runner as well so the
 # lock protects startup only and is not retained for the lifetime of the run.
-nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$PYTHON" "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py" \
+nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$REPO_ROOT/scripts/pasi_168h_supervisor.sh" \
     --hours 168 \
     --worktree "$WORKTREE" \
     --branch "$BRANCH" \
-    "$@" < /dev/null &
+    -- "$@" < /dev/null &
 pid=$!
 
-# Do not report a successful start until the detached runner has actually
-# acquired its runtime lock and written a live runner PID. This catches an
-# immediate startup failure from the Start path instead of leaving the user
-# with a misleading "started" message.
-runner_start_deadline=$((SECONDS + 15))
+# Do not report a successful start until the detached supervisor and its
+# engine child are actually live. This catches an immediate startup failure
+# instead of leaving the user with a misleading "started" message.
+supervisor_start_deadline=$((SECONDS + 15))
+supervisor_ready=0
 runner_ready=0
-while (( SECONDS < runner_start_deadline )); do
+while (( SECONDS < supervisor_start_deadline )); do
+    supervisor_pid=""
+    runner_pid=""
+    if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+        supervisor_pid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)"
+        if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
+            supervisor_ready=1
+        fi
+    fi
     if [[ -f "$RUNNER_PID_FILE" ]]; then
         runner_pid="$(cat "$RUNNER_PID_FILE" 2>/dev/null || true)"
         if [[ "$runner_pid" =~ ^[0-9]+$ ]] && kill -0 "$runner_pid" 2>/dev/null; then
             runner_ready=1
-            break
         fi
+    fi
+    if (( supervisor_ready == 1 && runner_ready == 1 )); then
+        break
     fi
     sleep 1
 done
 
-if (( runner_ready == 0 )); then
-    printf 'error: detached PASI runner did not become live within the startup verification window.\n' >&2
+if (( supervisor_ready == 0 || runner_ready == 0 )); then
+    printf 'error: detached PASI 168-hour supervisor/runner did not become live within the startup verification window.\n' >&2
     printf 'Runner log: %s\n' "$log_file" >&2
     exit 6
 fi
 
-printf 'Started PASI extended runner (launcher PID %s, runner PID %s, 168 hours).\n' "$pid" "$runner_pid"
+printf 'Started PASI 168-hour supervisor (supervisor PID %s, runner PID %s, 168 hours).\n' "$supervisor_pid" "$runner_pid"
 printf 'Worktree: %s\n' "$WORKTREE"
 printf 'Branch: %s\n' "$BRANCH"
 printf 'Log: %s\n' "$log_file"
