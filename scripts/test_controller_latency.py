@@ -38,16 +38,16 @@ def test_native_controller_uses_bounded_idle_polling() -> None:
 
     assert 1000 <= _number(source, "POLL_MS") <= 5000
     assert _number(source, "DOM_POLL_MS") <= 250
-    assert "const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 75;" in source
+    assert "const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;" in source
     assert "const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;" in source
-    assert "const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 750;" in source
-    assert "const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 2500;" in source
+    assert "const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;" in source
+    assert "const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;" in source
     policy = __import__("json").loads((ROOT / "automation" / "chromium" / "pasi-chatgpt" / "timeout-policy.json").read_text(encoding="utf-8"))
     assert policy["controller_poll_ms"] <= 500
-    assert policy["dom_poll_ms"] <= 100
-    assert policy["click_settle_ms"] <= 75
-    assert policy["response_settle_ms"] <= 750
-    assert policy["submission_ack_ms"] <= 2500
+    assert policy["dom_poll_ms"] <= 20
+    assert policy["click_settle_ms"] <= 20
+    assert policy["response_settle_ms"] <= 20
+    assert policy["submission_ack_ms"] <= 1000
     assert "const ACTIVE_KEY = 'pasi:active-operation';" in source
     assert "localStorage.setItem(ACTIVE_KEY" in source
     assert "localStorage.removeItem(ACTIVE_KEY);" in source
