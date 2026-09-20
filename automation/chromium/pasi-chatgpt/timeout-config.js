@@ -5,7 +5,7 @@
     heartbeatMs: 15 * 1000,
     staleMs: 45 * 1000,
     pollMs: 2000,
-    domPollMs: 250,
+    domPollMs: 20,
     menuMs: 8000,
     composerMs: 15000,
     sendMs: 10000,
@@ -13,10 +13,10 @@
     generationMs: 1500 * 1000,
     recoveryTriggerMs: 1500 * 1000,
     recoveryGraceMs: 600 * 1000,
-    clickSettleMs: 75,
+    clickSettleMs: 20,
     thinkingVerifyMs: 3000,
-    responseSettleMs: 750,
-    submissionAckMs: 2500
+    responseSettleMs: 20,
+    submissionAckMs: 1000
   });
 
   let policy = { ...DEFAULTS };
