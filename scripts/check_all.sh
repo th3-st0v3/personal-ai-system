@@ -116,7 +116,7 @@ pruned_dirs=(
 )
 
 find_files() {
-    find . -type d \(
+    find . -type d \( \
         -name '.git' -o -name '.venv' -o -name 'venv' -o -name 'env' \
         -o -name '.tox' -o -name '.nox' -o -name 'nox' -o -name 'node_modules' \
         -o -name '__pycache__' -o -name '.pytest_cache' -o -name '.mypy_cache' \
