@@ -103,7 +103,6 @@ if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
     rm -f "$PID_FILE"
     printf 'Removed stale PASI overnight PID file.\n'
     stop_managed_service "PASI bridge" "$BRIDGE_PID_FILE" "pasi_log_router.py"
-    stop_managed_service "PASI controller distribution" "$CONTROLLER_PID_FILE" "pasi_controller_server.py"
     exit 0
 fi
 
