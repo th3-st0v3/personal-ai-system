@@ -124,6 +124,7 @@ test('native prompt submission uses best-effort Thinking and event-driven acknow
   assert.doesNotMatch(content, /async function verifyThinkingState\(\)/);
   assert.doesNotMatch(content, /async function waitForSubmissionAck\(expected, baselineUserCount\)/);
   assert.doesNotMatch(content, /newestUserMatches\(expected, baselineUserCount\)/);
+  assert.match(content, /case 'select_reasoning': await ensureThinkingBestEffort\(\);/);
   assert.match(content, /await ensureThinkingBestEffort\(\)/);
   assert.match(content, /PASI_NATIVE: previous response still generating/);
   assert.match(content, /PASI_NATIVE: submission accepted but generation did not start/);
