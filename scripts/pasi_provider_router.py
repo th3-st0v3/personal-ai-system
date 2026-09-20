@@ -216,8 +216,13 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
         shutil.copytree(
             repo,
             sandbox,
+            symlinks=False,
             ignore=shutil.ignore_patterns(".git", ".runtime", ".venv", "__pycache__", "*.pyc"),
         )
+        for directory in sorted((path for path in sandbox.rglob("*") if path.is_dir()), key=lambda path: len(path.parts), reverse=True):
+            directory.chmod(0o555)
+        for file_path in (path for path in sandbox.rglob("*") if path.is_file()):
+            file_path.chmod(0o444)
         safe_prompt = (
             prompt
             + "\n\nProvider isolation policy:"
