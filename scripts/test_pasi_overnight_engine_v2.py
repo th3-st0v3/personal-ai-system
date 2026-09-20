@@ -44,6 +44,30 @@ PASI_RESULT_PATCH_END"""
         with self.assertRaisesRegex(ValueError, "each marker exactly once"):
             engine.parse_response(response)
 
+    def test_parse_response_honors_optional_automation_continue_signal(self) -> None:
+        response = """PASI_RESULT_STATUS: complete
+PASI_RESULT_SUMMARY: automation capability still required
+PASI_RESULT_NEXT_TASK: build recovery telemetry
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: none
+PASI_RESULT_RESEARCH: performed
+PASI_RESULT_UX: verified
+PASI_RESULT_BACKEND: verified
+PASI_RESULT_EVIDENCE: verified
+PASI_RESULT_REPOSITORY_PROGRESS: changed
+PASI_RESULT_ALLOW_DELETE: false
+PASI_AUTOMATION_CONTINUE: true
+PASI_RESULT_PATCH_BEGIN
+diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+PASI_RESULT_PATCH_END"""
+        _, _, _, _, _, values = engine.parse_response(response)
+        self.assertEqual(values["automation_continue"], "true")
+
     def test_automation_gate_requires_consistent_evidence(self) -> None:
         self.assertTrue(
             engine.automation_gate_is_satisfied(
@@ -163,6 +187,7 @@ PASI_RESULT_PATCH_END"""
         self.assertNotIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
         self.assertIn("RECENT TASKS:", prompt)
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
+        self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
         self.assertIn("empty patch", prompt)
         self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
 
