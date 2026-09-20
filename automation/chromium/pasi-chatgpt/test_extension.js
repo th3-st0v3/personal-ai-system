@@ -42,7 +42,7 @@ test('native background watchdog reacts to explicit connection failures even wit
   assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
   assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
   assert.match(background, /if \(!connectionFailure && !observationStale\) return;/);
-  assert.match(background, /if \(connectionFailure\)/);
+  assert.match(background, /if \(!connectionFailure && !observationStale\) return;/);
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
 
@@ -215,7 +215,7 @@ test('native completion captures responses through the event-driven waiter and b
   assert.match(content, /response_text: responseText\.slice\(0, MAX_RESPONSE_TEXT_CHARS\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
-  assert.match(content, /await reportObservation\('chatgpt_response'/);
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
   assert.match(content, /status === 'completed'/);
@@ -262,7 +262,7 @@ test('native recovery retries completed prompt evidence before clearing the acti
 });
 
 test('native recovery companion preserves response text without blocking completion acknowledgement', () => {
-  assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
+  assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
   assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
   assert.match(recovery, /location\.reload\(\)/);
   assert.match(recovery, /function usageLimited\(\)/);
