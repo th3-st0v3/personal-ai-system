@@ -1202,6 +1202,7 @@
 
     localStorage.setItem(RECOVERY_KEY, JSON.stringify({
       operation_id: operation.operation_id,
+      recovery_operation_id: operation.operation_id,
       operation_type: operation.operation_type,
       started_at: startedAt,
       started_ms: Date.parse(startedAt) || Date.now(),
@@ -1311,9 +1312,16 @@
     }
   }
 
-  async function failOperation(operationId, error) {
+  async function failOperation(operationId, error, recoveryContext = null) {
     try {
-      const response = await bridge('/chat/failed', { method: 'POST', body: { operation_id: operationId, error: String(error?.message || error) } });
+      const body = {
+        operation_id: operationId,
+        error: String(error?.message || error)
+      };
+      if (recoveryContext && typeof recoveryContext === 'object') {
+        body.recovery_context = recoveryContext;
+      }
+      const response = await bridge('/chat/failed', { method: 'POST', body });
       return response.ok;
     } catch (_) {
       return false;
@@ -1404,10 +1412,18 @@
 
       if (contextRecoveryEligible) {
         rememberContextRecovery(operation, error);
-        finalized = false;
+        finalized = await failOperation(
+          operation.operation_id,
+          error,
+          recoveryContext()
+        ) ? false : false;
       } else if (responseRecoveryEligible) {
         rememberResponseRecovery(operation, error);
-        finalized = false;
+        finalized = await failOperation(
+          operation.operation_id,
+          error,
+          recoveryContext()
+        ) ? false : false;
       } else {
         const failure = (
           errorMessage.startsWith('CHAT_EXHAUSTED:') &&
@@ -1506,7 +1522,7 @@
   function recoveryOperationId() {
     try {
       const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
-      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY];
+      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY] || state?.operation_id;
       return typeof value === 'string' && value.trim() ? value : null;
     } catch (_) {
       return null;
