@@ -22,6 +22,12 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "protected unattended path"):
                 engine.validate_git_resolved_paths(Path.cwd(), summary)
 
+    def test_git_resolved_path_validator_accepts_rename_records(self) -> None:
+        engine.validate_git_resolved_paths(
+            Path.cwd(),
+            "0\t0\told.txt\x00new.txt\x00",
+        )
+
     def test_git_resolved_path_validator_accepts_normal_paths(self) -> None:
         engine.validate_git_resolved_paths(
             Path.cwd(),
