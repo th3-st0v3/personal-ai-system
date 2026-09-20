@@ -38,6 +38,7 @@ AUTOMATION_TASKS_PER_GATE = 2
 MAX_PROVIDER_LIMIT_PAUSES = 3
 AUTH_RECOVERY_WAIT_SECONDS = 300.0
 AUTH_RECOVERY_POLL_SECONDS = 5.0
+FALLBACK_ROUTER_COOLDOWN_SECONDS = 900.0
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 
@@ -74,6 +75,7 @@ class OvernightState:
     automation_tasks_since_gate: int = 0
     automation_gates: int = 0
     provider_limit_pauses: int = 0
+    fallback_router_disabled_until: str = ""
     last_result: str = ""
     next_task: str = ""
     stop_reason: str = ""
@@ -97,6 +99,7 @@ class OvernightState:
             "automation_tasks_since_gate": self.automation_tasks_since_gate,
             "automation_gates": self.automation_gates,
             "provider_limit_pauses": self.provider_limit_pauses,
+            "fallback_router_disabled_until": self.fallback_router_disabled_until,
             "last_result": self.last_result,
             "next_task": self.next_task,
             "stop_reason": self.stop_reason,
@@ -153,6 +156,7 @@ def load_state() -> OvernightState | None:
             automation_tasks_since_gate=int(raw.get("automation_tasks_since_gate", 0)),
             automation_gates=int(raw.get("automation_gates", 0)),
             provider_limit_pauses=int(raw.get("provider_limit_pauses", 0)),
+            fallback_router_disabled_until=str(raw.get("fallback_router_disabled_until", "")),
             last_result=str(raw.get("last_result", "")),
             next_task=str(raw.get("next_task", "")),
             stop_reason=str(raw.get("stop_reason", "")),
@@ -439,6 +443,31 @@ def browser_auth_required() -> bool:
     return data.get("auth_required") is True or data.get("login_required") is True
 
 
+
+def fallback_router_available(state: OvernightState) -> bool:
+    value = state.fallback_router_disabled_until.strip()
+    if not value:
+        return True
+    try:
+        deadline = datetime.fromisoformat(value)
+    except ValueError:
+        return True
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return now_utc() >= deadline
+
+
+def disable_fallback_router(state: OvernightState, reason: str) -> None:
+    state.fallback_router_disabled_until = (now_utc() + timedelta(seconds=FALLBACK_ROUTER_COOLDOWN_SECONDS)).isoformat()
+    save_state(state)
+    log_event(
+        "fallback_router_cooldown_started",
+        until=state.fallback_router_disabled_until,
+        cooldown_seconds=FALLBACK_ROUTER_COOLDOWN_SECONDS,
+        reason=reason[-1000:],
+    )
+
+
 def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool:
     gate = evidence.get("automation_gate")
     opportunity = evidence.get("automation_opportunity")
@@ -476,14 +505,20 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
         return code, output
     if provider_condition(code, output) is None:
         return code, output
+    if not fallback_router_available(state):
+        return code, output + "\n\n[PASI FALLBACK ROUTER SKIPPED]\noptional fallback route is in a bounded cooldown after a recent failure"
     fallback = command(
         [legacy.sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
         Path(state.worktree),
         225.0,
     )
     if fallback[0] == 0 and fallback[1].strip():
+        state.fallback_router_disabled_until = ""
+        save_state(state)
         return 0, fallback[1]
-    return code, output + "\n\n[PASI FALLBACK ROUTER]\n" + fallback[1]
+    fallback_output = fallback[1]
+    disable_fallback_router(state, fallback_output or "fallback router returned no usable response")
+    return code, output + "\n\n[PASI FALLBACK ROUTER]\n" + fallback_output
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
