@@ -580,9 +580,10 @@ def _observation_time(observation: dict[str, Any]) -> datetime | None:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
-def expected_controller_version() -> str | None:
+def expected_controller_version(source_path: Path | None = None) -> str | None:
+    controller_path = source_path or CONTROLLER_SOURCE_PATH
     try:
-        text = CONTROLLER_SOURCE_PATH.read_text(encoding="utf-8")
+        text = controller_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
     match = re.search(r"\bCONTROLLER_VERSION\s*=\s*['\"]([^'\"]+)['\"]", text)
