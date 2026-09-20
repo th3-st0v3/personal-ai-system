@@ -75,6 +75,35 @@ def classify_observation(payload: dict[str, Any] | None) -> str | None:
     return None
 
 
+def cancel_active_operation(reason: str) -> bool:
+    """Best-effort cancellation owned by the outer guard timeout."""
+    payload = request_json("/browser/health")
+    observation = payload.get("observation") if isinstance(payload, dict) else None
+    data = observation.get("data") if isinstance(observation, dict) else None
+    if not isinstance(data, dict):
+        return False
+    operation_id = data.get("active_operation_id")
+    if not isinstance(operation_id, str) or not operation_id.strip():
+        return False
+    token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not token:
+        try:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            return False
+    request = Request(
+        f"{BRIDGE_URL}/chat/cancel",
+        data=json.dumps({"operation_id": operation_id, "reason": reason}).encode("utf-8"),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=3.0):
+            return True
+    except (OSError, URLError, UnicodeDecodeError):
+        return False
+
+
 def _reader(stream: Any, chunks: list[str]) -> None:
     try:
         for line in iter(stream.readline, ""):
@@ -106,6 +135,7 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
 
     while process.poll() is None:
         if time.monotonic() - started >= timeout:
+            cancel_active_operation("guard timeout before child termination")
             process.terminate()
             try:
                 process.wait(timeout=5)
