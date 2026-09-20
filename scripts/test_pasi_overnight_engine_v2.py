@@ -75,6 +75,12 @@ PASI_RESULT_PATCH_END
                 evidence = engine.automation_gate_evidence(state)
                 self.assertEqual(evidence["automation_gate"], "continue_automation")
 
+    def test_control_script_stays_inside_launcher_checkout(self) -> None:
+        script = engine.control_script("pasi_chat_guard.py")
+        self.assertEqual(script.parent.resolve(), engine.CONTROL_SCRIPTS_ROOT.resolve())
+        with self.assertRaises(ValueError):
+            engine.control_script("../pasi_chat_guard.py")
+
     def test_automation_gate_requires_consistent_evidence(self) -> None:
         self.assertTrue(
             engine.automation_gate_is_satisfied(
