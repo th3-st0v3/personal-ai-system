@@ -7,7 +7,7 @@ from unittest import mock
 from unittest import mock
 
 from scripts import pasi_chat_guard as guard
-from scripts.pasi_chat_guard import classify_observation, observation_text
+from scripts.pasi_chat_guard import classify_observation
 
 
 class TestPasiChatGuard(unittest.TestCase):
