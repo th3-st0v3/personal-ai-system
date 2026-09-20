@@ -13,6 +13,8 @@ class TestPasiPromote(unittest.TestCase):
         self.assertEqual(promote.classify_risk(["scripts/pasi_promote.py"]), "high")
         self.assertEqual(promote.classify_risk(["automation/orchestrator/bridge.py"]), "high")
         self.assertEqual(promote.classify_risk([".github/workflows/test.yml"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/start_pasi_168h.sh"]), "high")
+        self.assertEqual(promote.classify_risk(["docs/operations/pr-scope-policy.md"]), "high")
 
     def test_standard_changes_are_auto_merge_eligible(self) -> None:
         self.assertEqual(promote.classify_risk(["docs/readme.md", "scripts/test_example.py"]), "standard")
@@ -111,20 +113,17 @@ class TestPasiPromote(unittest.TestCase):
         self.assertFalse(result.auto_merge_requested)
         self.assertIn("no duplicate PR was created", result.message)
 
-    def test_existing_closed_pr_is_reopened_instead_of_creating_duplicate(self) -> None:
+    def test_existing_closed_pr_is_never_reopened_or_duplicated(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
                 with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
                     with patch.object(promote, "_branch_pr", return_value=(44, "https://github.com/th3-st0v3/personal-ai-system/pull/44", "CLOSED")):
-                        with patch.object(promote, "_reopen_pr", return_value=(True, "reopened")) as reopen:
-                            with patch.object(promote, "_create_pr") as create:
-                                with patch.object(promote, "_checks_green", return_value=(True, "all reported checks passed")):
-                                    with patch.object(promote, "_enable_auto_merge", return_value=(True, "auto")):
-                                        result = promote.promote("abc123", "pasi/test", "task")
-        reopen.assert_called_once_with(44)
+                        with patch.object(promote, "_create_pr") as create:
+                            result = promote.promote("abc123", "pasi/test", "task")
         create.assert_not_called()
         self.assertEqual(result.pr_number, 44)
-        self.assertTrue(result.auto_merge_requested)
+        self.assertFalse(result.auto_merge_requested)
+        self.assertIn("remains closed", result.message)
 
     def test_existing_pr_gets_auto_merge_for_standard_changes(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
