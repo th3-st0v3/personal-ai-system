@@ -198,7 +198,7 @@ def load_verified_recovery() -> tuple[dict[str, Any], str, str]:
 
 def _canonical_from_remote() -> tuple[dict[str, Any], str, str, str, str]:
     ref_sha = _git_ref_sha(REMOTE_MAIN_REF)
-    controller_path = "automation/tampermonkey/chatgpt-controller.user.js"
+    controller_path = "automation/legacy/tampermonkey/chatgpt-controller.user.js"
     recovery_path = "automation/chromium/pasi-chatgpt/recovery.js"
     controller_bytes = _git_show(REMOTE_MAIN_REF, controller_path)
     recovery_bytes = _git_show(REMOTE_MAIN_REF, recovery_path)
@@ -224,7 +224,7 @@ def _canonical_from_remote() -> tuple[dict[str, Any], str, str, str, str]:
         "schema_version": "1",
         "enabled": True,
         "version": version,
-        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/chatgpt-controller.user.js",
+        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/legacy/tampermonkey/chatgpt-controller.user.js",
         "git_blob_sha": controller_sha,
         "release_commit": ref_sha,
         "recovery_version": recovery_version,
