@@ -665,3 +665,12 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /visibleFingerprint !== baseline/);
   assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
 });
+
+test('native controller expires a stale recovery operation after a bounded grace period', () => {
+  assert.match(content, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
+  assert.match(content, /current\.status === 404/);
+  assert.match(content, /missing_operation_since_ms/);
+  assert.match(content, /operation_missing_expired/);
+  assert.match(content, /localStorage\.removeItem\(RECOVERY_KEY\)/);
+  assert.match(content, /localStorage\.removeItem\(ACTIVE_KEY\)/);
+});
