@@ -440,7 +440,11 @@ def main() -> None:
                     completion_to_second_submit = (
                         BridgeHandler.prompt_injected_events[1] - first_finished
                     )
-                if completion_to_second_submit is None or completion_to_second_submit > 0.5:
+                if (
+                    completion_to_second_submit is None
+                    or completion_to_second_submit < 0
+                    or completion_to_second_submit > 0.5
+                ):
                     raise AssertionError(
                         "Completion-to-next-prompt latency exceeded 500 ms: "
                         f"{completion_to_second_submit!r}s"
