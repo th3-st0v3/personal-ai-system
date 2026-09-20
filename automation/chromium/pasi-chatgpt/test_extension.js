@@ -263,7 +263,7 @@ test('native recovery retries completed prompt evidence before clearing the acti
 
 test('native recovery companion preserves response text without blocking completion acknowledgement', () => {
   assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
-  assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
+  assert.match(recovery, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
   assert.match(recovery, /location\.reload\(\)/);
   assert.match(recovery, /function usageLimited\(\)/);
   assert.match(recovery, /function replacementReason\(\)/);
@@ -316,7 +316,7 @@ test('native controller defers first context-exhaustion failure to bounded recov
   assert.match(content, /errorMessage\.startsWith\('CHAT_EXHAUSTED:'\)/);
   assert.match(content, /rememberContextRecovery\(operation, error\)/);
   assert.match(content, /context recovery exhausted/);
-  assert.match(content, /await reportObservation\('chatgpt_response'/);
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
 });
 
 test('background watchdog targets the tab matching the reported ChatGPT conversation before fallback recency', () => {
