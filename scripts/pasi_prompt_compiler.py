@@ -81,6 +81,9 @@ RUN CONTEXT:
 - Worktree: {_compact(worktree, 512)}
 - The worktree is isolated and controlled by PASI.
 - Canonical public repository: https://github.com/th3-st0v3/personal-ai-system
+- Thinking is required for every ChatGPT task.
+- Public GitHub repository is the default context source.
+- OpenRouter, Perplexity, OpenCode, and direct HTTPS research are permitted fallback evidence/model sources when ChatGPT is unavailable.
 
 TASK EXECUTION RULES:
 - Understand the relevant architecture before editing.
