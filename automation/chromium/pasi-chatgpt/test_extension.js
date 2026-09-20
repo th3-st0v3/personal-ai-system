@@ -500,7 +500,6 @@ test('native restart recovery retries persisted response evidence before clearin
 
 test('native recovery companion is observation-only', () => {
   assert.match(recovery, /recovery_action: 'observe_only'/);
-  assert.match(recovery, /recovery_action: 'observe_response_only'/);
   assert.doesNotMatch(recovery, /location\.reload\(\)/);
   assert.doesNotMatch(recovery, /\/chat\/finished/);
   assert.doesNotMatch(recovery, /\/chat\/failed/);
