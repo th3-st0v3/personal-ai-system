@@ -1111,85 +1111,45 @@
 
 
   async function waitForResponse(baseline) {
-    const started = Date.now();
     let sawGeneration = false;
-    while (Date.now() - started < TIMEOUTS.generation) {
-      if (generating()) sawGeneration = true;
-      else if (sawGeneration) {
-        await sleep(RESPONSE_SETTLE_MS);
-        const response = latestAssistant();
-        if (response && fingerprint() !== baseline) return response;
-      } else {
-        const current = fingerprint();
-        if (current !== baseline && current) return latestAssistant();
+    let generationEndedAt = 0;
+    let failureReason = null;
+
+    const response = await waitUntil(() => {
+      if (contextExhausted()) {
+        failureReason = 'CHAT_EXHAUSTED: conversation context is exhausted';
+        return null;
       }
-      if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-      if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-      await sleep(DOM_POLL_MS * 2);
-    }
+      if (usageLimited()) {
+        failureReason = 'CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited';
+        return null;
+      }
+
+      if (generating()) {
+        sawGeneration = true;
+        generationEndedAt = 0;
+        return null;
+      }
+
+      if (sawGeneration) {
+        if (!generationEndedAt) generationEndedAt = Date.now();
+        if (Date.now() - generationEndedAt < RESPONSE_SETTLE_MS) return null;
+        const responseText = latestAssistant();
+        return responseText && fingerprint() !== baseline ? responseText : null;
+      }
+
+      const current = fingerprint();
+      if (current !== baseline && current) {
+        return latestAssistant();
+      }
+      return null;
+    }, TIMEOUTS.generation, DOM_POLL_MS);
+
+    if (failureReason) throw new Error(failureReason);
+    if (response) return response;
     throw new Error('PASI_NATIVE: ChatGPT generation timed out');
   }
 
-  function rememberContextRecovery(operation, error) {
-    let stored = null;
-    try {
-      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
-    } catch (_) {}
-
-    const startedAt = typeof stored?.started_at === 'string'
-      ? stored.started_at
-      : new Date().toISOString();
-
-    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
-      operation_id: operation.operation_id,
-      operation_type: operation.operation_type,
-      started_at: startedAt,
-      started_ms: Date.parse(startedAt) || Date.now(),
-      baseline: fingerprint(),
-      chat_url: chatUrl(),
-      recovery_context: recoveryContext(),
-      reload_count: 0,
-      phase: 'context_exhausted',
-      error: String(error?.message || error)
-    }));
-  }
-
-  function rememberResponseRecovery(operation, error) {
-    let stored = null;
-    try {
-      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
-    } catch (_) {}
-
-    const startedAt = typeof stored?.started_at === 'string'
-      ? stored.started_at
-      : new Date().toISOString();
-
-    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
-      operation_id: operation.operation_id,
-      operation_type: operation.operation_type,
-      started_at: startedAt,
-      started_ms: Date.parse(startedAt) || Date.now(),
-      baseline: typeof stored?.baseline === 'string' ? stored.baseline : fingerprint(),
-      chat_url: chatUrl(),
-      recovery_context: recoveryContext(),
-      reload_count: 0,
-      phase: 'monitoring',
-      error: String(error?.message || error),
-      response_recovery: true
-    }));
-  }
-
-  function completionProgress(responseText) {
-    const text = typeof responseText === 'string' ? responseText : '';
-    const statusMatch = text.match(/^PASI_RESULT_STATUS:\s*(.+)$/m);
-    const progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$/m);
-    const nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\s*(.+)$/m);
-    return {
-      completion_status: statusMatch ? statusMatch[1].trim().toLowerCase() : null,
-      repository_progress: progressMatch ? progressMatch[1].trim().toLowerCase() : null,
-      next_task: nextTaskMatch ? nextTaskMatch[1].trim() : null
-    };
-  }
 
   async function finishOperation(operationId, responseText = '', requireResponseText = false) {
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
