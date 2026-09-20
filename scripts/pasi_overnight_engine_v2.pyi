@@ -6,6 +6,7 @@ legacy: Any
 
 datetime: type[_DateTime]
 REPO_ROOT: Path
+CONTROLLER_SOURCE_PATH: Path
 CONTROL_SCRIPTS_ROOT: Path
 RUNTIME_DIR: Path
 STATE_PATH: Path
