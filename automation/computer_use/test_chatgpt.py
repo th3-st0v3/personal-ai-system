@@ -477,6 +477,33 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertTrue(response.chat_exhausted)
         self.assertEqual(response.error, "CHAT_EXHAUSTED: usage limit")
 
+    def test_wait_timeout_cancels_bridge_operation(self) -> None:
+        class TimeoutTransport(FakeTransport):
+            def request(self, method, path, payload=None):
+                if method == "GET" and path.startswith("/operation"):
+                    return {
+                        "operation": {
+                            "operation_id": "op-1",
+                            "operation_type": "prompt",
+                            "status": "generating",
+                        }
+                    }
+                if method == "POST" and path == "/chat/cancel":
+                    self.calls.append((method, path, payload or {}))
+                    return {"operation": {"operation_id": "op-1", "status": "cancelled"}}
+                return super().request(method, path, payload)
+
+        transport = TimeoutTransport()
+        adapter = ChatGPTAdapter(
+            transport,
+            session_id="session-1",
+            poll_interval_seconds=0.001,
+            max_wait_seconds=0.001,
+        )
+        response = adapter.wait_for_completion("op-1")
+        self.assertEqual(response.completion, "timeout")
+        self.assertTrue(any(path == "/chat/cancel" for _method, path, _payload in transport.calls))
+
     def test_wait_timeout_is_explicit_timeout(self) -> None:
         transport = RepeatingTransport({"operation": {"operation_id": "op-1", "status": "generating"}})
         response = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, max_wait_seconds=0.001).wait_for_completion("op-1")
