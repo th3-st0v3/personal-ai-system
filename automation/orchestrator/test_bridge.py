@@ -12,6 +12,11 @@ from automation.orchestrator.operation_lifecycle import InvalidOperationTransiti
 from automation.orchestrator.state import StateManager
 
 
+@pytest.fixture(autouse=True)
+def bridge_auth_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PASI_BRIDGE_TOKEN", "test-bridge-token")
+
+
 def make_bridge(tmp_path: Path) -> BridgeState:
     return BridgeState(
         StateManager(tmp_path / ".ai")
@@ -67,7 +72,7 @@ def post_queue(
         "POST",
         "/queue",
         body=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
     )
     response = connection.getresponse()
     body = json.loads(response.read().decode("utf-8"))
@@ -77,6 +82,25 @@ def post_queue(
 
 def test_bridge_module_resolves_from_repository() -> None:
     assert Path(bridge_module.__file__).resolve() == (Path(__file__).parent / "bridge.py").resolve()
+
+
+def test_http_rejects_missing_bridge_token(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request("GET", "/status")
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        assert response.status == 401
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_bridge_suppresses_successful_http_access_log_noise() -> None:
