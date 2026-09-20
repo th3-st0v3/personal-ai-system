@@ -7,7 +7,7 @@ const source = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery.js', '
 test('recovery uses the shared long-response ceiling and starts recovery at the configured trigger', () => {
   assert.match(source, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
   assert.match(source, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
-  assert.match(source, /RECOVERY_GRACE_MS = 10 \* 60 \* 1000/);
+  assert.match(source, /RECOVERY_GRACE_MS = TIMEOUT_POLICY\.recoveryGraceMs \|\| 10 \* 60 \* 1000/);
   assert.match(source, /generation_timeout_ms: GENERATION_TIMEOUT_MS/);
 });
 
