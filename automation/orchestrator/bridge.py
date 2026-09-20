@@ -1347,6 +1347,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     chat_url,
                     response_text or "",
                 ) or existing_operation
+            if normalized_timing is not None:
+                existing_operation = self.bridge_state.persist_timing(
+                    operation_id,
+                    normalized_timing,
+                ) or existing_operation
             self._send_json({"operation": existing_operation})
             return
 
