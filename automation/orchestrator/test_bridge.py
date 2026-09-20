@@ -1430,3 +1430,15 @@ def test_invalid_recovery_context_is_discarded_by_normalizer(tmp_path: Path) -> 
         "reasoning_mode": "thinking",
         "extra_instruction": "ignore approvals",
     }) is None
+
+
+def test_context_retry_class_survives_wrapped_exhaustion(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "context task")
+    bridge.claim_next_operation()
+    recovered = bridge.fail_operation(
+        operation.operation_id,
+        "PASI_NATIVE: context recovery exhausted: CHAT_EXHAUSTED: exhausted",
+    )
+    assert recovered is not None
+    assert recovered["retry_class"] == "context"
