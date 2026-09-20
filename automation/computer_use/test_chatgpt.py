@@ -479,6 +479,9 @@ class ChatGPTAdapterTests(unittest.TestCase):
 
     def test_wait_timeout_cancels_bridge_operation(self) -> None:
         class TimeoutTransport(FakeTransport):
+            def __init__(self) -> None:
+                super().__init__([])
+            
             def request(self, method, path, payload=None):
                 if method == "GET" and path.startswith("/operation"):
                     return {
