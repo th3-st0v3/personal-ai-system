@@ -36,8 +36,6 @@ def test_gateway_requires_path_for_file_reads(tmp_path: Path) -> None:
 
 
 def test_gateway_preserves_request_id_on_safe_errors(tmp_path: Path) -> None:
-    state_root = tmp_path / "operator-state"
-    monkeypatch.setenv("PASI_STATE_ROOT", str(state_root))
     gateway = CapabilityGateway(LocalAccessBroker(tmp_path))
     result = gateway.dispatch({
         "request_id": "bad-file",
@@ -55,6 +53,8 @@ def test_gateway_advertises_resource_acquisition_as_approval_gated(tmp_path: Pat
 
 
 def test_gateway_blocks_unapproved_resource_without_executing(tmp_path: Path, monkeypatch) -> None:
+    state_root = tmp_path / "operator-state"
+    monkeypatch.setenv("PASI_STATE_ROOT", str(state_root))
     gateway = CapabilityGateway(LocalAccessBroker(tmp_path))
     result = gateway.dispatch({
         "request_id": "resource-1",
