@@ -950,23 +950,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/next-operation":
-            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
-            return
-
-
-            if operation is None:
-                self._send_json(
-                    {
-                        "operation": None
-                    }
-                )
-                return
-
-            self._send_json(
-                {
-                    "operation": operation
-                }
-            )
+            operation = self.bridge_state.claim_next_operation()
+            self._send_json({"operation": operation})
             return
 
         self._send_json(
