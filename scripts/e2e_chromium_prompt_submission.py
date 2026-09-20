@@ -74,7 +74,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self) -> dict:
+    def _read_json(self) -> dict[str, object]:
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length) if length else b"{}"
         return json.loads(raw.decode("utf-8"))
@@ -171,6 +171,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         if path == "/chat/finished":
             operation_id = payload.get("operation_id")
+            if not isinstance(operation_id, str) or not operation_id:
+                self._send_json(400, {"error": "operation_id must be a non-empty string"})
+                return
             expected = next((item for item in OPERATIONS if item["operation_id"] == operation_id), None)
             if expected is None:
                 self._send_json(409, {"error": "unexpected operation"})
@@ -227,7 +230,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain; charset=utf-8")
             return
 
-        html = """<!doctype html>
+        html = r"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
