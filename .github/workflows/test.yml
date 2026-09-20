@@ -69,7 +69,7 @@ jobs:
       - name: Run targeted computer-use regression suites
         run: |
           python -m pytest -q automation/orchestrator/test_bridge.py automation/computer_use/test_chatgpt.py scripts/test_pasi_chat.py
-          node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js
+          node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js automation/chromium/pasi-chatgpt/test_native_mutation.js
       - name: Run minimized Chromium response-recovery acceptance test
         run: python scripts/e2e_chromium_response_recovery.py
       - name: Run Tampermonkey controller contract tests
