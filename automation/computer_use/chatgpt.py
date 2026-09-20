@@ -14,6 +14,11 @@ from urllib.request import Request, urlopen
 from .adapters import AIAdapter
 from .contracts import AIResponse
 from .completion import completion_from_operation
+from scripts.pasi_timeout_policy import load_timeout_policy
+
+
+TIMEOUT_POLICY = load_timeout_policy()
+CHATGPT_WAIT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
 
 
 class ChatGPTAdapterError(RuntimeError):
@@ -92,7 +97,7 @@ class ChatGPTAdapter(AIAdapter):
     transport: BridgeTransport
     session_id: str
     poll_interval_seconds: float = 0.25
-    max_wait_seconds: float = 3600.0
+    max_wait_seconds: float = CHATGPT_WAIT_SECONDS
     current_operation_id: str | None = None
     last_chat_url: str | None = None
 
