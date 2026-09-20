@@ -280,6 +280,10 @@ test('operation lookup route is accepted by the MV3 service worker allowlist', (
   assert.ok(background.includes("const BRIDGE_OPERATION_RE = /^\\/operation\\?operation_id=[^&]{1,200}$/;"));
 });
 
+test('native controller can poll the queue through the MV3 worker', () => {
+  assert.match(background, /'GET \/next-operation'/);
+});
+
 test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.doesNotMatch(background, /targetAddressSpace/);
   assert.ok(background.includes("cache: 'no-store'"));
