@@ -635,6 +635,8 @@ def continuation_directive(state: OvernightState, _task: str | None = None) -> s
 - After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK; immediately continue to the next incomplete roadmap task.
 - IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
 - IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: changed and provide the required patch.
+- If verified evidence shows a materially necessary automation, computer-use, recovery, integration, or security improvement remains, add exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit that optional marker.
+- This optional marker is machine-read as task evidence and can keep the automation phase active at its next conditional gate.
 - do not invent work or cosmetic changes; report stopped only when the task is satisfied and no concrete repository change remains.
 - Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it.
 ROADMAP PHASE: {state.phase}
