@@ -319,6 +319,14 @@ test('native prompt execution prevents duplicate sends and requires stable final
   assert.match(content, /PASI_RESULT_STATUS/);
 });
 
+test('native response completion is configurable per operation', () => {
+  assert.match(content, /function completionMarkersSatisfied/);
+  assert.match(content, /completion_markers/);
+  assert.match(content, /operation\.completion_markers \|\| \[\]/);
+  assert.match(content, /Date\.now\(\) - stableSince >= RESPONSE_SETTLE_MS && completionMarkersSatisfied/);
+});
+
+
 test('native new-chat selection excludes navigation and requires an empty target', () => {
   assert.match(content, /function findNewChatControl\(\)/);
   assert.match(content, /button\[data-testid="new-chat-button"\]/);
