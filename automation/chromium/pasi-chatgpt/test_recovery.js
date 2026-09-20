@@ -170,7 +170,7 @@ test('response recovery persists observation before completion acknowledgement a
 });
 
 test('response recovery sends captured response text with completion acknowledgement', () => {
-  assert.match(source, /const bounded = String\(responseText \|\| ''\)\.slice\(0, 50000\)/);
+  assert.match(source, /const bounded = String\\(responseText \|\\| ''\\)\\.slice\\(0, MAX_RESPONSE_TEXT_CHARS\\)/);| ''\)\.slice\(0, 50000\)/);
   assert.match(source, /if \(!available\) return false/);
   assert.match(source, /response_text: bounded/);
   assert.match(source, /response_text_available: true/);
