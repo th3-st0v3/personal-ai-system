@@ -235,9 +235,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Bound a PASI ChatGPT run, safely broker local computer evidence, and continue through provider obstacles.")
     parser.add_argument("task", nargs="+", help="Task arguments forwarded to scripts/pasi_chat.py")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    parser.add_argument("--repo", type=Path, default=REPO_ROOT)
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto")
     args = parser.parse_args()
 
+    repo = args.repo.expanduser().resolve()
+    if not repo.is_dir():
+        parser.error("--repo must be an existing directory")
     task = " ".join(args.task).strip() + computer_protocol_prompt()
     for round_number in range(MAX_COMPUTER_ROUNDS + 1):
         forwarded = [
@@ -248,6 +252,8 @@ def main() -> int:
             args.github,
             "--timeout",
             str(args.timeout),
+            "--repo",
+            str(repo),
         ]
         code, classification, combined = run_child(forwarded, timeout=args.timeout + 15.0, bridge_poll_seconds=POLL_SECONDS)
         response = extract_response_text(combined)
@@ -265,7 +271,7 @@ def main() -> int:
             print("CHAT_GUARD_TIMEOUT: bounded ChatGPT task runtime elapsed without a terminal result.", file=sys.stderr)
             return GUARD_EXIT_CONTROLLER_OFFLINE
 
-        requests = execute_computer_requests(response, REPO_ROOT)
+        requests = execute_computer_requests(response, repo)
         if not requests or round_number >= MAX_COMPUTER_ROUNDS or code != 0:
             print(combined, end="")
             return code
