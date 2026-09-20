@@ -125,7 +125,7 @@
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   /* Event-driven waits: MutationObserver reacts immediately; the interval is only a backstop. */
-  function waitUntil(predicate, timeoutMs, pollMs = 50) {
+  function waitUntil(predicate, timeoutMs, pollMs = DOM_POLL_MS) {
     return new Promise((resolve) => {
       let done = false;
       let lastCheck = 0;
