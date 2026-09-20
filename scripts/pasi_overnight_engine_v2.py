@@ -1043,7 +1043,7 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
     return choose_unique(candidates, state)
 
 
-def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
+def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool, promote: bool = True) -> tuple[str, str]:
     output = apply_patch(worktree, patch, allow_delete)
     validation_output = run_validation_sandbox(worktree)
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
@@ -1051,7 +1051,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         raise RuntimeError("verification passed but no repository changes remain")
     output = output + ("\n" if output else "") + validation_output
     commit = commit_and_push(worktree, branch, task, push)
-    if push:
+    if push and promote:
         promotion = command(
             [
                 sys.executable,
@@ -1151,6 +1151,7 @@ def run(state: OvernightState, *, push: bool) -> None:
             if STOP or now_utc() >= datetime.fromisoformat(state.deadline_at):
                 return
             state.current_attempt = attempt
+            provider_source = "chatgpt_browser"
             save_state(state)
             log_event("task_attempt_started", phase=state.phase, task_number=state.task_number, attempt=attempt, task=state.current_task)
             code, response = invoke_chat(state.current_task, state, failure)
@@ -1173,8 +1174,25 @@ def run(state: OvernightState, *, push: bool) -> None:
                     225.0,
                 )
                 if fallback[0] == 0:
-                    response = fallback[1]
+                    raw_fallback = str(fallback[1] or "").strip()
+                    fallback_lines = raw_fallback.splitlines()
+                    provider_marker = fallback_lines[0].strip() if fallback_lines else ""
+                    if not provider_marker.startswith("PASI_FALLBACK_PROVIDER:"):
+                        failure = "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
+                        log_event("fallback_provider_rejected", task_number=state.task_number, reason="missing provenance marker")
+                        continue
+                    fallback_provider = provider_marker.split(":", 1)[1].strip()
+                    if not fallback_provider or len(fallback_provider) > 80:
+                        failure = "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
+                        log_event("fallback_provider_rejected", task_number=state.task_number, reason="invalid provenance marker")
+                        continue
+                    response = "\n".join(fallback_lines[1:]).lstrip()
+                    if not response.strip():
+                        failure = "failure_class=fallback_empty_response; provider router returned no response body"
+                        continue
+                    provider_source = f"fallback:{fallback_provider}"
                     code = 0
+                    log_event("fallback_provider_response", task_number=state.task_number, provider=fallback_provider, promotion="disabled")
             elif condition in {"provider_usage_limit", "runtime_guard"}:
                 if condition == "provider_usage_limit":
                     state.provider_limit_pauses += 1
@@ -1200,7 +1218,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 record_task_ledger(
                     state.current_task,
                     "completed",
-                    evidence=values.get("evidence", ""),
+                    evidence=(f"provider={provider_source}\n" + values.get("evidence", "")).strip(),
                     phase=state.phase,
                     automation_continue=values.get("automation_continue", "").lower() == "true",
                 )
@@ -1225,7 +1243,15 @@ def run(state: OvernightState, *, push: bool) -> None:
                 failure = f"failure_class=contract_error; summary={re.sub(r'\s+', ' ', summary).strip()[:800]}" if summary else "failure_class=contract_error; provider returned no usable completion contract"
                 continue
             try:
-                commit, verification = verify_and_commit(Path(state.worktree), state.branch, state.current_task, patch, allow_delete, push=push)
+                commit, verification = verify_and_commit(
+                    Path(state.worktree),
+                    state.branch,
+                    state.current_task,
+                    patch,
+                    allow_delete,
+                    push=push,
+                    promote=provider_source == "chatgpt_browser",
+                )
             except Exception as exc:
                 failure = sanitize_failure_evidence(1, str(exc))
                 log_event("verification_failed", task_number=state.task_number, attempt=attempt, error=failure[-6000:])
@@ -1237,7 +1263,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 state.current_task,
                 "completed",
                 commit=commit,
-                evidence=(summary + "\n" + verification).strip(),
+                evidence=(f"provider={provider_source}\n" + summary + "\n" + verification).strip(),
                 phase=state.phase,
                 automation_continue=values.get("automation_continue", "").lower() == "true",
             )
@@ -1250,7 +1276,15 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.next_task = ""
             state.current_attempt = 0
             save_state(state)
-            log_event("task_completed", phase=state.phase, task_number=state.task_number, commit=commit, summary=summary[-2000:])
+            log_event(
+                "task_completed",
+                phase=state.phase,
+                task_number=state.task_number,
+                commit=commit,
+                provider=provider_source,
+                promotion="enabled" if provider_source == "chatgpt_browser" else "disabled",
+                summary=summary[-2000:],
+            )
             failure = ""
             finished = True
             break
