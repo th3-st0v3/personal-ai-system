@@ -11,6 +11,19 @@ from scripts import pasi_overnight_engine_v2 as engine
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
+    def test_unattended_patch_rejects_hooks_and_validator_paths(self) -> None:
+        safe_patch = """diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1 +1 @@
+-old
++new
+"""
+        for path_value in (".githooks/pre-commit", "hooks/pre-push", ".github/workflows/test.yml", "scripts/check_all.sh"):
+            patch = safe_patch.replace("app.py", path_value)
+            with self.assertRaises(ValueError):
+                engine.validate_patch_paths(patch, allow_delete=False)
+
     def test_parse_response_requires_all_markers_exactly_once_and_preserves_patch_lines(self) -> None:
         response = """PASI_RESULT_STATUS: complete
 PASI_RESULT_SUMMARY: parser seam
@@ -252,6 +265,9 @@ PASI_RESULT_PATCH_END"""
                 )
                 candidate = "Implement a concrete seam diagnostic for queued ChatGPT operations."
                 self.assertEqual(engine.choose_next_task(state, candidate), engine.AUTOMATION_TASKS[2])
+
+    def test_commit_message_contains_task_identity_for_restart_reconciliation(self) -> None:
+        self.assertIn("commit_tag = f\"task-{task_key(task)[:12]}\"", (Path(engine.__file__).read_text(encoding="utf-8")))
 
     def test_task_ledger_records_completion_before_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
