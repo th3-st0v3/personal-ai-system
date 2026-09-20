@@ -255,7 +255,7 @@ def completed_task_keys() -> set[str]:
 
 def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[str]) -> str:
     value = re.sub(r"\s+", " ", candidate).strip()
-    if not value or len(value) > MAX_TASK_TEXT_CHARS:
+    if not value or len(value) > MAX_TASK_TEXT_CHARS or any(ord(char) < 32 for char in value):
         return ""
     lowered = value.casefold()
     recent = {item.casefold().strip() for item in recent_tasks}
@@ -263,9 +263,7 @@ def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[st
         return ""
     if task_key(value) in completed_task_keys():
         return ""
-    return value if value.casefold() in {
-        item.casefold() for item in (AUTOMATION_TASKS if current_task in AUTOMATION_TASKS else ENGINEERING_TASKS)
-    } else ""
+    return value
 
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
@@ -916,6 +914,9 @@ The patch must apply with git apply, modify only repository files, and contain n
 def choose_next_task(state: OvernightState, suggested: str) -> str:
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     completed = completed_task_keys()
+    validated_suggestion = valid_next_task(suggested, state.current_task, state.recent_tasks)
+    if validated_suggestion:
+        return validated_suggestion
     normalized_suggestion = re.sub(r"\s+", " ", suggested).strip()
     current_key = task_key(state.current_task)
     configured = {task_key(item): (index, item) for index, item in enumerate(candidates)}
@@ -1073,13 +1074,13 @@ def run(state: OvernightState, *, push: bool) -> None:
                 if condition == "provider_usage_limit":
                     state.provider_limit_pauses += 1
                     if state.provider_limit_pauses > MAX_PROVIDER_LIMIT_PAUSES:
-                        failure = response[-12_000:] or "provider usage limit persisted across bounded pauses"
+                        failure = sanitize_failure_evidence(code, response) or "failure_class=provider_usage_limit"
                         log_event("provider_pause_budget_exhausted", task_number=state.task_number, count=state.provider_limit_pauses)
                         break
                 log_event("provider_pause", condition=condition, count=state.provider_limit_pauses)
                 if not sleep_until_retry(state, 30.0 if condition == "runtime_guard" else 300.0):
                     return
-                failure = response[-12_000:]
+                failure = sanitize_failure_evidence(code, response)
                 continue
 
             if code != 0:
@@ -1091,6 +1092,13 @@ def run(state: OvernightState, *, push: bool) -> None:
                 Path(state.worktree), status, next_task, patch, values
             ):
                 state.completed_tasks += 1
+                record_task_ledger(
+                    state.current_task,
+                    "completed",
+                    evidence=values.get("evidence", ""),
+                    phase=state.phase,
+                    automation_continue=values.get("automation_continue", "").lower() == "true",
+                )
                 state.last_result = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
                 state.next_task = choose_next_task(state, next_task)
                 state.recent_tasks.append(state.current_task)
@@ -1109,17 +1117,26 @@ def run(state: OvernightState, *, push: bool) -> None:
                 finished = True
                 break
             if not contract_ok or not patch:
-                failure = summary or response[-12_000:] or "provider returned no usable completion contract"
+                failure = f"failure_class=contract_error; summary={re.sub(r'\s+', ' ', summary).strip()[:800]}" if summary else "failure_class=contract_error; provider returned no usable completion contract"
                 continue
             try:
                 commit, verification = verify_and_commit(Path(state.worktree), state.branch, state.current_task, patch, allow_delete, push=push)
             except Exception as exc:
-                failure = str(exc)
+                failure = sanitize_failure_evidence(1, str(exc))
                 log_event("verification_failed", task_number=state.task_number, attempt=attempt, error=failure[-6000:])
                 command(["git", "reset", "--hard", "HEAD"], Path(state.worktree), 60.0)
                 command(["git", "clean", "-fd"], Path(state.worktree), 60.0)
                 continue
             state.completed_tasks += 1
+            record_task_ledger(
+                state.current_task,
+                "completed",
+                commit=commit,
+                evidence=(summary + "
+" + verification).strip(),
+                phase=state.phase,
+                automation_continue=values.get("automation_continue", "").lower() == "true",
+            )
             if state.phase == "automation":
                 state.automation_tasks_since_gate += 1
             state.last_result = summary or verification[-3000:]
