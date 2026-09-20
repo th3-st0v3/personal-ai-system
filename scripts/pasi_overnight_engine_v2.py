@@ -29,6 +29,7 @@ PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
 CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
+CONTROLLER_SOURCE_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 DEFAULT_WORKTREE = Path.home() / ".pasi-worktrees" / "personal-ai-system-overnight"
 DEFAULT_HOURS = 10.0
 MIN_HOURS = 8.0
