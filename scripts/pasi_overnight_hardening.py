@@ -23,7 +23,7 @@ _DIFF_PATH_RE = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]+\n\+\+\+ /dev/null$", re.MULTILINE)
 _AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 _BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
-_CONTROLLER_HEALTH_URL = "http://127.0.0.1:8766/health"
+_CONTROLLER_HEALTH_URL = "http://127.0.0.1:8765/browser/health"
 _STANDBY_SECONDS = 30.0
 PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_all.sh",
@@ -128,11 +128,6 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
             "bridge",
             supervisor.healthy(_BRIDGE_HEALTH_URL),
             [sys.executable, "-m", "automation.orchestrator.bridge"],
-        ),
-        (
-            "controller_distribution",
-            supervisor.healthy(_CONTROLLER_HEALTH_URL),
-            [sys.executable, "scripts/pasi_controller_server.py"],
         ),
     )
     for service_name, already_healthy, command in services:
