@@ -257,6 +257,43 @@ Acceptance:
         )
         self.assertIn("Acceptance:\n- Run the canonical gate.", prompt)
 
+    def test_prompt_compiler_selects_automation_first_pass_mode(self) -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            engine.AUTOMATION_TASKS[0],
+            run_id="run-conditional-automation",
+            task_number=1,
+            attempt=1,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="automation",
+            roadmap_tasks=["Roadmap task A", "Roadmap task B", "Roadmap task C"],
+        )
+        self.assertIn("CONDITIONAL EXECUTION MODE:", prompt)
+        self.assertIn("AUTOMATION FIRST PASS:", prompt)
+        self.assertIn("Roadmap task A", prompt)
+        self.assertIn("Roadmap task B", prompt)
+        self.assertIn("Roadmap task C", prompt)
+
+    def test_prompt_compiler_selects_recovery_mode_and_focuses_roadmap(self) -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            "Roadmap task A",
+            run_id="run-conditional-recovery",
+            task_number=2,
+            attempt=2,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="automation",
+            roadmap_tasks=["Roadmap task A", "Roadmap task B", "Roadmap task C"],
+            previous_failure="targeted verification failed on the previous approach",
+        )
+        self.assertIn("RECOVERY RETRY MODE:", prompt)
+        self.assertIn("Verify PREVIOUS FAILURE EVIDENCE", prompt)
+        self.assertIn("Roadmap task A", prompt)
+        self.assertNotIn("Roadmap task B", prompt)
+        self.assertNotIn("Roadmap task C", prompt)
+
     def test_prompt_compiler_hash_is_stable_for_identical_prompt(self) -> None:
         prompt = "deterministic prompt\n"
         self.assertEqual(
