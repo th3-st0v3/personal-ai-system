@@ -56,6 +56,24 @@
     'reconnecting'
   ];
 
+  const GITHUB_MARKERS = [
+    'github connection failed',
+    'github connection error',
+    'failed to connect to github',
+    'could not connect to github',
+    'unable to connect to github',
+    'github connection is unavailable',
+    'github access is unavailable',
+    'github access failed',
+    'github authentication required',
+    'github authentication failed',
+    'reconnect github',
+    'connect your github account',
+    'github needs to be connected',
+    'github app connection failed'
+  ];
+
+
   function normalize(value) {
     return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
@@ -91,6 +109,7 @@
       usage_limited: contains(USAGE_MARKERS, texts),
       auth_required: contains(AUTH_MARKERS, texts),
       connection_failure: contains(CONNECTION_MARKERS, texts),
+      github_failure: contains(GITHUB_MARKERS, texts),
       scope_count: texts.length
     };
   }
