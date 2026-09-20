@@ -44,6 +44,8 @@ def load_timeout_policy(path: Path = POLICY_PATH) -> dict[str, float]:
         raise ValueError("timeout policy requires stale_seconds >= 3 * heartbeat_seconds")
     if values["generation_seconds"] < values["recovery_trigger_seconds"]:
         raise ValueError("timeout policy requires generation_seconds >= recovery_trigger_seconds")
+    if values["recovery_stall_seconds"] >= values["recovery_hard_ceiling_seconds"]:
+        raise ValueError("timeout policy requires recovery_stall_seconds < recovery_hard_ceiling_seconds")
     if values["python_wait_seconds"] < values["generation_seconds"]:
         raise ValueError("timeout policy requires python_wait_seconds >= generation_seconds")
     return values
