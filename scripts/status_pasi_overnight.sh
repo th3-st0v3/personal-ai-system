@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 PID_FILE="$RUNTIME_DIR/runner.pid"
+SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
@@ -34,6 +35,18 @@ if [[ -f "$START_PID_FILE" ]]; then
     fi
 else
     printf 'Startup launcher: INACTIVE\n'
+fi
+
+
+if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+    supervisor_pid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)"
+    if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
+        printf '168-hour supervisor: ACTIVE (PID %s)\n' "$supervisor_pid"
+    else
+        printf '168-hour supervisor: INACTIVE (stale PID file)\n'
+    fi
+else
+    printf '168-hour supervisor: INACTIVE\n'
 fi
 
 if [[ -f "$STATE_FILE" ]]; then
