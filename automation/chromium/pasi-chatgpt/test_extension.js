@@ -100,6 +100,15 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /readJsonStorage\(ACTIVE_KEY\)/);
 });
 
+test('native controller prioritizes the response-to-next-prompt critical path', () => {
+  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs/);
+  assert.match(content, /const CLICK_SETTLE_MS = TIMEOUT_POLICY\.clickSettleMs \|\| 20;/);
+  assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 20;/);
+  assert.match(content, /const SUBMISSION_ACK_MS = TIMEOUT_POLICY\.submissionAckMs \|\| 1000;/);
+  assert.match(content, /void poll\(\);\s*void reportHealth\(\);/);
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
+});
+
 test('native controller reports health and preserves interrupted-operation recovery', () => {
   assert.match(content, /chatgpt_health/);
   assert.match(content, /chatgpt_chat_changed/);
