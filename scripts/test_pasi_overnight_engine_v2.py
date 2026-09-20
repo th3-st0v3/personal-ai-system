@@ -163,6 +163,29 @@ PASI_RESULT_PATCH_END"""
             command_args = run_command.call_args.args[0]
             self.assertEqual(command_args[-1], "HEAD")
 
+    def test_no_change_completion_requires_durable_task_evidence(self) -> None:
+        values = {
+            "repository_progress": "stopped",
+            "requirements": "complete",
+            "limitations": "none",
+            "research": "not_applicable",
+            "ux": "not_applicable",
+            "backend": "verified",
+            "evidence": "verified existing implementation",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertFalse(
+                engine.no_change_completion_is_satisfied(
+                    root, "complete", "next", "", values, False
+                )
+            )
+            self.assertTrue(
+                engine.no_change_completion_is_satisfied(
+                    root, "complete", "next", "", values, True
+                )
+            )
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
