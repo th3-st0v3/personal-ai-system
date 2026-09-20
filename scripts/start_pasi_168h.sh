@@ -357,6 +357,14 @@ done
 if (( runner_ready == 0 )); then
     printf 'error: detached PASI runner did not become live within the startup verification window.\n' >&2
     printf 'Runner log: %s\n' "$log_file" >&2
+    if [[ -s "$log_file" ]]; then
+        printf '\n--- last runner log lines ---\n' >&2
+        tail -80 "$log_file" >&2 || true
+        printf '%s\n' '--- end runner log ---' >&2
+    fi
+    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+    fi
     exit 6
 fi
 
