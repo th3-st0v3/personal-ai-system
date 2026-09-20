@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts import pasi_prompt_compiler as prompt_compiler
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
@@ -173,6 +174,49 @@ new file mode 100644
                 self.assertTrue(engine.runtime_watchdog_is_live())
                 self.assertFalse(engine.runtime_watchdog_is_live())
                 self.assertFalse(engine.runtime_watchdog_is_live())
+
+    def test_prompt_compiler_replaces_task_and_preserves_required_context(self) -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            "Fix the browser-to-Git patch seam and verify it end to end.",
+            run_id="run-prompt-compiler",
+            task_number=7,
+            attempt=2,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="engineering_os",
+            recent_tasks=["previous verified task"],
+            roadmap_tasks=["Roadmap task A", "Roadmap task B"],
+            previous_failure="git apply received an empty stdin payload",
+        )
+        self.assertIn(
+            "CONTINUE WORKING ON THE CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.",
+            prompt,
+        )
+        self.assertIn("DO NOT STOP UNTIL YOU ARE FINISHED.", prompt)
+        self.assertIn(
+            "Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.",
+            prompt,
+        )
+        self.assertIn("Task number: 7", prompt)
+        self.assertIn("Attempt: 2/3", prompt)
+        self.assertIn("PREVIOUS FAILURE EVIDENCE:", prompt)
+        self.assertIn("git apply received an empty stdin payload", prompt)
+        self.assertIn("Roadmap task A", prompt)
+        self.assertIn("previous verified task", prompt)
+        self.assertIn("PASI_RESULT_NEXT_TASK: one concrete next task", prompt)
+        self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
+        self.assertIn("empty patch", prompt)
+        self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
+        self.assertIn("machine-read as task evidence", prompt)
+
+    def test_prompt_compiler_hash_is_stable_for_identical_prompt(self) -> None:
+        prompt = "deterministic prompt\n"
+        self.assertEqual(
+            prompt_compiler.prompt_hash(prompt),
+            prompt_compiler.prompt_hash(prompt),
+        )
+        self.assertTrue(prompt_compiler.prompt_hash(prompt).startswith("sha256:"))
 
     def test_build_prompt_contains_anti_loop_continuation_rule(self) -> None:
         now = datetime.now(timezone.utc)
