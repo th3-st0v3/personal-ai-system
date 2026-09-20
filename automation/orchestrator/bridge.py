@@ -427,6 +427,8 @@ class BridgeState:
         self,
         observation: dict[str, Any],
     ) -> None:
+        if observation.get("schema_version") != "pasi-native-chromium-v2":
+            return
         data = observation.get("data")
         if not isinstance(data, dict) or data.get("kind") != "chatgpt_response":
             return
@@ -481,6 +483,8 @@ class BridgeState:
         if not isinstance(observation, dict):
             return False
 
+        if observation.get("schema_version") != "pasi-native-chromium-v2":
+            return False
         data = observation.get("data")
         if not isinstance(data, dict) or data.get("kind") != "chatgpt_response":
             return False

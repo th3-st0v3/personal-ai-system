@@ -48,18 +48,6 @@
     return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null;
   }
 
-  function latestAssistant() {
-    const nodes = document.querySelectorAll('[data-message-author-role="assistant"] .markdown, [data-message-author-role="assistant"]');
-    for (let index = nodes.length - 1; index >= 0; index -= 1) {
-      const text = String(nodes[index].innerText || nodes[index].textContent || '')
-        .replace(/\r\n?/g, '\n')
-        .replace(/[ \t]+(?=\n)/g, '')
-        .trim();
-      if (text) return text.slice(0, 50000);
-    }
-    return '';
-  }
-
   function readRecoveryState() {
     try {
       const value = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
@@ -221,12 +209,10 @@
         }
       } catch (_) {}
 
-      const responseText = latestAssistant();
       const stateData = {
         operation_id: String(activeOperationId),
         operation_status: String(current.status || ''),
         operation_type: String(current.operation_type || ''),
-        response_available: Boolean(responseText),
         connection_failure: connectionFailure(),
         context_exhausted: contextExhausted(),
         usage_limited: usageLimited(),
@@ -235,14 +221,6 @@
         recovery_action: 'observe_only'
       };
 
-      if (responseText) {
-        await report('chatgpt_response', {
-          active_operation_id: String(activeOperationId),
-          response_text: responseText,
-          response_text_available: true,
-          recovery_action: 'observe_response_only'
-        });
-      }
 
       await report('chatgpt_recovery', stateData);
     } finally {
