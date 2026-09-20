@@ -508,6 +508,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=TIMEOUT_POLICY["python_wait_seconds"])
     parser.add_argument("--repository", default="th3-st0v3/personal-ai-system")
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto", help="auto tries public GitHub first and automatically falls back to the ChatGPT GitHub app when retrieval fails")
+    parser.add_argument("--completion-marker", action="append", dest="completion_markers")
     args = parser.parse_args()
 
     root = args.repo.expanduser().resolve()
@@ -520,6 +521,14 @@ def main() -> int:
 
     task = " ".join(args.task).strip()
     handoff = load_handoff()
+    completion_markers = args.completion_markers or ["PASI_RESULT_STATUS"]
+    if not 1 <= len(completion_markers) <= 4 or any(
+        not isinstance(marker, str) or not marker.strip() or len(marker.strip()) > 120
+        or "\n" in marker or "\r" in marker
+        for marker in completion_markers
+    ):
+        print("error: --completion-marker must specify 1-4 nonblank single-line markers no longer than 120 characters", file=sys.stderr)
+        return 2
     adapter = ChatGPTAdapter(UrllibBridgeTransport(), session_id=f"launcher-{uuid.uuid4().hex}", poll_interval_seconds=0.25, max_wait_seconds=args.timeout)
     try:
         print("Checking for a live PASI ChatGPT browser controller...")
@@ -533,7 +542,7 @@ def main() -> int:
             prompt_operation = pending_operation
             print(f"Resuming persisted ChatGPT operation: {prompt_operation}")
         else:
-            prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            prompt_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff), completion_markers=completion_markers)
             checkpoint_active_operation(handoff, prompt_operation, task)
             save_handoff(handoff)
             print(f"Prompt operation: {prompt_operation}")
@@ -555,7 +564,7 @@ def main() -> int:
             # Checkpoint the replacement session before retrying so another interruption
             # can resume from the verified new conversation instead of the exhausted one.
             save_handoff(handoff)
-            retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff), completion_markers=completion_markers)
             checkpoint_active_operation(handoff, retry_operation, task)
             save_handoff(handoff)
             print(f"Retry prompt operation: {retry_operation}")
@@ -576,7 +585,7 @@ def main() -> int:
                 handoff["github_attached"] = True
                 handoff["context_source"] = "github_app_fallback"
                 fallback_prompt = build_prompt(task, compact_repo_state(root), handoff) + "\n\nPUBLIC RETRIEVAL FALLBACK:\nThe public repository path did not provide usable repository evidence. Use the connected GitHub app now to retrieve the exact requested repository material, preserve the existing task context, and return the corrected answer/completion contract. Do not create a new conversation."
-                fallback_operation = adapter.submit_prompt(fallback_prompt)
+                fallback_operation = adapter.submit_prompt(fallback_prompt, completion_markers=completion_markers)
                 prompt_operation = fallback_operation
                 checkpoint_active_operation(handoff, fallback_operation, task)
                 save_handoff(handoff)
