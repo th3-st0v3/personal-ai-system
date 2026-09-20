@@ -675,3 +675,13 @@ test('native heartbeat starts before restart recovery', () => {
   assert.ok(recoveryIndex >= 0);
   assert.ok(healthTimerIndex < recoveryIndex);
 });
+
+
+test('native controller expires a stale recovery operation after a bounded grace period', () => {
+  assert.match(content, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
+  assert.match(content, /current\.status === 404/);
+  assert.match(content, /missing_operation_since_ms/);
+  assert.match(content, /operation_missing_expired/);
+  assert.match(content, /localStorage\.removeItem\(RECOVERY_KEY\)/);
+  assert.match(content, /localStorage\.removeItem\(ACTIVE_KEY\)/);
+});

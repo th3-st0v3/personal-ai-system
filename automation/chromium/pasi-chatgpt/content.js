@@ -25,6 +25,7 @@
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
   const MAX_CONTEXT_AUTO_RECOVERIES = 1;
+  const MISSING_OPERATION_GRACE_MS = 60 * 1000;
   const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
   let processing = false;
@@ -1557,6 +1558,27 @@
             const operation = current.ok ? current.json().operation : null;
             if (operation && ['completed', 'failed', 'cancelled'].includes(operation.status)) {
               localStorage.removeItem(RECOVERY_KEY);
+              localStorage.removeItem(ACTIVE_KEY);
+            } else if (current.status === 404) {
+              const state = readJsonStorage(RECOVERY_KEY) || {};
+              const now = Date.now();
+              const missingSince = Number(state.missing_operation_since_ms || now);
+              if (!state.missing_operation_since_ms) {
+                localStorage.setItem(
+                  RECOVERY_KEY,
+                  JSON.stringify({ ...state, operation_id: recoveryOperation, missing_operation_since_ms: now })
+                );
+              } else if (now - missingSince >= MISSING_OPERATION_GRACE_MS) {
+                await reportObservation('chatgpt_recovery', {
+                  phase: 'operation_missing_expired',
+                  operation_id: recoveryOperation,
+                  recovery_action: 'clear_stale_state',
+                  missing_operation_age_ms: now - missingSince,
+                  grace_ms: MISSING_OPERATION_GRACE_MS
+                });
+                localStorage.removeItem(RECOVERY_KEY);
+                localStorage.removeItem(ACTIVE_KEY);
+              }
             }
           } catch (_) {}
         }
