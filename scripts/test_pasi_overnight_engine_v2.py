@@ -290,7 +290,6 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
                 code, output = engine.invoke_chat(state.current_task, state, "")
         self.assertEqual((code, output), (0, "fallback response"))
         self.assertEqual(state.fallback_router_disabled_until, "")
-        self.assert_called_once if False else None
         self.assertGreaterEqual(save_state.call_count, 1)
 
     def test_auth_recovery_wait_budget_is_bounded(self) -> None:
