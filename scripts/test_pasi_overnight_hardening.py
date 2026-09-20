@@ -35,7 +35,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_backoff_is_deferred_and_recorded_without_sleeping(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root)
+            ledger = ObstacleLedger(root, root / ".operator-state")
             state = self._state(root)
             started = time.monotonic()
             result = nonblocking_sleep(state, 300.0, ledger=ledger)
@@ -48,7 +48,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_stale_browser_uses_fallback_without_entering_standby(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root)
+            ledger = ObstacleLedger(root, root / ".operator-state")
             state = self._state(root)
             with patch.object(supervisor, "runtime_watchdog_is_live", return_value=False), patch.object(
                 hardening, "fallback_providers_available", return_value=["ollama"]
@@ -60,7 +60,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_stale_browser_without_fallback_waits_instead_of_burning_task_attempts(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root)
+            ledger = ObstacleLedger(root, root / ".operator-state")
             state = self._state(root)
             watchdog = iter([False, False, True])
             with patch.object(supervisor, "runtime_watchdog_is_live", side_effect=lambda: next(watchdog)), patch.object(
@@ -75,7 +75,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_missing_browser_uses_fallback_route_without_waiting_for_chatgpt(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root)
+            ledger = ObstacleLedger(root, root / ".operator-state")
             state = self._state(root)
             with patch.object(supervisor, "runtime_watchdog_is_live", return_value=False), patch.object(
                 supervisor, "command", return_value=(0, "PASI_RESULT_STATUS: blocked")
