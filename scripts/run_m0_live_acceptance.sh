@@ -39,6 +39,10 @@ while kill -0 "$PID" 2>/dev/null; do
 done
 
 [[ -d "$WORKTREE/.git" ]] || { echo "error: acceptance worktree was not created" >&2; exit 3; }
+if [[ -f "$EVENTS" ]] && grep -q '"kind": "fallback_provider_route"' "$EVENTS"; then
+    echo "error: M0 was completed through a fallback provider; live M0 requires the primary ChatGPT browser path." >&2
+    exit 6
+fi
 COMMIT="$(git -C "$WORKTREE" rev-parse HEAD)"
 PROOF="$WORKTREE/acceptance/M0-LIVE-PROOF.txt"
 [[ -f "$PROOF" ]] && [[ "$(cat "$PROOF")" == "PASI M0 LIVE PROOF" ]] || { echo "error: proof file missing" >&2; exit 4; }
