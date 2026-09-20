@@ -9,6 +9,10 @@ from pathlib import Path
 from scripts import pasi_overnight_engine_v2 as supervisor
 
 DEFAULT_TASK_FILE = Path.home() / ".pasi" / "current-project-task.md"
+# Optional repository-local operator override. When non-empty, this is the single
+# engineering objective supplied to each new unattended run; it does not inject
+# the rest of the roadmap/history into model prompts.
+DEFAULT_OPERATOR_PROMPT_FILE = Path(__file__).resolve().parents[1] / "config" / "operator-task.md"
 MAX_TASK_FILE_CHARS = 120_000
 DEFAULT_ENGINEERING_TASK = """Advance the PASI Computer-Use Control Plane as a substantial engineering project. Inspect the existing architecture and runtime behavior, identify the highest-value missing end-to-end capability, implement it in the appropriate source modules, add or update deterministic tests, verify integration/runtime behavior, and iterate on failures. Do not stop at a read-only audit, documentation-only edit, cosmetic change, or trading-information task. Prefer work that reduces repeated human input and makes subsequent difficult engineering projects faster and more reliable. Preserve all authentication, authorization, path, network, approval, human-control, and verification boundaries."""
 DIFFICULT_MODE_PREFIX = """DIFFICULT ENGINEERING PROJECT MODE:
@@ -39,6 +43,7 @@ def select_task_source(
     explicit_task_file: Path | None,
     environment_task: str,
     environment_task_file: Path | None,
+    operator_task_file: Path,
     default_task_file: Path,
 ) -> str:
     """Select the task using the documented precedence:
@@ -57,6 +62,11 @@ def select_task_source(
 
     if environment_task_file is not None:
         return load_task_file(environment_task_file)
+
+    # The operator file is intentionally checked before the legacy default task
+    # file so a human can provide one focused objective without editing code.
+    if operator_task_file.is_file() and operator_task_file.read_text(encoding="utf-8").strip():
+        return load_task_file(operator_task_file)
 
     if default_task_file.is_file():
         return load_task_file(default_task_file)
@@ -84,6 +94,7 @@ def main() -> int:
         args.task_file,
         os.environ.get("PASI_TASK", ""),
         environment_task_file,
+        DEFAULT_OPERATOR_PROMPT_FILE,
         DEFAULT_TASK_FILE,
     )
     selected_task = DIFFICULT_MODE_PREFIX + "\n" + selected_task
