@@ -11,8 +11,12 @@ from automation.computer_use.obstacles import ObstacleLedger
 class ObstacleLedgerTests(unittest.TestCase):
     def test_records_obstacle_and_writes_non_blocking_action_list(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            ledger = ObstacleLedger(root, root / "operator-state")
+            container = Path(directory)
+            root = container / "worktree"
+            state_root = container / "operator-state"
+            root.mkdir()
+            state_root.mkdir()
+            ledger = ObstacleLedger(root, state_root)
             first = ledger.record(
                 "preapproval_required",
                 "Need download from example.test",
@@ -29,7 +33,12 @@ class ObstacleLedgerTests(unittest.TestCase):
 
     def test_deduplicates_pending_obstacles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            ledger = ObstacleLedger(Path(directory), Path(directory) / "operator-state")
+            container = Path(directory)
+            root = container / "worktree"
+            state_root = container / "operator-state"
+            root.mkdir()
+            state_root.mkdir()
+            ledger = ObstacleLedger(root, state_root)
             first = ledger.record("missing_resource", "Need tool", "Install after approval", task_id="task-1")
             second = ledger.record("missing_resource", "Need tool", "Install after approval", task_id="task-1")
             self.assertEqual(first.obstacle_id, second.obstacle_id)
@@ -37,8 +46,11 @@ class ObstacleLedgerTests(unittest.TestCase):
 
     def test_state_is_outside_worktree_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            state_root = root / "operator-state"
+            container = Path(directory)
+            root = container / "worktree"
+            state_root = container / "operator-state"
+            root.mkdir()
+            state_root.mkdir()
             ledger = ObstacleLedger(root, state_root)
             ledger.record("test", "summary", "next")
             self.assertTrue((state_root / "automation" / "obstacles.jsonl").exists())
