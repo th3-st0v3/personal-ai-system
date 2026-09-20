@@ -1144,7 +1144,21 @@ def run(state: OvernightState, *, push: bool) -> None:
             condition = provider_condition(code, response)
             if condition == "auth_required":
                 log_event("fallback_provider_route", reason="ChatGPT authentication challenge", task_number=state.task_number)
-                fallback = command([sys.executable, "scripts/pasi_provider_router.py", "--task", build_prompt(state.current_task, state, response), "--repo", state.worktree, "--timeout", "180"], Path(state.worktree), 225.0)
+                fallback_failure = sanitize_failure_evidence(code, response)
+                fallback = command(
+                    [
+                        sys.executable,
+                        "scripts/pasi_provider_router.py",
+                        "--task",
+                        build_prompt(state.current_task, state, fallback_failure),
+                        "--repo",
+                        state.worktree,
+                        "--timeout",
+                        "180",
+                    ],
+                    Path(state.worktree),
+                    225.0,
+                )
                 if fallback[0] == 0:
                     response = fallback[1]
                     code = 0
