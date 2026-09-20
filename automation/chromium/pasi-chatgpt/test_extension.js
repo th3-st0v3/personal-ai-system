@@ -665,3 +665,13 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /visibleFingerprint !== baseline/);
   assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
 });
+
+test('native background controller lease serializes concurrent claims', () => {
+  const start = background.indexOf('let controllerClaimTail = Promise.resolve();');
+  const handler = background.indexOf("if (message?.type === 'pasi-controller-claim')");
+  assert.ok(start >= 0);
+  assert.ok(handler > start);
+  const source = background.slice(start, handler);
+  assert.match(source, /function serializeControllerClaim\(task\)/);
+  assert.match(source, /controllerClaimTail\.then\(task, task\)/);
+});
