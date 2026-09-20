@@ -291,6 +291,24 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(first_payload["idempotency_key"], second_payload["idempotency_key"])
         self.assertEqual(first_payload["prompt"], second_payload["prompt"])
 
+
+    def test_submit_prompt_accepts_completion_markers(self) -> None:
+        transport = FakeTransport([{"operation": {"operation_id": "op-marker"}}])
+        adapter = ChatGPTAdapter(transport, session_id="session-1")
+        self.assertEqual(
+            adapter.submit_prompt(
+                "inspect with protocol",
+                completion_markers=["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"],
+            ),
+            "op-marker",
+        )
+        payload = transport.requests[0][2]
+        assert payload is not None
+        self.assertEqual(
+            payload["completion_markers"],
+            ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"],
+        )
+
     def test_new_session_queues_new_chat_and_requires_verified_completion(self) -> None:
         transport = FakeTransport([
             {"operation": {"operation_id": "op-new"}},
