@@ -250,6 +250,7 @@ const form = document.getElementById("composer-form");
 const composer = document.getElementById("prompt-textarea");
 const messages = document.getElementById("messages");
 window.fixtureSubmissionCount = 0;
+window.submittedValues = [];
 
 function addUserMessage(prompt) {
   const node = document.createElement("div");
@@ -275,6 +276,7 @@ form.addEventListener("submit", (event) => {
   event.preventDefault();
   window.fixtureSubmissionCount += 1;
   const current = composer.value;
+  window.submittedValues.push(current);
   window.submitValue = current;
   composer.value = "";
   composer.dispatchEvent(new Event("input", { bubbles: true }));
@@ -395,7 +397,7 @@ def main() -> None:
                     browser_session,
                     """({
                       submissions: window.fixtureSubmissionCount || 0,
-                      submittedValues: [window.submitValue || ""],
+                      submittedValues: Array.isArray(window.submittedValues) ? window.submittedValues : [],
                       users: Array.from(document.querySelectorAll('[data-message-author-role="user"]')).map((node) => node.textContent),
                       assistants: Array.from(document.querySelectorAll('[data-message-author-role="assistant"]')).map((node) => node.innerText),
                       active: localStorage.getItem("pasi:active-operation")
@@ -429,16 +431,14 @@ def main() -> None:
                 if failures:
                     raise AssertionError(f"Unexpected browser failure callbacks: {failures}")
 
-                if FixtureHandler.submit_times:
-                    FixtureHandler.submit_times[:] = FixtureHandler.submit_times[-2:]
-
-                # Bridge receives /chat/finished before the controller schedules
-                # the immediate next-operation poll. The second submit should
-                # therefore occur well before the legacy 250 ms idle tick budget.
+                # The controller emits prompt_injected immediately after its
+                # send strategy returns. Comparing that second telemetry event
+                # with the first /chat/finished receipt measures the actual
+                # completion-to-next-injection handoff without a synthetic timer.
                 completion_to_second_submit = None
-                if len(FixtureHandler.submit_times) >= 2:
+                if len(BridgeHandler.prompt_injected_events) >= 2:
                     completion_to_second_submit = (
-                        FixtureHandler.submit_times[1] - first_finished
+                        BridgeHandler.prompt_injected_events[1] - first_finished
                     )
                 if completion_to_second_submit is None or completion_to_second_submit > 0.5:
                     raise AssertionError(
