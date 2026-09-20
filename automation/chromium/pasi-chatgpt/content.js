@@ -3,15 +3,15 @@
 
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || globalThis.PASI_TIMEOUT_POLICY?.defaults || {};
-  var POLL_MS = 2000;
+  var POLL_MS = 500;
   POLL_MS = TIMEOUT_POLICY.pollMs || POLL_MS;
   const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
-  var DOM_POLL_MS = 250;
+  var DOM_POLL_MS = 20;
   DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || DOM_POLL_MS;
-  const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 75;
+  const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;
   const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
-  const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 750;
-  const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 2500;
+  const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;
+  const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = {
     menu: TIMEOUT_POLICY.menuMs || 8000,
@@ -1262,7 +1262,10 @@
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
-    await reportObservation('chatgpt_response', {
+    // Completion acknowledgement is on the critical path to the next prompt.
+    // Telemetry is intentionally fire-and-forget so a slow observation bridge
+    // cannot add an avoidable network round trip between generations.
+    void reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
       response_text: body.response_text,
       response_text_available: body.response_text_available,
@@ -1271,7 +1274,7 @@
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
       active_operation_id: operationId
-    });
+    }).catch(() => {});
 
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -1454,7 +1457,10 @@
           localStorage.removeItem(RECOVERY_KEY);
         }
       }
-      await reportHealth();
+      // Do not wait for health telemetry or the normal 500 ms polling tick.
+      // A completed operation can immediately claim the next queued prompt.
+      void poll();
+      void reportHealth();
     }
   }
 
