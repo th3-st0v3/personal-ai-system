@@ -272,7 +272,8 @@ def needs_github_context(_task: str, *, override: str = "auto") -> bool:
 
 def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
     try:
-        observation = adapter.read_browser_state()
+        reader = getattr(adapter, "read_browser_state", None)
+        observation = reader() if callable(reader) else adapter.read_browser_observation()
     except Exception:
         return {}
     if not isinstance(observation, Mapping):
