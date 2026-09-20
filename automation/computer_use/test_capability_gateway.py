@@ -52,7 +52,9 @@ def test_gateway_advertises_resource_acquisition_as_approval_gated(tmp_path: Pat
     assert capability["risk"] == "approval_required"
 
 
-def test_gateway_blocks_unapproved_resource_without_executing(tmp_path: Path) -> None:
+def test_gateway_blocks_unapproved_resource_without_executing(tmp_path: Path, monkeypatch) -> None:
+    state_root = tmp_path.parent / (tmp_path.name + "-operator-state")
+    monkeypatch.setenv("PASI_STATE_ROOT", str(state_root))
     gateway = CapabilityGateway(LocalAccessBroker(tmp_path))
     result = gateway.dispatch({
         "request_id": "resource-1",
@@ -62,4 +64,4 @@ def test_gateway_blocks_unapproved_resource_without_executing(tmp_path: Path) ->
     assert result["status"] == "blocked"
     assert result["risk"] == "approval_required"
     assert result["obstacle_id"]
-    assert (tmp_path / ".runtime" / "automation" / "action-list.md").exists()
+    assert (state_root / "automation" / "action-list.md").exists()

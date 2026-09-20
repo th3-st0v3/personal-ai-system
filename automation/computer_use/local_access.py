@@ -38,7 +38,7 @@ CAPABILITIES: tuple[CapabilitySpec, ...] = (
 )
 
 _SECRET_NAME_RE = re.compile(
-    r"(^|/)(?:\.env(?:\..*)?|credentials?|secrets?|id_rsa|id_ed25519|authorized_keys)(?:$|[./])|\.(?:pem|key|p12|pfx)$",
+    r"(^|/)(?:\.env(?:\..*)?|credentials?|secrets?|id_rsa|id_ed25519|authorized_keys|\.git-credentials|\.netrc|\.npmrc|\.bridge-token|bridge-token)(?:$|[./])|\.(?:pem|key|p12|pfx)$",
     re.IGNORECASE,
 )
 
