@@ -225,19 +225,43 @@ PASI_RESULT_PATCH_END"""
         prompt = engine.build_prompt(state.current_task, state)
         self.assertIn("TASK CONTINUATION:", prompt)
         self.assertIn("Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.", prompt)
-        self.assertRegex(
-            prompt,
-            r"immediately (?:work on|continue to) the next incomplete roadmap (?:item|task)",
-        )
+        self.assertIn("The scheduler owns the full roadmap", prompt)
         self.assertIn("If the same failure repeats, change approach", prompt)
         self.assertIn("do not invent work or cosmetic changes", prompt)
         self.assertNotIn("KEEP WORKING UNTIL YOU'RE FINISHED:", prompt)
         self.assertNotIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
-        self.assertIn("RECENT TASKS:", prompt)
+        self.assertNotIn("RECENT TASKS:", prompt)
+        self.assertNotIn("ROADMAP PHASE:", prompt)
+        self.assertNotIn(engine.AUTOMATION_TASKS[0], prompt)
+        self.assertNotIn(engine.AUTOMATION_TASKS[1], prompt)
+        self.assertNotIn(engine.AUTOMATION_TASKS[2], prompt)
+        self.assertNotIn("already completed task", prompt)
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
         self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
         self.assertIn("empty patch", prompt)
         self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
+
+    def test_build_prompt_only_includes_current_failure_evidence(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="prompt-failure-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="engineering_os",
+            current_task="Implement focused latency diagnostics",
+        )
+        prompt = engine.build_prompt(
+            state.current_task,
+            state,
+            "failure_class=runtime_guard; detail=the browser controller briefly stopped reporting",
+        )
+        self.assertIn(state.current_task, prompt)
+        self.assertIn("failure_class=runtime_guard", prompt)
+        self.assertIn("the browser controller briefly stopped reporting", prompt)
+        self.assertIn("PREVIOUS FAILURE EVIDENCE (current attempt only)", prompt)
 
     def test_cross_run_loop_guard_skips_repeated_roadmap_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
