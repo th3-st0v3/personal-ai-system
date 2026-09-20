@@ -24,7 +24,7 @@ def stream(prompts: int = 3, dup_at: int | None = None):
     ev, t = [], 0.0
     for i in range(1, prompts + 1):
         op = f"op-{i}"
-        ev.append({"kind": "prompt_dispatch_started", "timestamp": iso(t), "task_id": "T-1", "attempt": i})
+        ev.append({"kind": "prompt_dispatch_started", "timestamp": iso(t), "task_id": "T-1", "attempt": i, "queue_file_bytes": 100 + i})
         ev.append({"kind": "prompt_queued", "timestamp": iso(t + 50), "task_id": "T-1", "attempt": i, "operation_id": op})
         ev.append({"kind": "browser_timing", "timestamp": iso(t + 60500), "operation_id": op,
                    "injected_at_ms": ms(t + 400), "ack_at_ms": ms(t + 450), "generation_start_ms": ms(t + 2000),
@@ -48,6 +48,8 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(r["completion_to_next_dispatch_ms"]["median"], 6000)
         self.assertEqual(r["gate_duration_ms"]["tier0"]["median"], 5000)
         self.assertEqual(r["retries_per_task"]["median"], 3.0)
+        self.assertEqual(r["queue_file_bytes"]["median"], 102.5)
+        self.assertEqual(r["queue_file_bytes"]["max"], 104)
 
     def test_m1_counts_duplicates_and_clean_runs(self):
         r = m.compute(stream(6, dup_at=4))
