@@ -187,6 +187,7 @@ async function inspect() {
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
   const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url.trim() : '';
   if (!targetChatUrl) return;
+  const connectionFailure = health.data.connection_failure === true;
   const matchingTab = tabs.find((tab) => tab.url === targetChatUrl);
   // If the exact conversation tab is gone, recreate only the verified target
   // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
@@ -202,6 +203,12 @@ async function inspect() {
     return;
   }
   await chrome.storage.local.remove(`create:${targetChatUrl}`);
+  // An explicit connection failure is actionable even while the heartbeat is
+  // still fresh. Use the same bounded refresh budget as stale-heartbeat repair.
+  if (connectionFailure) {
+    await reloadBoundedTab(matchingTab);
+    return;
+  }
   await reloadBoundedTab(matchingTab);
 }
 
