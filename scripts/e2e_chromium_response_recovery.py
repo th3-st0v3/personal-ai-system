@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import ssl
 import socket
 import subprocess
@@ -564,17 +565,24 @@ def start_chrome(
         stdin=subprocess.DEVNULL,
         stdout=log_file,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
 
 
 def stop_chrome(chrome_process: subprocess.Popen | None) -> None:
     if chrome_process is None or chrome_process.poll() is not None:
         return
-    chrome_process.terminate()
+    try:
+        os.killpg(chrome_process.pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        chrome_process.terminate()
     try:
         chrome_process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        chrome_process.kill()
+        try:
+            os.killpg(chrome_process.pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            chrome_process.kill()
         chrome_process.wait(timeout=5)
 
 
