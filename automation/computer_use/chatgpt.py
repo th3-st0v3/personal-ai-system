@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
@@ -12,6 +14,11 @@ from urllib.request import Request, urlopen
 from .adapters import AIAdapter
 from .contracts import AIResponse
 from .completion import completion_from_operation
+from scripts.pasi_timeout_policy import load_timeout_policy
+
+
+TIMEOUT_POLICY = load_timeout_policy()
+CHATGPT_WAIT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
 
 
 class ChatGPTAdapterError(RuntimeError):
@@ -46,6 +53,14 @@ class UrllibBridgeTransport:
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         body = None
         headers: dict[str, str] = {}
+        token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+        if not token:
+            try:
+                token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+            except OSError:
+                token = ""
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         if payload is not None:
             body = json.dumps(dict(payload)).encode("utf-8")
             headers["Content-Type"] = "application/json"
@@ -82,7 +97,7 @@ class ChatGPTAdapter(AIAdapter):
     transport: BridgeTransport
     session_id: str
     poll_interval_seconds: float = 0.25
-    max_wait_seconds: float = 3600.0
+    max_wait_seconds: float = CHATGPT_WAIT_SECONDS
     current_operation_id: str | None = None
     last_chat_url: str | None = None
 
@@ -152,6 +167,17 @@ class ChatGPTAdapter(AIAdapter):
             raise ChatGPTAdapterError("no active ChatGPT operation")
         return self.wait_for_completion(self.current_operation_id)
 
+    def cancel_operation(self, operation_id: str, reason: str = "cancelled by runner timeout") -> bool:
+        if not operation_id.strip():
+            raise ValueError("operation_id is required")
+        payload = self.transport.request(
+            "POST",
+            "/chat/cancel",
+            {"operation_id": operation_id, "reason": reason},
+        )
+        operation = payload.get("operation")
+        return isinstance(operation, Mapping) and operation.get("status") == "cancelled"
+
     def read_operation(self, operation_id: str) -> AIResponse:
         if not operation_id.strip():
             raise ValueError("operation_id is required")
@@ -162,9 +188,15 @@ class ChatGPTAdapter(AIAdapter):
         return self._response_from_operation(operation)
 
     def read_browser_observation(self) -> Mapping[str, Any] | None:
-        payload = self.transport.request("GET", "/browser/observation")
+        payload = self.transport.request("GET", "/browser/health")
         observation = payload.get("observation")
         return observation if isinstance(observation, Mapping) else None
+
+    def read_browser_state(self) -> Mapping[str, Any] | None:
+        payload = self.transport.request("GET", "/browser/state")
+        observation = payload.get("observation")
+        return observation if isinstance(observation, Mapping) else None
+
     def read_browser_response_observation(self) -> Mapping[str, Any] | None:
         """Read the durable response record instead of the latest transient state."""
         payload = self.transport.request("GET", "/browser/response")
@@ -198,7 +230,18 @@ class ChatGPTAdapter(AIAdapter):
                     return self._recheck_completed_response(operation_id, response)
                 return response
             if time.monotonic() - started >= limit:
-                return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
+                try:
+                    self.cancel_operation(operation_id, "ChatGPT adapter wait timeout")
+                except ChatGPTAdapterError:
+                    pass
+                return AIResponse(
+                    response_id=f"{operation_id}:timeout",
+                    session_id=self.session_id,
+                    provider=self.provider,
+                    operation_id=operation_id,
+                    text="",
+                    completion="timeout",
+                )
             time.sleep(self.poll_interval_seconds)
 
     def _recheck_completed_response(self, operation_id: str, response: AIResponse) -> AIResponse:
