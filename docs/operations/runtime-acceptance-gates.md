@@ -4,7 +4,7 @@ This document defines the final live-runtime evidence procedure. CI establishes 
 
 ## Preconditions
 
-Run from `~/workspace/personal-ai-system` with the PASI virtualenv active. The native Chromium controller must be enabled and the ChatGPT session must be authenticated.
+Run from `~/workspace/personal-ai-system` with the PASI virtualenv active. Unattended validation also requires `bubblewrap` (`bwrap`) so repository checks cannot read host credentials or use the host network. The native Chromium controller must be enabled and the ChatGPT session must be authenticated.
 
 ```bash
 cd ~/workspace/personal-ai-system
