@@ -830,7 +830,11 @@ def test_http_browser_response_returns_durable_response_after_later_state(tmp_pa
     thread.start()
     try:
         connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        connection.request("GET", "/browser/response")
+        connection.request(
+            "GET",
+            "/browser/response",
+            headers={"Authorization": "Bearer test-bridge-token"},
+        )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
         connection.close()
