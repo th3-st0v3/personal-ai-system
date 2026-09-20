@@ -8,6 +8,13 @@ let STALE_MS = 45 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
+let controllerClaimTail = Promise.resolve();
+
+function serializeControllerClaim(task) {
+  const next = controllerClaimTail.then(task, task);
+  controllerClaimTail = next.catch(() => undefined);
+  return next;
+}
 
 const BRIDGE_ROUTES = new Set([
   'GET /health',
@@ -92,7 +99,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, leader: false });
       return undefined;
     }
-    chrome.storage.local.get(CONTROLLER_LEASE_KEY).then((stored) => {
+    serializeControllerClaim(async () => {
+      const stored = await chrome.storage.local.get(CONTROLLER_LEASE_KEY);
       const current = stored?.[CONTROLLER_LEASE_KEY];
       const now = Date.now();
       const owned = current && current.tabId === tabId && now - Number(current.renewedAt || 0) < CONTROLLER_LEASE_MS;
@@ -101,9 +109,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, leader: false });
         return;
       }
-      return chrome.storage.local.set({
+      await chrome.storage.local.set({
         [CONTROLLER_LEASE_KEY]: { tabId, renewedAt: now }
-      }).then(() => sendResponse({ ok: true, leader: true }));
+      });
+      sendResponse({ ok: true, leader: true });
     }).catch(() => sendResponse({ ok: false, leader: false }));
     return true;
   }
