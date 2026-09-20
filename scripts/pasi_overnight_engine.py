@@ -411,7 +411,7 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
 
 def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     normalized_patch = normalize_patch(patch)
-    validate_patch_paths(normalized_patch, allow_delete)
+    validate_patch_paths(normalized_patch, allow_delete, worktree)
     code, output = command(
         ["git", "apply", "--check", "--whitespace=nowarn"],
         worktree,
@@ -437,8 +437,27 @@ def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     return output
 
 
-def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
-    code, output = command(["git", "add", "-A"], worktree, timeout=30.0)
+def patch_paths_from_diff(patch: str) -> list[str]:
+    paths: list[str] = []
+    for old_path, new_path in re.findall(r"^diff --git a/(.+) b/(.+)$", patch, re.MULTILINE):
+        for value in (old_path, new_path):
+            if value != "/dev/null" and value not in paths:
+                paths.append(value)
+    return paths
+
+
+def commit_and_push(
+    worktree: Path,
+    branch: str,
+    task: str,
+    push: bool,
+    *,
+    paths: Sequence[str] | None = None,
+) -> str:
+    if paths:
+        code, output = command(["git", "add", "--", *paths], worktree, timeout=30.0)
+    else:
+        code, output = command(["git", "add", "-A"], worktree, timeout=30.0)
     if code != 0:
         raise OvernightError(f"git add failed: {output}")
     code, output = command(["git", "diff", "--cached", "--quiet"], worktree, timeout=30.0)
@@ -521,7 +540,7 @@ def run(state: RunnerState, *, push: bool) -> None:
                 continue
             try:
                 verification = verify_patch(Path(state.worktree), patch, allow_delete)
-                commit = commit_and_push(Path(state.worktree), state.branch, state.current_task, push)
+                commit = commit_and_push(Path(state.worktree), state.branch, state.current_task, push, paths=patch_paths_from_diff(patch))
             except Exception as exc:
                 failure = str(exc)
                 log_event("task_verification_failed", task_number=state.task_number, attempt=state.current_attempt, error=failure[-6000:])
