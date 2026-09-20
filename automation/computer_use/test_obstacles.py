@@ -26,7 +26,7 @@ class ObstacleLedgerTests(unittest.TestCase):
             )
             self.assertTrue(first.obstacle_id.startswith("obs-"))
             self.assertIn(first.obstacle_id, (state_root / "automation" / "action-list.md").read_text(encoding="utf-8"))
-            values = (root / ".runtime" / "automation" / "obstacles.jsonl").read_text(encoding="utf-8").splitlines()
+            values = (state_root / "automation" / "obstacles.jsonl").read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(values), 1)
             payload = json.loads(values[0])
             self.assertEqual(payload["status"], "needs_preapproval")
