@@ -182,17 +182,16 @@ for file in "${SHELL_FILES[@]}"; do
     bash -n "$file"
 done
 
-run_check "JSON syntax" python - <<'PY'
+run_check "JSON syntax" python - "${JSON_FILES[@]}" <<'PY'
 import json
+import sys
 from pathlib import Path
 
-for raw_path in r"""$(printf '%s\n' "${JSON_FILES[@]}")""".splitlines():
-    path = Path(raw_path.strip())
-    if not path:
-        continue
+paths = [Path(value) for value in sys.argv[1:] if value]
+for path in paths:
     with path.open(encoding="utf-8") as handle:
         json.load(handle)
-print(f"validated {len([p for p in r'''$(printf '%s\n' "${JSON_FILES[@]}")'''.splitlines() if p.strip()])} JSON files")
+print(f"validated {len(paths)} JSON files")
 PY
 
 run_check "Native Chromium controller contract tests" node --test \
