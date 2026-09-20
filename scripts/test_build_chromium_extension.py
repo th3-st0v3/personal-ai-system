@@ -15,6 +15,15 @@ def test_build_uses_an_allowlist_and_excludes_python_cache() -> None:
         )
 
 
+def test_staged_extension_contains_every_manifest_content_script() -> None:
+    with TemporaryDirectory() as temporary:
+        output = build_extension(Path(temporary) / "pasi-chatgpt")
+        manifest = (output / "manifest.json").read_text(encoding="utf-8")
+        for filename in ("timeout-config.js", "activity.js", "content.js", "recovery.js"):
+            assert filename in manifest
+            assert (output / filename).is_file()
+
+
 def test_source_is_the_expected_native_extension_directory() -> None:
     assert SOURCE.name == "pasi-chatgpt"
     assert SOURCE.parent.name == "chromium"
