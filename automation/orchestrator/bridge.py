@@ -22,6 +22,7 @@ HOST = "127.0.0.1"
 PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 120_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
+RETRY_BUDGETS = {"controller": 3, "response": 2, "context": 1}
 MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 MAX_IDEMPOTENCY_KEY_CHARS = 128
@@ -48,6 +49,8 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "PASI_NATIVE: send control unavailable",
     "PASI_NATIVE: composer unavailable",
     "PASI_NATIVE: composer disappeared",
+    "PASI_NATIVE: ChatGPT generation timed out",
+    "PASI_NATIVE: response text unavailable",
 )
 
 
@@ -428,6 +431,14 @@ class BridgeState:
         )
         return True
 
+    @staticmethod
+    def _retry_class(error: str) -> str:
+        if error.startswith("CHAT_EXHAUSTED:") or error.startswith("PASI_NATIVE: context recovery exhausted:"):
+            return "context"
+        if error.startswith("PASI_NATIVE: ChatGPT generation timed out") or error.startswith("PASI_NATIVE: response text unavailable"):
+            return "response"
+        return "controller"
+
     def _retry_operation(
         self,
         operation_id: str,
@@ -436,13 +447,19 @@ class BridgeState:
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
-
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
-
                 current_status = str(item.get("status", ""))
-                retry_count = int(item.get("retry_count", 0) or 0)
+                retry_counts = item.get("retry_counts")
+                if not isinstance(retry_counts, dict):
+                    retry_counts = {
+                        "controller": int(item.get("retry_count", 0) or 0),
+                        "response": 0,
+                        "context": 0,
+                    }
+                retry_class = self._retry_class(error)
+                count = int(retry_counts.get(retry_class, 0) or 0)
 
                 if (
                     item.get("operation_type") == "prompt"
@@ -454,27 +471,39 @@ class BridgeState:
                     item["status"] = "completed"
                     item["completion_recovery_reason"] = "browser_response_observation_after_transient_failure"
                     item["recovery_error"] = error[:MAX_ERROR_CHARS]
+                    item["updated_at"] = time.time()
                     self.state_manager.save_queue(queue)
-                    return item
+                    return dict(item)
 
-                if retry_count >= MAX_TRANSIENT_FAILURE_RETRIES:
+                if count >= RETRY_BUDGETS[retry_class]:
                     validate_transition(current_status, "failed")
                     item["status"] = "failed"
                     item["error"] = error[:MAX_ERROR_CHARS]
-                    item["failure_reason"] = "transient_retry_exhausted"
+                    item["failure_reason"] = (
+                        "transient_retry_exhausted"
+                        if retry_class == "controller"
+                        else f"{retry_class}_retry_exhausted"
+                    )
+                    item["retry_class"] = retry_class
+                    item["updated_at"] = time.time()
                     self.state_manager.save_queue(queue)
-                    return item
+                    return dict(item)
 
+                retry_counts = dict(retry_counts)
+                retry_counts[retry_class] = count + 1
+                item["retry_class"] = retry_class
                 validate_transition(current_status, "queued")
                 item["status"] = "queued"
-                item["retry_count"] = retry_count + 1
+                item["retry_counts"] = retry_counts
+                item["retry_count"] = sum(int(value or 0) for value in retry_counts.values())
                 item["last_retry_error"] = error[:MAX_ERROR_CHARS]
                 if item.get("operation_type") == "prompt" and recovery_context:
                     item["recovery_context"] = dict(recovery_context)
+                item.pop("claimed_at", None)
                 item["requeued_at"] = time.time()
+                item["updated_at"] = time.time()
                 self.state_manager.save_queue(queue)
-                return item
-
+                return dict(item)
         return None
 
     @staticmethod
