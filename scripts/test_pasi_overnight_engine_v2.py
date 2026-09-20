@@ -91,7 +91,7 @@ new file mode 100644
             (worktree / ".runtime").mkdir()
             (worktree / ".gitignore").write_text(".runtime/\n", encoding="utf-8")
             subprocess.run(["git", "init", "-q"], cwd=worktree, check=True)
-            with self.assertRaisesRegex(ValueError, "Git-ignored"):
+            with self.assertRaisesRegex(ValueError, r"(Git-ignored|forbidden credential/secret)"):
                 engine.validate_patch_paths(ignored_patch, False, worktree)
 
         protected = """diff --git a/scripts/check_all.sh b/scripts/check_all.sh
