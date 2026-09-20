@@ -15,6 +15,7 @@ MAX_TITLE_CHARS = 65
 MAX_BODY_CHARS = 8_000
 HIGH_RISK_PATH_PREFIXES = (
     ".github/workflows/",
+    ".github/pull_request_template.md",
     "automation/chromium/",
     "automation/legacy/tampermonkey/",
     "automation/computer_use/capability_gateway.py",
@@ -23,10 +24,19 @@ HIGH_RISK_PATH_PREFIXES = (
     "automation/computer_use/recovery.py",
     "automation/computer_use/research.py",
     "automation/legacy/",
+    "docs/architecture/verified-live-self-update.md",
+    "docs/operations/pr-scope-policy.md",
+    "docs/operations/runtime-acceptance-gates.md",
+    "docs/operations/weeklong-automation.md",
     "scripts/pasi_chat_guard.py",
     "scripts/pasi_provider_router.py",
+    "scripts/pasi_timeout_policy.py",
     "scripts/pasi_promote.py",
     "scripts/cleanup_duplicate_branches.py",
+    "scripts/start_pasi_168h.sh",
+    "scripts/stop_pasi_overnight.sh",
+    "scripts/status_pasi_overnight.sh",
+    "scripts/check_pasi_weekly_run.sh",
     "automation/orchestrator/",
     "scripts/pasi_overnight_engine_v2.py",
     "scripts/pasi_overnight_hardening.py",
@@ -116,11 +126,6 @@ def _branch_pr(branch: str) -> tuple[int | None, str, str]:
     except (KeyError, TypeError, ValueError):
         return None, "", ""
     return number, str(payload.get("url", "")), str(payload.get("state", "")).upper()
-
-
-def _reopen_pr(pr_number: int) -> tuple[bool, str]:
-    return_code, output = _run(["gh", "pr", "reopen", str(pr_number)], timeout=30.0)
-    return return_code == 0, output
 
 
 def _find_open_task_pr(task: str) -> tuple[int | None, str, str, str]:
@@ -323,16 +328,14 @@ def promote(commit: str, branch: str, task: str, *, auto_merge_standard: bool = 
     if pr_number is None:
         pr_number, pr_url = _create_pr(branch, title, body)
     elif pr_state == "CLOSED":
-        reopened, output = _reopen_pr(pr_number)
-        if not reopened:
-            return PromotionResult(
-                branch,
-                pr_number,
-                pr_url,
-                risk,
-                False,
-                f"existing closed PR could not be reopened; no duplicate PR created: {output[-2000:]}",
-            )
+        return PromotionResult(
+            branch,
+            pr_number,
+            pr_url,
+            risk,
+            False,
+            "an existing PR for this branch is closed; it remains closed and no duplicate PR was created",
+        )
     elif pr_state == "MERGED":
         pr_number, pr_url = _create_pr(branch, title, body)
     if not pr_number:
