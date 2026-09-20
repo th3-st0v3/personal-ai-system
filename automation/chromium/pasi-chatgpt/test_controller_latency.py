@@ -67,7 +67,7 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "reportHealth" in native
     assert "aria-labelledby" in native
     assert "hasAttribute?.('disabled')" in native
-    assert "github connection failed" in native
+    assert "github_failure" in detector
     assert "GitHub repository must be in owner/name form" in native
     assert 'button[data-testid*="model" i]' in native
     assert 'button[aria-label*="model" i]' in native
