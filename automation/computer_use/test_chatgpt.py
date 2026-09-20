@@ -272,6 +272,24 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(payload["prompt"], "inspect this")
         self.assertEqual(len(payload["idempotency_key"]), 64)
 
+
+    def test_submit_prompt_passes_operation_completion_markers(self) -> None:
+        transport = FakeTransport([{"operation": {"operation_id": "op-1"}}])
+        adapter = ChatGPTAdapter(transport, session_id="session-1")
+        self.assertEqual(
+            adapter.submit_prompt(
+                "marker-aware task",
+                completion_markers=["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"],
+            ),
+            "op-1",
+        )
+        payload = transport.requests[0][2]
+        assert payload is not None
+        self.assertEqual(
+            payload["completion_markers"],
+            ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"],
+        )
+
     def test_submit_prompt_recovers_same_operation_after_post_queue_crash(self) -> None:
         transport = PostQueueCrashTransport()
         first_adapter = ChatGPTAdapter(transport, session_id="session-1")
