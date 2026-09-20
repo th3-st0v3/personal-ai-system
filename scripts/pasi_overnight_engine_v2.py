@@ -914,6 +914,15 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         changed_files=len(changed_files),
     )
     commit = legacy.commit_and_push(worktree, branch, task, push, paths=legacy.patch_paths_from_diff(patch))
+    code, status = command(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        worktree,
+        30.0,
+    )
+    if code != 0:
+        raise RuntimeError(f"post-commit hygiene check failed: {status}")
+    if status.strip():
+        raise RuntimeError(f"post-commit hygiene check found uncommitted files:\n{status}")
     if push:
         promotion = command(
             [
