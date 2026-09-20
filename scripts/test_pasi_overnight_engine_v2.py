@@ -476,5 +476,19 @@ PASI_RESULT_PATCH_END"""
         self.assertIn("if push and promote:", source)
 
 
+
+    def test_runtime_guard_never_routes_to_provider_fallback(self) -> None:
+        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
+        invoke = source[source.index("def invoke_chat("):source.index("def parse_response(")]
+        self.assertIn('if condition != "auth_required":', invoke)
+        self.assertIn("Runtime-guard/browser failures must not be converted into provider", invoke)
+
+    def test_fallback_provider_provenance_is_durable_and_promotion_aware(self) -> None:
+        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
+        self.assertIn('last_provider: str = "chatgpt_browser"', source)
+        self.assertIn('state.last_provider = f"fallback:{provider}"', source)
+        self.assertIn('promote=provider_source == "chatgpt_browser"', source)
+
+
 if __name__ == "__main__":
     unittest.main()
