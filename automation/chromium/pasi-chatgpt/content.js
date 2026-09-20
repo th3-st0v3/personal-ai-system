@@ -1034,6 +1034,7 @@
 
     const strategies = [
       async (box, button) => {
+        if (generating()) return false;
         const form = (button || box).closest?.('form') || box.closest?.('form') || null;
         if (!form || typeof form.requestSubmit !== 'function') return false;
         try {
@@ -1046,12 +1047,12 @@
         }
       },
       async (_box, button) => {
-        if (!button || disabled(button)) return false;
+        if (generating() || !button || disabled(button)) return false;
         nativeMouseActivate(button);
         return true;
       },
       async (box) => {
-        if (!composerContainsPrompt(box, expected)) return false;
+        if (generating() || !composerContainsPrompt(box, expected)) return false;
         dispatchEnter(box);
         return true;
       }
