@@ -478,7 +478,7 @@ class TestPasiChat(unittest.TestCase):
         source = Path(__file__).resolve().parent / "pasi_chat.py"
         text = source.read_text(encoding="utf-8")
         self.assertIn(
-            "fallback_operation = adapter.submit_prompt(fallback_prompt)\n"
+            "fallback_operation = adapter.submit_prompt(fallback_prompt, completion_markers=completion_markers)\n"
             "                prompt_operation = fallback_operation\n"
             "                checkpoint_active_operation(handoff, fallback_operation, task)",
             text,
