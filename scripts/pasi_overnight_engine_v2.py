@@ -614,6 +614,126 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
     return choose_unique(candidates, state)
 
 
+def fast_local_gate(worktree: Path) -> str:
+    """Run a bounded changed-file gate for long-running unattended mode."""
+    code, output = command(["git", "diff", "--check"], worktree, 60.0)
+    if code != 0:
+        raise RuntimeError(f"fast local gate diff check failed:\n{output}")
+
+    code, output = command(["git", "diff", "--name-only"], worktree, 30.0)
+    if code != 0:
+        raise RuntimeError(f"fast local gate could not enumerate changed files:\n{output}")
+
+    changed = [line.strip() for line in output.splitlines() if line.strip()]
+    if not changed:
+        raise RuntimeError("fast local gate found no changed files after patch application")
+
+    existing = [path for path in changed if (worktree / path).is_file()]
+    python_files = [path for path in existing if path.endswith(".py")]
+    javascript_files = [path for path in existing if path.endswith(".js")]
+    shell_files = [path for path in existing if path.endswith(".sh")]
+    json_files = [path for path in existing if path.endswith(".json")]
+
+    checks: list[str] = []
+
+    if python_files:
+        code, output = command([legacy.sys.executable, "-m", "py_compile", *python_files], worktree, 120.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate Python syntax failed:\n{output}")
+        checks.append(f"py_compile:{len(python_files)}")
+        code, output = command(["npx", "--yes", "pyright@1.1.411", *python_files], worktree, 180.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate pyright failed:\n{output}")
+        checks.append(f"pyright:{len(python_files)}")
+
+    for path in javascript_files:
+        code, output = command(["node", "--check", path], worktree, 30.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate JavaScript syntax failed for {path}:\n{output}")
+    if javascript_files:
+        checks.append(f"node_check:{len(javascript_files)}")
+
+    for path in shell_files:
+        code, output = command(["bash", "-n", path], worktree, 30.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate shell syntax failed for {path}:\n{output}")
+    if shell_files:
+        checks.append(f"bash_check:{len(shell_files)}")
+
+    for path in json_files:
+        code, output = command(
+            [legacy.sys.executable, "-c", "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))", path],
+            worktree,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"fast local gate JSON validation failed for {path}:\n{output}")
+    if json_files:
+        checks.append(f"json_check:{len(json_files)}")
+
+    python_tests: set[str] = {
+        path for path in existing
+        if path.endswith(".py") and (
+            Path(path).name.startswith("test_")
+            or "/test_" in path
+        )
+    }
+    node_tests: set[str] = {
+        path for path in existing
+        if path.endswith(".test.js")
+    }
+
+    if any(path.startswith("automation/chromium/pasi-chatgpt/") for path in changed):
+        node_tests.update({
+            "automation/chromium/pasi-chatgpt/test_extension.js",
+            "automation/chromium/pasi-chatgpt/test_recovery.js",
+        })
+        python_tests.add("automation/chromium/pasi-chatgpt/test_controller_latency.py")
+
+    if any(path.startswith("automation/orchestrator/bridge.py") or path.startswith("automation/orchestrator/test_bridge") for path in changed):
+        python_tests.update({
+            "automation/orchestrator/test_bridge.py",
+            "automation/orchestrator/test_bridge_edge_cases.py",
+        })
+
+    if any(path.startswith("automation/orchestrator/state.py") or path.startswith("automation/orchestrator/test_state") for path in changed):
+        python_tests.update({
+            "automation/orchestrator/test_state.py",
+            "automation/orchestrator/test_state_corruption_regression.py",
+        })
+
+    if any(path.startswith("scripts/pasi_overnight_engine_v2.py") or path.startswith("scripts/test_pasi_overnight_engine_v2.py") for path in changed):
+        python_tests.add("scripts/test_pasi_overnight_engine_v2.py")
+
+    if any(path.startswith("scripts/pasi_chat.py") or path.startswith("scripts/test_pasi_chat") for path in changed):
+        python_tests.update({
+            "scripts/test_pasi_chat.py",
+            "scripts/test_pasi_chat_routing.py",
+            "scripts/test_pasi_chat_guard.py",
+        })
+
+    python_tests = {path for path in python_tests if (worktree / path).is_file()}
+    node_tests = {path for path in node_tests if (worktree / path).is_file()}
+
+    if python_tests:
+        code, output = command(
+            [legacy.sys.executable, "-m", "pytest", "-q", *sorted(python_tests)],
+            worktree,
+            300.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"fast local gate targeted pytest failed:\n{output}")
+        checks.append(f"pytest:{len(python_tests)}")
+
+    if node_tests:
+        code, output = command(["node", "--test", *sorted(node_tests)], worktree, 180.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate targeted Node tests failed:\n{output}")
+        checks.append(f"node_tests:{len(node_tests)}")
+
+    return "FAST LOCAL GATE PASSED: " + ", ".join(checks) + f"; changed={len(changed)} files"
+
+
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
     validate_patch_paths(patch, allow_delete)
     code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, 60.0)
@@ -622,9 +742,18 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, 60.0)
     if code != 0:
         raise RuntimeError(f"git apply failed:\n{output}")
-    code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
-    if code != 0:
-        raise RuntimeError(f"canonical validation failed:\n{output}")
+    gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower()
+    if gate_mode == "fast":
+        output = fast_local_gate(worktree)
+        log_event("fast_local_gate_passed")
+    elif gate_mode in {"", "full"}:
+        code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
+        if code != 0:
+            raise RuntimeError(f"canonical validation failed:\n{output}")
+    else:
+        raise RuntimeError(
+            f"unsupported PASI_LOCAL_GATE_MODE={gate_mode!r}; expected fast or full"
+        )
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
