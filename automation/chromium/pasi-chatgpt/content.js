@@ -6,7 +6,6 @@
   const HEALTH_MS = 15000;
   const DOM_POLL_MS = 50;
   const CLICK_SETTLE_MS = 250;
-  const THINKING_VERIFY_MS = 5000;
   const RESPONSE_SETTLE_MS = 200;
   const SUBMISSION_ACK_MS = 5000;
   const SUBMISSION_ATTEMPTS = 3;
@@ -1057,52 +1056,56 @@
       }
     ];
 
-    let fired = false;
     for (let attempt = 1; attempt <= strategies.length; attempt += 1) {
       let via = accepted();
       if (via) return { via, attempt, verified: via === 'verified' };
 
       await ensurePromptSubmissionReady();
-      let box = composer();
-      if (!box) throw new Error('PASI_NATIVE: composer disappeared');
-
-      const composerNow = composer();
-      const composerEmptied = fired && (!composerNow || !composerContainsPrompt(composerNow, expected));
-      if (generating() || newMessageState() || composerEmptied) {
+      const box = composer();
+      const composerEmptied = !box || !composerContainsPrompt(box, expected);
+      if ((attempt > 1 && composerEmptied) || generating() || newMessageState()) {
         via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
         return { via: via || 'sent_unverified', attempt, verified: via === 'verified' };
       }
 
-      if (!composerContainsPrompt(box, expected)) {
-        if (normalize(readText(box))) {
+      let readyBox = box;
+      if (!readyBox) throw new Error('PASI_NATIVE: composer disappeared');
+
+      if (!composerContainsPrompt(readyBox, expected)) {
+        if (normalize(readText(readyBox))) {
           throw new Error('PASI_NATIVE: composer holds unrelated text; refusing to overwrite');
         }
-        insertText(box, expected);
-        box = await waitUntil(() => {
+        insertText(readyBox, expected);
+        readyBox = await waitUntil(() => {
           const current = composer();
           return current && composerContainsPrompt(current, expected) ? current : null;
         }, 2000, DOM_POLL_MS) || composer();
       }
 
-      if (!box || !composerContainsPrompt(box, expected)) {
+      if (!readyBox || !composerContainsPrompt(readyBox, expected)) {
         if (attempt < strategies.length) continue;
         throw new Error('PASI_NATIVE: composer lost the requested prompt before submission after bounded recovery');
       }
 
-      const button = await waitForSend(box);
-      if (!button) throw new Error('PASI_NATIVE: send control unavailable');
-      fired = await strategies[attempt - 1](box, button);
+      const button = await waitForSend(readyBox);
+      if (!button) {
+        if (attempt < strategies.length) continue;
+        throw new Error('PASI_NATIVE: send control unavailable');
+      }
+
+      // Each strategy is mutually exclusive. Once one actually fires, never
+      // invoke another send mechanism: the delayed acknowledgement may simply
+      // be trailing the real submission and a second click can duplicate work.
+      const fired = await strategies[attempt - 1](readyBox, button);
       if (!fired) continue;
 
-      // Once a send strategy has fired, the only safe next action is observation.
-      // Never reinsert or click another send control merely because the DOM ack lags.
       via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
-      if (via) return { via, attempt, verified: via === 'verified' };
+      return { via: via || 'sent_unverified', attempt, verified: via === 'verified' };
     }
 
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-    return { via: 'sent_unverified', attempt: strategies.length, verified: false };
+    throw new Error('PASI_NATIVE: prompt submission could not be verified after bounded attempts');
   }
 
 
@@ -1188,8 +1191,6 @@
   }
 
   async function finishOperation(operationId, responseText = '', requireResponseText = false) {
-    const responseReceivedAt = new Date().toISOString();
-    void reportObservation('chat_response_received', { operation_id: operationId, phase: 'response_complete', captured_at: responseReceivedAt });
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
       throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
     }
@@ -1211,6 +1212,7 @@
       active_operation_id: operationId
     });
 
+    void reportObservation('chat_response_received', { operation_id: operationId, phase: 'response_complete', captured_at: new Date().toISOString() });
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
@@ -1282,6 +1284,13 @@
           } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           const submission = await submitPrompt(operation.prompt);
+          void reportObservation('prompt_injected', {
+            operation_id: operation.operation_id,
+            captured_at: new Date().toISOString(),
+            submission_via: submission.via,
+            submission_attempt: submission.attempt,
+            submission_verified: submission.verified
+          });
           if (!submission.verified) {
             void reportObservation('chatgpt_submit_unverified', {
               operation_id: operation.operation_id,
@@ -1292,18 +1301,6 @@
           if (!(await waitUntil(() => generating() || fingerprint() !== baseline, GENERATION_START_WAIT_MS, DOM_POLL_MS))) {
             throw new Error('PASI_NATIVE: submission accepted but generation did not start');
           }
-          void reportObservation('chat_response_received', {
-            operation_id: operation.operation_id,
-            phase: 'generation_started',
-            captured_at: new Date().toISOString()
-          });
-          void reportObservation('prompt_injected', {
-            operation_id: operation.operation_id,
-            captured_at: new Date().toISOString(),
-            submission_via: submission.via,
-            submission_attempt: submission.attempt,
-            submission_verified: submission.verified
-          });
           const response = await waitForResponse(baseline);
           await finishOperation(operation.operation_id, response, true);
           finalized = true;
