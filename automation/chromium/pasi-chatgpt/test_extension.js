@@ -254,6 +254,12 @@ test('native transient control activation clears stale focus before ChatGPT hide
   assert.equal(clicked, true);
 });
 
+test('native prompt paths call the defined composer setter', () => {
+  assert.match(content, /setText\(box, expected\);/);
+  assert.match(content, /setText\(box, promptText\);/);
+  assert.doesNotMatch(content, /(^|[^\\w.])insertText\(box,/m);
+});
+
 test('native assistant extraction preserves machine-readable marker and diff line breaks', () => {
   assert.match(content, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
   assert.match(content, /function collapseWhitespace\(value\)/);
