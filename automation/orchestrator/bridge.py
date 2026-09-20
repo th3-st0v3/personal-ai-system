@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hmac
 import json
+import os
 import threading
 import time
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -22,6 +25,7 @@ MAX_TRANSIENT_FAILURE_RETRIES = 3
 MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 MAX_IDEMPOTENCY_KEY_CHARS = 128
+BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -597,6 +601,31 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     CORS is intentionally restricted to ChatGPT origins.
     """
 
+    def _expected_bridge_token(self) -> str:
+        configured = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+        if configured:
+            return configured
+        try:
+            return BRIDGE_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def _request_is_authorized(self, *, require_token: bool) -> bool:
+        host = self.headers.get("Host", "")
+        bound_port = self.server.server_address[1] if isinstance(self.server.server_address, tuple) else PORT
+        if host != f"{HOST}:{bound_port}":
+            return False
+        origin = self.headers.get("Origin", "").strip()
+        if origin and not origin.startswith("chrome-extension://"):
+            return False
+        if not require_token:
+            return True
+        expected = self._expected_bridge_token()
+        supplied = self.headers.get("Authorization", "")
+        prefix = "Bearer "
+        token = supplied[len(prefix):].strip() if supplied.startswith(prefix) else ""
+        return bool(expected) and bool(token) and hmac.compare_digest(token, expected)
+
     server_version = "PersonalAIChatBridge/1.0"
 
     @property
@@ -637,7 +666,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type",
+            "Content-Type, Authorization",
         )
 
         self.send_header(
@@ -692,6 +721,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if not raw_body:
             return {}
 
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_length and content_type != "application/json":
+            raise ValueError("JSON request body requires Content-Type: application/json")
+
         payload = json.loads(
             raw_body.decode("utf-8")
         )
@@ -711,6 +744,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path != "/health" and not self._request_is_authorized(require_token=True):
+            self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
 
         if path == "/health":
             self._send_json(
@@ -771,9 +808,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/next-operation":
-            operation = (
-                self.bridge_state.claim_next_operation()
-            )
+            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+            return
+
 
             if operation is None:
                 self._send_json(
@@ -801,6 +838,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         path = urlparse(
             self.path
         ).path
+
+        if not self._request_is_authorized(require_token=True):
+            self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
 
         try:
             payload = self._read_json()
