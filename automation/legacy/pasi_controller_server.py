@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-MANIFEST_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
-CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+MANIFEST_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json"
+CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
 RECOVERY_PATH = REPOSITORY_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "recovery.js"
 HOST = "127.0.0.1"
 PORT = 8766
@@ -198,7 +198,7 @@ def load_verified_recovery() -> tuple[dict[str, Any], str, str]:
 
 def _canonical_from_remote() -> tuple[dict[str, Any], str, str, str, str]:
     ref_sha = _git_ref_sha(REMOTE_MAIN_REF)
-    controller_path = "automation/tampermonkey/chatgpt-controller.user.js"
+    controller_path = "automation/legacy/tampermonkey/chatgpt-controller.user.js"
     recovery_path = "automation/chromium/pasi-chatgpt/recovery.js"
     controller_bytes = _git_show(REMOTE_MAIN_REF, controller_path)
     recovery_bytes = _git_show(REMOTE_MAIN_REF, recovery_path)
@@ -224,7 +224,7 @@ def _canonical_from_remote() -> tuple[dict[str, Any], str, str, str, str]:
         "schema_version": "1",
         "enabled": True,
         "version": version,
-        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/chatgpt-controller.user.js",
+        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/legacy/tampermonkey/chatgpt-controller.user.js",
         "git_blob_sha": controller_sha,
         "release_commit": ref_sha,
         "recovery_version": recovery_version,

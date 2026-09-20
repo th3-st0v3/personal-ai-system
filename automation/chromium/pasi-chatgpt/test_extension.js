@@ -8,12 +8,50 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'u
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
 const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
+const detectors = fs.readFileSync(path.join(root, 'detectors.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
 test('native controller and recovery companion have unique recovery declarations', () => {
   assert.equal((content.match(/const RECOVERY_KEY = 'pasi:chatgpt-recovery';/g) || []).length, 1);
   assert.equal((content.match(/const MAX_CONTEXT_AUTO_RECOVERIES = 1;/g) || []).length, 1);
   assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
+});
+
+test('shared detectors scope terminal state markers away from messages and sidebar content', () => {
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
+  assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.doesNotMatch(detectors, /document\.body\?\.innerText/);
+  assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
+  const alert = {
+    innerText: 'Your request hit a rate limit.',
+    textContent: 'Your request hit a rate limit.',
+    closest: () => null
+  };
+  const message = {
+    innerText: 'The docs mention rate limit and captcha as examples.',
+    textContent: 'The docs mention rate limit and captcha as examples.',
+    closest: (selector) => selector.includes('data-message-author-role') ? message : null
+  };
+  const nav = {
+    innerText: 'captcha sign in to continue',
+    textContent: 'captcha sign in to continue',
+    closest: (selector) => selector.includes('data-message-author-role') && selector.includes('nav, aside') ? nav : null
+  };
+  const documentMock = {
+    querySelectorAll(selector) {
+      if (selector === '[role="alert"]') return [alert, message, nav];
+      return [];
+    }
+  };
+  const scope = {};
+  const detectorFactory = new Function('document', 'globalThis', detectors + '\nreturn globalThis.PASIChatGPTDetectors;');
+  const api = detectorFactory(documentMock, scope);
+  const result = api.detect();
+  assert.equal(result.usage_limited, true);
+  assert.equal(result.auth_required, false);
+  assert.equal(result.scope_count, 1);
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
@@ -26,7 +64,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller reports roadmap completion and repository progress markers', () => {
@@ -58,8 +96,8 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /typeof operation\.response_text === 'string'/);
   assert.match(content, /payload\?\.operation\?\.response_text_available === true/);
   assert.match(content, /Boolean\(responseText\.trim\(\)\)/);
-  assert.match(content, /await finishOperation\(stored\.operation_id, responseText, true\)/);
-  assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
+  assert.match(content, /await finishOperation\(operationId, responseText, true\)/);
+  assert.match(content, /readJsonStorage\(ACTIVE_KEY\)/);
 });
 
 test('native controller reports health and preserves interrupted-operation recovery', () => {
@@ -67,11 +105,244 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /chatgpt_chat_changed/);
   assert.match(content, /conversation_signature/);
   assert.match(content, /localStorage/);
-  assert.match(recovery, /browser page reloaded during operation/);
+  assert.match(content, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
   assert.match(content, /CHAT_USAGE_LIMITED/);
   assert.match(content, /const current = await bridge\(`\/operation\?operation_id=/);
-  assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
+  assert.match(content, /content\.js owns completion and retry mutation/);
+});
+
+test('native transient control activation clears stale focus before ChatGPT hides or replaces UI', () => {
+  assert.match(content, /function freshChatSurface\(previousLocation, previousChat\)/);
+  assert.match(content, /freshRootChat = freshChatSurface\(previousLocation, previousChat\)/);
+  assert.match(content, /new chat control did not reach a verified fresh chat surface/);
+  assert.match(content, /const focused = document\.activeElement;/);
+
+  assert.match(content, /function accessibilityHidden\(element\)/);
+  assert.match(content, /current\.getAttribute\?\.\('aria-hidden'\) === 'true'/);
+  assert.match(content, /current\.hasAttribute\?\.\('inert'\)/);
+  assert.match(content, /if \(!element \|\| accessibilityHidden\(element\)\) return false;/);
+  assert.match(content, /function clearFocusBeforeActivation\(\)/);
+  assert.match(content, /const active = document\.activeElement;/);
+  assert.match(content, /try \{ active\.blur\(\); \} catch \(_\) \{\}/);
+  assert.match(content, /function activateControl\(element\)/);
+  assert.match(content, /clearFocusBeforeActivation\(\);\s*try \{\s*element\.click\(\);/);
+  assert.match(content, /if \(!activateControl\(button\)\) throw new Error\('PASI_NATIVE: New chat control activation failed'\)/);
+  assert.match(content, /function nativeMouseActivate\(element\) \{/);
+  assert.match(content, /function controllerClaim\(\)/);
+  const mouseActivation = content.slice(
+    content.indexOf('function nativeMouseActivate(element)'),
+    content.indexOf('async function submitPrompt(expected)')
+  );
+  assert.match(mouseActivation, /clearFocusBeforeActivation\(\);/);
+  assert.doesNotMatch(mouseActivation, /element\.focus\(\);/);
+
+  const accessibilityStart = content.indexOf('function accessibilityHidden(element)');
+  const visibleStart = content.indexOf('  function visible(element)');
+  assert.ok(accessibilityStart >= 0 && visibleStart > accessibilityStart);
+  const accessibilitySource = content.slice(accessibilityStart, visibleStart);
+  const accessibilityHidden = new Function(
+    accessibilitySource + '\nreturn accessibilityHidden;'
+  )();
+
+  const ariaAncestor = {
+    parentElement: null,
+    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
+    hasAttribute() { return false; }
+  };
+  const ariaChild = {
+    parentElement: ariaAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; }
+  };
+  const inertAncestor = {
+    parentElement: null,
+    getAttribute() { return null; },
+    hasAttribute(name) { return name === 'inert'; }
+  };
+  const inertChild = {
+    parentElement: inertAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; }
+  };
+  assert.equal(accessibilityHidden(ariaChild), true);
+  assert.equal(accessibilityHidden(inertChild), true);
+  assert.equal(accessibilityHidden({ parentElement: null, getAttribute() { return null; }, hasAttribute() { return false; } }), false);
+
+  const freshStart = content.indexOf('function freshChatSurface(previousLocation, previousChat)');
+  const freshEnd = content.indexOf('  function contextExhausted()', freshStart);
+  assert.ok(freshStart >= 0 && freshEnd > freshStart);
+  const freshSource = content.slice(freshStart, freshEnd);
+  const buildFresh = new Function(
+    'location',
+    'composer',
+    'generating',
+    'userMessages',
+    'assistantMessages',
+    freshSource + '\nreturn freshChatSurface;'
+  );
+  const freshRoot = buildFresh(
+    { href: 'https://chatgpt.com/' },
+    () => true,
+    () => false,
+    () => [],
+    () => []
+  );
+  assert.equal(freshRoot('https://chatgpt.com/old', 'https://chatgpt.com/c/old'), true);
+  const freshChatPath = buildFresh(
+    { href: 'https://chatgpt.com/c/new' },
+    () => true,
+    () => false,
+    () => [],
+    () => []
+  );
+  assert.equal(
+    freshChatPath('https://chatgpt.com/c/new', 'https://chatgpt.com/c/old'),
+    false
+  );
+
+  let blurred = false;
+  let clicked = false;
+  const hiddenAncestor = {
+    parentElement: null,
+    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
+    hasAttribute() { return false; }
+  };
+  const focusedAfterClick = {
+    parentElement: hiddenAncestor,
+    getAttribute() { return null; },
+    hasAttribute() { return false; },
+    blur() { blurred = true; }
+  };
+  const focusDocument = {
+    activeElement: { blur() { blurred = true; } },
+    body: {},
+    documentElement: {}
+  };
+  const focusStart = content.indexOf('function clearFocusBeforeActivation()');
+  const focusEnd = content.indexOf('  async function newChat()', focusStart);
+  assert.ok(focusStart >= 0 && focusEnd > focusStart);
+  const focusSource = content.slice(focusStart, focusEnd);
+  const buildActivation = new Function(
+    'document',
+    'visible',
+    'disabled',
+    'accessibilityHidden',
+    focusSource + '\nreturn { activateControl };'
+  );
+  const activation = buildActivation(
+    focusDocument,
+    () => true,
+    () => false,
+    (element) => {
+      for (let current = element; current; current = current.parentElement) {
+        if (current.getAttribute?.('aria-hidden') === 'true' || current.hasAttribute?.('inert')) return true;
+      }
+      return false;
+    }
+  );
+  assert.equal(
+    activation.activateControl({
+      click() {
+        clicked = true;
+        focusDocument.activeElement = focusedAfterClick;
+      }
+    }),
+    true
+  );
+  assert.equal(blurred, true);
+  assert.equal(clicked, true);
+});
+
+test('native recovery persists a claimable operation id and retry context', () => {
+  assert.match(content, /recovery_operation_id: operation\.operation_id/);
+  assert.match(content, /body\.recovery_context = recoveryContext/);
+  assert.match(content, /const value = state\?\.\[RECOVERY_OPERATION_KEY\] \|\| state\?\.\[RECOVERY_RESUME_OPERATION_KEY\] \|\| state\?\.operation_id/);
+});
+
+test('native context recovery uses the context-specific retry counter', () => {
+  assert.match(content, /const contextRetryCount = Number\(operation\.retry_counts\?\.context \|\| 0\)/);
+  assert.match(content, /contextRetryCount < MAX_CONTEXT_AUTO_RECOVERIES/);
+  assert.match(content, /contextRetryCount >= MAX_CONTEXT_AUTO_RECOVERIES/);
+  assert.doesNotMatch(content, /Number\(operation\.retry_count \|\| 0\).*MAX_CONTEXT_AUTO_RECOVERIES/);
+});
+
+test('native prompt paths call the defined composer setter', () => {
+  assert.match(content, /setText\(box, expected\);/);
+  assert.match(content, /setText\(box, promptText\);/);
+  assert.doesNotMatch(content, /(^|[^\\w.])insertText\(box,/m);
+});
+
+test('native assistant extraction preserves machine-readable marker and diff line breaks', () => {
+  assert.match(content, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
+  assert.match(content, /function collapseWhitespace\(value\)/);
+  assert.match(content, /function messageText\(node\)/);
+  assert.match(content, /function extractAssistant\(node\)/);
+
+  const messageStart = content.indexOf('function messageText(node)');
+  const messageEnd = content.indexOf('  function newestUserMatches', messageStart);
+  assert.ok(messageStart >= 0 && messageEnd > messageStart);
+  const messageSource = content.slice(messageStart, messageEnd);
+  const messageText = new Function(messageSource + '\nreturn messageText;')();
+  const fixture = [
+    'PASI_RESULT_STATUS: complete',
+    'PASI_RESULT_PATCH_BEGIN',
+    'diff --git a/example.txt b/example.txt',
+    '--- a/example.txt',
+    '+++ b/example.txt',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    'PASI_RESULT_PATCH_END'
+  ].join('\n');
+  const node = { innerText: fixture, textContent: fixture };
+  assert.equal(messageText(node), fixture);
+  assert.match(messageText(node), /PASI_RESULT_PATCH_BEGIN\ndiff --git/);
+  assert.match(messageText(node), /@@ -1 \+1 @@\n-old\n\+new/);
+
+  const fingerprintStart = content.indexOf('function fingerprint()');
+  const fingerprintEnd = content.indexOf('\n  async function waitForResponse', fingerprintStart);
+  assert.ok(fingerprintStart >= 0 && fingerprintEnd > fingerprintStart);
+  const fingerprintSource = content.slice(fingerprintStart, fingerprintEnd);
+  assert.match(fingerprintSource, /collapseWhitespace\(latestAssistant\(\)\)/);
+});
+
+test('native prompt execution prevents duplicate sends and requires stable final output', () => {
+  assert.match(content, /function operationPrompt\(operation\)/);
+  assert.match(content, /PASI_OPERATION/);
+  assert.match(content, /generating\(\) \|\| userMessages\(\)\.length > baselineUserCount/);
+  assert.match(content, /prompt submission already appears to be in progress/);
+  assert.match(content, /const RESPONSE_SETTLE_MS = 3500/);
+  assert.match(content, /stableFingerprint/);
+  assert.match(content, /stableSince/);
+  assert.match(content, /Date\.now\(\) - stableSince >= RESPONSE_SETTLE_MS/);
+  assert.match(content, /PASI_RESULT_STATUS/);
+});
+
+test('native new-chat selection excludes navigation and requires an empty target', () => {
+  assert.match(content, /function findNewChatControl\(\)/);
+  assert.match(content, /button\[data-testid="new-chat-button"\]/);
+  assert.match(content, /button\[aria-label="New chat"\]/);
+  assert.match(content, /nav, aside, \[role="navigation"\]/);
+  assert.match(content, /emptySurface = Boolean\(composer\(\)/);
+  assert.match(content, /currentChat !== previousChat && emptySurface/);
+});
+
+test('native active operation renews the controller lease until completion', () => {
+  assert.match(content, /let leaseTimerId = null/);
+  assert.match(content, /leaseTimerId = setInterval\(\(\) =>/);
+  assert.match(content, /controllerClaim\(\)\.catch/);
+  assert.match(content, /clearInterval\(leaseTimerId\)/);
+});
+
+test('native controller elects one tab through a renewable lease', () => {
+  assert.match(content, /type: 'pasi-controller-claim'/);
+  assert.match(content, /await controllerClaim\(\)/);
+  assert.match(background, /CONTROLLER_LEASE_KEY/);
+  assert.match(background, /CONTROLLER_LEASE_MS = 10 \* 1000/);
+  assert.match(background, /sender\?\.tab\?\.id/);
+  assert.match(background, /current\.tabId === tabId/);
+  assert.match(background, /renewedAt: now/);
 });
 
 test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
@@ -88,8 +359,9 @@ test('native prompt submission uses stable model selection and fail-closed Think
   assert.match(content, /currentModelMode\(\) === 'thinking'/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
-  assert.match(content, /await submitPrompt\(operation\.prompt\)/);
-  assert.match(content, /const DOM_POLL_MS = 250;/);
+  assert.match(content, /await submitPrompt\(promptText\)/);
+  assert.match(content, /var DOM_POLL_MS = 250;/);
+  assert.match(content, /DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| DOM_POLL_MS/);
 });
 
 test('native Thinking selection prefers the composer model pill and stable intelligence modal', () => {
@@ -209,26 +481,24 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
-test('native recovery retries completed prompt evidence before clearing the active marker', () => {
-  assert.match(recovery, /if \(current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'\) \{/);
-  assert.match(recovery, /finishVisibleResponse\(operationId, current, ''\)/);
-  assert.match(recovery, /else if \(current\.status !== 'completed'\)/);
-  assert.match(recovery, /clearInterruptedState\(\)/);
+test('native restart recovery retries persisted response evidence before clearing active state', () => {
+  assert.match(content, /if \(operation\.status === 'completed'\)/);
+  assert.match(content, /const responseAvailable = Boolean\(responseText\.trim\(\)\)/);
+  assert.match(content, /await finishOperation\(operationId, responseText, true\)/);
+  assert.match(content, /const visibleResponse = latestAssistant\(\)/);
+  assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
+  assert.match(content, /localStorage\.removeItem\(ACTIVE_KEY\)/);
 });
 
-test('native recovery companion preserves response text without blocking completion acknowledgement', () => {
-  assert.match(recovery, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
-  assert.match(recovery, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
-  assert.match(recovery, /location\.reload\(\)/);
-  assert.match(recovery, /function usageLimited\(\)/);
-  assert.match(recovery, /function replacementReason\(\)/);
-  assert.match(recovery, /phase: 'preserve_current_chat'/);
-  assert.match(recovery, /no_verified_usage_or_context_exhaustion/);
-  assert.match(recovery, /CHAT_RECOVERED_RETRY/);
-  assert.match(recovery, /operation_type: 'new_chat'/);
-  assert.match(recovery, /response_text: bounded/);
-  assert.match(recovery, /await report\('chatgpt_response'/);
-  assert.match(recovery, /current\.status === 'failed'/);
+test('native recovery companion is observation-only', () => {
+  assert.match(recovery, /recovery_action: 'observe_only'/);
+  assert.match(recovery, /recovery_action: 'observe_response_only'/);
+  assert.doesNotMatch(recovery, /location\.reload\(\)/);
+  assert.doesNotMatch(recovery, /\/chat\/finished/);
+  assert.doesNotMatch(recovery, /\/chat\/failed/);
+  assert.doesNotMatch(recovery, /\/queue/);
+  assert.doesNotMatch(recovery, /\/next-operation/);
+  assert.match(content, /content\.js owns completion and retry mutation/);
 });
 
 test('operation lookup route is accepted by the MV3 service worker allowlist', () => {
@@ -329,9 +599,10 @@ test('native prompt completion refuses an empty response payload while non-promp
 });
 
 test('native prompt submission tolerates corrupt active recovery state', () => {
-  assert.match(content, /let activeState = \{\};/);
-  assert.match(content, /try \{\s*activeState = JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\) \|\| '\{\}'\);/);
-  assert.match(content, /catch \(_\) \{\}/);
+  assert.match(content, /function readJsonStorage\(key\)/);
+  assert.match(content, /JSON\.parse\(localStorage\.getItem\(key\) \|\| 'null'\)/);
+  assert.match(content, /catch \(_\) \{\s*return null;\s*\}/);
+  assert.match(content, /const activeState = readJsonStorage\(ACTIVE_KEY\) \|\| \{\};/);
 });
 
 test('native response recovery keeps the pre-prompt baseline after a timeout', () => {
@@ -353,8 +624,9 @@ test('native controller preserves prompt operations for bounded response recover
 });
 
 test('background watchdog requires an active operation and exact chat identity before reloading', () => {
-  assert.match(background, /if \(typeof health\.data\.active_operation_id !== 'string' \|\| !health\.data\.active_operation_id\.trim\(\)\) return/);
-  assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
+  assert.match(background, /if \(status\.queue_size <= 0 && !String\(health\.data\.active_operation_id \|\| ''\)\.trim\(\)\) return/);
+  assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string' \? health\.data\.chat_url\.trim\(\) : '';/);
+  assert.match(background, /if \(!targetChatUrl\) return;/);
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
   assert.match(background, /async function createCooldown\(targetChatUrl\)/);
@@ -391,5 +663,5 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /const baseline = typeof stored\?\.baseline === 'string' \? stored\.baseline : ''/);
   assert.match(content, /const visibleResponse = latestAssistant\(\)/);
   assert.match(content, /visibleFingerprint !== baseline/);
-  assert.match(content, /finishOperation\(stored\.operation_id, visibleResponse, true\)/);
+  assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
 });

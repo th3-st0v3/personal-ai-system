@@ -62,7 +62,7 @@ class RepeatingTransport(FakeTransport):
 
 
 class ObservationFailingTransport(FakeTransport):
-    def __init__(self, responses: list[Mapping[str, Any]], fail_path: str = "/browser/response") -> None:
+    def __init__(self, responses: list[Mapping[str, Any]], fail_path: str = "/browser/health") -> None:
         super().__init__(responses)
         self.fail_path = fail_path
 
@@ -317,7 +317,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         transport = ObservationFailingTransport([
             {"operation": {"operation_id": "op-new"}},
             {"operation": {"operation_id": "op-new", "status": "completed"}},
-        ], fail_path="/browser/observation")
+        ], fail_path="/browser/health")
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, last_chat_url="https://chatgpt.com/c/old")
         self.assertEqual(adapter.new_session(), "op-new")
         self.assertIsNone(adapter.last_chat_url)
@@ -414,7 +414,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         transport = ObservationFailingTransport([
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed"}},
             {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed", "response_text": "late answer", "response_text_available": True}},
-        ])
+        ], fail_path="/browser/response")
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
         response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
         self.assertEqual(response.completion, "complete")
@@ -476,6 +476,36 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.completion, "error")
         self.assertTrue(response.chat_exhausted)
         self.assertEqual(response.error, "CHAT_EXHAUSTED: usage limit")
+
+    def test_wait_timeout_cancels_bridge_operation(self) -> None:
+        class TimeoutTransport(FakeTransport):
+            def __init__(self) -> None:
+                super().__init__([])
+            
+            def request(self, method, path, payload=None):
+                if method == "GET" and path.startswith("/operation"):
+                    return {
+                        "operation": {
+                            "operation_id": "op-1",
+                            "operation_type": "prompt",
+                            "status": "generating",
+                        }
+                    }
+                if method == "POST" and path == "/chat/cancel":
+                    self.requests.append((method, path, payload or {}))
+                    return {"operation": {"operation_id": "op-1", "status": "cancelled"}}
+                return super().request(method, path, payload)
+
+        transport = TimeoutTransport()
+        adapter = ChatGPTAdapter(
+            transport,
+            session_id="session-1",
+            poll_interval_seconds=0.001,
+            max_wait_seconds=0.001,
+        )
+        response = adapter.wait_for_completion("op-1")
+        self.assertEqual(response.completion, "timeout")
+        self.assertTrue(any(path == "/chat/cancel" for _method, path, _payload in transport.requests))
 
     def test_wait_timeout_is_explicit_timeout(self) -> None:
         transport = RepeatingTransport({"operation": {"operation_id": "op-1", "status": "generating"}})

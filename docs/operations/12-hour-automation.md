@@ -1,6 +1,6 @@
 # PASI 12-Hour Automation Run
 
-This is the supported WSL launch path for a long unattended engineering run. The runner uses a dedicated worktree, persistent state, bounded task retries, deterministic verification, provider fallback, dynamic setup discovery, web-evidence injection, and browser recovery. It is designed to make substantial repository progress without turning external web content or provider output into unrestricted execution authority.
+This is the supported WSL launch path for a long unattended engineering run. The runner uses a dedicated worktree, persistent state, bounded task retries, deterministic verification, provider fallback, and browser recovery. It is designed to make substantial repository progress without turning external web content or provider output into unrestricted execution authority.
 
 ## Free-first operating premise
 
@@ -17,7 +17,7 @@ Use one Chromium/Chrome profile dedicated to PASI. Open `https://chatgpt.com/` a
 Install **one** PASI browser-controller path:
 
 - Preferred: load the unpacked native extension from `automation/chromium/pasi-chatgpt` in Chromium/Chrome.
-- Alternative: install `automation/tampermonkey/chatgpt-controller-loader.user.js` in Tampermonkey. Do not run a second directly-installed PASI ChatGPT controller at the same time.
+- Alternative: install `automation/legacy/tampermonkey/chatgpt-controller-loader.user.js` in Tampermonkey. Do not run a second directly-installed PASI ChatGPT controller at the same time.
 
 The GitHub account/app is only needed when account-scoped GitHub access or the connected ChatGPT GitHub fallback is required. The public PASI repository is the default repository context.
 
@@ -29,7 +29,7 @@ source .venv/bin/activate
 bash scripts/start_pasi_12h.sh
 ```
 
-That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher routes through `scripts/pasi_automation_entrypoint.py`, which enforces the 25-minute response budget, captures new setup requirements, supports bounded public-web research, and records verified self-improvement surfaces.
+That single command performs the setup preflight and starts the supported 12-hour runner in the background. The launcher routes through the same native v2 runtime used by the 168-hour runner. It uses the shared timeout policy, native Chromium bridge, bounded recovery, and provider fallback controls.
 
 To supply specific public web pages as research context without editing the repository prompt, set a bounded comma-separated list first:
 

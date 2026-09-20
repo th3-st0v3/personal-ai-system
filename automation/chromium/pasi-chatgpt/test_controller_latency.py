@@ -3,7 +3,7 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TAMPERMONKEY = ROOT / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
+TAMPERMONKEY = ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
 NATIVE = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 BACKGROUND = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "background.js"
 
@@ -39,7 +39,7 @@ def test_native_controller_uses_bounded_idle_polling() -> None:
     assert 1000 <= _number(source, "POLL_MS") <= 5000
     assert _number(source, "DOM_POLL_MS") <= 250
     assert _number(source, "CLICK_SETTLE_MS") <= 300
-    assert _number(source, "RESPONSE_SETTLE_MS") <= 250
+    assert 3000 <= _number(source, "RESPONSE_SETTLE_MS") <= 5000
     assert "const ACTIVE_KEY = 'pasi:active-operation';" in source
     assert "localStorage.setItem(ACTIVE_KEY" in source
     assert "localStorage.removeItem(ACTIVE_KEY);" in source
@@ -60,13 +60,14 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "targetAddressSpace" not in background
     assert "http://127.0.0.1:8765" in background
     assert "allowedBridgeRequest(method, path)" in background
-    assert "captcha" in native
-    assert "session has expired" in native
+    detector = _read(ROOT / "automation" / "chromium" / "pasi-chatgpt" / "detectors.js")
+    assert "captcha" in detector
+    assert "session has expired" in detector
     assert "CHAT_EXHAUSTED" in native
     assert "reportHealth" in native
     assert "aria-labelledby" in native
     assert "hasAttribute?.('disabled')" in native
-    assert "github connection failed" in native
+    assert "github_failure" in detector
     assert "GitHub repository must be in owner/name form" in native
     assert 'button[data-testid*="model" i]' in native
     assert 'button[aria-label*="model" i]' in native

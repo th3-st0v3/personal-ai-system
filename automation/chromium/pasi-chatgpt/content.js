@@ -2,15 +2,24 @@
   'use strict';
 
   const CONTROLLER_VERSION = '2.4.11';
-  const POLL_MS = 2000;
-  const HEALTH_MS = 15000;
-  const DOM_POLL_MS = 250;
+  const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || globalThis.PASI_TIMEOUT_POLICY?.defaults || {};
+  var POLL_MS = 2000;
+  POLL_MS = TIMEOUT_POLICY.pollMs || POLL_MS;
+  const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
+  var DOM_POLL_MS = 250;
+  DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || DOM_POLL_MS;
   const CLICK_SETTLE_MS = 250;
   const THINKING_VERIFY_MS = 5000;
-  const RESPONSE_SETTLE_MS = 200;
+  const RESPONSE_SETTLE_MS = 3500;
   const SUBMISSION_ACK_MS = 7500;
   const SUBMISSION_ATTEMPTS = 3;
-  const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
+  const TIMEOUTS = {
+    menu: TIMEOUT_POLICY.menuMs || 8000,
+    composer: TIMEOUT_POLICY.composerMs || 15000,
+    send: TIMEOUT_POLICY.sendMs || 10000,
+    submit: TIMEOUT_POLICY.submitMs || 5000,
+    generation: TIMEOUT_POLICY.generationMs || 1500 * 1000
+  };
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
@@ -19,6 +28,7 @@
   const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
   let processing = false;
+  let controllerLeader = false;
   let reasoningMode = null;
   let githubAttached = false;
   let githubRepository = null;
@@ -26,6 +36,7 @@
   let extensionContextInvalidated = false;
   let pollTimerId = null;
   let healthTimerId = null;
+  let leaseTimerId = null;
 
   function isExtensionContextInvalidatedError(error) {
     return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
@@ -103,8 +114,18 @@
   }  const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function accessibilityHidden(element) {
+    for (let current = element; current; current = current.parentElement) {
+      if (
+        current.getAttribute?.('aria-hidden') === 'true' ||
+        current.hasAttribute?.('inert')
+      ) return true;
+    }
+    return false;
+  }
+
   function visible(element) {
-    if (!element) return false;
+    if (!element || accessibilityHidden(element)) return false;
     const style = getComputedStyle(element);
     return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.getClientRects().length > 0;
   }
@@ -204,7 +225,6 @@
     element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   }
 
-  function insertText(element, text) { setText(element, text); }
 
   function readText(element) { return isTextControl(element) ? String(element.value || '') : String(element?.innerText || element?.textContent || ''); }
 
@@ -214,36 +234,54 @@
 
   function chatUrl() { return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null; }
 
-  function contextExhausted() {
-    const text = normalize(document.body?.innerText || '');
-    return [
-      'this conversation has reached its limit',
-      'conversation has reached its limit',
-      'conversation limit reached',
-      'conversation is too long',
-      'conversation is full',
-      'maximum conversation length',
-      'maximum length for this conversation',
-      'context limit reached',
-      'context window limit',
-      'context length limit',
-      'start a new chat to continue',
-      'start a new conversation to continue'
-    ].some((marker) => text.includes(marker));
+  function freshChatSurface(previousLocation, previousChat) {
+    if (!previousChat || location.href === previousLocation) return false;
+    if (!/^https:\/\/chatgpt\.com(?::\d+)?\/?(?:\?.*)?$/.test(location.href)) return false;
+    return Boolean(composer()) && !generating() && userMessages().length === 0 && assistantMessages().length === 0;
   }
 
+
+  function detectorState() {
+    return globalThis.PASIChatGPTDetectors?.detect?.() || {
+      context_exhausted: false,
+      usage_limited: false,
+      auth_required: false,
+      connection_failure: false
+    };
+  }
+
+  function contextExhausted() {
+    return detectorState().context_exhausted === true;
+  }
+  function controllerClaim() {
+    if (!globalThis.chrome?.runtime?.sendMessage) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'pasi-controller-claim' }, (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError || !response || response.ok !== true) {
+            controllerLeader = false;
+            resolve(false);
+            return;
+          }
+          controllerLeader = response.leader === true;
+          resolve(controllerLeader);
+        });
+      } catch (_) {
+        controllerLeader = false;
+        resolve(false);
+      }
+    });
+  }
+
+
   function usageLimited() {
-    if (contextExhausted()) return false;
-    const text = normalize(document.body?.innerText || '');
-    return [
-      'current usage limit', 'usage limit reached', 'free tier limit', 'message limit',
-      'daily limit', 'weekly limit', 'model usage limit', 'rate limit', 'too many requests'
-    ].some((marker) => text.includes(marker));
+    const state = detectorState();
+    return state.context_exhausted !== true && state.usage_limited === true;
   }
 
   function authRequired() {
-    const text = normalize(document.body?.innerText || '');
-    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
+    return detectorState().auth_required === true;
   }
 
   function selectionState(element) {
@@ -356,7 +394,14 @@
   function assistantMessages() { return Array.from(document.querySelectorAll('[data-message-author-role="assistant"]')).filter(visible); }
 
   function messageText(node) {
-    return String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
+    return String(node?.innerText || node?.textContent || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+(?=\n)/g, '')
+      .trim();
+  }
+
+  function collapseWhitespace(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
   function newestUserMatches(expected, baselineCount) {
@@ -372,6 +417,21 @@
 
   function conversationSignature() {
     return `${userMessages().length}:${assistantMessages().length}:${fingerprint()}`;
+  }
+
+  function userMessageExistsForOperation(operationId) {
+    const needle = normalize(`[PASI_OPERATION ${operationId}]`);
+    if (!needle) return false;
+    return userMessages().some((node) => normalize(messageText(node)).includes(needle));
+  }
+
+  function readJsonStorage(key) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || 'null');
+      return value && typeof value === 'object' ? value : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   function recoveryContext() {
@@ -402,6 +462,7 @@
   }
 
   async function reportHealth() {
+    if (!(await controllerClaim())) return;
     const currentUrl = chatUrl();
     if (currentUrl !== lastKnownChatUrl) {
       if (lastKnownChatUrl !== null || currentUrl !== null) {
@@ -458,25 +519,73 @@
     return null;
   }
 
+  function clearFocusBeforeActivation() {
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) return;
+    try { active.blur(); } catch (_) {}
+  }
+
+  function activateControl(element) {
+    if (!element || !visible(element) || disabled(element)) return false;
+    clearFocusBeforeActivation();
+    try {
+      element.click();
+      const focused = document.activeElement;
+      if (focused && accessibilityHidden(focused)) {
+        try { focused.blur(); } catch (_) {}
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function findNewChatControl() {
+    const exactSelectors = [
+      'button[data-testid="new-chat-button"]',
+      '[data-testid="new-chat-button"]',
+      'button[aria-label="New chat"]',
+      '[role="button"][aria-label="New chat"]'
+    ];
+    for (const selector of exactSelectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (!visible(element) || disabled(element)) continue;
+        if (element.closest?.('nav, aside, [role="navigation"]')) continue;
+        return element;
+      }
+    }
+    for (const element of document.querySelectorAll('button, [role="button"], a')) {
+      if (!visible(element) || disabled(element)) continue;
+      if (element.closest?.('nav, aside, [role="navigation"]')) continue;
+      if (label(element) === 'new chat') return element;
+    }
+    return null;
+  }
+
   async function newChat() {
     const previousLocation = location.href;
     const previousChat = chatUrl();
     const previousSignature = conversationSignature();
-    const button = await waitFor(() => findLabeled(['new chat'], ['a', 'button', '[role="button"]']), TIMEOUTS.menu);
+    const button = await waitFor(findNewChatControl, TIMEOUTS.menu);
     if (!button || disabled(button)) throw new Error('PASI_NATIVE: New chat control unavailable');
-    button.click();
+    if (!activateControl(button)) throw new Error('PASI_NATIVE: New chat control activation failed');
 
     const ready = await waitFor(() => {
       const currentChat = chatUrl();
       const navigated = location.href !== previousLocation;
-      const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat);
-      const initialChatReady = !previousChat && navigated && currentChat && composer() && !generating() && userMessages().length === 0 && assistantMessages().length === 0 && conversationSignature() !== previousSignature;
-      return composer() && !generating() && (differentChat || initialChatReady);
+      const emptySurface = Boolean(composer()) && !generating() && userMessages().length === 0 && assistantMessages().length === 0;
+      const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat && emptySurface);
+      const freshRootChat = freshChatSurface(previousLocation, previousChat);
+      const initialChatReady = !previousChat && navigated && currentChat && emptySurface && conversationSignature() !== previousSignature;
+      return emptySurface && (differentChat || freshRootChat || initialChatReady);
     }, TIMEOUTS.menu + 7000);
     if (!ready) throw new Error('PASI_NATIVE: new chat did not reach a verified ready state');
 
     const current = chatUrl();
-    if (previousChat && (!current || current === previousChat)) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
+    if (previousChat && current === previousChat) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
+    if (previousChat && !current && !freshChatSurface(previousLocation, previousChat)) {
+      throw new Error('PASI_NATIVE: new chat control did not reach a verified fresh chat surface');
+    }
     reasoningMode = null;
     githubAttached = false;
     githubRepository = null;
@@ -546,7 +655,7 @@
         return;
       }
       if (state === false) {
-        directThinkingControl.click();
+        if (!activateControl(directThinkingControl)) throw new Error('PASI_NATIVE: Thinking control activation failed');
         await sleep(CLICK_SETTLE_MS);
         const verified = await waitFor(
           () => thinkingEnabled() === true ? true : null,
@@ -563,7 +672,7 @@
       const mode = currentModelMode();
       if (mode === 'thinking') { reasoningMode = 'thinking'; return; }
 
-      pill.click();
+      if (!activateControl(pill)) throw new Error('PASI_NATIVE: model selector activation failed');
       await sleep(CLICK_SETTLE_MS);
 
       const configure = await waitFor(
@@ -573,7 +682,7 @@
       );
 
       if (configure && visible(configure)) {
-        configure.click();
+        if (!activateControl(configure)) throw new Error('PASI_NATIVE: model configure control activation failed');
         await sleep(CLICK_SETTLE_MS);
       }
 
@@ -586,7 +695,7 @@
       if (optionState === true) {
         await waitFor(() => currentModelMode() === 'thinking' || thinkingEnabled() === true ? true : null, 3000);
       } else {
-        thinkingOption.click();
+        if (!activateControl(thinkingOption)) throw new Error('PASI_NATIVE: Thinking option activation failed');
       }
 
       const verified = await waitFor(
@@ -610,7 +719,7 @@
         return;
       }
       if (state === false) {
-        control.click();
+        if (!activateControl(control)) throw new Error('PASI_NATIVE: Thinking toggle activation failed');
         await sleep(CLICK_SETTLE_MS);
         const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after toggle');
@@ -630,7 +739,7 @@
       TIMEOUTS.menu
     );
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: Thinking/model selection control unavailable');
-    plus.click();
+    if (!activateControl(plus)) throw new Error('PASI_NATIVE: add-files control activation failed');
     await sleep(CLICK_SETTLE_MS);
 
     const menuThinking = await waitFor(findThinkingMenuOption, TIMEOUTS.menu);
@@ -643,7 +752,7 @@
       return;
     }
     if (menuState === false) {
-      menuThinking.click();
+      if (!activateControl(menuThinking)) throw new Error('PASI_NATIVE: Thinking menu activation failed');
       await sleep(CLICK_SETTLE_MS);
       const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
       if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after menu selection');
@@ -664,35 +773,19 @@
     }
     const plus = await waitFor(() => firstVisible(['button[aria-label="Add files and more"]', 'button[aria-label*="Add files"]', 'button[aria-label*="Attach"]']), TIMEOUTS.menu);
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: GitHub menu unavailable');
-    plus.click();
+    if (!activateControl(plus)) throw new Error('PASI_NATIVE: add-files control activation failed');
     const github = await waitFor(() => findLabeled(['github'], ['button', '[role="button"]', '[role="menuitem"]', '[role="option"]']), TIMEOUTS.menu);
     if (!github) throw new Error('PASI_NATIVE: GitHub app unavailable');
-    github.click();
+    if (!activateControl(github)) throw new Error('PASI_NATIVE: GitHub control activation failed');
     const picker = await waitFor(() => firstVisible(['input[placeholder*="repository" i]', 'input[placeholder*="repo" i]', '[role="dialog"] input[type="text"]']), TIMEOUTS.menu);
     if (!picker) throw new Error('PASI_NATIVE: repository picker unavailable');
     setText(picker, repository);
     const result = await waitFor(() => findLabeled([repository], ['button', '[role="button"]', '[role="option"]', '[role="menuitem"]', 'a']), TIMEOUTS.menu);
     if (!result) throw new Error('PASI_NATIVE: requested repository unavailable');
-    result.click();
+    if (!activateControl(result)) throw new Error('PASI_NATIVE: repository result activation failed');
     await sleep(CLICK_SETTLE_MS);
-    const bodyText = normalize(document.body?.innerText || '');
-    const githubFailureMarkers = [
-      'github connection failed',
-      'github connection error',
-      'failed to connect to github',
-      'could not connect to github',
-      'unable to connect to github',
-      'github connection is unavailable',
-      'github access is unavailable',
-      'github access failed',
-      'github authentication required',
-      'github authentication failed',
-      'reconnect github',
-      'connect your github account',
-      'github needs to be connected',
-      'github app connection failed'
-    ];
-    if (githubFailureMarkers.some((marker) => bodyText.includes(marker))) {
+    const githubState = detectorState();
+    if (githubState.github_failure === true) {
       throw new Error('PASI_NATIVE: GitHub connection/access unavailable');
     }
     githubAttached = true;
@@ -726,23 +819,26 @@
     if (!githubAttached) await attachGithub(repository);
   }
 
-  function assistants() { return assistantMessages(); }
-
   function extractAssistant(node) {
     const markdown = Array.from(node.querySelectorAll?.('.markdown, [class*="markdown"]') || []).filter(visible);
     for (let i = markdown.length - 1; i >= 0; i -= 1) {
-      const text = String(markdown[i].innerText || markdown[i].textContent || '').replace(/\s+/g, ' ').trim();
+      const text = String(markdown[i].innerText || markdown[i].textContent || '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[ \t]+(?=\n)/g, '')
+        .trim();
       if (text) return text.slice(0, 50000);
     }
     return messageText(node).slice(0, 50000);
   }
 
   function latestAssistant() {
-    const nodes = assistants();
+    const nodes = assistantMessages();
     return nodes.length ? extractAssistant(nodes[nodes.length - 1]) : '';
   }
 
-  function fingerprint() { return latestAssistant().slice(-4000); }
+  function fingerprint() {
+    return collapseWhitespace(latestAssistant()).slice(-4000);
+  }
 
   function nearbyScopedControls(box) {
     const controls = [];
@@ -912,7 +1008,7 @@
 
   function nativeMouseActivate(element) {
     if (!element) return false;
-    element.focus();
+    clearFocusBeforeActivation();
     const init = {
       bubbles: true,
       cancelable: true,
@@ -935,9 +1031,17 @@
     } catch (_) {}
     element.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
     element.click();
+    const focused = document.activeElement;
+    if (focused && accessibilityHidden(focused)) {
+      try { focused.blur(); } catch (_) {}
+    }
     return true;
   }
 
+
+  function operationPrompt(operation) {
+    return `[PASI_OPERATION ${operation.operation_id}]\n${operation.prompt}`;
+  }
 
   async function submitPrompt(expected) {
     const baselineUserCount = userMessages().length;
@@ -947,6 +1051,11 @@
       // input updates. Confirm the message was not already accepted before
       // treating a missing composer value as a failure.
       if (newestUserMatches(expected, baselineUserCount)) return;
+
+      if (generating() || userMessages().length > baselineUserCount) {
+        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
+        throw new Error('PASI_NATIVE: prompt submission already appears to be in progress; refusing to reinsert');
+      }
 
       await ensurePromptSubmissionReady();
 
@@ -959,7 +1068,7 @@
       if (!composerContainsPrompt(box, expected)) {
         const currentText = normalize(readText(box));
         if (!currentText) {
-          insertText(box, expected);
+          setText(box, expected);
           box = await waitFor(
             () => {
               const current = composer();
@@ -1016,18 +1125,48 @@
   }
 
 
-  async function waitForResponse(baseline) {
+  async function waitForResponse(baseline, operationId) {
     const started = Date.now();
     let sawGeneration = false;
+    let stableFingerprint = '';
+    let stableSince = 0;
+    let lastOperationCheckAt = 0;
     while (Date.now() - started < TIMEOUTS.generation) {
-      if (generating()) sawGeneration = true;
-      else if (sawGeneration) {
-        await sleep(RESPONSE_SETTLE_MS);
+      if (generating()) {
+        sawGeneration = true;
+        stableFingerprint = '';
+        stableSince = 0;
+      } else if (sawGeneration) {
         const response = latestAssistant();
-        if (response && fingerprint() !== baseline) return response;
+        const current = fingerprint();
+        if (response && current !== baseline) {
+          if (current !== stableFingerprint) {
+            stableFingerprint = current;
+            stableSince = Date.now();
+          }
+          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
+        }
       } else {
         const current = fingerprint();
-        if (current !== baseline && current) return latestAssistant();
+        if (current !== baseline && current) {
+          if (current !== stableFingerprint) {
+            stableFingerprint = current;
+            stableSince = Date.now();
+          }
+          const response = latestAssistant();
+          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
+        }
+      }
+      if (operationId && Date.now() - lastOperationCheckAt >= 2000) {
+        lastOperationCheckAt = Date.now();
+        try {
+          const operationResponse = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
+          const current = operationResponse.ok ? operationResponse.json()?.operation : null;
+          if (current?.status === 'cancelled') throw new Error('PASI_NATIVE: operation cancelled by runner');
+          if (current?.status === 'failed') throw new Error(current.error || 'PASI_NATIVE: operation failed while generating');
+        } catch (error) {
+          if (String(error?.message || '').startsWith('PASI_NATIVE: operation ')) throw error;
+        }
       }
       if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
       if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
@@ -1048,6 +1187,7 @@
 
     localStorage.setItem(RECOVERY_KEY, JSON.stringify({
       operation_id: operation.operation_id,
+      recovery_operation_id: operation.operation_id,
       operation_type: operation.operation_type,
       started_at: startedAt,
       started_ms: Date.parse(startedAt) || Date.now(),
@@ -1072,6 +1212,7 @@
 
     localStorage.setItem(RECOVERY_KEY, JSON.stringify({
       operation_id: operation.operation_id,
+      recovery_operation_id: operation.operation_id,
       operation_type: operation.operation_type,
       started_at: startedAt,
       started_ms: Date.parse(startedAt) || Date.now(),
@@ -1145,9 +1286,28 @@
     throw lastError || new Error('PASI_NATIVE: bridge completion failed');
   }
 
-  async function failOperation(operationId, error) {
+  async function cancelOperation(operationId, reason) {
     try {
-      const response = await bridge('/chat/failed', { method: 'POST', body: { operation_id: operationId, error: String(error?.message || error) } });
+      const response = await bridge('/chat/cancel', {
+        method: 'POST',
+        body: { operation_id: operationId, reason: String(reason || 'cancelled by runner timeout') }
+      });
+      return response.ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function failOperation(operationId, error, recoveryContext = null) {
+    try {
+      const body = {
+        operation_id: operationId,
+        error: String(error?.message || error)
+      };
+      if (recoveryContext && typeof recoveryContext === 'object') {
+        body.recovery_context = recoveryContext;
+      }
+      const response = await bridge('/chat/failed', { method: 'POST', body });
       return response.ok;
     } catch (_) {
       return false;
@@ -1157,6 +1317,12 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
+    if (leaseTimerId !== null) clearInterval(leaseTimerId);
+    leaseTimerId = setInterval(() => {
+      controllerClaim().catch(() => {
+        controllerLeader = false;
+      });
+    }, 3000);
     localStorage.setItem(ACTIVE_KEY, JSON.stringify({
       operation_id: operation.operation_id,
       operation_type: operation.operation_type,
@@ -1164,7 +1330,8 @@
       chat_url: chatUrl(),
       reasoning_mode: reasoningMode,
       github_attached: githubAttached,
-      github_repository: githubRepository
+      github_repository: githubRepository,
+      recovery_context: recoveryContext()
     }));
     let finalized = false;
     try {
@@ -1176,25 +1343,42 @@
           await restoreRecoveryContext(operation.recovery_context);
           await selectThinking();
           if (reasoningMode !== 'unavailable') reasoningMode = 'thinking';
+
+          const promptText = operationPrompt(operation);
+          const activeState = readJsonStorage(ACTIVE_KEY) || {};
+          const recoveryState = readJsonStorage(RECOVERY_KEY) || {};
+          const savedBaseline = typeof activeState.baseline === 'string'
+            ? activeState.baseline
+            : (typeof recoveryState.baseline === 'string' ? recoveryState.baseline : '');
+
+          if (userMessageExistsForOperation(operation.operation_id)) {
+            if (typeof operation.response_text === 'string' && operation.response_text.trim()) {
+              await finishOperation(operation.operation_id, operation.response_text, true);
+              finalized = true;
+              return;
+            }
+            if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
+            const response = await waitForResponse(savedBaseline, operation.operation_id);
+            await finishOperation(operation.operation_id, response, true);
+            finalized = true;
+            return;
+          }
+
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
           const box = await waitFor(composer, TIMEOUTS.composer);
           if (!box) throw new Error('PASI_NATIVE: composer unavailable');
           const baseline = fingerprint();
-          let activeState = {};
-          try {
-            activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
-          } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           setText(box, '');
-          insertText(box, operation.prompt);
+          setText(box, promptText);
           // Scope the preflight check to the exact composer already being used.
           // A document-wide send lookup can bind to an unrelated control while the
           // bounded submitPrompt() path is still waiting for the real composer send action.
           const send = await waitForSend(box);
           if (!send) throw new Error('PASI_NATIVE: send control unavailable');
-          await submitPrompt(operation.prompt);
-          const response = await waitForResponse(baseline);
+          await submitPrompt(promptText);
+          const response = await waitForResponse(baseline, operation.operation_id);
           await finishOperation(operation.operation_id, response, true);
           finalized = true;
           return;
@@ -1205,10 +1389,11 @@
       finalized = true;
     } catch (error) {
       const errorMessage = String(error?.message || error);
+      const contextRetryCount = Number(operation.retry_counts?.context || 0);
       const contextRecoveryEligible =
         operation.operation_type === 'prompt' &&
         errorMessage.startsWith('CHAT_EXHAUSTED:') &&
-        Number(operation.retry_count || 0) < MAX_CONTEXT_AUTO_RECOVERIES;
+        contextRetryCount < MAX_CONTEXT_AUTO_RECOVERIES;
 
       const responseRecoveryEligible =
         operation.operation_type === 'prompt' &&
@@ -1219,14 +1404,24 @@
 
       if (contextRecoveryEligible) {
         rememberContextRecovery(operation, error);
+        await failOperation(
+          operation.operation_id,
+          error,
+          recoveryContext()
+        );
         finalized = false;
       } else if (responseRecoveryEligible) {
         rememberResponseRecovery(operation, error);
+        await failOperation(
+          operation.operation_id,
+          error,
+          recoveryContext()
+        );
         finalized = false;
       } else {
         const failure = (
           errorMessage.startsWith('CHAT_EXHAUSTED:') &&
-          Number(operation.retry_count || 0) >= MAX_CONTEXT_AUTO_RECOVERIES
+          contextRetryCount >= MAX_CONTEXT_AUTO_RECOVERIES
         )
           ? new Error('PASI_NATIVE: context recovery exhausted: ' + errorMessage)
           : error;
@@ -1236,6 +1431,10 @@
     } finally {
       activeOperationId = null;
       processing = false;
+      if (leaseTimerId !== null) {
+        clearInterval(leaseTimerId);
+        leaseTimerId = null;
+      }
       if (finalized) {
         localStorage.removeItem(ACTIVE_KEY);
         if (recoveryResumeOperationId() === operation.operation_id) {
@@ -1248,9 +1447,12 @@
 
   async function recoverInterruptedOperation() {
     try {
-      const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
-      if (!stored?.operation_id) return;
-      const current = await bridge(`/operation?operation_id=${encodeURIComponent(stored.operation_id)}`);
+      if (!(await controllerClaim())) return;
+      const stored = readJsonStorage(ACTIVE_KEY);
+      const recovery = readJsonStorage(RECOVERY_KEY);
+      const operationId = stored?.operation_id || recovery?.operation_id;
+      if (!operationId) return;
+      const current = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
       const payload = current.ok ? current.json() : null;
       const operation = payload?.operation;
       if (!operation) return;
@@ -1263,7 +1465,7 @@
         const responseAvailable = Boolean(responseText.trim());
         if (responseAvailable) {
           try {
-            await finishOperation(stored.operation_id, responseText, true);
+            await finishOperation(operationId, responseText, true);
           } catch (_) {
             // Keep the active marker so the next controller start can reconcile again.
             return;
@@ -1274,7 +1476,7 @@
           const visibleFingerprint = fingerprint();
           if (visibleResponse && visibleFingerprint !== baseline) {
             try {
-              await finishOperation(stored.operation_id, visibleResponse, true);
+              await finishOperation(operationId, visibleResponse, true);
             } catch (_) {
               // Keep the active marker so recovery.js can retry against the same operation.
               return;
@@ -1284,15 +1486,41 @@
         localStorage.removeItem(ACTIVE_KEY);
       } else if (operation.status === 'failed' || operation.status === 'cancelled') {
         localStorage.removeItem(ACTIVE_KEY);
+        localStorage.removeItem(RECOVERY_KEY);
+      } else if (operation.operation_type === 'prompt') {
+        const baseline = typeof stored?.baseline === 'string'
+          ? stored.baseline
+          : (typeof recovery?.baseline === 'string' ? recovery.baseline : '');
+        if (contextExhausted()) {
+          await newChat();
+          await failOperation(operationId, new Error('CHAT_EXHAUSTED: verified conversation context exhaustion; fresh chat prepared for retry.'));
+          localStorage.removeItem(ACTIVE_KEY);
+          localStorage.removeItem(RECOVERY_KEY);
+          return;
+        }
+        if (userMessageExistsForOperation(operationId)) {
+          const response = await waitForResponse(baseline, operationId);
+          await finishOperation(operationId, response, true);
+          localStorage.removeItem(ACTIVE_KEY);
+          localStorage.removeItem(RECOVERY_KEY);
+          return;
+        }
+        await failOperation(operationId, new Error('PASI_NATIVE: browser page reloaded during operation'));
+        localStorage.removeItem(ACTIVE_KEY);
+        localStorage.removeItem(RECOVERY_KEY);
+      } else {
+        await failOperation(operationId, new Error('PASI_NATIVE: browser page reloaded during operation'));
+        localStorage.removeItem(ACTIVE_KEY);
+        localStorage.removeItem(RECOVERY_KEY);
       }
-      // Preserve non-terminal operations for the dedicated bounded recovery companion.
+      // content.js owns completion and retry mutation; recovery.js is observe-only.
     } catch (_) {}
   }
 
   function recoveryOperationId() {
     try {
       const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
-      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY];
+      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY] || state?.operation_id;
       return typeof value === 'string' && value.trim() ? value : null;
     } catch (_) {
       return null;
@@ -1311,6 +1539,7 @@
 
   async function poll() {
     if (processing || activeOperationId !== null || extensionContextInvalidated) return;
+    if (!(await controllerClaim())) return;
     try {
       const recoveryOperation = recoveryOperationId();
       if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
@@ -1320,7 +1549,7 @@
             method: 'POST',
             body: { operation_id: recoveryOperation }
           })
-        : await bridge('/next-operation');
+        : await bridge('/next-operation', { method: 'POST', body: {} });
       if (!response.ok) {
         if (recoveryOperation) {
           try {
@@ -1348,6 +1577,7 @@
   }
 
   async function start() {
+    await globalThis.PASI_TIMEOUT_POLICY?.load?.();
     await recoverInterruptedOperation();
     try { await reportHealth(); } catch (_) {}
     await poll();
@@ -1356,5 +1586,22 @@
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
   }
 
-  start();
+  if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
+    globalThis.PASI_NATIVE_TEST_API = Object.freeze({
+      messageText,
+      extractAssistant,
+      fingerprint,
+      composerContainsPrompt,
+      userMessages,
+      assistantMessages,
+      conversationSignature,
+      operationPrompt,
+      findNewChatControl,
+      detectorState,
+      submitPrompt,
+      waitForResponse
+    });
+  } else {
+    start();
+  }
 })();

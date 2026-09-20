@@ -15,6 +15,9 @@ DEFAULT_OUTPUT = ROOT / ".runtime" / "chromium" / "pasi-chatgpt"
 EXTENSION_FILES = (
     "manifest.json",
     "background.js",
+    "timeout-config.js",
+    "timeout-policy.json",
+    "detectors.js",
     "content.js",
     "recovery.js",
     "activity.js",

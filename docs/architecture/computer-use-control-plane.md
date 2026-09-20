@@ -86,7 +86,7 @@ A later VS Code integration can publish the same state/diagnostics schema from a
 
 ## ChatGPT adapter and completion detection
 
-`ChatGPTAdapter` is a semantic provider adapter over the existing localhost bridge at `127.0.0.1:8765`. It does not duplicate ChatGPT browser transport or embed DOM selectors in Python. The Tampermonkey controller remains the component that interacts with ChatGPT's page.
+`ChatGPTAdapter` is a semantic provider adapter over the existing localhost bridge at `127.0.0.1:8765`. It does not duplicate ChatGPT browser transport or embed DOM selectors in Python. The native Chromium extension is the canonical browser controller; the legacy Tampermonkey controller is isolated under `automation/legacy/` as an optional fallback.
 
 The adapter exposes:
 

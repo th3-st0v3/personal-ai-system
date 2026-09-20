@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as supervisor
-from scripts import pasi_overnight_engine as legacy
-from scripts import pasi_weeklong_resilience as weeklong
 
 DEFAULT_TASK_FILE = Path.home() / ".pasi" / "current-project-task.md"
 MAX_TASK_FILE_CHARS = 120_000
@@ -19,8 +17,8 @@ Treat the assigned objective as implementation-heavy engineering work. Understan
 
 
 def validate_hours(hours: float) -> float:
-    if not math.isfinite(hours) or hours < legacy.MIN_HOURS:
-        raise ValueError(f"--hours must be a finite value >= {legacy.MIN_HOURS:g}")
+    if not math.isfinite(hours) or hours < supervisor.MIN_HOURS:
+        raise ValueError(f"--hours must be a finite value >= {supervisor.MIN_HOURS:g}")
     return hours
 
 
@@ -55,26 +53,23 @@ def main() -> int:
         configured_task_file = DEFAULT_TASK_FILE
 
     selected_task = args.task.strip()
-    if configured_task_file is not None:
+    if not selected_task:
+        selected_task = os.environ.get("PASI_TASK", "").strip()
+    if not selected_task and configured_task_file is not None:
         selected_task = load_task_file(configured_task_file)
     if not selected_task:
         selected_task = DEFAULT_ENGINEERING_TASK
     selected_task = DIFFICULT_MODE_PREFIX + "\n" + selected_task
 
-    # Extended operation intentionally has no artificial upper-hour cap, while
-    # retaining finite-hour input validation and the existing lower bound.
-    legacy.MAX_HOURS = float("inf")
-    supervisor.MAX_HOURS = float("inf")
-
     sys.argv = [
-        "pasi_weeklong_resilience.py",
+        "pasi_overnight_engine_v2.py",
         "--hours",
         str(hours),
         "--task",
         selected_task,
         *passthrough,
     ]
-    return weeklong.main()
+    return supervisor.main()
 
 
 if __name__ == "__main__":

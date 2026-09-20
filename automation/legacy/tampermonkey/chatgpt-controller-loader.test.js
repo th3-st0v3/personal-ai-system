@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const test = require('node:test');
 
 const source = fs.readFileSync(
-  'automation/tampermonkey/chatgpt-controller-loader.user.js',
+  'automation/legacy/tampermonkey/chatgpt-controller-loader.user.js',
   'utf8',
 );
 

@@ -1,24 +1,40 @@
+importScripts('timeout-config.js');
+
 const BRIDGE = 'http://127.0.0.1:8765';
 const ALARM = 'pasi-watchdog';
 const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
-const STALE_MS = 30 * 1000;
+let STALE_MS = 45 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
+const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
+const CONTROLLER_LEASE_MS = 10 * 1000;
 
 const BRIDGE_ROUTES = new Set([
   'GET /health',
   'GET /status',
   'GET /browser/observation',
+  'GET /browser/health',
+  'GET /browser/state',
   'GET /browser/response',
-  'GET /next-operation',
+  'POST /next-operation',
   'POST /browser/observation',
   'POST /queue',
   'POST /chat/claim',
   'POST /chat/heartbeat',
   'POST /chat/finished',
-  'POST /chat/failed'
+  'POST /chat/failed',
+  'POST /chat/cancel'
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
+
+async function bridgeToken() {
+  try {
+    const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
+    return response.ok ? (await response.text()).trim() : '';
+  } catch (_) {
+    return '';
+  }
+}
 
 function allowedBridgeRequest(method, path) {
   const normalized = String(method || 'GET').toUpperCase();
@@ -36,9 +52,14 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const token = await bridgeToken();
+    const headers = {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
     const response = await fetch(`${BRIDGE}${path}`, {
       method: normalizedMethod,
-      headers: body ? { 'Content-Type': 'text/plain;charset=UTF-8' } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
       credentials: 'omit',
@@ -65,6 +86,28 @@ async function bridgeJson(path) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'pasi-controller-claim') {
+    const tabId = sender?.tab?.id;
+    if (typeof tabId !== 'number') {
+      sendResponse({ ok: false, leader: false });
+      return undefined;
+    }
+    chrome.storage.local.get(CONTROLLER_LEASE_KEY).then((stored) => {
+      const current = stored?.[CONTROLLER_LEASE_KEY];
+      const now = Date.now();
+      const owned = current && current.tabId === tabId && now - Number(current.renewedAt || 0) < CONTROLLER_LEASE_MS;
+      const available = !current || now - Number(current.renewedAt || 0) >= CONTROLLER_LEASE_MS;
+      if (!owned && !available) {
+        sendResponse({ ok: true, leader: false });
+        return;
+      }
+      return chrome.storage.local.set({
+        [CONTROLLER_LEASE_KEY]: { tabId, renewedAt: now }
+      }).then(() => sendResponse({ ok: true, leader: true }));
+    }).catch(() => sendResponse({ ok: false, leader: false }));
+    return true;
+  }
+
   if (!message || message.type !== 'pasi-bridge-request') return undefined;
   const senderUrl = String(sender?.url || '');
   if (!/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)) {
@@ -133,20 +176,18 @@ async function reloadBoundedTab(tab) {
 
 async function inspect() {
   const status = await bridgeJson('/status');
-  const payload = await bridgeJson('/browser/observation');
+  const payload = await bridgeJson('/browser/health');
   if (!status || !payload) return;
   const health = healthData(payload);
   if (!health) return;
   if (health.data.auth_required === true) return;
-  if (typeof health.data.active_operation_id !== 'string' || !health.data.active_operation_id.trim()) return;
-  if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
+  if (status.queue_size <= 0 && !String(health.data.active_operation_id || '').trim()) return;
   if (observationAge(health.observation) <= STALE_MS) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
-  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
-  const matchingTab = targetChatUrl
-    ? tabs.find((tab) => tab.url === targetChatUrl)
-    : null;
+  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url.trim() : '';
+  if (!targetChatUrl) return;
+  const matchingTab = tabs.find((tab) => tab.url === targetChatUrl);
   // If the exact conversation tab is gone, recreate only the verified target
   // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
   if (!matchingTab) {
@@ -164,12 +205,19 @@ async function inspect() {
   await reloadBoundedTab(matchingTab);
 }
 
+async function applyTimeoutPolicy() {
+  try {
+    const policy = await globalThis.PASI_TIMEOUT_POLICY?.load?.();
+    if (policy?.staleMs) STALE_MS = policy.staleMs;
+  } catch (_) {}
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

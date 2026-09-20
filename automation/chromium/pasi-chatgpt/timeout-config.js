@@ -1,0 +1,60 @@
+(() => {
+  'use strict';
+
+  const DEFAULTS = Object.freeze({
+    heartbeatMs: 15 * 1000,
+    staleMs: 45 * 1000,
+    pollMs: 2000,
+    domPollMs: 250,
+    menuMs: 8000,
+    composerMs: 15000,
+    sendMs: 10000,
+    submitMs: 5000,
+    generationMs: 1500 * 1000,
+    recoveryTriggerMs: 1500 * 1000,
+    recoveryGraceMs: 600 * 1000
+  });
+
+  let policy = { ...DEFAULTS };
+
+  function validNumber(value) {
+    return Number.isFinite(value) && value > 0;
+  }
+
+  function fromJson(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const next = {
+      heartbeatMs: Number(raw.heartbeat_seconds) * 1000,
+      staleMs: Number(raw.stale_seconds) * 1000,
+      pollMs: Number(raw.controller_poll_ms),
+      domPollMs: Number(raw.dom_poll_ms),
+      menuMs: Number(raw.menu_ms),
+      composerMs: Number(raw.composer_ms),
+      sendMs: Number(raw.send_ms),
+      submitMs: Number(raw.submit_ms),
+      generationMs: Number(raw.generation_seconds) * 1000,
+      recoveryTriggerMs: Number(raw.recovery_trigger_seconds) * 1000,
+      recoveryGraceMs: Number(raw.recovery_grace_seconds) * 1000
+    };
+    if (!Object.values(next).every(validNumber)) return null;
+    if (next.staleMs < next.heartbeatMs * 3) return null;
+    if (next.generationMs < next.recoveryTriggerMs) return null;
+    return next;
+  }
+
+  async function load() {
+    try {
+      const response = await fetch(chrome.runtime.getURL('timeout-policy.json'), { cache: 'no-store' });
+      if (!response.ok) return policy;
+      const parsed = fromJson(await response.json());
+      if (parsed) policy = parsed;
+    } catch (_) {}
+    return policy;
+  }
+
+  globalThis.PASI_TIMEOUT_POLICY = Object.freeze({
+    defaults: DEFAULTS,
+    get: () => policy,
+    load
+  });
+})();

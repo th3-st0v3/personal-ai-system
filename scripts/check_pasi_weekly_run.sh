@@ -41,8 +41,7 @@ fi
 printf '\n--- SERVICES ---\n'
 for endpoint in \
     'bridge|http://127.0.0.1:8765/health' \
-    'controller-distribution|http://127.0.0.1:8766/health' \
-    'browser-observation|http://127.0.0.1:8765/browser/observation'; do
+    'browser-health|http://127.0.0.1:8765/browser/health'; do
     name="${endpoint%%|*}"
     url="${endpoint#*|}"
     if curl -fsS --max-time 5 "$url" >/tmp/pasi-weekly-check.$$ 2>/dev/null; then

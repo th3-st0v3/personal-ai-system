@@ -81,3 +81,5 @@ notes.db.*
 
 # PASI runtime state
 .ai/
+automation/chromium/pasi-chatgpt/.bridge-token
+*.pyc

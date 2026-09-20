@@ -141,7 +141,7 @@ class TestPasiPromote(unittest.TestCase):
     def test_existing_pr_does_not_auto_merge_high_risk_changes(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
             with patch.object(promote, "gh_authenticated", return_value=True):
-                with patch.object(promote, "changed_paths", return_value=("automation/tampermonkey/chatgpt-controller.user.js",)):
+                with patch.object(promote, "changed_paths", return_value=("automation/legacy/tampermonkey/chatgpt-controller.user.js",)):
                     with patch.object(promote, "_branch_pr", return_value=(43, "https://github.com/th3-st0v3/personal-ai-system/pull/43", "OPEN")):
                         with patch.object(promote, "_enable_auto_merge") as enable:
                             result = promote.promote("abc123", "pasi/test", "task")

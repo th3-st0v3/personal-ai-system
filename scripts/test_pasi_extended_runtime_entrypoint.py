@@ -20,22 +20,19 @@ class ExtendedRuntimeTests(unittest.TestCase):
 
     def test_duration_must_respect_existing_lower_bound(self) -> None:
         with self.assertRaises(ValueError):
-            runtime.validate_hours(runtime.legacy.MIN_HOURS - 0.01)
+            runtime.validate_hours(runtime.supervisor.MIN_HOURS - 0.01)
 
     def test_extended_entrypoint_removes_only_the_upper_cap(self) -> None:
-        original_legacy = runtime.legacy.MAX_HOURS
-        original_supervisor = runtime.supervisor.MAX_HOURS
+        original_supervisor = runtime.supervisor.MAX_HOURS if hasattr(runtime.supervisor, "MAX_HOURS") else None
         try:
-            runtime.legacy.MAX_HOURS = 12.0
-            runtime.supervisor.MAX_HOURS = 12.0
-            runtime.legacy.MAX_HOURS = float("inf")
             runtime.supervisor.MAX_HOURS = float("inf")
-            self.assertTrue(math.isinf(runtime.legacy.MAX_HOURS))
             self.assertTrue(math.isinf(runtime.supervisor.MAX_HOURS))
-            self.assertGreater(runtime.validate_hours(168.0), runtime.legacy.MIN_HOURS)
+            self.assertGreater(runtime.validate_hours(168.0), runtime.supervisor.MIN_HOURS)
         finally:
-            runtime.legacy.MAX_HOURS = original_legacy
-            runtime.supervisor.MAX_HOURS = original_supervisor
+            if original_supervisor is None:
+                delattr(runtime.supervisor, "MAX_HOURS")
+            else:
+                runtime.supervisor.MAX_HOURS = original_supervisor
 
 
 if __name__ == "__main__":

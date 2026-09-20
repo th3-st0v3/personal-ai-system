@@ -15,7 +15,7 @@
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://www.chatgpt.com/*"],
-      "js": ["activity.js", "content.js", "recovery.js"],
+      "js": ["activity.js", "timeout-config.js", "detectors.js", "content.js", "recovery.js"],
       "run_at": "document_idle"
     }
   ]

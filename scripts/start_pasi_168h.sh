@@ -16,9 +16,7 @@ LOCK_FILE="$RUNTIME_DIR/start.lock"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
-CONTROLLER_LOG="$RUNTIME_DIR/controller-distribution.log"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
-CONTROLLER_PID_FILE="$RUNTIME_DIR/controller-distribution.pid"
 
 if [[ ! -x "$PYTHON" ]]; then
     printf 'error: expected executable Python at %s\n' "$PYTHON" >&2
@@ -30,6 +28,30 @@ if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
     printf 'error: start_pasi_168h.sh is fixed to a 168-hour automation window; use start_pasi_overnight.sh for another duration.\n' >&2
     exit 2
 fi
+
+TOKEN_FILE="$HOME/.pasi/bridge-token"
+EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
+mkdir -p "$HOME/.pasi"
+bridge_already_healthy=0
+if curl -fsS --max-time 3 'http://127.0.0.1:8765/health' >/dev/null 2>&1; then
+    bridge_already_healthy=1
+fi
+if (( bridge_already_healthy == 0 )); then
+    # A newly launched bridge gets a fresh per-process bearer token. Reusing the
+    # token file is avoided so a stale local credential cannot authorize a new
+    # bridge instance.
+    "$PYTHON" - <<'PY' > "$TOKEN_FILE"
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+    chmod 600 "$TOKEN_FILE"
+elif [[ ! -s "$TOKEN_FILE" ]]; then
+    printf 'error: bridge is already healthy but its managed token file is missing; stop the bridge and restart via this launcher.\n' >&2
+    exit 3
+fi
+cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
+chmod 600 "$EXTENSION_TOKEN_FILE"
+export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 
 printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
 "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
@@ -115,20 +137,12 @@ start_service \
     "$BRIDGE_PID_FILE" \
     "$PYTHON" -m automation.orchestrator.bridge
 
-start_service \
-    'PASI controller distribution' \
-    'http://127.0.0.1:8766/health' \
-    "$CONTROLLER_LOG" \
-    "$CONTROLLER_PID_FILE" \
-    "$PYTHON" "$REPO_ROOT/scripts/pasi_controller_server.py"
-
 service_deadline=$((SECONDS + 20))
 while (( SECONDS < service_deadline )); do
     bridge_ok=0
     controller_ok=0
     curl -fsS --max-time 2 'http://127.0.0.1:8765/health' >/dev/null 2>&1 && bridge_ok=1 || true
-    curl -fsS --max-time 2 'http://127.0.0.1:8766/health' >/dev/null 2>&1 && controller_ok=1 || true
-    if (( bridge_ok == 1 && controller_ok == 1 )); then
+    if (( bridge_ok == 1 )); then
         printf 'PASI local services: healthy\n'
         break
     fi
@@ -141,29 +155,27 @@ if ! curl -fsS --max-time 2 'http://127.0.0.1:8765/health' >/dev/null 2>&1; then
     exit 4
 fi
 
-if ! curl -fsS --max-time 2 'http://127.0.0.1:8766/health' >/dev/null 2>&1; then
-    printf 'error: PASI controller distribution did not become healthy on 127.0.0.1:8766\n' >&2
-    printf 'Controller log: %s\n' "$CONTROLLER_LOG" >&2
-    exit 5
-fi
-
 browser_observation_ready() {
     "$PYTHON" - <<'PY'
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 root = Path.cwd()
-manifest_path = root / "automation" / "tampermonkey" / "controller-sync.json"
+manifest_path = root / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected_version = manifest.get("version")
-    with urllib.request.urlopen(
-        "http://127.0.0.1:8765/browser/observation",
-        timeout=3.0,
-    ) as response:
+    token = (os.environ.get("PASI_BRIDGE_TOKEN", "") or (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8")).strip()
+    request = urllib.request.Request(
+        "http://127.0.0.1:8765/browser/health",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=3.0) as response:
         payload = json.loads(response.read(2_000_000).decode("utf-8"))
 except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
     raise SystemExit(1)
@@ -176,6 +188,8 @@ if not isinstance(data, dict):
 kind = data.get("kind")
 actual_version = data.get("controller_version")
 if kind not in {"chatgpt_health", "chatgpt_state"}:
+    raise SystemExit(1)
+if data.get("native_controller") is not True:
     raise SystemExit(1)
 if not isinstance(expected_version, str) or not expected_version.strip() or actual_version != expected_version.strip():
     raise SystemExit(1)
@@ -213,7 +227,7 @@ fi
 if (( browser_ready == 0 )); then
     printf 'error: native PASI ChatGPT browser heartbeat was not verified within 30 seconds.\n' >&2
     printf 'Open https://chatgpt.com/ in the Chromium browser with PASI ChatGPT Controller enabled and reload the extension.\n' >&2
-    printf 'Browser observation endpoint: http://127.0.0.1:8765/browser/observation\n' >&2
+    printf 'Browser health endpoint: http://127.0.0.1:8765/browser/health\n' >&2
     exit 8
 fi
 

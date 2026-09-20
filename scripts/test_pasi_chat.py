@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import tempfile
 import unittest
+from unittest.mock import patch
 from typing import cast
 from pathlib import Path
 
-from automation.orchestrator.controller_update import read_last_synced_version, write_sync_state
 from automation.computer_use.contracts import AIResponse
 from automation.computer_use.chatgpt import ChatGPTAdapter
 from scripts.pasi_chat import (
@@ -15,7 +15,6 @@ from scripts.pasi_chat import (
     build_prompt,
     controller_observation_is_live,
     needs_github_context,
-    process_controller_update_signal,
     pending_operation_for_task,
     task_fingerprint,
     public_github_context_unavailable,
@@ -88,7 +87,6 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("public GitHub repository as the default source", prompt)
         self.assertIn("PASI attempts to keep Thinking/reasoning enabled for every task", prompt)
         self.assertIn("continue with the best available reasoning mode", prompt)
-        self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
     def test_build_prompt_prioritizes_literal_exact_output_requests(self) -> None:
         prompt = build_prompt(
@@ -290,7 +288,7 @@ class TestPasiChat(unittest.TestCase):
 
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
-        self.assertFalse(needs_github_context("update automation/tampermonkey/chatgpt-controller.user.js"))
+        self.assertFalse(needs_github_context("update automation/legacy/tampermonkey/chatgpt-controller.user.js"))
         self.assertFalse(needs_github_context("review the pull request and latest commit"))
         self.assertFalse(needs_github_context("what is GitHub?"))
         self.assertFalse(needs_github_context("run the unit tests"))
@@ -344,7 +342,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertNotIn("active_task_fingerprint", handoff)
         self.assertNotIn("active_operation_chat_url", handoff)
 
-    def test_reconcile_timed_out_response_consumes_one_final_operation_read(self) -> None:
+    def test_reconcile_timed_out_response_allows_bounded_completion_lag(self) -> None:
         class Adapter:
             def __init__(self) -> None:
                 self.calls = 0
@@ -353,8 +351,18 @@ class TestPasiChat(unittest.TestCase):
                 self.calls += 1
                 if operation_id != "op-timeout":
                     raise AssertionError(f"unexpected operation ID: {operation_id}")
+                if self.calls < 3:
+                    return AIResponse(
+                        response_id=f"response-{self.calls}",
+                        session_id="session-1",
+                        provider="chatgpt",
+                        operation_id=operation_id,
+                        text="",
+                        completion="generating",
+                        response_available=False,
+                    )
                 return AIResponse(
-                    response_id="response-1",
+                    response_id="response-3",
                     session_id="session-1",
                     provider="chatgpt",
                     operation_id=operation_id,
@@ -373,10 +381,45 @@ class TestPasiChat(unittest.TestCase):
             response_available=False,
         )
         adapter = Adapter()
-        reconciled = reconcile_timed_out_response(cast(ChatGPTAdapter, adapter), "op-timeout", timeout)
+        with patch("scripts.pasi_chat.time.sleep") as sleep:
+            reconciled = reconcile_timed_out_response(cast(ChatGPTAdapter, adapter), "op-timeout", timeout)
         self.assertEqual(reconciled.completion, "complete")
         self.assertEqual(reconciled.text, "late response")
-        self.assertEqual(adapter.calls, 1)
+        self.assertEqual(adapter.calls, 3)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.5,), (0.5,)])
+
+    def test_reconcile_timed_out_response_keeps_timeout_after_bounded_window(self) -> None:
+        class Adapter:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def read_operation(self, operation_id: str) -> AIResponse:
+                self.calls += 1
+                return AIResponse(
+                    response_id=f"response-{self.calls}",
+                    session_id="session-1",
+                    provider="chatgpt",
+                    operation_id=operation_id,
+                    text="",
+                    completion="generating",
+                    response_available=False,
+                )
+
+        timeout = AIResponse(
+            response_id="response-timeout",
+            session_id="session-1",
+            provider="chatgpt",
+            operation_id="op-timeout",
+            text="",
+            completion="timeout",
+            response_available=False,
+        )
+        adapter = Adapter()
+        with patch("scripts.pasi_chat.time.sleep") as sleep:
+            reconciled = reconcile_timed_out_response(cast(ChatGPTAdapter, adapter), "op-timeout", timeout)
+        self.assertIs(reconciled, timeout)
+        self.assertEqual(adapter.calls, 8)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.5,)] * 7)
 
     def test_repair_response_capture_retries_once_without_resending_prompt(self) -> None:
         class Adapter:
@@ -440,19 +483,6 @@ class TestPasiChat(unittest.TestCase):
             "                checkpoint_active_operation(handoff, fallback_operation, task)",
             text,
         )
-
-    def test_controller_update_signal_requires_explicit_structured_signal(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            controller = root / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
-            controller.parent.mkdir(parents=True)
-            controller.write_text("// @version      2.4.6\n", encoding="utf-8")
-            state_path = root / ".runtime" / "chatgpt" / "controller-sync-state.json"
-            write_sync_state(state_path, version="2.4.5")
-            result = process_controller_update_signal("PASI_CONTROLLER_UPDATE: true\nPASI_CONTROLLER_UPDATE_VERSION: 2.4.6\nPASI_CONTROLLER_UPDATE_REASON: test", root)
-            self.assertTrue(result["eligible"])
-            self.assertEqual(read_last_synced_version(state_path), "2.4.5")
-
 
 if __name__ == "__main__":
     unittest.main()

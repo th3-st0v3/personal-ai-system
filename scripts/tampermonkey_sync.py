@@ -9,7 +9,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from automation.orchestrator.controller_update import (
+from automation.legacy.controller_update import (
     evaluate_controller_update,
     read_last_synced_version,
     write_sync_state,

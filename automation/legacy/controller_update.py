@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-CONTROLLER_PATH = Path("automation/tampermonkey/chatgpt-controller.user.js")
+CONTROLLER_PATH = Path("automation/legacy/tampermonkey/chatgpt-controller.user.js")
 UPDATE_DIRECTIVE = re.compile(r"^\s*PASI_CONTROLLER_UPDATE\s*:\s*(true|false)\s*$", re.IGNORECASE | re.MULTILINE)
 UPDATE_VERSION = re.compile(r"^\s*PASI_CONTROLLER_UPDATE_VERSION\s*:\s*([^\s]+)\s*$", re.IGNORECASE | re.MULTILINE)
 UPDATE_REASON = re.compile(r"^\s*PASI_CONTROLLER_UPDATE_REASON\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
