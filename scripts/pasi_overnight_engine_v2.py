@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from scripts import pasi_overnight_engine as legacy
+from scripts import pasi_prompt_compiler as prompt_compiler
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
@@ -621,6 +622,14 @@ def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
 
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
     prompt = build_prompt(task, state, failure)
+    log_event(
+        "prompt_compiled",
+        pattern_version=prompt_compiler.PROMPT_PATTERN_VERSION,
+        prompt_hash=prompt_compiler.prompt_hash(prompt),
+        task_key=task_key(task),
+        task_number=state.task_number,
+        attempt=state.current_attempt,
+    )
     code, output = command(
         [legacy.sys.executable, str(control_script("pasi_chat_guard.py")), prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS), "--repo", state.worktree],
         REPO_ROOT,
@@ -683,49 +692,19 @@ RECENT TASKS:
 {recent}"""
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
-    previous = f"\nPREVIOUS FAILURE EVIDENCE:\n{failure[-12_000:]}\n" if failure else ""
-    return f"""You are the implementation engineer inside an unattended PASI overnight coding run.
-
-CURRENT TASK:
-{task}
-
-RUN CONTEXT:
-- Run: {state.run_id}
-- Task: {state.task_number}
-- Attempt: {state.current_attempt}/{MAX_ATTEMPTS}
-- Branch: {state.branch}
-- Worktree: isolated and controlled by PASI
-- Canonical public repository: https://github.com/th3-st0v3/personal-ai-system
-- Thinking is required for every ChatGPT task.
-- Public GitHub repository is the default context source.
-- OpenRouter, Perplexity, OpenCode, and direct HTTPS research are permitted fallback evidence/model sources when ChatGPT is unavailable.
-
-{continuation_directive(state, task)}
-
-AUTOMATION OBJECTIVE:
-Keep progressing without getting trapped by a dead ChatGPT tab, transient provider limit, stale controller, repeated failed approach, or unavailable optional provider. Stand by and retry boundedly when recovery is possible; change strategy when the same failure repeats.
-
-COMPLETION CONTRACT:
-Do not mark complete until the stated requirement is implemented and reproducible evidence supports it. Never claim files changed or tests passed without evidence.
-
-OUTPUT — return each marker exactly once:
-PASI_RESULT_STATUS: complete|needs_revision|blocked
-PASI_RESULT_SUMMARY: one concise sentence
-PASI_RESULT_NEXT_TASK: one concrete high-value next task
-PASI_RESULT_REQUIREMENTS: complete
-PASI_RESULT_LIMITATIONS: handled|none|not_applicable
-PASI_RESULT_RESEARCH: performed|not_applicable
-PASI_RESULT_UX: verified|not_applicable
-PASI_RESULT_BACKEND: verified|not_applicable
-PASI_RESULT_EVIDENCE: concise tests/verification evidence
-PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped
-PASI_RESULT_ALLOW_DELETE: true|false
-PASI_RESULT_PATCH_BEGIN
-<one unified git diff>
-PASI_RESULT_PATCH_END
-
-The patch must apply with git apply, modify only repository files, and contain no symlink or submodule additions. Do not use shell commands as the change mechanism.
-{previous}"""
+    return prompt_compiler.compile_task_prompt(
+        task,
+        run_id=state.run_id,
+        task_number=state.task_number,
+        attempt=state.current_attempt,
+        max_attempts=MAX_ATTEMPTS,
+        branch=state.branch,
+        worktree=state.worktree,
+        phase=state.phase,
+        recent_tasks=state.recent_tasks,
+        roadmap_tasks=AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS,
+        previous_failure=failure,
+    )
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
