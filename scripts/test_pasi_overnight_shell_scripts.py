@@ -64,7 +64,7 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         for required in (
             'export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"',
             'WORKTREE="$HOME/.pasi-worktrees/personal-ai-system-overnight-',
-            'BRANCH="${PASI_OVERNIGHT_BRANCH:-pasi/overnight-',
+            'requested_branch="${PASI_OVERNIGHT_BRANCH:-}"',
             '--worktree "$WORKTREE"',
             '--branch "$BRANCH"',
             'START_PID_FILE="$RUNTIME_DIR/start.pid"',
