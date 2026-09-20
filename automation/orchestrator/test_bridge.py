@@ -278,12 +278,12 @@ def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
 
     completed = bridge.complete_operation(
         operation.operation_id,
-        response_text="x" * 60_000,
+        response_text="x" * 130_000,
         response_text_available=True,
     )
 
     assert completed is not None
-    assert len(completed["response_text"]) == 50_000
+    assert len(completed["response_text"]) == 120_000
     assert completed["response_text_available"] is True
 
 
