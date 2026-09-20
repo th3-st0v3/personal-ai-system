@@ -9,6 +9,8 @@ const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
 let controllerClaimTail = Promise.resolve();
+let cachedBridgeToken = null;
+let bridgeTokenPromise = null;
 
 function serializeControllerClaim(task) {
   const next = controllerClaimTail.then(task, task);
@@ -32,13 +34,24 @@ const BRIDGE_ROUTES = new Set([
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
-async function bridgeToken() {
-  try {
-    const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
-    return response.ok ? (await response.text()).trim() : '';
-  } catch (_) {
-    return '';
-  }
+async function bridgeToken(forceRefresh = false) {
+  if (!forceRefresh && cachedBridgeToken) return cachedBridgeToken;
+  if (bridgeTokenPromise) return bridgeTokenPromise;
+
+  bridgeTokenPromise = (async () => {
+    try {
+      const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
+      if (!response.ok) return '';
+      const token = (await response.text()).trim();
+      if (token) cachedBridgeToken = token;
+      return token;
+    } catch (_) {
+      return '';
+    } finally {
+      bridgeTokenPromise = null;
+    }
+  })();
+  return bridgeTokenPromise;
 }
 
 function allowedBridgeRequest(method, path) {
@@ -57,8 +70,7 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const token = await bridgeToken();
-    const response = await fetch(`${BRIDGE}${path}`, {
+    const request = (token) => fetch(`${BRIDGE}${path}`, {
       method: normalizedMethod,
       headers: {
         ...(body ? { 'Content-Type': 'application/json' } : {}),
@@ -69,6 +81,14 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
       credentials: 'omit',
       cache: 'no-store'
     });
+
+    let token = await bridgeToken();
+    let response = await request(token);
+    if (response.status === 401) {
+      cachedBridgeToken = null;
+      token = await bridgeToken(true);
+      if (token) response = await request(token);
+    }
     return { ok: response.ok, status: response.status, text: await response.text() };
   } catch (error) {
     const message = String(error?.message || error).slice(0, 300);
