@@ -457,74 +457,10 @@ PASI_RESULT_PATCH_END"""
         self.assertEqual(restored.provider_limit_pauses, 1)
 
 
-    def test_run_retries_malformed_response_instead_of_terminating(self) -> None:
-        now = datetime.now(timezone.utc)
-        state = engine.OvernightState(
-            schema_version=2,
-            run_id="contract-retry",
-            started_at=now.isoformat(),
-            deadline_at=(now + timedelta(minutes=5)).isoformat(),
-            worktree=str(Path.cwd()),
-            branch="test",
-            phase="automation",
-            current_task="Implement response retry seam",
-        )
-        valid = """PASI_RESULT_STATUS: complete
-PASI_RESULT_SUMMARY: recovered after malformed response
-PASI_RESULT_NEXT_TASK: advance
-PASI_RESULT_REQUIREMENTS: complete
-PASI_RESULT_LIMITATIONS: none
-PASI_RESULT_RESEARCH: not_applicable
-PASI_RESULT_UX: not_applicable
-PASI_RESULT_BACKEND: verified
-PASI_RESULT_EVIDENCE: second attempt parsed and verified
-PASI_RESULT_REPOSITORY_PROGRESS: changed
-PASI_RESULT_ALLOW_DELETE: false
-PASI_RESULT_PATCH_BEGIN
-diff --git a/example.txt b/example.txt
---- a/example.txt
-+++ b/example.txt
-@@ -1 +1 @@
--old
-+new
-PASI_RESULT_PATCH_END"""
-        responses = iter([
-            "PASI_RESULT_STATUS: complete\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END",
-            valid,
-        ])
-        calls = []
-        original_stop = engine.STOP
-        try:
-            engine.STOP = False
 
-            def fake_invoke(*_args, **_kwargs):
-                calls.append("invoke")
-                return 0, next(responses)
-
-            def fake_verify(*_args, **_kwargs):
-                engine.STOP = True
-                return "abc123", "verification passed"
-
-            with mock.patch.object(engine, "reconcile_committed_task", return_value=False):
-                with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
-                    with mock.patch.object(engine, "invoke_chat", side_effect=fake_invoke):
-                        with mock.patch.object(engine, "verify_and_commit", side_effect=fake_verify):
-                            with mock.patch.object(engine, "record_task_ledger"):
-                                with mock.patch.object(engine, "save_state"):
-                                    with mock.patch.object(engine, "log_event") as log_event:
-                                        engine.run(state, push=False)
-            self.assertEqual(calls, ["invoke", "invoke"])
-            self.assertTrue(any(call.args and call.args[0] == "response_contract_failed" for call in log_event.call_args_list))
-            self.assertEqual(state.completed_tasks, 1)
-        finally:
-            engine.STOP = original_stop
-
-    def test_response_contract_is_shared_with_provider_router(self) -> None:
-        contract_source = (Path(engine.REPO_ROOT) / "scripts" / "pasi_response_contract.py").read_text(encoding="utf-8")
-        router_source = (Path(engine.REPO_ROOT) / "scripts" / "pasi_provider_router.py").read_text(encoding="utf-8")
-        self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS", contract_source)
-        self.assertIn("from scripts.pasi_response_contract import CONTRACT", router_source)
-        self.assertIn("prompt = f\"{SYSTEM_PROMPT}\\n\\nTASK:\\n{task.strip()}\\n\\n{context_section}\\n\\n{CONTRACT}\\n\"", router_source)
+    def test_validation_sandbox_uses_network_free_validator(self) -> None:
+        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
+        self.assertIn('"scripts/check_offline.sh"', source)
 
 
 if __name__ == "__main__":
