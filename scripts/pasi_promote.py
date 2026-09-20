@@ -13,6 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MAIN_BRANCH = "main"
 MAX_TITLE_CHARS = 65
 MAX_BODY_CHARS = 8_000
+MAX_AUTOMERGE_FILES = 15
+MAX_AUTOMERGE_SCOPE_GROUPS = 2
 HIGH_RISK_PATH_PREFIXES = (
     ".github/workflows/",
     ".github/pull_request_template.md",
@@ -93,7 +95,23 @@ def changed_paths(commit: str) -> tuple[str, ...]:
     return tuple(sorted({line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()}))
 
 
+def _scope_group(path: str) -> str:
+    normalized = path.replace("\\", "/").lstrip("/")
+    parts = normalized.split("/")
+    if not parts:
+        return ""
+    if parts[0] in {".github", "automation", "docs", "scripts", "src", "web"}:
+        if parts[0] == "automation" and len(parts) > 1:
+            return f"automation/{parts[1]}"
+        return parts[0]
+    return parts[0]
+
+
 def classify_risk(paths: Sequence[str]) -> str:
+    if len(paths) > MAX_AUTOMERGE_FILES:
+        return "high"
+    if len({_scope_group(path) for path in paths if _scope_group(path)}) > MAX_AUTOMERGE_SCOPE_GROUPS:
+        return "high"
     for path in paths:
         normalized = path.replace("\\", "/").lstrip("/")
         if normalized.startswith(HIGH_RISK_PATH_PREFIXES) or any(
