@@ -163,6 +163,13 @@ PASI_RESULT_PATCH_END"""
             command_args = run_command.call_args.args[0]
             self.assertEqual(command_args[-1], "HEAD")
 
+    def test_expected_controller_version_reads_native_controller_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "content.js"
+            source.write_text("const CONTROLLER_VERSION = '9.9.9';\n", encoding="utf-8")
+            with mock.patch.object(engine, "CONTROLLER_SOURCE_PATH", source):
+                self.assertEqual(engine.expected_controller_version(), "9.9.9")
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
