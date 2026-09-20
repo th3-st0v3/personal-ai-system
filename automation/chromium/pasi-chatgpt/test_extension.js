@@ -99,6 +99,8 @@ test('native prompt submission retains stable Thinking selectors while using bes
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
   assert.match(content, /const DOM_POLL_MS = 50;/);
+  assert.match(content, /const PREVIOUS_RESPONSE_WAIT_MS = 5 \* 60 \* 1000;/);
+  assert.match(content, /const GENERATION_START_WAIT_MS = 30 \* 1000;/);
 });
 
 test('native Thinking selection prefers the composer model pill and stable intelligence modal', () => {
