@@ -173,6 +173,32 @@ class DurableResponseTransportTests(unittest.TestCase):
 
 
 class BridgeTransportTests(unittest.TestCase):
+    def test_urllib_transport_sends_bridge_bearer_token(self) -> None:
+        captured: dict[str, Any] = {}
+
+        class FakeResponse:
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_args: Any) -> None:
+                return None
+
+            def read(self, _limit: int) -> bytes:
+                return b'{"ok":true}'
+
+        def fake_urlopen(request: Any, timeout: float) -> FakeResponse:
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        with patch.dict("os.environ", {"PASI_BRIDGE_TOKEN": "test-token"}, clear=True):
+            with patch("automation.computer_use.chatgpt.urlopen", side_effect=fake_urlopen):
+                UrllibBridgeTransport().request("GET", "/status")
+
+        request = captured["request"]
+        self.assertEqual(request.headers["Authorization"], "Bearer test-token")
+        self.assertEqual(captured["timeout"], 10.0)
+
     def test_accepts_expected_localhost_url(self) -> None:
         self.assertEqual(UrllibBridgeTransport("http://127.0.0.1:8765").base_url, "http://127.0.0.1:8765")
 
@@ -476,6 +502,30 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.completion, "error")
         self.assertTrue(response.chat_exhausted)
         self.assertEqual(response.error, "CHAT_EXHAUSTED: usage limit")
+
+    def test_wait_timeout_cancels_active_operation(self) -> None:
+        class TimeoutTransport(RepeatingTransport):
+            def __init__(self) -> None:
+                super().__init__({"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "generating"}})
+                self.cancelled = False
+
+            def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+                self.requests.append((method, path, payload))
+                if method == "POST" and path == "/chat/cancel":
+                    self.cancelled = True
+                    return {"operation": {"operation_id": "op-1", "status": "cancelled"}}
+                return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "generating"}}
+
+        transport = TimeoutTransport()
+        response = ChatGPTAdapter(
+            transport,
+            session_id="session-1",
+            poll_interval_seconds=0.001,
+            max_wait_seconds=0.001,
+        ).wait_for_completion("op-1")
+        self.assertEqual(response.completion, "timeout")
+        self.assertTrue(transport.cancelled)
+        self.assertIn(("POST", "/chat/cancel", {"operation_id": "op-1", "reason": "ChatGPT adapter wait timeout"}), transport.requests)
 
     def test_wait_timeout_is_explicit_timeout(self) -> None:
         transport = RepeatingTransport({"operation": {"operation_id": "op-1", "status": "generating"}})
