@@ -15,6 +15,22 @@ SCRIPTS = (
 
 
 class TestPasiOvernightShellScripts(unittest.TestCase):
+    def test_check_all_discovers_and_runs_supported_javascript_suites(self) -> None:
+        script = (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
+        for required in (
+            "JAVASCRIPT_TEST_FILES",
+            "-name 'test_*.js'",
+            "-name '*.test.js'",
+            "-name '*.spec.js'",
+            "node --test",
+            "JavaScript syntax (non-test files)",
+            "JAVASCRIPT_TEST_SET",
+            "Native Chromium controller contract tests",
+        ):
+            self.assertIn(required, script)
+        self.assertIn("test_*.mjs", script)
+        self.assertIn("test_*.cjs", script)
+
     def test_operator_shell_scripts_pass_bash_syntax(self) -> None:
         for script in SCRIPTS:
             self.assertTrue(script.is_file(), script)
