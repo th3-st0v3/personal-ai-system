@@ -279,11 +279,8 @@ Acceptance:
         )
         prompt = engine.build_prompt(state.current_task, state)
         self.assertIn("TASK CONTINUATION:", prompt)
-        self.assertIn("Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.", prompt)
-        self.assertRegex(
-            prompt,
-            r"immediately (?:work on|continue to) the next incomplete roadmap (?:item|task)",
-        )
+        self.assertIn("Work continuously on CURRENT TASK until it is implemented, tested, diagnosed, and verified.", prompt)
+        self.assertIn("The scheduler owns the full roadmap", prompt)
         self.assertIn("If the same failure repeats, change approach", prompt)
         self.assertIn("do not invent work or cosmetic changes", prompt)
         self.assertNotIn("KEEP WORKING UNTIL YOU'RE FINISHED:", prompt)
