@@ -784,24 +784,8 @@
     if (!result) throw new Error('PASI_NATIVE: requested repository unavailable');
     if (!activateControl(result)) throw new Error('PASI_NATIVE: repository result activation failed');
     await sleep(CLICK_SETTLE_MS);
-    const bodyText = normalize(document.body?.innerText || '');
-    const githubFailureMarkers = [
-      'github connection failed',
-      'github connection error',
-      'failed to connect to github',
-      'could not connect to github',
-      'unable to connect to github',
-      'github connection is unavailable',
-      'github access is unavailable',
-      'github access failed',
-      'github authentication required',
-      'github authentication failed',
-      'reconnect github',
-      'connect your github account',
-      'github needs to be connected',
-      'github app connection failed'
-    ];
-    if (githubFailureMarkers.some((marker) => bodyText.includes(marker))) {
+    const githubState = detectorState();
+    if (githubState.github_failure === true) {
       throw new Error('PASI_NATIVE: GitHub connection/access unavailable');
     }
     githubAttached = true;
