@@ -734,6 +734,10 @@ def main() -> None:
                     except Exception:
                         pass
                 if cdp is not None:
+                    try:
+                        cdp.command("Browser.close", timeout=5.0)
+                    except Exception:
+                        pass
                     cdp.close()
                 stop_chrome(chrome_process)
             Path(log_file.name).unlink(missing_ok=True)
