@@ -590,6 +590,8 @@ new file mode 100644
             if argv[:2] == ["node", "--test"]:
                 return 0, "2 tests passed"
             if argv[:3] == ["git", "status", "--porcelain"]:
+                if "--untracked-files=all" in argv:
+                    return 0, ""
                 return 0, " M automation/chromium/pasi-chatgpt/content.js"
             raise AssertionError(f"unexpected command: {argv!r}")
 
