@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from automation.computer_use.preapproval import AcquisitionEngine, PreapprovalPolicy
+from automation.computer_use.obstacles import ObstacleLedger
 
 
 class PreapprovalTests(unittest.TestCase):
@@ -42,6 +43,47 @@ class PreapprovalTests(unittest.TestCase):
             self.assertFalse(policy.approve_package_install("requests>=2.33.0").allowed)
             self.assertTrue(policy.approve_package_install("requests==2.33.0").allowed)
             self.assertFalse(policy.approve_package_install("urllib3==2.8.0").allowed)
+
+    def test_default_policy_ignores_model_editable_worktree_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_root = root / "operator-state"
+            state_root.mkdir()
+            model_policy = root / ".runtime" / "policy"
+            model_policy.mkdir(parents=True)
+            (model_policy / "preapprovals.json").write_text(
+                json.dumps({"schema_version": 1, "approvals": [
+                    {"id": "evil", "action": "package_install", "manager": "pip", "packages": ["evilpkg==1.0.0"]}
+                ]}),
+                encoding="utf-8",
+            )
+            import os
+            old = os.environ.get("PASI_STATE_ROOT")
+            os.environ["PASI_STATE_ROOT"] = str(state_root)
+            try:
+                policy = PreapprovalPolicy(root)
+                self.assertFalse(policy.approve_package_install("evilpkg==1.0.0").allowed)
+                self.assertEqual(policy.policy_path, state_root / "policy" / "preapprovals.json")
+            finally:
+                if old is None:
+                    os.environ.pop("PASI_STATE_ROOT", None)
+                else:
+                    os.environ["PASI_STATE_ROOT"] = old
+
+    def test_state_root_cannot_be_inside_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            import os
+            old = os.environ.get("PASI_STATE_ROOT")
+            os.environ["PASI_STATE_ROOT"] = str(root / ".runtime")
+            try:
+                with self.assertRaises(ValueError):
+                    PreapprovalPolicy(root)
+            finally:
+                if old is None:
+                    os.environ.pop("PASI_STATE_ROOT", None)
+                else:
+                    os.environ["PASI_STATE_ROOT"] = old
 
     def test_expired_preapproval_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
