@@ -10,6 +10,71 @@ from scripts import pasi_overnight_engine_v2 as engine
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
+
+    def test_parse_response_records_optional_automation_continue(self) -> None:
+        response = """PASI_RESULT_STATUS: complete
+PASI_RESULT_SUMMARY: fixed the issue
+PASI_RESULT_NEXT_TASK: improve automation
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: handled
+PASI_RESULT_RESEARCH: performed
+PASI_RESULT_UX: verified
+PASI_RESULT_BACKEND: verified
+PASI_RESULT_EVIDENCE: pytest passed
+PASI_RESULT_REPOSITORY_PROGRESS: changed
+PASI_RESULT_ALLOW_DELETE: false
+PASI_AUTOMATION_CONTINUE: true
+PASI_RESULT_PATCH_BEGIN
+diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+PASI_RESULT_PATCH_END
+"""
+        *_, values = engine.parse_response(response)
+        self.assertEqual(values["automation_continue"], "true")
+
+    def test_automation_gate_reads_durable_task_evidence(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="gate-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger_path = Path(temp_dir) / "task-ledger.json"
+            with mock.patch.object(engine, "TASK_LEDGER_PATH", ledger_path):
+                engine.record_task_ledger(
+                    engine.AUTOMATION_TASKS[0],
+                    "completed",
+                    evidence="verified automation fix",
+                    phase="automation",
+                )
+                engine.record_task_ledger(
+                    engine.AUTOMATION_TASKS[1],
+                    "completed",
+                    evidence="verified second automation fix",
+                    phase="automation",
+                )
+                evidence = engine.automation_gate_evidence(state)
+                self.assertEqual(evidence["automation_gate"], "proceed_engineering")
+                engine.record_task_ledger(
+                    engine.AUTOMATION_TASKS[1],
+                    "completed",
+                    evidence="there is still a browser recovery improvement to implement",
+                    phase="automation",
+                    automation_continue=True,
+                )
+                evidence = engine.automation_gate_evidence(state)
+                self.assertEqual(evidence["automation_gate"], "continue_automation")
+
     def test_automation_gate_requires_consistent_evidence(self) -> None:
         self.assertTrue(
             engine.automation_gate_is_satisfied(
