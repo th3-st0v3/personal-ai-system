@@ -2,7 +2,7 @@
 
 PASI can run a bounded unattended engineering loop for **8-12 hours**. The launcher now defaults to **12 hours**. The duration is a scheduler ceiling: useful progress still depends on the machine remaining powered, browser/controller availability, provider availability, and the ability to find verified work.
 
-The runner uses an isolated Git worktree, persistent state, bounded retries, deterministic repository validation, and a dedicated Git branch. It does not write directly to `main`.
+The runner uses an isolated Git worktree, persistent state, bounded retries, a bubblewrap filesystem/network sandbox for canonical validation, deterministic repository validation, and a dedicated Git branch. It does not write directly to `main`.
 
 ## Routing policy
 
