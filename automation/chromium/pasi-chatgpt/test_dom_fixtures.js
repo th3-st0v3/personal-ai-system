@@ -109,6 +109,29 @@ test('operation prompt carries the operation nonce', () => {
   dom.window.close();
 });
 
+test('native completion accepts a request-only terminal reply within the normal settle window', async () => {
+  const dom = loadController(
+    '<main><div data-message-author-role="assistant"><div class="markdown">PASI_COMPUTER_REQUEST_END</div></div></main>'
+  );
+  const started = Date.now();
+  const response = await dom.window.PASI_NATIVE_TEST_API.waitForResponse('', null, ['PASI_COMPUTER_REQUEST_END']);
+  const elapsed = Date.now() - started;
+  assert.equal(response, 'PASI_COMPUTER_REQUEST_END');
+  assert.ok(elapsed < 10000, `request-only completion took ${elapsed}ms`);
+  dom.window.close();
+});
+
+test('native completion marker predicate accepts only configured terminal markers', () => {
+  const dom = loadController('<main></main>');
+  const api = dom.window.PASI_NATIVE_TEST_API;
+  assert.equal(api.completionMarkersSatisfied('PASI_COMPUTER_REQUEST_END', ['PASI_COMPUTER_REQUEST_END']), true);
+  assert.equal(api.completionMarkersSatisfied('PASI_RESULT_STATUS: complete', ['PASI_COMPUTER_REQUEST_END']), false);
+  assert.equal(api.completionMarkersSatisfied('PASI_RESULT_STATUS: complete', ['PASI_RESULT_STATUS']), true);
+  assert.equal(api.completionMarkersSatisfied('ordinary response', []), true);
+  dom.window.close();
+});
+
+
 test('whitespace-collapse mutation fails the multiline extraction contract', () => {
   const fixture = '<div data-message-author-role="assistant"><div class="markdown">line one\nline two</div></div>';
   const current = loadController(fixture);
