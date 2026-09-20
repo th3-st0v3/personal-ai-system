@@ -736,14 +736,21 @@ def fast_local_gate(worktree: Path) -> str:
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
     validate_patch_paths(patch, allow_delete)
+    gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower() or "full"
+    verify_started_at = now_utc().isoformat()
+    log_event(
+        "verify_started",
+        task=task,
+        gate_mode=gate_mode,
+        started_at=verify_started_at,
+    )
     code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, 60.0)
     if code != 0:
         raise RuntimeError(f"git apply --check failed:\n{output}")
     code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, 60.0)
     if code != 0:
         raise RuntimeError(f"git apply failed:\n{output}")
-    gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower()
-    if gate_mode == "fast":
+        if gate_mode == "fast":
         output = fast_local_gate(worktree)
         log_event("fast_local_gate_passed")
     elif gate_mode in {"", "full"}:
@@ -757,6 +764,14 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
     if code != 0 or not status:
         raise RuntimeError("verification passed but no repository changes remain")
+    changed_files = [line.strip() for line in status.splitlines() if line.strip()]
+    log_event(
+        "verify_finished",
+        task=task,
+        gate_mode=gate_mode,
+        finished_at=now_utc().isoformat(),
+        changed_files=len(changed_files),
+    )
     commit = legacy.commit_and_push(worktree, branch, task, push)
     if push:
         promotion = command(
