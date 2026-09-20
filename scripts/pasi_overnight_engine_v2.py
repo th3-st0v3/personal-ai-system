@@ -344,8 +344,8 @@ def release_lock() -> None:
         pass
 
 
-def validate_patch_paths(patch: str, allow_delete: bool) -> None:
-    legacy.validate_patch_paths(patch, allow_delete)
+def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None = None) -> None:
+    legacy.validate_patch_paths(patch, allow_delete, worktree)
 
 
 def control_script(name: str) -> Path:
@@ -866,7 +866,7 @@ def fast_local_gate(worktree: Path) -> str:
 
 
 def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool) -> tuple[str, str]:
-    validate_patch_paths(patch, allow_delete)
+    validate_patch_paths(patch, allow_delete, worktree)
     gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower() or "full"
     verify_started_at = now_utc().isoformat()
     log_event(
