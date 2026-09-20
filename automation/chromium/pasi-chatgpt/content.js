@@ -1225,7 +1225,7 @@
     try {
       switch (operation.operation_type) {
         case 'new_chat': await newChat(); break;
-        case 'select_reasoning': await selectThinking(); break;
+        case 'select_reasoning': await ensureThinkingBestEffort(); break;
         case 'attach_github': await attachGithub(operation.prompt); break;
         case 'prompt': {
           await restoreRecoveryContext(operation.recovery_context);
