@@ -384,6 +384,74 @@ Acceptance:
         )
         self.assertEqual(engine.choose_next_task(state, current), engine.AUTOMATION_TASKS[2])
 
+    def test_attempt_budget_advances_to_next_task_instead_of_ending_run(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="attempt-budget-progress",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        attempts: list[tuple[str, int]] = []
+        failure_values = {
+            "requirements": "complete",
+            "limitations": "handled",
+            "research": "not_applicable",
+            "ux": "not_applicable",
+            "backend": "verified",
+            "evidence": "attempt failed before a usable patch was produced",
+            "repository_progress": "stopped",
+        }
+        success_values = dict(failure_values, evidence="verified patch for next task", repository_progress="changed")
+        parsed = iter(
+            [
+                ("needs_revision", "first failure", "", "", False, failure_values),
+                ("needs_revision", "second failure", "", "", False, failure_values),
+                ("needs_revision", "third failure", "", "", False, failure_values),
+                ("complete", "next task completed", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
+            ]
+        )
+
+        def invoke(task, _state, _failure):
+            attempts.append((task, _state.current_attempt))
+            return 0, "fixture response"
+
+        def verify(*_args, **_kwargs):
+            engine.STOP = True
+            return "deadbeef", "verified"
+
+        original_stop = engine.STOP
+        try:
+            engine.STOP = False
+            with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
+                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                    with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
+                        with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
+                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                with mock.patch.object(engine, "record_task_ledger"):
+                                    with mock.patch.object(engine, "save_state"):
+                                        with mock.patch.object(engine, "log_event"):
+                                            engine.run(state, push=False)
+        finally:
+            engine.STOP = original_stop
+
+        self.assertEqual(
+            attempts,
+            [
+                (engine.AUTOMATION_TASKS[0], 1),
+                (engine.AUTOMATION_TASKS[0], 2),
+                (engine.AUTOMATION_TASKS[0], 3),
+                (engine.AUTOMATION_TASKS[1], 1),
+            ],
+        )
+        self.assertEqual(state.failed_tasks, 1)
+        self.assertEqual(state.completed_tasks, 1)
+        self.assertEqual(state.current_task, engine.AUTOMATION_TASKS[2])
+
     def test_failed_task_is_excluded_before_next_selection(self) -> None:
         now = datetime.now(timezone.utc)
         failed = engine.AUTOMATION_TASKS[0]
