@@ -287,6 +287,18 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.text, "recovered after transient bridge loss")
         self.assertEqual(transport.operation_reads, 3)
 
+    def test_response_from_operation_recognizes_structured_context_retry_class(self) -> None:
+        transport = FakeTransport([])
+        adapter = ChatGPTAdapter(transport, session_id="session-1")
+        response = adapter._response_from_operation({
+            "operation_id": "op-context",
+            "operation_type": "prompt",
+            "status": "failed",
+            "retry_class": "context",
+            "error": "PASI_NATIVE: context recovery exhausted: CHAT_EXHAUSTED: exhausted",
+        })
+        self.assertTrue(response.chat_exhausted)
+
     def test_submit_prompt_queues_prompt_operation(self) -> None:
         transport = FakeTransport([{"operation": {"operation_id": "op-1"}}])
         adapter = ChatGPTAdapter(transport, session_id="session-1")
