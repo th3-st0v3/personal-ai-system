@@ -14,7 +14,8 @@ BRANCH="pasi/m0-acceptance-$STAMP"
 EVIDENCE_DIR="$REPO_ROOT/.runtime/acceptance"
 LOG="$EVIDENCE_DIR/m0-live.log"
 mkdir -p "$EVIDENCE_DIR"
-export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="$REPO_ROOT:$PYTHONPATH"
+export PASI_PRIMARY_CHATGPT_ONLY=1
 
 TASK="M0 live acceptance: in the dedicated PASI acceptance worktree, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF. Do not modify protected PASI runtime files. Run canonical validation. Return the normal PASI completion contract and one unified patch."
 
