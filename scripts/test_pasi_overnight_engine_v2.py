@@ -463,5 +463,18 @@ PASI_RESULT_PATCH_END"""
         self.assertIn('"scripts/check_offline.sh"', source)
 
 
+
+    def test_fallback_provenance_contract_is_enforced(self) -> None:
+        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
+        self.assertIn("PASI_FALLBACK_PROVIDER:", source)
+        self.assertIn("failure_class=fallback_provenance_missing", source)
+        self.assertIn('provider_source = f"fallback:{fallback_provider}"', source)
+
+    def test_fallback_results_cannot_be_auto_promoted(self) -> None:
+        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
+        self.assertIn('promote=provider_source == "chatgpt_browser"', source)
+        self.assertIn("if push and promote:", source)
+
+
 if __name__ == "__main__":
     unittest.main()
