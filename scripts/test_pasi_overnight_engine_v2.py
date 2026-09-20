@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts.pasi_response_contract import CONTRACT as SHARED_CONTRACT
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
@@ -74,6 +75,15 @@ PASI_RESULT_PATCH_END"""
         self.assertFalse(allow_delete)
         self.assertIn("@@ -1 +1 @@\n-old\n+new", patch)
         self.assertEqual(values["repository_progress"], "changed")
+
+    def test_shared_response_contract_contains_repository_progress(self) -> None:
+        self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", SHARED_CONTRACT)
+        self.assertEqual(engine.RESPONSE_CONTRACT, SHARED_CONTRACT)
+
+    def test_malformed_response_is_retryable_contract_failure(self) -> None:
+        malformed = "PASI_RESULT_STATUS: complete\nPASI_RESULT_SUMMARY: missing markers"
+        with self.assertRaisesRegex(ValueError, "each marker exactly once"):
+            engine.parse_response(malformed)
 
     def test_parse_response_rejects_missing_marker(self) -> None:
         response = "PASI_RESULT_STATUS: complete\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END"
