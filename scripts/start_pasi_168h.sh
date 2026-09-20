@@ -9,6 +9,7 @@ cd "$REPO_ROOT"
 # on sys.path. Export it here so the unattended launcher works from a clean
 # shell without requiring a manually prepared PYTHONPATH.
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+export PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}"
 
 PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
@@ -31,7 +32,7 @@ if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
     exit 2
 fi
 
-printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
+printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'\nprintf 'Local validation mode: %s\n' "$PASI_LOCAL_GATE_MODE"
 "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
 printf '\n=== STARTING 168-HOUR RUN ===\n'
 
