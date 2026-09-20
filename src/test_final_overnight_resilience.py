@@ -56,7 +56,7 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     monkeypatch.setattr(supervisor, "healthy", lambda _url: False)
     monkeypatch.setattr(supervisor, "log_event", lambda *_args, **_kwargs: None)
 
-    ledger = ObstacleLedger(tmp_path)
+    ledger = ObstacleLedger(tmp_path, tmp_path.parent / "operator-state")
     children = hardening.nonblocking_ensure_services(ledger=ledger)
 
     assert len(children) == 1
