@@ -155,16 +155,29 @@
     inspecting = true;
     try {
       const state = readRecoveryState();
-      const activeOperationId = state?.operation_id || readActiveOperationId();
+      const activeOperationId =
+        state?.operation_id ||
+        state?.recovery_operation_id ||
+        state?.resume_operation_id ||
+        readActiveOperationId();
       if (!activeOperationId) return;
 
       const current = await operation(String(activeOperationId));
       if (!current) {
-        const missingSince = Number(
-          state?.missing_operation_since_ms || Date.now()
-        );
         const now = Date.now();
+        const missingSince = Number(state?.missing_operation_since_ms || now);
         const lastReported = Number(state?.missing_operation_last_report_ms || 0);
+        if (!state || !Number.isFinite(Number(state.missing_operation_since_ms))) {
+          try {
+            const next = {
+              ...(state || {}),
+              operation_id: String(activeOperationId),
+              missing_operation_since_ms: now,
+              missing_operation_last_report_ms: 0
+            };
+            localStorage.setItem(RECOVERY_KEY, JSON.stringify(next));
+          } catch (_) {}
+        }
         if (!lastReported || now - lastReported >= MISSING_OPERATION_REPORT_MS) {
           await report('chatgpt_recovery', {
             phase: 'operation_lookup_unavailable',
@@ -173,6 +186,15 @@
             missing_operation_age_ms: now - missingSince,
             grace_ms: MISSING_OPERATION_GRACE_MS
           });
+          try {
+            const next = {
+              ...(readRecoveryState() || state || {}),
+              operation_id: String(activeOperationId),
+              missing_operation_since_ms: missingSince,
+              missing_operation_last_report_ms: now
+            };
+            localStorage.setItem(RECOVERY_KEY, JSON.stringify(next));
+          } catch (_) {}
         }
         if (state && now - missingSince >= MISSING_OPERATION_GRACE_MS) {
           await report('chatgpt_recovery', {
@@ -185,6 +207,16 @@
         }
         return;
       }
+
+      try {
+        const persisted = readRecoveryState();
+        if (persisted && (persisted.missing_operation_since_ms || persisted.missing_operation_last_report_ms)) {
+          const next = { ...persisted };
+          delete next.missing_operation_since_ms;
+          delete next.missing_operation_last_report_ms;
+          localStorage.setItem(RECOVERY_KEY, JSON.stringify(next));
+        }
+      } catch (_) {}
 
       const responseText = latestAssistant();
       const stateData = {
