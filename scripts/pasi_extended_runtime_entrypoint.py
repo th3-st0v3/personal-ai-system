@@ -34,6 +34,36 @@ def load_task_file(path: Path) -> str:
     return text
 
 
+def select_task_source(
+    cli_task: str,
+    explicit_task_file: Path | None,
+    environment_task: str,
+    environment_task_file: Path | None,
+    default_task_file: Path,
+) -> str:
+    """Select the task using the documented precedence:
+    --task > explicit --task-file > PASI_TASK > PASI_TASK_FILE > local default file.
+    """
+    selected = cli_task.strip()
+    if selected:
+        return selected
+
+    if explicit_task_file is not None:
+        return load_task_file(explicit_task_file)
+
+    selected = environment_task.strip()
+    if selected:
+        return selected
+
+    if environment_task_file is not None:
+        return load_task_file(environment_task_file)
+
+    if default_task_file.is_file():
+        return load_task_file(default_task_file)
+
+    return DEFAULT_ENGINEERING_TASK
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run PASI unattended for an extended duration with resilient response and recovery handling."
@@ -44,21 +74,18 @@ def main() -> int:
     args, passthrough = parser.parse_known_args()
     hours = validate_hours(args.hours)
 
-    configured_task_file = args.task_file
-    if configured_task_file is None:
-        environment_path = os.environ.get("PASI_TASK_FILE", "").strip()
-        if environment_path:
-            configured_task_file = Path(environment_path)
-    if configured_task_file is None and DEFAULT_TASK_FILE.is_file():
-        configured_task_file = DEFAULT_TASK_FILE
+    environment_task_file = None
+    environment_path = os.environ.get("PASI_TASK_FILE", "").strip()
+    if environment_path:
+        environment_task_file = Path(environment_path)
 
-    selected_task = args.task.strip()
-    if not selected_task:
-        selected_task = os.environ.get("PASI_TASK", "").strip()
-    if not selected_task and configured_task_file is not None:
-        selected_task = load_task_file(configured_task_file)
-    if not selected_task:
-        selected_task = DEFAULT_ENGINEERING_TASK
+    selected_task = select_task_source(
+        args.task,
+        args.task_file,
+        os.environ.get("PASI_TASK", ""),
+        environment_task_file,
+        DEFAULT_TASK_FILE,
+    )
     selected_task = DIFFICULT_MODE_PREFIX + "\n" + selected_task
 
     sys.argv = [
