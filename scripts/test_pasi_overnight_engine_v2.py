@@ -524,7 +524,7 @@ PASI_RESULT_PATCH_END"""
         router_source = (Path(engine.REPO_ROOT) / "scripts" / "pasi_provider_router.py").read_text(encoding="utf-8")
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS", contract_source)
         self.assertIn("from scripts.pasi_response_contract import CONTRACT", router_source)
-        self.assertIn("f" + '"\n\n{CONTRACT}\\n"' , router_source)
+        self.assertIn('f"\n\n{CONTRACT}\\n"', router_source)
 
 
 if __name__ == "__main__":
