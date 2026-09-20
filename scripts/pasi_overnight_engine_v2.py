@@ -534,7 +534,7 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
             "--tmpfs", "/mnt",
             "--tmpfs", "/media",
             "--bind", str(sandbox_repo), "/workspace",
-            "--ro-bind", str(worktree / ".venv"), "/pasi-venv",
+            "--ro-bind", str(REPO_ROOT / ".venv"), "/pasi-venv",
             "--unshare-net",
             "--chdir", "/workspace",
             *base,
@@ -588,7 +588,8 @@ def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
     if code == 0:
         raise RuntimeError("task completed without producing a commit")
     message = re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:65] or "overnight PASI task"
-    code, output = command(["git", "commit", "-m", f"pasi: {message}"], worktree, 120.0)
+    commit_tag = f"task-{task_key(task)[:12]}"
+    code, output = command(["git", "commit", "-m", f"pasi: {commit_tag} {message}"], worktree, 120.0)
     if code != 0:
         raise RuntimeError(f"git commit failed: {output}")
     code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
@@ -1089,6 +1090,9 @@ def sleep_until_retry(state: OvernightState, seconds: float) -> bool:
 def run(state: OvernightState, *, push: bool) -> None:
     failure = ""
     while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
+        if reconcile_committed_task(state):
+            failure = ""
+            continue
         if not runtime_watchdog_is_live():
             if not standby_until_ready(state):
                 if STOP:
@@ -1216,6 +1220,50 @@ def run(state: OvernightState, *, push: bool) -> None:
             save_state(state)
             log_event("task_failed", phase=state.phase, task_number=state.task_number, failed_task=failed_task, next_task=state.current_task, error=state.last_result[-6000:])
             failure = state.last_result
+
+
+def reconcile_committed_task(state: OvernightState) -> bool:
+    """Recover a commit acknowledged by Git but not yet written to the task ledger."""
+    normalized = re.sub(r"\s+", " ", state.current_task).strip()
+    if not normalized:
+        return False
+    key = task_key(normalized)
+    entry = load_task_ledger().get(key)
+    if isinstance(entry, dict) and str(entry.get("status", "")).casefold() == "completed":
+        return False
+    worktree = Path(state.worktree)
+    if not repository_worktree_is_clean(worktree):
+        return False
+    code, subject = command(["git", "log", "-1", "--format=%s"], worktree, 15.0)
+    if code != 0 or f"task-{key[:12]}" not in subject:
+        return False
+    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
+    if code != 0 or not commit.strip():
+        return False
+    record_task_ledger(
+        normalized,
+        "completed",
+        commit=commit.strip(),
+        evidence="Recovered completed task from an already-created tagged Git commit after restart.",
+        phase=state.phase,
+    )
+    state.completed_tasks += 1
+    if state.phase == "automation":
+        state.automation_tasks_since_gate += 1
+    state.recent_tasks.append(normalized)
+    state.current_attempt = 0
+    state.next_task = ""
+    state.current_task = choose_next_task(state, "")
+    save_state(state)
+    log_event(
+        "task_recovered_from_commit",
+        phase=state.phase,
+        task_number=state.task_number,
+        commit=commit.strip(),
+        recovered_task=normalized,
+        next_task=state.current_task,
+    )
+    return True
 
 
 def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
