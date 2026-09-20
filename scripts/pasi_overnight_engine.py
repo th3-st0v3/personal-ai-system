@@ -168,9 +168,23 @@ def release_lock() -> None:
         pass
 
 
-def command(command: list[str], cwd: Path, *, timeout: float) -> tuple[int, str]:
+def command(
+    command: list[str],
+    cwd: Path,
+    *,
+    timeout: float,
+    input_text: str | None = None,
+) -> tuple[int, str]:
     try:
-        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
     output = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -398,10 +412,20 @@ def invoke_chat(task: str, state: RunnerState, failure: str) -> tuple[int, str]:
 def verify_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
     normalized_patch = normalize_patch(patch)
     validate_patch_paths(normalized_patch, allow_delete)
-    code, output = command(["git", "apply", "--check", "--whitespace=nowarn"], worktree, timeout=60.0)
+    code, output = command(
+        ["git", "apply", "--check", "--whitespace=nowarn"],
+        worktree,
+        timeout=60.0,
+        input_text=normalized_patch,
+    )
     if code != 0:
         raise OvernightError(f"git apply --check failed:\n{output}")
-    code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, timeout=60.0)
+    code, output = command(
+        ["git", "apply", "--whitespace=nowarn"],
+        worktree,
+        timeout=60.0,
+        input_text=normalized_patch,
+    )
     if code != 0:
         raise OvernightError(f"git apply failed:\n{output}")
     code, output = command(["bash", "scripts/check_all.sh"], worktree, timeout=900.0)
