@@ -177,7 +177,13 @@ def main() -> int:
 
     mandatory = report["local_prerequisites"]["venv_python"]
     git = report["local_prerequisites"]["git"]
-    if args.check and (not mandatory.get("present") or not mandatory.get("executable") or not git.get("present")):
+    bubblewrap = report["local_prerequisites"]["bubblewrap"]
+    if args.check and (
+        not mandatory.get("present")
+        or not mandatory.get("executable")
+        or not git.get("present")
+        or not bubblewrap.get("present")
+    ):
         return 2
     return 0
 
