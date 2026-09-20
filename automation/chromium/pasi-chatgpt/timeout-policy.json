@@ -12,5 +12,9 @@
   "recovery_grace_seconds": 600,
   "python_wait_seconds": 1800,
   "bridge_claim_lease_seconds": 1800,
-  "queue_ttl_seconds": 86400
+  "queue_ttl_seconds": 86400,
+  "click_settle_ms": 75,
+  "thinking_verify_ms": 3000,
+  "response_settle_ms": 750,
+  "submission_ack_ms": 2500
 }
