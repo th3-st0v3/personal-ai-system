@@ -957,30 +957,29 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
 
 
 def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
-    candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
-    roadmap = "\n".join(f"- {item}" for item in candidates)
-    recent = "\n".join(f"- {item}" for item in state.recent_tasks[-12:]) or "- none recorded"
-    return f"""TASK CONTINUATION:
-- Inspect the current repository state and recent commits before deciding whether the CURRENT TASK is still incomplete.
-- Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.
-- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it, do not make cosmetic duplicate changes, and do not ask the human what to do next; immediately work on the next incomplete roadmap item below.
-- IF the CURRENT TASK is not yet satisfied, THEN continue it.
-- If the same failure repeats, change approach instead of repeating the failed path; use PREVIOUS FAILURE EVIDENCE to guide the different approach.
-- A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
-- After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK; immediately continue to the next incomplete roadmap task.
-- IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
-- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: changed and provide the required patch.
-- If the verified evidence shows another automation, computer-use, recovery, integration, or security capability is materially necessary to satisfy the objective, include exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit that line.
-- do not invent work or cosmetic changes; report stopped only when the task is satisfied and no concrete repository change remains.
-- Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it.
-ROADMAP PHASE: {state.phase}
-ROADMAP:
-{roadmap}
-RECENT TASKS:
-{recent}"""
+    """Return only task-local continuation guidance.
+
+    The durable scheduler keeps the full roadmap and recent-task history in
+    machine-readable state. Those lists are intentionally not copied into every
+    model prompt: stale history increases prompt size and can distract the
+    implementation agent from the current objective.
+    """
+    return """TASK CONTINUATION:
+- Work continuously on CURRENT TASK until it is implemented, tested, diagnosed, and verified.
+- Inspect the current repository state before editing; do not assume a prior attempt succeeded.
+- If the CURRENT TASK is already satisfied by verified repository changes, do not re-implement it or make cosmetic duplicates. Return the required completion contract and a concrete next task.
+- If the same failure repeats, change approach rather than repeating the failed path; use only the supplied PREVIOUS FAILURE EVIDENCE.
+- After verified completion, set PASI_RESULT_NEXT_TASK to one concrete high-value follow-up. The scheduler owns the full roadmap and will choose/validate the next task; do not reproduce the roadmap in this response.
+- If no concrete repository change remains, report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch. Never invent a cosmetic patch.
+- If a verified result shows another automation, computer-use, recovery, integration, or security capability is materially necessary, include exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit it.
+- Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it."""
+
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
-    previous = f"\nPREVIOUS FAILURE EVIDENCE:\n{failure[-12_000:]}\n" if failure else ""
+    failure_block = ""
+    if failure.strip():
+        compact_failure = re.sub(r"\\s+", " ", failure).strip()[:2500]
+        failure_block = f"\\nPREVIOUS FAILURE EVIDENCE (current attempt only):\\n{compact_failure}\\n"
     return f"""You are the implementation engineer inside an unattended PASI overnight coding run.
 
 CURRENT TASK:
@@ -1023,7 +1022,7 @@ PASI_RESULT_PATCH_BEGIN
 PASI_RESULT_PATCH_END
 
 The patch must apply with git apply, modify only repository files, and contain no symlink or submodule additions. Do not use shell commands as the change mechanism.
-{previous}"""
+{failure_block}"""
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
