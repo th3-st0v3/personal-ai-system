@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from automation.legacy.controller_update import (
+from automation.orchestrator.controller_update import (
     evaluate_controller_update,
     parse_controller_update_directive,
     read_controller_version,
