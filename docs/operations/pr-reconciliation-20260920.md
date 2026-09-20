@@ -6,7 +6,7 @@ All reconciled work is being assembled on:
 
 - Branch: `pasi/overnight-20260919-095554-751099426`
 - Consolidated PR: #233
-- Current reconciled head: `835cc43ddb27df11bdb15574df634568b0f20eed`
+- Current reconciled head: the branch tip; verify with `git rev-parse HEAD` after transfer.
 - Base: `main`
 
 The purpose of this branch is to preserve useful work from the open PR set without blindly merging divergent histories. Each PR is classified below as integrated, equivalent/already present, selectively integrated, or intentionally not adopted.
@@ -59,7 +59,7 @@ The native extension now uses one shared timeout policy:
 - generation/recovery trigger ceiling: 3600 seconds
 - recovery grace: 600 seconds
 
-The 10–20 ms values are therefore used only on the successful response-to-next-prompt path; they are not used as unsafe long-response timeouts.
+The 10–20 ms values are used only on the successful response-to-next-prompt path; long-response and recovery ceilings remain measured in seconds/minutes. Completion telemetry is fire-and-forget so observation latency does not sit between generations, while the durable `/chat/finished` acknowledgement remains the completion gate.
 
 The native controller still uses bounded send attempts (3) and must never fire a second send strategy after one has already fired. Immediate terminal polling remains event/microtask driven.
 
@@ -110,12 +110,12 @@ git rev-parse HEAD
 bash scripts/check_all.sh
 ```
 
-Expected branch head after this reconciliation: `835cc43ddb27df11bdb15574df634568b0f20eed`.
+Do not hard-code a commit SHA in local tooling; `git rev-parse HEAD` is the authoritative transferred revision.
 
 The VS Code checkout should use this branch as the source of truth for continued implementation. Runtime state under `.runtime/` remains generated/ignored state and is not part of the source transfer.
 
 ## Remaining acceptance boundary
 
-The code reconciliation is complete at the source level, but the latest reconciled head still requires fresh CI and live browser acceptance before anyone should describe the 168-hour run as fully qualified. A previously green CI run exists on an older #233 head; it does not certify this new head.
+The source reconciliation is complete for the currently open PR set. The latest branch tip still requires fresh CI and live browser acceptance before anyone should describe the 168-hour run as fully qualified. A previously green CI run exists on an older #233 head; it does not certify this new head.
 
 When fresh CI is green, the side PRs whose changes are fully represented can be closed as superseded without losing their code because the reconciled commits live in #233.
