@@ -38,7 +38,7 @@ MAX_PATCH_BYTES = 250_000
 MAX_OUTPUT_CHARS = 20_000
 MAX_ATTEMPTS = 3
 PROTECTED_UNATTENDED_PATHS = frozenset({
-    "scripts/check_all.sh",
+    "scripts/check_offline.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
     "automation/chromium/pasi-chatgpt/manifest.json",
