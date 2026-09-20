@@ -459,7 +459,10 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
             raise RuntimeError(f"could not fast-forward overnight branch to {start_ref}: {merge_output}")
         log_event("resume_branch_fast_forwarded", branch=branch, commits=behind)
     elif behind > 0 and ahead > 0:
-        log_event("resume_branch_diverged", branch=branch, ahead=ahead, behind=behind)\n\n\ndef browser_observation() -> dict[str, Any] | None:
+        log_event("resume_branch_diverged", branch=branch, ahead=ahead, behind=behind)
+
+
+def browser_observation() -> dict[str, Any] | None:
     token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
     if not token:
         try:
