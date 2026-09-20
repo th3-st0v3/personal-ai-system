@@ -13,6 +13,22 @@ class TestPasiPromote(unittest.TestCase):
         self.assertEqual(promote.classify_risk(["scripts/pasi_promote.py"]), "high")
         self.assertEqual(promote.classify_risk(["automation/orchestrator/bridge.py"]), "high")
         self.assertEqual(promote.classify_risk([".github/workflows/test.yml"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/start_pasi_168h.sh"]), "high")
+        self.assertEqual(promote.classify_risk(["docs/operations/pr-scope-policy.md"]), "high")
+        self.assertEqual(promote.classify_risk(["SECURITY.md"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/check_all.sh"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/pasi_timeout_policy.py"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/pasi_extended_runtime_entrypoint.py"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/pasi_setup.py"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/pasi_log_router.py"]), "high")
+
+    def test_large_change_set_is_review_gated(self) -> None:
+        paths = [f"docs/file-{index}.md" for index in range(promote.MAX_AUTOMERGE_FILES + 1)]
+        self.assertEqual(promote.classify_risk(paths), "high")
+
+    def test_broad_cross_subsystem_change_is_review_gated(self) -> None:
+        paths = ("docs/readme.md", "scripts/example.py", "web/example.js")
+        self.assertEqual(promote.classify_risk(paths), "high")
 
     def test_standard_changes_are_auto_merge_eligible(self) -> None:
         self.assertEqual(promote.classify_risk(["docs/readme.md", "scripts/test_example.py"]), "standard")
@@ -125,6 +141,18 @@ class TestPasiPromote(unittest.TestCase):
         create.assert_not_called()
         self.assertEqual(result.pr_number, 44)
         self.assertTrue(result.auto_merge_requested)
+
+    def test_existing_closed_pr_is_never_reopened_or_duplicated(self) -> None:
+        with patch.object(promote, "gh_available", return_value=True):
+            with patch.object(promote, "gh_authenticated", return_value=True):
+                with patch.object(promote, "changed_paths", return_value=("docs/readme.md",)):
+                    with patch.object(promote, "_branch_pr", return_value=(44, "https://github.com/th3-st0v3/personal-ai-system/pull/44", "CLOSED")):
+                        with patch.object(promote, "_create_pr") as create:
+                            result = promote.promote("abc123", "pasi/test", "task")
+        create.assert_not_called()
+        self.assertEqual(result.pr_number, 44)
+        self.assertFalse(result.auto_merge_requested)
+        self.assertIn("remains closed", result.message)
 
     def test_existing_pr_gets_auto_merge_for_standard_changes(self) -> None:
         with patch.object(promote, "gh_available", return_value=True):
