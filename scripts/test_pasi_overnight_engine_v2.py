@@ -75,6 +75,34 @@ PASI_RESULT_PATCH_END
                 evidence = engine.automation_gate_evidence(state)
                 self.assertEqual(evidence["automation_gate"], "continue_automation")
 
+    def test_patch_boundary_rejects_ignored_and_protected_paths(self) -> None:
+        import subprocess
+
+        ignored_patch = """diff --git a/.runtime/secret.json b/.runtime/secret.json
+new file mode 100644
+--- /dev/null
++++ b/.runtime/secret.json
+@@ -0,0 +1 @@
++blocked
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir)
+            (worktree / ".runtime").mkdir()
+            (worktree / ".gitignore").write_text(".runtime/\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=worktree, check=True)
+            with self.assertRaisesRegex(ValueError, "Git-ignored"):
+                engine.validate_patch_paths(ignored_patch, False, worktree)
+
+        protected = """diff --git a/scripts/check_all.sh b/scripts/check_all.sh
+--- a/scripts/check_all.sh
++++ b/scripts/check_all.sh
+@@ -1 +1 @@
+-old
++new
+"""
+        with self.assertRaisesRegex(ValueError, "protected unattended"):
+            engine.validate_patch_paths(protected, False, Path.cwd())
+
     def test_control_script_stays_inside_launcher_checkout(self) -> None:
         script = engine.control_script("pasi_chat_guard.py")
         self.assertEqual(script.parent.resolve(), engine.CONTROL_SCRIPTS_ROOT.resolve())
