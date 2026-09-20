@@ -750,7 +750,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     code, output = command(["git", "apply", "--whitespace=nowarn"], worktree, 60.0)
     if code != 0:
         raise RuntimeError(f"git apply failed:\n{output}")
-        if gate_mode == "fast":
+    if gate_mode == "fast":
         output = fast_local_gate(worktree)
         log_event("fast_local_gate_passed")
     elif gate_mode in {"", "full"}:
