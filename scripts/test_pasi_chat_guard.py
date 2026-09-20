@@ -9,6 +9,13 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_guard_uses_immutable_launcher_control_script_and_explicit_target_repo(self) -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        self.assertIn('str(REPO_ROOT / "scripts" / "pasi_chat.py")', source)
+        self.assertIn('parser.add_argument("--repo"', source)
+        self.assertIn("repo_root = args.repo.expanduser().resolve()", source)
+        self.assertIn("execute_computer_requests(response, repo_root)", source)
+
     def test_default_timeout_matches_native_generation_ceiling(self) -> None:
         self.assertEqual(guard.DEFAULT_TIMEOUT, 60 * 60)
 
