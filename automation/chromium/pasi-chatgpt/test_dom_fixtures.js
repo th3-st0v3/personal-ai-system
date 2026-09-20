@@ -29,7 +29,7 @@ function loadController(html, { mutateWhitespace = false } = {}) {
   let source = CONTENT;
   if (mutateWhitespace) {
     const mutationPattern =
-      /\.replace\(\/\\r\\n\?\/g, '\\n'\)\s+\.replace\(\/\[ \t\]\+\(\?=\\n\)\/g, ''\)/;
+      /\.replace\(\/\\r\\n\?\/g, '\\n'\)\s+\.replace\(\/\[ \\t\]\+\(\?=\\n\)\/g, ''\)/;
     const mutated = source.replace(mutationPattern, ".replace(/\\s+/g, ' ')");
     assert.notEqual(mutated, source, 'whitespace-collapse mutation did not match messageText');
     source = mutated;
