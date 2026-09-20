@@ -746,11 +746,14 @@ def _observation_time(observation: dict[str, Any]) -> datetime | None:
 
 def expected_controller_version() -> str | None:
     try:
-        raw = json.loads(CONTROLLER_MANIFEST_PATH.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        source = CONTROLLER_SOURCE_PATH.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
         return None
-    version = raw.get("version") if isinstance(raw, dict) else None
-    return version.strip() if isinstance(version, str) and version.strip() else None
+    match = re.search(r"""\bconst\s+CONTROLLER_VERSION\s*=\s*['"]([^'"]+)['"]""", source)
+    if not match:
+        return None
+    version = match.group(1).strip()
+    return version or None
 
 
 def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
