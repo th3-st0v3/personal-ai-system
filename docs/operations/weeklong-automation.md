@@ -71,3 +71,14 @@ bash scripts/stop_pasi_overnight.sh
 ## Operational expectation
 
 A 168-hour deadline means the runner is configured to operate for seven days. It is not a guarantee that external systems cannot fail for seven days. Unrecoverable local failures, unavailable authentication, network outages, or other hard prerequisites can still terminate a run. The purpose of the extended launcher is to remove the artificial 12-hour software ceiling while retaining the existing recovery and verification boundaries.
+
+## Autonomous promotion
+
+The 168-hour runner promotes only after a task has passed repository validation and produced a Git commit. Promotion is risk-gated:
+
+- Standard-risk changes may open a PR and request GitHub auto-merge only after all reported checks pass.
+- Controller, browser, bridge, recovery, provider-routing, workflow, startup, timeout, sandbox, promotion, and governance changes remain in normal human-review PRs.
+- A previously closed PR is never reopened and no replacement PR is created solely to revive that closed work.
+- Auto-merge uses squash merge and asks GitHub to delete the merged work branch.
+
+This is repository promotion, not direct unattended modification of main: GitHub remains the merge authority, required checks must pass, and protected/control-plane changes remain review-gated.
