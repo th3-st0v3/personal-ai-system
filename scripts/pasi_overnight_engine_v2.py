@@ -868,6 +868,8 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
     )
     if provider_condition(code, output) is None:
         return code, output
+    if os.environ.get("PASI_PRIMARY_CHATGPT_ONLY", "").strip().casefold() in {"1", "true", "yes"}:
+        return code, sanitize_failure_evidence(code, output)
     fallback = command(
         [sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
         Path(state.worktree),
