@@ -25,9 +25,16 @@ _AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.M
 _BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
 _CONTROLLER_HEALTH_URL = "http://127.0.0.1:8766/health"
 _STANDBY_SECONDS = 30.0
+PROTECTED_UNATTENDED_PATHS = frozenset({
+    "scripts/check_all.sh",
+    "scripts/pasi_overnight_hardening.py",
+    "scripts/pasi_overnight_engine_v2.py",
+    "automation/chromium/pasi-chatgpt/manifest.json",
+})
+PROTECTED_UNATTENDED_PREFIXES = (".github/", ".githooks/", "hooks/")
 
 
-def validate_patch_paths(patch: str, allow_delete: bool) -> None:
+def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None = None) -> None:
     if len(patch.encode("utf-8")) > engine.MAX_PATCH_BYTES:
         raise ValueError("model patch exceeds configured size bound")
     if "new file mode 120000" in patch or "new file mode 160000" in patch:
@@ -47,6 +54,16 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
                 raise ValueError(f"forbidden patch path: {path_value}")
             if any(pattern.search(normalized) for pattern in _FORBIDDEN_PATH_PATTERNS):
                 raise ValueError(f"forbidden credential/secret path: {path_value}")
+            if normalized in PROTECTED_UNATTENDED_PATHS or any(normalized.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES):
+                raise ValueError(f"protected unattended patch path requires an approved branch: {path_value}")
+            if worktree is not None:
+                ignored = subprocess.run(
+                    ["git", "-C", str(worktree), "check-ignore", "-q", "--", normalized],
+                    capture_output=True,
+                    check=False,
+                )
+                if ignored.returncode == 0:
+                    raise ValueError(f"patch path is Git-ignored and outside the tracked change boundary: {path_value}")
     is_deletion = bool(_DELETION_FILE_HEADER_RE.search(patch)) or bool(
         re.search(r"^--- [^\n]+\n\+\+\+ /dev/null$", patch, re.MULTILINE)
     )
