@@ -14,9 +14,10 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .obstacles import ObstacleLedger
+from .state_paths import resolve_state_path, resolve_state_root
 
-DEFAULT_POLICY_PATH = ".runtime/policy/preapprovals.json"
-DEFAULT_ACQUISITION_DIR = ".runtime/acquired"
+DEFAULT_POLICY_PATH = "policy/preapprovals.json"
+DEFAULT_ACQUISITION_DIR = "acquired"
 MAX_POLICY_BYTES = 100_000
 MAX_DOWNLOAD_BYTES = 25_000_000
 MAX_PACKAGE_OUTPUT = 8_000
@@ -42,12 +43,11 @@ class PreapprovalPolicy:
 
     def __post_init__(self) -> None:
         self.repo_root = self.repo_root.expanduser().resolve()
+        state_root = resolve_state_root(self.repo_root)
         configured = self.policy_path
         if configured is None:
             configured = Path(os.environ.get("PASI_PREAPPROVALS_PATH", DEFAULT_POLICY_PATH))
-        if not configured.is_absolute():
-            configured = self.repo_root / configured
-        self.policy_path = configured.resolve()
+        self.policy_path = resolve_state_path(configured, state_root=state_root, repo_root=self.repo_root)
 
     def _load(self) -> dict[str, Any]:
         policy_path = self.policy_path
@@ -123,13 +123,24 @@ class AcquisitionEngine:
     policy: PreapprovalPolicy | None = None
     obstacles: ObstacleLedger | None = None
     acquisition_dir: Path | None = None
+    state_root: Path | None = None
 
     def __post_init__(self) -> None:
         self.repo_root = self.repo_root.expanduser().resolve()
-        self.policy = self.policy or PreapprovalPolicy(self.repo_root)
-        self.obstacles = self.obstacles or ObstacleLedger(self.repo_root)
-        directory = self.acquisition_dir or (self.repo_root / DEFAULT_ACQUISITION_DIR)
-        self.acquisition_dir = directory.resolve()
+        state_root = resolve_state_root(self.repo_root, self.state_root)
+        self.policy = self.policy or PreapprovalPolicy(
+            self.repo_root,
+            state_root / DEFAULT_POLICY_PATH,
+        )
+        self.obstacles = self.obstacles or ObstacleLedger(self.repo_root, state_root)
+        directory = self.acquisition_dir or (state_root / DEFAULT_ACQUISITION_DIR)
+        directory = directory.expanduser()
+        if not directory.is_absolute():
+            directory = state_root / directory
+        resolved = directory.resolve()
+        if self.repo_root == resolved or self.repo_root in resolved.parents:
+            raise AcquisitionError("acquisition directory must not be inside the editable repository/worktree")
+        self.acquisition_dir = resolved
 
     def _blocked(self, kind: str, target: str, reason: str, *, task_id: str = "") -> dict[str, Any]:
         obstacles = self.obstacles
