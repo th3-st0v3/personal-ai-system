@@ -564,7 +564,7 @@ def main() -> int:
             # Checkpoint the replacement session before retrying so another interruption
             # can resume from the verified new conversation instead of the exhausted one.
             save_handoff(handoff)
-            retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff))
+            retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff), completion_markers=completion_markers)
             checkpoint_active_operation(handoff, retry_operation, task)
             save_handoff(handoff)
             print(f"Retry prompt operation: {retry_operation}")
