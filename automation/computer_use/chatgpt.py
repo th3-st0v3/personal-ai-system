@@ -260,7 +260,8 @@ class ChatGPTAdapter(AIAdapter):
         completion, text, response_available = completion_from_operation(operation)
         chat_url = _optional_string(operation.get("chat_url"))
         error = _optional_string(operation.get("error"))
-        chat_exhausted = bool(error and error.startswith("CHAT_EXHAUSTED:"))
+        retry_class = _optional_string(operation.get("retry_class"))
+        chat_exhausted = retry_class == "context" or bool(error and error.startswith("CHAT_EXHAUSTED:")) or bool(error and error.startswith("PASI_NATIVE: context recovery exhausted:"))
         completion_ack_lost = bool(error and error.startswith("PASI_NATIVE: bridge completion failed"))
         should_check_observation = operation.get("operation_type") == "prompt" and not response_available and (completion == "complete" or completion_ack_lost)
 
