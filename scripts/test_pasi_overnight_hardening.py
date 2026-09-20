@@ -35,7 +35,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_backoff_is_deferred_and_recorded_without_sleeping(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root)
+            ledger = ObstacleLedger(root, root.parent / "operator-state")
             state = self._state(root)
             started = time.monotonic()
             result = nonblocking_sleep(state, 300.0, ledger=ledger)
