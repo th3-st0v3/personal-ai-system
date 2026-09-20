@@ -264,6 +264,8 @@ def main() -> int:
             args.github,
             "--timeout",
             str(args.timeout),
+            "--repo",
+            str(repo_root),
         ]
         code, classification, combined = run_child(forwarded, timeout=args.timeout + 15.0, bridge_poll_seconds=POLL_SECONDS)
         response = extract_response_text(combined)
