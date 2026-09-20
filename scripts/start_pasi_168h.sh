@@ -92,20 +92,88 @@ if [[ -f "$RUNNER_PID_FILE" ]]; then
     rm -f "$RUNNER_PID_FILE"
 fi
 
-# Each fresh run gets an isolated worktree and explicit branch. This prevents a
-# stale dedicated worktree from being attached to a previous run's branch.
-# Existing worktrees are never deleted by the launcher.
-if [[ -n "${PASI_OVERNIGHT_WORKTREE:-}" ]]; then
-    WORKTREE="$PASI_OVERNIGHT_WORKTREE"
-else
-    WORKTREE="$HOME/.pasi-worktrees/personal-ai-system-overnight-$(date -u +%Y%m%d-%H%M%S-%N)"
-fi
-BRANCH="${PASI_OVERNIGHT_BRANCH:-pasi/overnight-$(date -u +%Y%m%d-%H%M%S-%N)}"
+# Each run is isolated, but the consolidated branch may already be attached
+# to a dedicated worktree left by an earlier run. Reuse that exact worktree
+# when it is registered to the requested branch; never force-reset or delete
+# an existing worktree from this launcher.
+requested_branch="${PASI_OVERNIGHT_BRANCH:-}"
+configured_worktree="${PASI_OVERNIGHT_WORKTREE:-}"
+run_stamp="$(date -u +%Y%m%d-%H%M%S-%N)"
+BRANCH="${requested_branch:-pasi/overnight-$run_stamp}"
+WORKTREE=""
+REUSE_EXISTING_WORKTREE=0
 
-if [[ -e "$WORKTREE" ]]; then
-    printf 'error: selected fresh-run worktree path already exists: %s\n' "$WORKTREE" >&2
-    printf 'Choose another PASI_OVERNIGHT_WORKTREE or remove/move that unrelated path manually.\n' >&2
-    exit 3
+worktree_for_branch() {
+    local target="$1"
+    local path=""
+    local current_branch=""
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in
+            "worktree "*) path="${line#worktree }" ;;
+            "branch refs/heads/"*) current_branch="${line#branch refs/heads/}" ;;
+            "")
+                if [[ "$current_branch" == "$target" ]]; then
+                    printf '%s\\n' "$path"
+                    return 0
+                fi
+                path=""
+                current_branch=""
+                ;;
+        esac
+    done < <(git worktree list --porcelain)
+    if [[ "$current_branch" == "$target" ]]; then
+        printf '%s\\n' "$path"
+    fi
+}
+
+if [[ -n "$configured_worktree" ]]; then
+    WORKTREE="$(realpath -m -- "$configured_worktree")"
+    if [[ ! -d "$WORKTREE" || ( ! -f "$WORKTREE/.git" && ! -d "$WORKTREE/.git" ) ]]; then
+        printf 'error: PASI_OVERNIGHT_WORKTREE is not an existing git worktree: %s\\n' "$WORKTREE" >&2
+        exit 3
+    fi
+    actual_branch="$(git -C "$WORKTREE" branch --show-current 2>/dev/null || true)"
+    if [[ -n "$requested_branch" && "$actual_branch" != "$requested_branch" ]]; then
+        printf 'error: PASI_OVERNIGHT_WORKTREE is on %s, not requested branch %s.\\n' "${actual_branch:-detached}" "$requested_branch" >&2
+        exit 3
+    fi
+    [[ -n "$actual_branch" ]] && BRANCH="$actual_branch"
+    REUSE_EXISTING_WORKTREE=1
+elif [[ -n "$requested_branch" ]]; then
+    existing_worktree="$(worktree_for_branch "$requested_branch")"
+    if [[ -n "$existing_worktree" ]]; then
+        WORKTREE="$existing_worktree"
+        BRANCH="$requested_branch"
+        REUSE_EXISTING_WORKTREE=1
+    else
+        WORKTREE="$HOME/.pasi-worktrees/personal-ai-system-overnight-$run_stamp"
+    fi
+else
+    WORKTREE="$HOME/.pasi-worktrees/personal-ai-system-overnight-$run_stamp"
+fi
+
+if (( REUSE_EXISTING_WORKTREE == 1 )); then
+    worktree_status="$(git -C "$WORKTREE" status --porcelain --untracked-files=all 2>/dev/null || true)"
+    if [[ -n "$worktree_status" ]]; then
+        printf 'error: selected existing PASI worktree is dirty; preserve or stash its local changes before starting the 168-hour runner.\\n' >&2
+        printf 'Worktree: %s\\n' "$WORKTREE" >&2
+        printf '%s\\n' "$worktree_status" >&2
+        exit 3
+    fi
+else
+    if [[ -e "$WORKTREE" ]]; then
+        printf 'error: selected fresh-run worktree path already exists: %s\\n' "$WORKTREE" >&2
+        printf 'Choose another PASI_OVERNIGHT_WORKTREE or remove/move that unrelated path manually.\\n' >&2
+        exit 3
+    fi
+fi
+
+# When a caller names an existing consolidated branch, use it as the isolated
+# run's source ref when the runner needs to create a new worktree.
+if [[ -z "${PASI_OVERNIGHT_BASE_REF:-}" && -n "$requested_branch" ]] &&
+   git show-ref --verify --quiet "refs/remotes/origin/$requested_branch"; then
+    export PASI_OVERNIGHT_BASE_REF="origin/$requested_branch"
 fi
 
 start_service() {
