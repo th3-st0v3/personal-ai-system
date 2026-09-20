@@ -8,10 +8,10 @@
   const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
   var DOM_POLL_MS = 250;
   DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || DOM_POLL_MS;
-  const CLICK_SETTLE_MS = 250;
-  const THINKING_VERIFY_MS = 5000;
-  const RESPONSE_SETTLE_MS = 3500;
-  const SUBMISSION_ACK_MS = 7500;
+  const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 75;
+  const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
+  const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 750;
+  const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 2500;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = {
     menu: TIMEOUT_POLICY.menuMs || 8000,
@@ -659,7 +659,7 @@
         await sleep(CLICK_SETTLE_MS);
         const verified = await waitFor(
           () => thinkingEnabled() === true ? true : null,
-          5000
+          THINKING_VERIFY_MS
         );
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after direct Think control');
         reasoningMode = 'thinking';
@@ -721,7 +721,7 @@
       if (state === false) {
         if (!activateControl(control)) throw new Error('PASI_NATIVE: Thinking toggle activation failed');
         await sleep(CLICK_SETTLE_MS);
-        const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+        const verified = await waitFor(() => thinkingEnabled() === true ? true : null, THINKING_VERIFY_MS);
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after toggle');
         reasoningMode = 'thinking';
         return;
@@ -754,7 +754,7 @@
     if (menuState === false) {
       if (!activateControl(menuThinking)) throw new Error('PASI_NATIVE: Thinking menu activation failed');
       await sleep(CLICK_SETTLE_MS);
-      const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+      const verified = await waitFor(() => thinkingEnabled() === true ? true : null, THINKING_VERIFY_MS);
       if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after menu selection');
       reasoningMode = 'thinking';
       return;
