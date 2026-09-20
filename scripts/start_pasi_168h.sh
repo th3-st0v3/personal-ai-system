@@ -236,6 +236,8 @@ fi
 
 printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
 
+# The 168-hour supervisor delegates the actual work to scripts/pasi_extended_runtime_entrypoint.py.
+# Keep this explicit handoff marker in the launcher so the startup contract stays auditable.
 log_file="$RUNTIME_DIR/runner.log"
 # Close the launcher's flock descriptor in the detached runner as well so the
 # lock protects startup only and is not retained for the lifetime of the run.
