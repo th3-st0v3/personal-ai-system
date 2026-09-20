@@ -166,16 +166,17 @@ new file mode 100644
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertFalse(
-                engine.no_change_completion_is_satisfied(
-                    root, "complete", "next", "", values, False
+            with mock.patch.object(engine.legacy, "repository_worktree_is_clean", return_value=True):
+                self.assertFalse(
+                    engine.no_change_completion_is_satisfied(
+                        root, "complete", "next", "", values, False
+                    )
                 )
-            )
-            self.assertTrue(
-                engine.no_change_completion_is_satisfied(
-                    root, "complete", "next", "", values, True
+                self.assertTrue(
+                    engine.no_change_completion_is_satisfied(
+                        root, "complete", "next", "", values, True
+                    )
                 )
-            )
 
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
@@ -279,7 +280,7 @@ Acceptance:
         )
         prompt = engine.build_prompt(state.current_task, state)
         self.assertIn("TASK CONTINUATION:", prompt)
-        self.assertIn("Work continuously on CURRENT TASK until it is implemented, tested, diagnosed, and verified.", prompt)
+        self.assertIn("Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.", prompt)
         self.assertIn("The scheduler owns the full roadmap", prompt)
         self.assertIn("If the same failure repeats, change approach", prompt)
         self.assertIn("do not invent work or cosmetic changes", prompt)
@@ -661,7 +662,7 @@ Acceptance:
     def test_verify_and_commit_records_gate_timing_and_supports_fast_gate(self) -> None:
         events: list[str] = []
 
-        def fake_command(argv, cwd, timeout):
+        def fake_command(argv, cwd, timeout, **kwargs):
             if argv[:3] == ["git", "apply", "--check"]:
                 return 0, ""
             if argv[:3] == ["git", "apply", "--whitespace=nowarn"]:
