@@ -858,13 +858,10 @@ Acceptance:
             engine.CONTROLLER_SOURCE_PATH,
             engine.REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js",
         )
-        with mock.patch.object(
-            engine.CONTROLLER_SOURCE_PATH,
-            "read_text",
-            return_value="const CONTROLLER_VERSION = '2.4.11';",
-            create=False,
-        ):
-            self.assertEqual(engine.expected_controller_version(), "2.4.11")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "content.js"
+            source.write_text("const CONTROLLER_VERSION = '2.4.11';\n", encoding="utf-8")
+            self.assertEqual(engine.expected_controller_version(source), "2.4.11")
 
     def test_engine_does_not_start_retired_controller_distribution_service(self) -> None:
         import inspect
