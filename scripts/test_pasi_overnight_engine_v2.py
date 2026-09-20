@@ -468,7 +468,7 @@ PASI_RESULT_PATCH_END"""
         source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
         self.assertIn("PASI_FALLBACK_PROVIDER:", source)
         self.assertIn("failure_class=fallback_provenance_missing", source)
-        self.assertIn('provider_source = f"fallback:{fallback_provider}"', source)
+        self.assertIn('state.last_provider = f"fallback:{provider}"', source)
 
     def test_fallback_results_cannot_be_auto_promoted(self) -> None:
         source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
