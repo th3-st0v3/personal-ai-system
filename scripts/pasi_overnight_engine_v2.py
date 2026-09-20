@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from scripts.pasi_response_contract import CONTRACT as RESPONSE_CONTRACT, PATCH_BEGIN, PATCH_END, REQUIRED_MARKERS
 from scripts.pasi_timeout_policy import load_timeout_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -59,8 +60,6 @@ ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
 
-PATCH_BEGIN = "PASI_RESULT_PATCH_BEGIN"
-PATCH_END = "PASI_RESULT_PATCH_END"
 MARKERS = {
     "status": re.compile(r"^PASI_RESULT_STATUS:\s*(.+)$", re.MULTILINE),
     "summary": re.compile(r"^PASI_RESULT_SUMMARY:\s*(.+)$", re.MULTILINE),
@@ -886,6 +885,8 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
     values: dict[str, str] = {}
     missing_or_duplicate: list[str] = []
     for key, pattern in MARKERS.items():
+        if pattern.pattern.split(":", 1)[0] not in REQUIRED_MARKERS:
+            raise RuntimeError(f"response marker parser configuration drifted: {key}")
         matches = pattern.findall(response)
         if len(matches) != 1:
             missing_or_duplicate.append(key)
@@ -1189,7 +1190,20 @@ def run(state: OvernightState, *, push: bool) -> None:
             if code != 0:
                 failure = sanitize_failure_evidence(code, response)
                 continue
-            status, summary, next_task, patch, allow_delete, values = parse_response(response)
+            try:
+                status, summary, next_task, patch, allow_delete, values = parse_response(response)
+            except ValueError as exc:
+                failure = sanitize_failure_evidence(
+                    1,
+                    f"failure_class=contract_error; parser={str(exc)}",
+                )
+                log_event(
+                    "response_contract_failed",
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    error=failure[-6000:],
+                )
+                continue
             contract_ok = completion_contract(status, values)
             if contract_ok and no_change_completion_is_satisfied(
                 Path(state.worktree), status, next_task, patch, values
