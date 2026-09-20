@@ -75,7 +75,9 @@ jobs:
       - name: Run minimized Chromium response-recovery acceptance test
         run: python scripts/e2e_chromium_response_recovery.py
       - name: Run Tampermonkey controller contract tests
-        run: node --test automation/legacy/tampermonkey/chatgpt-controller.test.js
+        run: |
+          node --test automation/legacy/tampermonkey/chatgpt-controller.test.js
+          node --test automation/legacy/tampermonkey/chatgpt-runtime-watchdog.test.js
       - name: Run Tampermonkey controller loader contract tests
         run: node --test automation/legacy/tampermonkey/chatgpt-controller-loader.test.js
       - name: Validate Tampermonkey controller syntax
