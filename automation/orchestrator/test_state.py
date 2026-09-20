@@ -38,3 +38,28 @@ def test_write_json_failure_does_not_replace_existing_state() -> None:
 
         assert target.read_text(encoding="utf-8") == '{"existing": true}\n'
         assert target.with_suffix(".json.tmp").exists() is False
+
+
+def test_queue_prunes_only_old_terminal_operations(tmp_path: Path) -> None:
+    manager = StateManager(tmp_path)
+    queue = [
+        {"operation_id": f"done-{index}", "status": "completed"}
+        for index in range(40)
+    ]
+    queue.extend(
+        [
+            {"operation_id": "active", "status": "queued"},
+            {"operation_id": "generating", "status": "generating"},
+        ]
+    )
+
+    manager.save_queue(queue)
+    loaded = manager.load_queue()
+
+    terminal = [
+        item for item in loaded if item.get("status") in {"completed", "failed", "cancelled"}
+    ]
+    assert len(terminal) == 32
+    assert loaded[-2]["operation_id"] == "active"
+    assert loaded[-1]["operation_id"] == "generating"
+    assert terminal[0]["operation_id"] == "done-8"
