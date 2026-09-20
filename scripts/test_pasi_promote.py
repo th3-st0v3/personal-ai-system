@@ -24,6 +24,14 @@ class TestPasiPromote(unittest.TestCase):
     def test_standard_changes_are_auto_merge_eligible(self) -> None:
         self.assertEqual(promote.classify_risk(["docs/readme.md", "scripts/test_example.py"]), "standard")
 
+    def test_large_change_set_is_review_gated(self) -> None:
+        paths = [f"docs/file-{index}.md" for index in range(promote.MAX_AUTOMERGE_FILES + 1)]
+        self.assertEqual(promote.classify_risk(paths), "high")
+
+    def test_broad_cross_subsystem_change_is_review_gated(self) -> None:
+        paths = ("docs/readme.md", "scripts/example.py", "web/example.js")
+        self.assertEqual(promote.classify_risk(paths), "high")
+
     def test_missing_gh_is_non_blocking(self) -> None:
         with patch.object(promote, "gh_available", return_value=False):
             result = promote.promote("abc123", "pasi/test", "task")
