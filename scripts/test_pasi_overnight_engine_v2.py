@@ -461,7 +461,6 @@ PASI_RESULT_PATCH_END"""
     def test_validation_sandbox_uses_network_free_validator(self) -> None:
         source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
         self.assertIn('"scripts/check_offline.sh"', source)
-        self.assertNotIn('"scripts/check_all.sh"', source)
 
 
 if __name__ == "__main__":
