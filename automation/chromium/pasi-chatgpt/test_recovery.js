@@ -25,10 +25,11 @@ test('recovery companion is strictly observe-only', () => {
   assert.doesNotMatch(source, /async function markRetryableFailure/);
 });
 
-test('recovery companion preserves raw multiline response evidence', () => {
-  assert.match(source, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
-  assert.ok(source.includes(".replace(/[ \\t]+(?=\\n)/g, '')"));
-  assert.match(source, /response_text: responseText/);
+test('recovery companion does not publish response evidence', () => {
+  assert.doesNotMatch(source, /latestAssistant/);
+  assert.doesNotMatch(source, /report\('chatgpt_response'/);
+  assert.doesNotMatch(source, /response_text:/);
+  assert.match(source, /recovery_action: 'observe_only'/);
 });
 
 test('recovery companion scopes detectors through the shared detector module', () => {
@@ -36,9 +37,9 @@ test('recovery companion scopes detectors through the shared detector module', (
   assert.doesNotMatch(source, /document\.body\?\.innerText/);
 });
 
-test('recovery reports active operation and response observations without mutating queue state', () => {
-  assert.match(source, /active_operation_id: String\(activeOperationId\)/);
-  assert.match(source, /report\('chatgpt_response'/);
+test('recovery reports active operation state without mutating queue state', () => {
+  assert.match(source, /operation_id: String\(activeOperationId\)/);
+  assert.doesNotMatch(source, /report\('chatgpt_response'/);
   assert.match(source, /report\('chatgpt_recovery'/);
   assert.match(source, /observe_only/);
 });
