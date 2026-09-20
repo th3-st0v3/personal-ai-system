@@ -43,6 +43,14 @@ test('recovery reports active operation and response observations without mutati
   assert.match(source, /observe_only/);
 });
 
+test('recovery persists missing-operation timestamps and supports all operation-id aliases', () => {
+  assert.match(source, /state\?\.operation_id/);
+  assert.match(source, /state\?\.recovery_operation_id/);
+  assert.match(source, /state\?\.resume_operation_id/);
+  assert.match(source, /missing_operation_since_ms/);
+  assert.match(source, /localStorage\.setItem\(RECOVERY_KEY, JSON\.stringify\(next\)\)/);
+});
+
 test('recovery reports vanished operations and retains bounded grace semantics', () => {
   assert.match(source, /operation_lookup_unavailable/);
   assert.match(source, /operation_missing_expired/);
