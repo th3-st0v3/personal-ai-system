@@ -4,9 +4,9 @@ const test = require('node:test');
 
 const source = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery.js', 'utf8');
 
-test('recovery uses the requested 25-minute generation ceiling and starts recovery at the ceiling', () => {
-  assert.match(source, /GENERATION_TIMEOUT_MS = 25 \* 60 \* 1000/);
-  assert.match(source, /RECOVERY_TRIGGER_MS = GENERATION_TIMEOUT_MS/);
+test('recovery uses the shared long-response ceiling and starts recovery at the configured trigger', () => {
+  assert.match(source, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
+  assert.match(source, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
   assert.match(source, /RECOVERY_GRACE_MS = 10 \* 60 \* 1000/);
   assert.match(source, /generation_timeout_ms: GENERATION_TIMEOUT_MS/);
 });
@@ -191,4 +191,14 @@ test('terminal recovery attempts a bound visible assistant response before clear
   assert.match(source, /async function finishVisibleResponse\(operationId, current, baseline\)/);
   assert.match(source, /if \(await finishVisibleResponse\(operationId, current, state\.baseline\)\)/);
   assert.match(source, /if \(generating\(\) \|\| !response \|\| currentFingerprint === String\(baseline \|\| ''\)\) return false/);
+});
+
+
+test('recovery expires vanished operations after the bounded missing-operation grace period', () => {
+  assert.match(source, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
+  assert.match(source, /const age = now - missingSince/);
+  assert.match(source, /if \(age >= MISSING_OPERATION_GRACE_MS\)/);
+  assert.match(source, /phase: 'operation_missing_expired'/);
+  assert.match(source, /recovery_action: 'clear_stale_state'/);
+  assert.match(source, /clearInterruptedState\(\)/);
 });
