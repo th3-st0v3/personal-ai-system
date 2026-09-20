@@ -866,6 +866,22 @@ def test_http_bridge_rejects_bad_auth_host_origin_and_content_type(tmp_path: Pat
             "/next-operation",
             body=body,
             headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-bridge-token",
+                "Origin": "chrome-extension://test-extension",
+            },
+        )
+        response = connection.getresponse()
+        response.read()
+        assert response.status == 200
+        connection.close()
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/next-operation",
+            body=body,
+            headers={
                 "Content-Type": "text/plain",
                 "Authorization": "Bearer test-bridge-token",
                 "Origin": "https://evil.example",
