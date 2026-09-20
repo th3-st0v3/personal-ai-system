@@ -254,6 +254,13 @@ test('native transient control activation clears stale focus before ChatGPT hide
   assert.equal(clicked, true);
 });
 
+test('native context recovery uses the context-specific retry counter', () => {
+  assert.match(content, /const contextRetryCount = Number\(operation\.retry_counts\?\.context \|\| 0\)/);
+  assert.match(content, /contextRetryCount < MAX_CONTEXT_AUTO_RECOVERIES/);
+  assert.match(content, /contextRetryCount >= MAX_CONTEXT_AUTO_RECOVERIES/);
+  assert.doesNotMatch(content, /Number\(operation\.retry_count \|\| 0\).*MAX_CONTEXT_AUTO_RECOVERIES/);
+});
+
 test('native prompt paths call the defined composer setter', () => {
   assert.match(content, /setText\(box, expected\);/);
   assert.match(content, /setText\(box, promptText\);/);
