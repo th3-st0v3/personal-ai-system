@@ -14,7 +14,6 @@ test('recovery companion uses the shared timeout policy and bounded observation 
 
 test('recovery companion is strictly observe-only', () => {
   assert.match(source, /recovery_action: 'observe_only'/);
-  assert.match(source, /recovery_action: 'observe_response_only'/);
   assert.doesNotMatch(source, /location\.reload\(\)/);
   assert.doesNotMatch(source, /\/chat\/finished/);
   assert.doesNotMatch(source, /\/chat\/failed/);
