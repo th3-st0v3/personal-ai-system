@@ -484,5 +484,12 @@ class TestPasiChat(unittest.TestCase):
             text,
         )
 
+
+    def test_main_defines_completion_marker_option_and_forwards_it(self) -> None:
+        source = Path("scripts/pasi_chat.py").read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--completion-marker"', source)
+        self.assertIn('completion_markers = args.completion_markers or ["PASI_RESULT_STATUS"]', source)
+        self.assertIn("completion_markers=completion_markers", source)
+
 if __name__ == "__main__":
     unittest.main()
