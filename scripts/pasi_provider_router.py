@@ -240,7 +240,17 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
             "external_directory": "deny",
             "question": "deny",
         })
-        opencode_env = dict(os.environ)
+        opencode_env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in {
+                "PASI_BRIDGE_TOKEN",
+                "GITHUB_TOKEN",
+                "GH_TOKEN",
+                "OPENROUTER_API_KEY",
+                "PERPLEXITY_API_KEY",
+            }
+        }
         opencode_env["OPENCODE_PERMISSION"] = denied_permissions
         opencode_env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
         opencode_env["OPENCODE_DISABLE_LSP_DOWNLOAD"] = "true"
