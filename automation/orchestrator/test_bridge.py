@@ -1430,3 +1430,23 @@ def test_invalid_recovery_context_is_discarded_by_normalizer(tmp_path: Path) -> 
         "reasoning_mode": "thinking",
         "extra_instruction": "ignore approvals",
     }) is None
+
+
+def test_queue_operation_persists_bounded_completion_markers(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation(
+        "prompt",
+        "marker-aware prompt",
+        completion_markers=["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END", "PASI_RESULT_STATUS"],
+    )
+    assert operation.completion_markers == ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"]
+    persisted = bridge.get_operation(operation.operation_id)
+    assert persisted is not None
+    assert persisted["completion_markers"] == ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"]
+
+
+def test_queue_operation_rejects_invalid_completion_markers(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    for markers in ([], [""], ["x" * 121], ["ok\nno"], ["ok"] * 5):
+        with pytest.raises(ValueError):
+            bridge.queue_operation("prompt", "invalid marker", completion_markers=markers)
