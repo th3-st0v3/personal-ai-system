@@ -83,7 +83,7 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
 });
 
-test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
+test('native prompt submission retains stable Thinking selectors while using best-effort selection', () => {
   assert.match(content, /case 'prompt': \{/);
   assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
   assert.match(content, /await selectThinking\(\)/);
@@ -148,7 +148,13 @@ test('native prompt submission uses a single send strategy and never duplicates 
   assert.doesNotMatch(content, /newestUserMatches/);
 });
 
-test('native completion persists response text before bounded acknowledgement retries', () => {
+test('native completion captures responses through the event-driven waiter and bounded evidence', () => {
+  assert.match(content, /async function waitForResponse\(baseline\)/);
+  assert.match(content, /let sawGeneration = false/);
+  assert.match(content, /const response = await waitUntil\(\(\) =>/);
+  assert.match(content, /const responseText = latestAssistant\(\)/);
+  assert.match(content, /PASI_NATIVE: ChatGPT generation timed out/);
+  assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
   assert.match(content, /response_text: responseText\.slice\(0, MAX_RESPONSE_TEXT_CHARS\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
@@ -160,6 +166,8 @@ test('native completion persists response text before bounded acknowledgement re
   assert.match(content, /typeof payload\?\.operation\?\.response_text === 'string'/);
   assert.match(content, /Boolean\(payload\.operation\.response_text\.trim\(\)\)/);
 });
+
+
 
 test('native new-chat creation requires a changed conversation identity or genuinely empty chat', () => {
   assert.match(content, /previousChat = chatUrl\(\)/);
