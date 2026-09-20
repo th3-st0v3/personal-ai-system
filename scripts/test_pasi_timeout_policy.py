@@ -22,8 +22,8 @@ def test_browser_json_and_python_loader_are_same_source() -> None:
     assert raw["recovery_trigger_seconds"] == 1500
     assert raw["python_wait_seconds"] == 1800
     assert raw["controller_poll_ms"] == 500
-    assert raw["dom_poll_ms"] == 100
-    assert raw["click_settle_ms"] == 75
+    assert raw["dom_poll_ms"] == 20
+    assert raw["click_settle_ms"] == 20
     assert raw["thinking_verify_ms"] == 3000
-    assert raw["response_settle_ms"] == 750
-    assert raw["submission_ack_ms"] == 2500
+    assert raw["response_settle_ms"] == 20
+    assert raw["submission_ack_ms"] == 1000
