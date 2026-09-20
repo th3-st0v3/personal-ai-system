@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import threading
+from typing import cast
 from http.client import HTTPConnection, RemoteDisconnected
 
 import pytest
@@ -1485,4 +1486,4 @@ def test_queue_rejects_invalid_completion_markers(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     for markers in ([], ["a", "b", "c", "d", "e"], ["a\nnewline"], [123]):
         with pytest.raises(ValueError):
-            bridge.queue_operation("prompt", "bad markers", completion_markers=markers)
+            bridge.queue_operation("prompt", "bad markers", completion_markers=cast(list[str], markers))
