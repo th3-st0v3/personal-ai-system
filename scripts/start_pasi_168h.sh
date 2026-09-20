@@ -173,6 +173,7 @@ fi
 browser_observation_ready() {
     "$PYTHON" - <<'PY'
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
