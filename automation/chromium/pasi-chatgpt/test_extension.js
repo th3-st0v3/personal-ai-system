@@ -98,7 +98,7 @@ test('native prompt submission uses stable model selection and fail-closed Think
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
   assert.match(content, /await submitPrompt\(operation\.prompt\)/);
-  assert.match(content, /const DOM_POLL_MS = 250;/);
+  assert.match(content, /const DOM_POLL_MS = 50;/);
 });
 
 test('native Thinking selection prefers the composer model pill and stable intelligence modal', () => {
@@ -109,8 +109,8 @@ test('native Thinking selection prefers the composer model pill and stable intel
 });
 
 test('native prompt submission uses best-effort Thinking and event-driven acknowledgement', () => {
-  assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;
-  assert.match(content, /const DOM_POLL_MS = 50;//);
+  assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
+  assert.match(content, /const DOM_POLL_MS = 50;/);
   assert.match(content, /function waitUntil\(predicate, timeoutMs, pollMs = 50\)/);
   assert.match(content, /MutationObserver/);
   assert.match(content, /function snapshotUserMessages\(\)/);
@@ -149,7 +149,7 @@ test('native prompt submission uses a single send strategy and never duplicates 
 });
 
 test('native completion persists response text before bounded acknowledgement retries', () => {
-  assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
+  assert.match(content, /response_text: responseText\.slice\(0, MAX_RESPONSE_TEXT_CHARS\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
   assert.match(content, /await reportObservation\('chatgpt_response'/);
