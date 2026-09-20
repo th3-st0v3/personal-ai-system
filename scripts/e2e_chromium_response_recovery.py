@@ -739,7 +739,7 @@ def main() -> None:
                 ]
                 if not health_observations:
                     raise AssertionError("Chromium did not report health observation")
-                latest_health = health_observations[-1].get("observation", {}).get("data", {})
+                latest_health = health_observations[-1].get("data", {})
                 if latest_health.get("provider_usage_limited") is True:
                     raise AssertionError(f"false usage-limit detector positive: {latest_health}")
                 if latest_health.get("conversation_context_exhausted") is True:
