@@ -47,6 +47,7 @@
     if (!Object.values(next).every(validNumber)) return null;
     if (next.staleMs < next.heartbeatMs * 3) return null;
     if (next.generationMs < next.recoveryTriggerMs) return null;
+    if (next.recoveryStallMs >= next.recoveryHardCeilingMs) return null;
     return next;
   }
 
