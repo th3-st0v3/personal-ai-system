@@ -838,5 +838,34 @@ Acceptance:
         self.assertIn("verify_finished", events)
 
 
+    def test_operation_id_extraction_and_queue_size_telemetry(self) -> None:
+        self.assertEqual(
+            engine.extract_operation_id("Prompt operation: op-1234-abcd"),
+            "op-1234-abcd",
+        )
+        self.assertEqual(
+            engine.extract_operation_id("Resuming persisted ChatGPT operation: op-9"),
+            "op-9",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            queue_path = Path(temp_dir) / "queue.json"
+            queue_path.write_text("{}\n", encoding="utf-8")
+            with mock.patch.object(engine, "BRIDGE_QUEUE_PATH", queue_path):
+                self.assertEqual(engine.queue_file_bytes(), 3)
+
+    def test_native_controller_manifest_path_uses_legacy_location(self) -> None:
+        self.assertEqual(
+            engine.CONTROLLER_MANIFEST_PATH,
+            engine.REPO_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json",
+        )
+
+    def test_engine_does_not_start_retired_controller_distribution_service(self) -> None:
+        import inspect
+
+        source = inspect.getsource(engine.ensure_services)
+        self.assertNotIn("8766", source)
+        self.assertNotIn("pasi_controller_server.py", source)
+
+
 if __name__ == "__main__":
     unittest.main()
