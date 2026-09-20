@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,9 @@ AUTH_RECOVERY_POLL_SECONDS = 5.0
 FALLBACK_ROUTER_COOLDOWN_SECONDS = 900.0
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
+TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
+MAX_TASK_TEXT_CHARS = 4000
+AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
     "Audit the PASI computer-use control plane end to end and implement concrete changes that reduce repeated human input, improve state continuity, improve browser recovery, and preserve all existing safety boundaries.",
@@ -164,6 +168,58 @@ def load_state() -> OvernightState | None:
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+
+def task_key(task: str) -> str:
+    canonical = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def load_task_ledger() -> dict[str, dict[str, Any]]:
+    try:
+        raw = json.loads(TASK_LEDGER_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    entries = raw.get("tasks", {})
+    if not isinstance(entries, dict):
+        return {}
+    return {str(key): dict(value) for key, value in entries.items() if isinstance(value, dict)}
+
+
+def save_task_ledger(ledger: Mapping[str, Mapping[str, Any]]) -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {"schema_version": 1, "tasks": {str(key): dict(value) for key, value in ledger.items()}}
+    temporary = TASK_LEDGER_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(TASK_LEDGER_PATH)
+
+
+def record_task_ledger(
+    task: str,
+    status: str,
+    *,
+    commit: str | None = None,
+    evidence: str = "",
+    phase: str = "",
+    automation_continue: bool = False,
+) -> None:
+    normalized = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
+    if not normalized:
+        return
+    ledger = load_task_ledger()
+    ledger[task_key(normalized)] = {
+        "task": normalized,
+        "status": status,
+        "commit": commit or "",
+        "evidence": evidence[-4000:],
+        "phase": phase,
+        "automation_continue": automation_continue,
+        "updated_at": now_utc().isoformat(),
+    }
+    save_task_ledger(ledger)
 
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
@@ -481,6 +537,40 @@ def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool:
     return False
 
 
+def automation_gate_evidence(state: OvernightState) -> dict[str, str]:
+    ledger = load_task_ledger()
+    entries = [
+        value
+        for value in ledger.values()
+        if value.get("phase") == "automation" and value.get("status") == "completed"
+    ]
+    entries.sort(key=lambda value: str(value.get("updated_at", "")))
+    recent = entries[-AUTOMATION_TASKS_PER_GATE:]
+    if len(recent) < AUTOMATION_TASKS_PER_GATE:
+        return {
+            "automation_gate": "continue_automation",
+            "automation_opportunity": "concrete",
+            "automation_evidence": "Durable task ledger does not yet contain enough completed automation tasks for a gate.",
+        }
+    if any(value.get("automation_continue") is True for value in recent):
+        return {
+            "automation_gate": "continue_automation",
+            "automation_opportunity": "concrete",
+            "automation_evidence": "A completed automation task explicitly requested continued automation work.",
+        }
+    if not all(str(value.get("evidence", "")).strip() for value in recent):
+        return {
+            "automation_gate": "continue_automation",
+            "automation_opportunity": "concrete",
+            "automation_evidence": "Recent automation task evidence is incomplete.",
+        }
+    return {
+        "automation_gate": "proceed_engineering",
+        "automation_opportunity": "none",
+        "automation_evidence": "Recent automation task evidence is complete and no task explicitly requested additional automation work.",
+    }
+
+
 def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
     values = tuple(str(item).strip() for item in candidates if str(item).strip())
     if not values:
@@ -522,7 +612,9 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
-    return legacy.parse_response(response)
+    status, summary, next_task, patch, allow_delete, values = legacy.parse_response(response)
+    values["automation_continue"] = "true" if AUTOMATION_CONTINUE_RE.search(response) else "false"
+    return status, summary, next_task, patch, allow_delete, values
 
 
 def completion_contract(status: str, values: dict[str, str]) -> bool:
@@ -877,11 +969,13 @@ def run(state: OvernightState, *, push: bool) -> None:
                 return
 
         if state.phase == "automation" and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE:
-            gate_evidence = {
-                "automation_gate": "proceed_engineering",
-                "automation_opportunity": "none",
-                "automation_evidence": "The bounded automation tranche has completed its configured tasks; future improvements remain available as ordinary engineering tasks.",
-            }
+            gate_evidence = automation_gate_evidence(state)
+            log_event(
+                "automation_gate_evidence",
+                gate=gate_evidence["automation_gate"],
+                opportunity=gate_evidence["automation_opportunity"],
+                evidence=gate_evidence["automation_evidence"][-1000:],
+            )
             if automation_gate_is_satisfied(gate_evidence):
                 state.automation_gates += 1
                 state.automation_tasks_since_gate = 0
@@ -944,7 +1038,15 @@ def run(state: OvernightState, *, push: bool) -> None:
                 Path(state.worktree), status, next_task, patch, values
             ):
                 state.completed_tasks += 1
-                state.last_result = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
+                evidence_text = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
+                record_task_ledger(
+                    state.current_task,
+                    "completed",
+                    evidence=evidence_text,
+                    phase=state.phase,
+                    automation_continue=values.get("automation_continue", "").lower() == "true",
+                )
+                state.last_result = evidence_text
                 state.next_task = choose_next_task(state, next_task)
                 state.recent_tasks.append(state.current_task)
                 state.current_task = state.next_task
@@ -975,6 +1077,14 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.completed_tasks += 1
             if state.phase == "automation":
                 state.automation_tasks_since_gate += 1
+            record_task_ledger(
+                state.current_task,
+                "completed",
+                commit=commit,
+                evidence=summary or verification[-3000:],
+                phase=state.phase,
+                automation_continue=values.get("automation_continue", "").lower() == "true",
+            )
             state.last_result = summary or verification[-3000:]
             state.next_task = next_task.strip()
             state.recent_tasks.append(state.current_task)
