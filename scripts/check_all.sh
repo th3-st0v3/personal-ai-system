@@ -130,9 +130,15 @@ mapfile -d '' PYTHON_TEST_FILES < <(
 mapfile -d '' JAVASCRIPT_FILES < <(
     "${find_expr[@]}" \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0 | sort -z
 )
+mapfile -d '' SHELL_FILES < <(
+    "${find_expr[@]}" -name '*.sh' -print0 | sort -z
+)
+mapfile -d '' JSON_FILES < <(
+    "${find_expr[@]}" -name '*.json' -print0 | sort -z
+)
 
-printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript files\n' \
-    "${#PYTHON_FILES[@]}" "${#PYTHON_TEST_FILES[@]}" "${#JAVASCRIPT_FILES[@]}"
+printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript files, %d shell files, %d JSON files\n' \
+    "${#PYTHON_FILES[@]}" "${#PYTHON_TEST_FILES[@]}" "${#JAVASCRIPT_FILES[@]}" "${#SHELL_FILES[@]}" "${#JSON_FILES[@]}"
 
 pull_origin_main
 
@@ -170,6 +176,25 @@ printf '\n==> JavaScript syntax\n'
 for file in "${JAVASCRIPT_FILES[@]}"; do
     node --check "$file"
 done
+
+printf '\n==> Shell syntax\n'
+for file in "${SHELL_FILES[@]}"; do
+    bash -n "$file"
+done
+
+run_check "JSON syntax" python - <<'PY'
+import json
+from pathlib import Path
+
+for raw_path in r"""$(printf '%s\n' "${JSON_FILES[@]}")""".splitlines():
+    path = Path(raw_path.strip())
+    if not path:
+        continue
+    with path.open(encoding="utf-8") as handle:
+        json.load(handle)
+print(f"validated {len([p for p in r'''$(printf '%s\n' "${JSON_FILES[@]}")'''.splitlines() if p.strip()])} JSON files")
+PY
+
 run_check "Native Chromium controller contract tests" node --test \
     automation/chromium/pasi-chatgpt/test_extension.js \
     automation/chromium/pasi-chatgpt/test_recovery.js
