@@ -15,6 +15,11 @@ class TestPasiPromote(unittest.TestCase):
         self.assertEqual(promote.classify_risk([".github/workflows/test.yml"]), "high")
         self.assertEqual(promote.classify_risk(["scripts/start_pasi_168h.sh"]), "high")
         self.assertEqual(promote.classify_risk(["docs/operations/pr-scope-policy.md"]), "high")
+        self.assertEqual(promote.classify_risk(["SECURITY.md"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/check_all.sh"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/pasi_extended_runtime_entrypoint.py"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/pasi_setup.py"]), "high")
+        self.assertEqual(promote.classify_risk(["scripts/pasi_log_router.py"]), "high")
 
     def test_standard_changes_are_auto_merge_eligible(self) -> None:
         self.assertEqual(promote.classify_risk(["docs/readme.md", "scripts/test_example.py"]), "standard")
