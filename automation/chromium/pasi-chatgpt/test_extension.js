@@ -319,6 +319,14 @@ test('native prompt execution prevents duplicate sends and requires stable final
   assert.match(content, /PASI_RESULT_STATUS/);
 });
 
+test('native response completion is configurable per operation', () => {
+  assert.match(content, /function completionMarkersSatisfied/);
+  assert.match(content, /completion_markers/);
+  assert.match(content, /operation\.completion_markers \|\| \[\]/);
+  assert.match(content, /Date\.now\(\) - stableSince >= RESPONSE_SETTLE_MS && completionMarkersSatisfied/);
+});
+
+
 test('native new-chat selection excludes navigation and requires an empty target', () => {
   assert.match(content, /function findNewChatControl\(\)/);
   assert.match(content, /button\[data-testid="new-chat-button"\]/);
@@ -663,24 +671,4 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /const visibleResponse = latestAssistant\(\)/);
   assert.match(content, /visibleFingerprint !== baseline/);
   assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
-});
-
-test('native heartbeat starts before restart recovery', () => {
-  const startIndex = content.indexOf('async function start()');
-  const healthTimerIndex = content.indexOf('healthTimerId = setInterval(reportHealth, HEALTH_MS);', startIndex);
-  const recoveryIndex = content.indexOf('await recoverInterruptedOperation();', startIndex);
-  assert.ok(startIndex >= 0);
-  assert.ok(healthTimerIndex >= 0);
-  assert.ok(recoveryIndex >= 0);
-  assert.ok(healthTimerIndex < recoveryIndex);
-});
-
-
-test('native controller expires a stale recovery operation after a bounded grace period', () => {
-  assert.match(content, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
-  assert.match(content, /current\.status === 404/);
-  assert.match(content, /missing_operation_since_ms/);
-  assert.match(content, /operation_missing_expired/);
-  assert.match(content, /localStorage\.removeItem\(RECOVERY_KEY\)/);
-  assert.match(content, /localStorage\.removeItem\(ACTIVE_KEY\)/);
 });

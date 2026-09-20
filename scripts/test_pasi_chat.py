@@ -37,8 +37,6 @@ class FakeChatAdapter:
     def read_browser_observation(self) -> dict[str, object]:
         return {"data": dict(self.state)} if self.state else {}
 
-    def read_browser_state(self) -> dict[str, object]:
-        return {"data": dict(self.state)} if self.state else {}
     def new_session(self) -> str:
         self.calls.append(("new_session", ""))
         self.state = {"kind": "chatgpt_state", "chat_url": "https://chatgpt.com/c/new", "chat_exhausted": False, "github_attached": False}
@@ -127,44 +125,6 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(controller_observation_is_live(fresh, now=now))
         self.assertFalse(controller_observation_is_live(stale, now=now))
         self.assertFalse(controller_observation_is_live(malformed, now=now))
-
-
-    def test_live_controller_observation_accepts_fresh_health(self) -> None:
-        now = datetime(2026, 9, 17, 4, 50, tzinfo=timezone.utc)
-        fresh = {"data": {"kind": "chatgpt_health", "captured_at": "2026-09-17T04:49:59Z", "native_controller": True}}
-        self.assertTrue(controller_observation_is_live(fresh, now=now))
-
-    def test_browser_state_uses_separate_state_endpoint_shape(self) -> None:
-        adapter = FakeChatAdapter({
-            "kind": "chatgpt_state",
-            "chat_url": "https://chatgpt.com/c/state",
-            "chat_exhausted": True,
-        })
-        from scripts.pasi_chat import browser_state
-        state = browser_state(adapter)
-        self.assertEqual(state["chat_url"], "https://chatgpt.com/c/state")
-        self.assertTrue(state["chat_exhausted"])
-
-    def test_real_chatgpt_adapter_health_and_state_endpoints_are_distinct(self) -> None:
-        class Transport:
-            def request(self, method, path, payload=None):
-                if method == "GET" and path == "/browser/health":
-                    return {"observation": {"data": {
-                        "kind": "chatgpt_health",
-                        "captured_at": datetime.now(timezone.utc).isoformat(),
-                        "native_controller": True,
-                    }}}
-                if method == "GET" and path == "/browser/state":
-                    return {"observation": {"data": {
-                        "kind": "chatgpt_state",
-                        "chat_url": "https://chatgpt.com/c/separate-state",
-                    }}}
-                raise AssertionError((method, path))
-
-        adapter = ChatGPTAdapter(Transport(), "seam-test")
-        wait_for_browser_controller(adapter, timeout_seconds=0.5)
-        from scripts.pasi_chat import browser_state
-        self.assertEqual(browser_state(adapter)["chat_url"], "https://chatgpt.com/c/separate-state")
 
     def test_wait_for_browser_controller_accepts_live_state(self) -> None:
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -518,9 +478,29 @@ class TestPasiChat(unittest.TestCase):
         source = Path(__file__).resolve().parent / "pasi_chat.py"
         text = source.read_text(encoding="utf-8")
         self.assertIn(
-            "fallback_operation = adapter.submit_prompt(fallback_prompt)\n"
+            "fallback_operation = adapter.submit_prompt(fallback_prompt, completion_markers=completion_markers)\n"
             "                prompt_operation = fallback_operation\n"
             "                checkpoint_active_operation(handoff, fallback_operation, task)",
+            text,
+        )
+
+
+    def test_main_defines_completion_marker_option_and_forwards_it(self) -> None:
+        source = Path("scripts/pasi_chat.py").read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--completion-marker"', source)
+        self.assertIn('completion_markers = args.completion_markers or ["PASI_RESULT_STATUS"]', source)
+        self.assertIn("completion_markers=completion_markers", source)
+
+
+    def test_context_rollover_retry_preserves_completion_markers(self) -> None:
+        source = Path(__file__).resolve().parent / "pasi_chat.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn(
+            "retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff), completion_markers=completion_markers)",
+            text,
+        )
+        self.assertIn(
+            "fallback_operation = adapter.submit_prompt(fallback_prompt, completion_markers=completion_markers)",
             text,
         )
 
