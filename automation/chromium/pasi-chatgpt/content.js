@@ -1083,7 +1083,7 @@
       if (!composerContainsPrompt(box, expected)) {
         const currentText = normalize(readText(box));
         if (!currentText) {
-          insertText(box, expected);
+          setText(box, expected);
           box = await waitFor(
             () => {
               const current = composer();
@@ -1371,7 +1371,7 @@
           const baseline = fingerprint();
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
           setText(box, '');
-          insertText(box, promptText);
+          setText(box, promptText);
           // Scope the preflight check to the exact composer already being used.
           // A document-wide send lookup can bind to an unrelated control while the
           // bounded submitPrompt() path is still waiting for the real composer send action.
