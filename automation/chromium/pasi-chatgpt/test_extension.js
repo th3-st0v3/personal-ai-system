@@ -254,6 +254,12 @@ test('native transient control activation clears stale focus before ChatGPT hide
   assert.equal(clicked, true);
 });
 
+test('native recovery persists a claimable operation id and retry context', () => {
+  assert.match(content, /recovery_operation_id: operation\.operation_id/);
+  assert.match(content, /body\.recovery_context = recoveryContext/);
+  assert.match(content, /const value = state\?\[RECOVERY_OPERATION_KEY\] \|\| state\?\[RECOVERY_RESUME_OPERATION_KEY\] \|\| state\?\.operation_id/);
+});
+
 test('native context recovery uses the context-specific retry counter', () => {
   assert.match(content, /const contextRetryCount = Number\(operation\.retry_counts\?\.context \|\| 0\)/);
   assert.match(content, /contextRetryCount < MAX_CONTEXT_AUTO_RECOVERIES/);
