@@ -11,6 +11,10 @@ class StateCorruptionError(RuntimeError):
     """Raised when persisted orchestration state cannot be trusted."""
 
 
+MAX_PERSISTED_TERMINAL_QUEUE_ITEMS = 32
+TERMINAL_QUEUE_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
 class StateManager:
     def __init__(self, ai_dir: Path):
         self.ai_dir = ai_dir
@@ -260,6 +264,20 @@ class StateManager:
         self,
         queue: list[dict[str, Any]],
     ) -> None:
+        terminal_indexes = [
+            index
+            for index, item in enumerate(queue)
+            if item.get("status") in TERMINAL_QUEUE_STATUSES
+        ]
+        if len(terminal_indexes) > MAX_PERSISTED_TERMINAL_QUEUE_ITEMS:
+            drop_indexes = set(
+                terminal_indexes[:-MAX_PERSISTED_TERMINAL_QUEUE_ITEMS]
+            )
+            queue = [
+                item
+                for index, item in enumerate(queue)
+                if index not in drop_indexes
+            ]
         self.write_json(
             self.queue_path,
             queue,
