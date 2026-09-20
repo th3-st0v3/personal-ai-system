@@ -171,5 +171,4 @@ done
 kill -KILL "$pid" 2>/dev/null || true
 rm -f "$PID_FILE"
 stop_managed_service "PASI bridge" "$BRIDGE_PID_FILE" "pasi_log_router.py"
-stop_managed_service "PASI controller distribution" "$CONTROLLER_PID_FILE" "pasi_controller_server.py"
 printf 'PASI overnight runner required forced termination after graceful shutdown timeout.\n'
