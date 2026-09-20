@@ -100,11 +100,12 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             subprocess.run(["kill", str(child_pid)], check=False)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_stop_script_has_no_removed_controller_distribution_reference(self) -> None:
         script = (ROOT / "scripts" / "stop_pasi_overnight.sh").read_text(encoding="utf-8")
         self.assertNotIn("CONTROLLER_PID_FILE", script)
         self.assertNotIn("pasi_controller_server.py", script)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
