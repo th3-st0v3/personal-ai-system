@@ -36,7 +36,7 @@ def test_tampermonkey_controller_uses_bounded_idle_polling_and_recovery_state() 
 def test_native_controller_uses_bounded_idle_polling() -> None:
     source = _read(NATIVE)
 
-    assert 1000 <= _number(source, "POLL_MS") <= 5000
+    assert 50 <= _number(source, "POLL_MS") <= 500
     assert _number(source, "DOM_POLL_MS") <= 250
     assert _number(source, "CLICK_SETTLE_MS") <= 300
     assert _number(source, "RESPONSE_SETTLE_MS") <= 250
@@ -93,3 +93,18 @@ def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_con
     assert "clearInterval(healthTimerId)" in native
     assert "if (extensionContextInvalidated) return;" in native
     assert "return markThinkingUnavailable('current ChatGPT account/model does not expose a usable Thinking model option')" in native or "return markThinkingUnavailable('current ChatGPT account/model does not expose a usable Thinking model option');" in native
+
+
+def test_native_controller_has_immediate_terminal_poll_and_event_driven_waits() -> None:
+    source = _read(NATIVE)
+
+    assert "const POLL_MS = 250;" in source
+    assert "const DOM_POLL_MS = 50;" in source
+    assert "function waitUntil(predicate, timeoutMs, pollMs = 50)" in source
+    assert "new MutationObserver" in source
+    assert "queueMicrotask(() =>" in source
+    assert "scheduleImmediatePoll()" in source
+    assert "clearMonitoringStateFor(operation.operation_id)" in source
+    assert "chat_response_received" in source
+    assert "prompt_injected" in source
+    assert "ui=" in source
