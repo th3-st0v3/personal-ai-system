@@ -978,8 +978,8 @@ def continuation_directive(state: OvernightState, _task: str | None = None) -> s
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
     failure_block = ""
     if failure.strip():
-        compact_failure = re.sub(r"\\s+", " ", failure).strip()[:2500]
-        failure_block = f"\\nPREVIOUS FAILURE EVIDENCE (current attempt only):\\n{compact_failure}\\n"
+        compact_failure = re.sub(r"\s+", " ", failure).strip()[:2500]
+        failure_block = f"\nPREVIOUS FAILURE EVIDENCE (current attempt only):\n{compact_failure}\n"
     return f"""You are the implementation engineer inside an unattended PASI overnight coding run.
 
 CURRENT TASK:
