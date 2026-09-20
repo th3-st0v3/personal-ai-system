@@ -36,11 +36,12 @@ test('recovery companion scopes detectors through the shared detector module', (
   assert.doesNotMatch(source, /document\.body\?\.innerText/);
 });
 
-test('recovery reports active operation and response observations without mutating queue state', () => {
+test('recovery is observe-only and does not publish response evidence', () => {
   assert.match(source, /active_operation_id: String\(activeOperationId\)/);
-  assert.match(source, /report\('chatgpt_response'/);
   assert.match(source, /report\('chatgpt_recovery'/);
   assert.match(source, /observe_only/);
+  assert.doesNotMatch(source, /report\('chatgpt_response'/);
+  assert.doesNotMatch(source, /response_text: responseText/);
 });
 
 test('recovery persists missing-operation timestamps and supports all operation-id aliases', () => {
