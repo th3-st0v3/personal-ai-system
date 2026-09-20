@@ -153,5 +153,13 @@ PASI_COMPUTER_REQUEST_END"""
         self.assertNotIn("computer.financial.execute", prompt)
 
 
+
+    def test_guard_requests_status_or_computer_round_completion_markers(self) -> None:
+        source = Path("scripts/pasi_chat_guard.py").read_text(encoding="utf-8")
+        self.assertIn('"--completion-marker"', source)
+        self.assertIn('"PASI_RESULT_STATUS"', source)
+        self.assertIn('"PASI_COMPUTER_REQUEST_END"', source)
+
+
 if __name__ == "__main__":
     unittest.main()
