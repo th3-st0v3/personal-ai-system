@@ -43,8 +43,8 @@ def select_task_source(
     explicit_task_file: Path | None,
     environment_task: str,
     environment_task_file: Path | None,
-    operator_task_file: Path,
     default_task_file: Path,
+    operator_task_file: Path | None = None,
 ) -> str:
     """Select the task using the documented precedence:
     --task > explicit --task-file > PASI_TASK > PASI_TASK_FILE > local default file.
@@ -94,8 +94,8 @@ def main() -> int:
         args.task_file,
         os.environ.get("PASI_TASK", ""),
         environment_task_file,
-        DEFAULT_OPERATOR_PROMPT_FILE,
         DEFAULT_TASK_FILE,
+        DEFAULT_OPERATOR_PROMPT_FILE,
     )
     selected_task = DIFFICULT_MODE_PREFIX + "\n" + selected_task
 
