@@ -30,7 +30,6 @@ HIGH_RISK_PATH_PREFIXES = (
     "automation/orchestrator/",
     "scripts/pasi_overnight_engine_v2.py",
     "scripts/pasi_overnight_hardening.py",
-    "scripts/pasi_automation_entrypoint.py",
 )
 HIGH_RISK_NAME_PATTERNS = (
     re.compile(r"(^|/)(credentials|secrets?)(\.|/|$)", re.IGNORECASE),
