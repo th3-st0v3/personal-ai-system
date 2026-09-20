@@ -114,7 +114,7 @@ worktree_for_branch() {
             "branch refs/heads/"*) current_branch="${line#branch refs/heads/}" ;;
             "")
                 if [[ "$current_branch" == "$target" ]]; then
-                    printf '%s\\n' "$path"
+                    printf '%s\n' "$path"
                     return 0
                 fi
                 path=""
@@ -123,19 +123,19 @@ worktree_for_branch() {
         esac
     done < <(git worktree list --porcelain)
     if [[ "$current_branch" == "$target" ]]; then
-        printf '%s\\n' "$path"
+        printf '%s\n' "$path"
     fi
 }
 
 if [[ -n "$configured_worktree" ]]; then
     WORKTREE="$(realpath -m -- "$configured_worktree")"
     if [[ ! -d "$WORKTREE" || ( ! -f "$WORKTREE/.git" && ! -d "$WORKTREE/.git" ) ]]; then
-        printf 'error: PASI_OVERNIGHT_WORKTREE is not an existing git worktree: %s\\n' "$WORKTREE" >&2
+        printf 'error: PASI_OVERNIGHT_WORKTREE is not an existing git worktree: %s\n' "$WORKTREE" >&2
         exit 3
     fi
     actual_branch="$(git -C "$WORKTREE" branch --show-current 2>/dev/null || true)"
     if [[ -n "$requested_branch" && "$actual_branch" != "$requested_branch" ]]; then
-        printf 'error: PASI_OVERNIGHT_WORKTREE is on %s, not requested branch %s.\\n' "${actual_branch:-detached}" "$requested_branch" >&2
+        printf 'error: PASI_OVERNIGHT_WORKTREE is on %s, not requested branch %s.\n' "${actual_branch:-detached}" "$requested_branch" >&2
         exit 3
     fi
     [[ -n "$actual_branch" ]] && BRANCH="$actual_branch"
@@ -156,9 +156,9 @@ fi
 if (( REUSE_EXISTING_WORKTREE == 1 )); then
     worktree_status="$(git -C "$WORKTREE" status --porcelain --untracked-files=all 2>/dev/null || true)"
     if [[ -n "$worktree_status" ]]; then
-        printf 'error: selected existing PASI worktree is dirty; preserve or stash its local changes before starting the 168-hour runner.\\n' >&2
-        printf 'Worktree: %s\\n' "$WORKTREE" >&2
-        printf '%s\\n' "$worktree_status" >&2
+        printf 'error: selected existing PASI worktree is dirty; preserve or stash its local changes before starting the 168-hour runner.\n' >&2
+        printf 'Worktree: %s\n' "$WORKTREE" >&2
+        printf '%s\n' "$worktree_status" >&2
         exit 3
     fi
 
@@ -167,7 +167,7 @@ if (( REUSE_EXISTING_WORKTREE == 1 )); then
     if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
         if ! git -C "$WORKTREE" merge-base --is-ancestor "$BRANCH" "origin/$BRANCH" 2>/dev/null; then
             if ! git -C "$WORKTREE" merge-base --is-ancestor "origin/$BRANCH" "$BRANCH" 2>/dev/null; then
-                printf 'error: existing PASI worktree branch %s has diverged from origin/%s; refusing to overwrite it.\\n' "$BRANCH" "$BRANCH" >&2
+                printf 'error: existing PASI worktree branch %s has diverged from origin/%s; refusing to overwrite it.\n' "$BRANCH" "$BRANCH" >&2
                 exit 3
             fi
         else
@@ -176,8 +176,8 @@ if (( REUSE_EXISTING_WORKTREE == 1 )); then
     fi
 else
     if [[ -e "$WORKTREE" ]]; then
-        printf 'error: selected fresh-run worktree path already exists: %s\\n' "$WORKTREE" >&2
-        printf 'Choose another PASI_OVERNIGHT_WORKTREE or remove/move that unrelated path manually.\\n' >&2
+        printf 'error: selected fresh-run worktree path already exists: %s\n' "$WORKTREE" >&2
+        printf 'Choose another PASI_OVERNIGHT_WORKTREE or remove/move that unrelated path manually.\n' >&2
         exit 3
     fi
 fi
