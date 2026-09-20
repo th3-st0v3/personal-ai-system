@@ -25,7 +25,7 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             "node --test",
             "JavaScript syntax (non-test files)",
             "JAVASCRIPT_TEST_SET",
-            "Native Chromium controller contract tests",
+            "JavaScript test suites",
         ):
             self.assertIn(required, script)
         self.assertIn("test_*.mjs", script)
