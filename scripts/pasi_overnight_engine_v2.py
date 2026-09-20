@@ -507,8 +507,15 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
         if code != 0:
             raise RuntimeError(f"could not stage validation sandbox snapshot: {output}")
 
+        venv_path = REPO_ROOT / ".venv"
+        path_value = "/usr/local/bin:/usr/bin:/bin"
+        venv_bind: list[str] = []
+        if venv_path.is_dir():
+            path_value = "/pasi-venv/bin:" + path_value
+            venv_bind = ["--ro-bind", str(venv_path), "/pasi-venv"]
+
         env_values = {
-            "PATH": "/pasi-venv/bin:/usr/local/bin:/usr/bin:/bin",
+            "PATH": path_value,
             "HOME": "/tmp/pasi-validation-home",
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
@@ -540,7 +547,7 @@ def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
             "--tmpfs", "/mnt",
             "--tmpfs", "/media",
             "--bind", str(sandbox_repo), "/workspace",
-            "--ro-bind", str(REPO_ROOT / ".venv"), "/pasi-venv",
+            *venv_bind,
             "--unshare-net",
             "--chdir", "/workspace",
             *base,
