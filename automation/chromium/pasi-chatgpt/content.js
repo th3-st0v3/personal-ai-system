@@ -1412,18 +1412,20 @@
 
       if (contextRecoveryEligible) {
         rememberContextRecovery(operation, error);
-        finalized = await failOperation(
+        await failOperation(
           operation.operation_id,
           error,
           recoveryContext()
-        ) ? false : false;
+        );
+        finalized = false;
       } else if (responseRecoveryEligible) {
         rememberResponseRecovery(operation, error);
-        finalized = await failOperation(
+        await failOperation(
           operation.operation_id,
           error,
           recoveryContext()
-        ) ? false : false;
+        );
+        finalized = false;
       } else {
         const failure = (
           errorMessage.startsWith('CHAT_EXHAUSTED:') &&
