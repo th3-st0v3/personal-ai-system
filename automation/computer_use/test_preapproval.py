@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from automation.computer_use.preapproval import AcquisitionEngine, PreapprovalPolicy
-from automation.computer_use.obstacles import ObstacleLedger
 
 
 class PreapprovalTests(unittest.TestCase):
