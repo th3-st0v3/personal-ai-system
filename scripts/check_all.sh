@@ -139,7 +139,7 @@ mapfile -d '' JAVASCRIPT_FILES < <(
     find_files \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0 | sort -z
 )
 mapfile -d '' JAVASCRIPT_TEST_FILES < <(
-    find_files \(
+    find_files \( \
         -name 'test_*.js' -o -name '*_test.js' -o -name '*.test.js' -o -name '*.spec.js' \
         -o -name 'test_*.mjs' -o -name '*_test.mjs' -o -name '*.test.mjs' -o -name '*.spec.mjs' \
         -o -name 'test_*.cjs' -o -name '*_test.cjs' -o -name '*.test.cjs' -o -name '*.spec.cjs'
