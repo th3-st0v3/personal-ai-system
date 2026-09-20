@@ -1319,7 +1319,10 @@ def main() -> int:
     try:
         code, output = command(["git", "fetch", "origin", "main"], REPO_ROOT, 120.0)
         if code != 0:
-            raise RuntimeError(f"git fetch origin main failed: {output}")
+            # The unattended runner may start from an already-verified feature
+            # branch while offline. Remote refresh is useful but is not a startup
+            # prerequisite; local HEAD remains the authoritative worktree base.
+            log_event("git_fetch_deferred", remote="origin/main", error=sanitize_failure_evidence(code, output))
         saved = load_state() if args.resume else None
         if saved is not None and now_utc() < datetime.fromisoformat(saved.deadline_at):
             state = saved
