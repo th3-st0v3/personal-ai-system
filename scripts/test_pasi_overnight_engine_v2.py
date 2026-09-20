@@ -853,11 +853,18 @@ Acceptance:
             with mock.patch.object(engine, "BRIDGE_QUEUE_PATH", queue_path):
                 self.assertEqual(engine.queue_file_bytes(), 3)
 
-    def test_native_controller_manifest_path_uses_legacy_location(self) -> None:
+    def test_native_controller_version_comes_from_native_source(self) -> None:
         self.assertEqual(
-            engine.CONTROLLER_MANIFEST_PATH,
-            engine.REPO_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json",
+            engine.CONTROLLER_SOURCE_PATH,
+            engine.REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js",
         )
+        with mock.patch.object(
+            engine.CONTROLLER_SOURCE_PATH,
+            "read_text",
+            return_value="const CONTROLLER_VERSION = '2.4.11';",
+            create=False,
+        ):
+            self.assertEqual(engine.expected_controller_version(), "2.4.11")
 
     def test_engine_does_not_start_retired_controller_distribution_service(self) -> None:
         import inspect
