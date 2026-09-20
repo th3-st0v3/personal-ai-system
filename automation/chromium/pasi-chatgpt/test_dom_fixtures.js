@@ -28,9 +28,18 @@ function loadController(html, { mutateWhitespace = false } = {}) {
   dom.window.eval(DETECTORS);
   let source = CONTENT;
   if (mutateWhitespace) {
+    const extractBlock = [
+      "      const text = String(markdown[i].innerText || markdown[i].textContent || '')",
+      "        .replace(/\\r\\n?/g, '\\n')",
+      "        .replace(/[ \\t]+(?=\\n)/g, '')"
+    ].join("\n");
+    assert.ok(source.includes(extractBlock), 'whitespace-collapse mutation target is missing');
     source = source.replace(
-      ".replace(/\\r\\n?/g, '\\n')\n      .replace(/[ \\t]+(?=\\n)/g, '')",
-      ".replace(/\\s+/g, ' ')"
+      extractBlock,
+      [
+        "      const text = String(markdown[i].innerText || markdown[i].textContent || '')",
+        "        .replace(/\\s+/g, ' ')"
+      ].join("\n")
     );
   }
   dom.window.eval(source);
