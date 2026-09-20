@@ -10,6 +10,30 @@ from scripts.pasi_chat_guard import classify_observation
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_guard_timeout_cancels_active_bridge_operation(self) -> None:
+        health = {"observation": {"data": {"kind": "chatgpt_health", "active_operation_id": "op-123"}}}
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return None
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        with mock.patch.object(guard, "request_json", return_value=health):
+            with mock.patch.object(guard, "urlopen", side_effect=fake_urlopen):
+                with mock.patch.dict("os.environ", {"PASI_BRIDGE_TOKEN": "test-token"}, clear=True):
+                    self.assertTrue(guard.cancel_active_operation("guard timeout"))
+
+        request = captured["request"]
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(request.full_url, "http://127.0.0.1:8765/chat/cancel")
+        self.assertIn(b'"operation_id": "op-123"', request.data)
+        self.assertIn(b'"reason": "guard timeout"', request.data)
+
     def test_default_timeout_matches_native_generation_ceiling(self) -> None:
         self.assertEqual(guard.DEFAULT_TIMEOUT, guard.TIMEOUT_POLICY["python_wait_seconds"])
 
