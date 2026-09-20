@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Mapping, Sequence
+from typing import Sequence
 
 PROMPT_PATTERN_VERSION = "1.0.0"
 MAX_TASK_CHARS = 4000
@@ -13,6 +13,11 @@ MAX_ROADMAP_TASKS = 12
 
 def _compact(value: object, limit: int) -> str:
     text = re.sub(r"\s+", " ", str(value)).strip()
+    return text[:limit]
+
+
+def _bounded_block(value: object, limit: int) -> str:
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
     return text[:limit]
 
 
@@ -39,13 +44,13 @@ def compile_task_prompt(
     roadmap_tasks: Sequence[str] = (),
     previous_failure: str = "",
 ) -> str:
-    task_text = _compact(task, MAX_TASK_CHARS)
+    task_text = _bounded_block(task, MAX_TASK_CHARS)
     if not task_text:
         raise ValueError("task must not be empty")
 
     recent = _lines(tuple(recent_tasks)[-MAX_RECENT_TASKS:])
     roadmap = _lines(tuple(roadmap_tasks)[:MAX_ROADMAP_TASKS])
-    failure = previous_failure.strip()[-MAX_FAILURE_CHARS:] if previous_failure.strip() else ""
+    failure = _bounded_block(previous_failure, MAX_FAILURE_CHARS) if previous_failure.strip() else ""
 
     failure_section = (
         f"""
