@@ -12,13 +12,13 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from scripts.pasi_response_contract import CONTRACT
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.engineering_context import collect_context
+from scripts.pasi_response_contract import CONTRACT
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1"
