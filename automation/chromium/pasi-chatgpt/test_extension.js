@@ -11,6 +11,15 @@ const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
 
+test('native bridge caches the token and refreshes once after unauthorized responses', () => {
+  assert.match(background, /let cachedBridgeToken = null/);
+  assert.match(background, /let bridgeTokenPromise = null/);
+  assert.match(background, /if \(!forceRefresh && cachedBridgeToken\) return cachedBridgeToken/);
+  assert.match(background, /if \(response\.status === 401\)/);
+  assert.match(background, /cachedBridgeToken = null/);
+  assert.match(background, /token = await bridgeToken\(true\)/);
+});
+
 test('native extension packages and loads the shared timeout policy resource', () => {
   assert.deepEqual(manifest.web_accessible_resources, [{
     resources: ['timeout-policy.json'],
