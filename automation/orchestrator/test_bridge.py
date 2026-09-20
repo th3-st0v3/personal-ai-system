@@ -205,7 +205,7 @@ def test_http_queue_response_loss_is_recovered_without_duplicate_operation(tmp_p
             "POST",
             "/queue",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         with pytest.raises(RemoteDisconnected):
             connection.getresponse()
@@ -783,7 +783,7 @@ def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
             "POST",
             "/chat/finished",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
@@ -872,7 +872,7 @@ def test_http_prompt_completion_derives_availability_from_nonblank_text(tmp_path
             "POST",
             "/chat/finished",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
@@ -915,7 +915,7 @@ def test_http_prompt_completion_requires_verified_nonblank_response(tmp_path: Pa
             "POST",
             "/chat/finished",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
@@ -965,7 +965,7 @@ def test_http_duplicate_completion_ack_is_idempotent(tmp_path: Path) -> None:
                 "POST",
                 "/chat/finished",
                 body=payload,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
             )
             response = connection.getresponse()
             body = json.loads(response.read().decode("utf-8"))
@@ -1010,7 +1010,7 @@ def test_http_transient_failure_requeues_operation(tmp_path: Path) -> None:
             "POST",
             "/chat/failed",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
         )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
