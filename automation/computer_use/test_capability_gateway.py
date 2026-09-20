@@ -53,7 +53,7 @@ def test_gateway_advertises_resource_acquisition_as_approval_gated(tmp_path: Pat
 
 
 def test_gateway_blocks_unapproved_resource_without_executing(tmp_path: Path, monkeypatch) -> None:
-    state_root = tmp_path / "operator-state"
+    state_root = tmp_path.parent / (tmp_path.name + "-operator-state")
     monkeypatch.setenv("PASI_STATE_ROOT", str(state_root))
     gateway = CapabilityGateway(LocalAccessBroker(tmp_path))
     result = gateway.dispatch({
