@@ -402,7 +402,7 @@ def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None =
     sections = re.split(r"(?m)^diff --git ", patch)[1:]
     deleted_paths: set[str] = set()
     for section in sections:
-        if re.search(r"(?m)^\\+\\+\\+ /dev/null$", section):
+        if re.search(r"(?m)^\+\+\+ /dev/null$", section):
             header = section.splitlines()[0] if section.splitlines() else ""
             header_match = re.match(r"a/(\\S+) b/(\\S+)$", header)
             if header_match:
