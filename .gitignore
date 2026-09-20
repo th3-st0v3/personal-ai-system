@@ -81,3 +81,6 @@ notes.db.*
 
 # PASI runtime state
 .ai/
+
+# Generated local bridge credential
+automation/chromium/pasi-chatgpt/.bridge-token
