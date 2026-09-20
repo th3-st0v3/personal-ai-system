@@ -1071,10 +1071,11 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
     output = output + ("\n" if output else "") + validation_output
     commit = commit_and_push(worktree, branch, task, push)
     if push:
+        promotion_path = REPO_ROOT / "scripts" / "pasi_promote.py"
         promotion = command(
             [
                 sys.executable,
-                "scripts/pasi_promote.py",
+                str(promotion_path),
                 "--commit",
                 commit,
                 "--branch",
@@ -1083,7 +1084,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
                 task,
                 "--json",
             ],
-            worktree,
+            REPO_ROOT,
             90.0,
         )
         if promotion[0] == 0:
