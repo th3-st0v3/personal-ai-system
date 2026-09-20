@@ -665,3 +665,11 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /visibleFingerprint !== baseline/);
   assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
 });
+
+
+test('native connection failure triggers bounded browser recovery', () => {
+  assert.match(content, /PASI_NATIVE: ChatGPT connection failure detected/);
+  assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
+  assert.match(background, /if \(connectionFailure\) \{/);
+  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
+});
