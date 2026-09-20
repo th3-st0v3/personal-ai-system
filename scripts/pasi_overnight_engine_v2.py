@@ -346,7 +346,11 @@ def release_lock() -> None:
 
 
 def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None = None) -> None:
-    legacy.validate_patch_paths(patch, allow_delete, worktree)
+    # Use the same worktree-aware patch policy as the weeklong hardening wrapper.
+    # The local import avoids the module's intentional legacy/hardening dependency cycle.
+    from scripts import pasi_overnight_hardening as hardening
+
+    hardening.validate_patch_paths(patch, allow_delete, worktree)
 
 
 def control_script(name: str) -> Path:
