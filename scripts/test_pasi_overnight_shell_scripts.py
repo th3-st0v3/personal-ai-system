@@ -18,9 +18,10 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
     def test_check_all_uses_grouped_directory_pruning_for_file_discovery(self) -> None:
         script = (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
         self.assertIn("find_files()", script)
-        self.assertIn("-type d", script)
-        self.assertIn("-prune", script)
-        self.assertIn('find . "${prune_expr[@]}" "$@"', script)
+        self.assertIn("find . -type d \\(", script)
+        self.assertIn("-prune -o -type f \"$@\"".replace('\\',''), script)
+        self.assertIn("-name 'node_modules'", script)
+        self.assertIn("-name '.runtime'", script)
 
     def test_check_all_discovers_and_runs_supported_javascript_suites(self) -> None:
         script = (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
