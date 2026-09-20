@@ -34,6 +34,39 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
             "1\t0\tREADME.md\x00",
         )
 
+    def test_patch_boundary_blocks_git_ignored_paths(self) -> None:
+        patch = """diff --git a/.runtime/policy/preapprovals.json b/.runtime/policy/preapprovals.json
+new file mode 100644
+--- /dev/null
++++ b/.runtime/policy/preapprovals.json
+@@ -0,0 +1 @@
++{"schema_version":1,"approvals":[]}
+"""
+        with self.assertRaisesRegex(ValueError, "Git-ignored"):
+            engine.validate_patch_paths(patch, allow_delete=True, worktree=Path.cwd())
+
+    def test_patch_boundary_blocks_unapproved_deletion(self) -> None:
+        patch = """diff --git a/example.txt b/example.txt
+deleted file mode 100644
+index 1234567..0000000
+--- a/example.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-old
+"""
+        with self.assertRaisesRegex(ValueError, "file deletion requires"):
+            engine.validate_patch_paths(patch, allow_delete=False)
+
+    def test_patch_boundary_allows_explicit_deletion(self) -> None:
+        patch = """diff --git a/example.txt b/example.txt
+deleted file mode 100644
+index 1234567..0000000
+--- a/example.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-old
+"""
+        engine.validate_patch_paths(patch, allow_delete=True)
     def test_unattended_patch_rejects_hooks_and_validator_paths(self) -> None:
         safe_patch = """diff --git a/app.py b/app.py
 --- a/app.py
