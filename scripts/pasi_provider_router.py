@@ -12,6 +12,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from scripts.pasi_response_contract import CONTRACT
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -43,21 +45,7 @@ Do not claim tests passed unless the evidence is present in the supplied reposit
 Prefer small, reversible, well-tested changes over rewrites.
 """
 
-CONTRACT = """Return each marker exactly once:
-PASI_RESULT_STATUS: complete|needs_revision|blocked
-PASI_RESULT_SUMMARY: one concise sentence
-PASI_RESULT_NEXT_TASK: one concrete high-value next task
-PASI_RESULT_REQUIREMENTS: complete
-PASI_RESULT_LIMITATIONS: handled|none|not_applicable
-PASI_RESULT_RESEARCH: performed|not_applicable
-PASI_RESULT_UX: verified|not_applicable
-PASI_RESULT_BACKEND: verified|not_applicable
-PASI_RESULT_EVIDENCE: concise tests/verification evidence
-PASI_RESULT_ALLOW_DELETE: true|false
-PASI_RESULT_PATCH_BEGIN
-<one unified git diff>
-PASI_RESULT_PATCH_END
-"""
+CONTRACT = CONTRACT
 
 
 def bounded_text(value: str, limit: int) -> str:
