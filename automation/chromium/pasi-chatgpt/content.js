@@ -1168,6 +1168,7 @@
           if (String(error?.message || '').startsWith('PASI_NATIVE: operation ')) throw error;
         }
       }
+      if (connectionFailure()) throw new Error('PASI_NATIVE: ChatGPT connection failure detected');
       if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
       if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
       await sleep(DOM_POLL_MS * 2);
