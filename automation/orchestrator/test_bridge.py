@@ -1466,3 +1466,23 @@ def test_recovery_schema_response_cannot_complete_after_transient_failure(tmp_pa
     assert after["status"] == "queued"
     assert after["response_text_available"] is False
     assert not str(after.get("response_text", "")).strip()
+
+
+def test_queue_persists_completion_markers(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation(
+        "prompt",
+        "marker-aware prompt",
+        completion_markers=["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"],
+    )
+    assert operation.completion_markers == ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"]
+    stored = bridge.get_operation(operation.operation_id)
+    assert stored is not None
+    assert stored["completion_markers"] == ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"]
+
+
+def test_queue_rejects_invalid_completion_markers(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    for markers in ([], ["a", "b", "c", "d", "e"], ["a\nnewline"], [123]):
+        with pytest.raises(ValueError):
+            bridge.queue_operation("prompt", "bad markers", completion_markers=markers)
