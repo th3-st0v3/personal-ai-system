@@ -199,6 +199,18 @@ new file mode 100644
                 self.assertFalse(engine.runtime_watchdog_is_live())
                 self.assertFalse(engine.runtime_watchdog_is_live())
 
+    def test_fresh_worktree_honors_configured_base_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir) / "fresh"
+            with mock.patch.dict(os.environ, {"PASI_OVERNIGHT_BASE_REF": "origin/pasi/consolidated"}, clear=False):
+                with mock.patch.object(engine, "command", return_value=(0, "")) as run_command:
+                    engine.ensure_worktree(worktree, "pasi/test", resume=False)
+            command_args = run_command.call_args.args[0]
+            self.assertEqual(
+                command_args,
+                ["git", "worktree", "add", "-B", "pasi/test", str(worktree), "origin/pasi/consolidated"],
+            )
+
     def test_prompt_compiler_replaces_task_and_preserves_required_context(self) -> None:
         prompt = prompt_compiler.compile_task_prompt(
             "Fix the browser-to-Git patch seam and verify it end to end.",
