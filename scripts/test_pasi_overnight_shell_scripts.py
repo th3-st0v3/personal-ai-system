@@ -59,7 +59,7 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         ):
             self.assertIn(required, script)
 
-    def test_168h_launcher_contains_isolation_and_service_guards(self) -> None:
+    def test_168h_launcher_contains_isolation_and_native_service_guards(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
             'export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"',
@@ -71,11 +71,9 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             'printf \'%s\\n\' "$$" > "$START_PID_FILE"',
             '[[ "$(cat "$START_PID_FILE" 2>/dev/null || true)" == "$$" ]]',
             'http://127.0.0.1:8765/health',
-            'http://127.0.0.1:8766/health',
+            'http://127.0.0.1:8765/browser/health',
             'automation.orchestrator.bridge',
-            'pasi_controller_server.py',
             'BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"',
-            'CONTROLLER_PID_FILE="$RUNTIME_DIR/controller-distribution.pid"',
         ):
             self.assertIn(required, script)
 
@@ -88,7 +86,7 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         stop_script = (ROOT / "scripts" / "stop_pasi_overnight.sh").read_text(encoding="utf-8")
         self.assertIn("stop_managed_service", stop_script)
         self.assertIn("bridge.pid", stop_script)
-        self.assertIn("controller-distribution.pid", stop_script)
+        self.assertNotIn("controller-distribution.pid", stop_script)
         self.assertIn("START_PID_FILE", stop_script)
         self.assertIn("start_pasi_168h.sh", stop_script)
 
