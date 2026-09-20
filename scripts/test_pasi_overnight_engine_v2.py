@@ -154,6 +154,29 @@ new file mode 100644
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=False), "stopped")
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=True), "deadline_reached")
 
+    def test_no_change_completion_requires_durable_task_evidence(self) -> None:
+        values = {
+            "repository_progress": "stopped",
+            "requirements": "complete",
+            "limitations": "none",
+            "research": "not_applicable",
+            "ux": "not_applicable",
+            "backend": "verified",
+            "evidence": "verified existing implementation",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertFalse(
+                engine.no_change_completion_is_satisfied(
+                    root, "complete", "next", "", values, False
+                )
+            )
+            self.assertTrue(
+                engine.no_change_completion_is_satisfied(
+                    root, "complete", "next", "", values, True
+                )
+            )
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
