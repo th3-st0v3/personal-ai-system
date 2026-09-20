@@ -97,6 +97,7 @@ def build_report() -> dict[str, Any]:
             },
             "git": {"present": shutil.which("git") is not None},
             "node": {"present": shutil.which("node") is not None},
+            "bubblewrap": {"present": shutil.which("bwrap") is not None},
         },
         "runtime": {
             "bridge_health": bridge_health or {"status": "unavailable"},
