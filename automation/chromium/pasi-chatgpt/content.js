@@ -1095,9 +1095,9 @@
         throw new Error('PASI_NATIVE: send control unavailable');
       }
 
-      // Each strategy is mutually exclusive. Once one actually fires, never
-      // invoke another send mechanism: the delayed acknowledgement may simply
-      // be trailing the real submission and a second click can duplicate work.
+      // Once a send strategy has fired, never invoke another send mechanism:
+      // the delayed acknowledgement may simply trail the real submission, and
+      // a second click can duplicate work.
       const fired = await strategies[attempt - 1](readyBox, button);
       if (!fired) continue;
 
@@ -1151,6 +1151,67 @@
     throw new Error('PASI_NATIVE: ChatGPT generation timed out');
   }
 
+
+  function rememberContextRecovery(operation, error) {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+    } catch (_) {}
+
+    const startedAt = typeof stored?.started_at === 'string'
+      ? stored.started_at
+      : new Date().toISOString();
+
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: startedAt,
+      started_ms: Date.parse(startedAt) || Date.now(),
+      baseline: fingerprint(),
+      chat_url: chatUrl(),
+      recovery_context: recoveryContext(),
+      reload_count: 0,
+      phase: 'context_exhausted',
+      error: String(error?.message || error)
+    }));
+  }
+
+  function rememberResponseRecovery(operation, error) {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+    } catch (_) {}
+
+    const startedAt = typeof stored?.started_at === 'string'
+      ? stored.started_at
+      : new Date().toISOString();
+
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify({
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      started_at: startedAt,
+      started_ms: Date.parse(startedAt) || Date.now(),
+      baseline: typeof stored?.baseline === 'string' ? stored.baseline : fingerprint(),
+      chat_url: chatUrl(),
+      recovery_context: recoveryContext(),
+      reload_count: 0,
+      phase: 'monitoring',
+      error: String(error?.message || error),
+      response_recovery: true
+    }));
+  }
+
+  function completionProgress(responseText) {
+    const text = typeof responseText === 'string' ? responseText : '';
+    const statusMatch = text.match(/^PASI_RESULT_STATUS:\s*(.+)$/m);
+    const progressMatch = text.match(/^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$/m);
+    const nextTaskMatch = text.match(/^PASI_RESULT_NEXT_TASK:\s*(.+)$/m);
+    return {
+      completion_status: statusMatch ? statusMatch[1].trim().toLowerCase() : null,
+      repository_progress: progressMatch ? progressMatch[1].trim().toLowerCase() : null,
+      next_task: nextTaskMatch ? nextTaskMatch[1].trim() : null
+    };
+  }
 
   async function finishOperation(operationId, responseText = '', requireResponseText = false) {
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
@@ -1341,7 +1402,7 @@
             return;
           }
         } else if (!generating()) {
-          const baseline = typeof stored?.baseline === 'string' ? stored.baseline : '';
+          const baseline = typeof stored?.baseline === 'string' ? stored.baseline : fingerprint();
           const visibleResponse = latestAssistant();
           const visibleFingerprint = fingerprint();
           if (visibleResponse && visibleFingerprint !== baseline) {
