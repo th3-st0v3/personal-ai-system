@@ -227,6 +227,14 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
             "question": "deny",
         })
         opencode_env = dict(os.environ)
+        for secret_name in (
+            "PASI_BRIDGE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
+            "OPENROUTER_API_KEY", "PERPLEXITY_API_KEY", "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY",
+            "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+            "SSH_AUTH_SOCK",
+        ):
+            opencode_env.pop(secret_name, None)
         opencode_env["OPENCODE_PERMISSION"] = denied_permissions
         opencode_env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
         opencode_env["OPENCODE_DISABLE_LSP_DOWNLOAD"] = "true"
