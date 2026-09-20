@@ -15,6 +15,14 @@ from .controller_update import (
 
 
 class ControllerUpdateProtocolTests(unittest.TestCase):
+    def test_default_controller_path_is_isolated_under_legacy_tree(self) -> None:
+        from .controller_update import CONTROLLER_PATH
+
+        self.assertEqual(
+            CONTROLLER_PATH,
+            Path("automation/legacy/tampermonkey/chatgpt-controller.user.js"),
+        )
+
     def test_normal_response_does_not_request_update(self) -> None:
         requested, version, reason = parse_controller_update_directive("The task is complete.")
         self.assertFalse(requested)
