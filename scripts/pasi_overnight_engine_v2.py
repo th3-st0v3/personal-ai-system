@@ -60,7 +60,7 @@ ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
 
-AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\\s*true$", re.MULTILINE | re.IGNORECASE)
+AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
     "Audit the PASI computer-use control plane end to end and implement concrete changes that reduce repeated human input, improve state continuity, improve browser recovery, and preserve all existing safety boundaries.",
@@ -910,11 +910,6 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
     values["automation_continue"] = "true" if AUTOMATION_CONTINUE_RE.search(response) else "false"
     raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0]
     patch = normalize_patch(raw_patch)
-    values["automation_continue"] = "true" if re.search(
-        r"^PASI_AUTOMATION_CONTINUE:\s*true$",
-        response,
-        re.MULTILINE | re.IGNORECASE,
-    ) else "false"
     return status, summary, next_task, patch, allow_delete, values
 
 
