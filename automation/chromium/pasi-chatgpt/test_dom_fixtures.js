@@ -28,11 +28,19 @@ function loadController(html, { mutateWhitespace = false } = {}) {
   dom.window.eval(DETECTORS);
   let source = CONTENT;
   if (mutateWhitespace) {
-    const mutationPattern =
-      /\.replace\(\/\\r\\n\?\/g, '\\n'\)\s+\.replace\(\/\[ \\t\]\+\(\?=\\n\)\/g, ''\)/;
-    const mutated = source.replace(mutationPattern, ".replace(/\\s+/g, ' ')");
-    assert.notEqual(mutated, source, 'whitespace-collapse mutation did not match messageText');
-    source = mutated;
+    const extractBlock = [
+      "      const text = String(markdown[i].innerText || markdown[i].textContent || '')",
+      "        .replace(/\\r\\n?/g, '\\n')",
+      "        .replace(/[ \\t]+(?=\\n)/g, '')"
+    ].join("\n");
+    assert.ok(source.includes(extractBlock), 'whitespace-collapse mutation target is missing');
+    source = source.replace(
+      extractBlock,
+      [
+        "      const text = String(markdown[i].innerText || markdown[i].textContent || '')",
+        "        .replace(/\\s+/g, ' ')"
+      ].join("\n")
+    );
   }
   dom.window.eval(source);
   assert.ok(dom.window.PASI_NATIVE_TEST_API);
