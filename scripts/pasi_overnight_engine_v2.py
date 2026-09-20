@@ -69,6 +69,7 @@ MARKERS = {
     "repository_progress": re.compile(r"^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$", re.MULTILINE),
     "allow_delete": re.compile(r"^PASI_RESULT_ALLOW_DELETE:\s*(true|false)$", re.MULTILINE | re.IGNORECASE),
 }
+AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
     "Audit the PASI computer-use control plane end to end and implement concrete changes that reduce repeated human input, improve state continuity, improve browser recovery, and preserve all existing safety boundaries.",
@@ -879,6 +880,7 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
     summary = values["summary"].strip()
     next_task = values["next_task"].strip()
     allow_delete = values["allow_delete"].strip().lower() == "true" if "allow_delete" in values else False
+    values["automation_continue"] = "true" if AUTOMATION_CONTINUE_RE.search(response) else "false"
     raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0]
     patch = normalize_patch(raw_patch)
     values["automation_continue"] = "true" if re.search(
@@ -915,6 +917,7 @@ def continuation_directive(state: OvernightState, _task: str | None = None) -> s
 - After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK; immediately continue to the next incomplete roadmap task.
 - IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
 - IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: changed and provide the required patch.
+- If the verified evidence shows another automation, computer-use, recovery, integration, or security capability is materially necessary to satisfy the objective, include exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit that line.
 - do not invent work or cosmetic changes; report stopped only when the task is satisfied and no concrete repository change remains.
 - Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it.
 ROADMAP PHASE: {state.phase}
@@ -961,6 +964,7 @@ PASI_RESULT_BACKEND: verified|not_applicable
 PASI_RESULT_EVIDENCE: concise tests/verification evidence
 PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped
 PASI_RESULT_ALLOW_DELETE: true|false
+PASI_AUTOMATION_CONTINUE: true   # optional; include only when another automation capability is materially necessary
 PASI_RESULT_PATCH_BEGIN
 <one unified git diff>
 PASI_RESULT_PATCH_END
