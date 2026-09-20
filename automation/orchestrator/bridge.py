@@ -511,7 +511,7 @@ class BridgeState:
 
     @staticmethod
     def _retry_class(error: str) -> str:
-        if error.startswith("CHAT_EXHAUSTED:"):
+        if error.startswith("CHAT_EXHAUSTED:") or error.startswith("PASI_NATIVE: context recovery exhausted:"):
             return "context"
         if error.startswith("PASI_NATIVE: ChatGPT generation timed out") or error.startswith("PASI_NATIVE: response text unavailable"):
             return "response"
@@ -560,6 +560,7 @@ class BridgeState:
 
                 retry_counts = dict(retry_counts)
                 retry_counts[retry_class] = count + 1
+                item["retry_class"] = retry_class
                 validate_transition(current_status, "queued")
                 item["status"] = "queued"
                 item["retry_counts"] = retry_counts
