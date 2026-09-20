@@ -16,7 +16,7 @@ MAX_BODY_CHARS = 8_000
 HIGH_RISK_PATH_PREFIXES = (
     ".github/workflows/",
     "automation/chromium/",
-    "automation/tampermonkey/",
+    "automation/legacy/tampermonkey/",
     "automation/computer_use/capability_gateway.py",
     "automation/computer_use/local_access.py",
     "automation/computer_use/preapproval.py",
