@@ -491,5 +491,18 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn('completion_markers = args.completion_markers or ["PASI_RESULT_STATUS"]', source)
         self.assertIn("completion_markers=completion_markers", source)
 
+
+    def test_context_rollover_retry_preserves_completion_markers(self) -> None:
+        source = Path(__file__).resolve().parent / "pasi_chat.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn(
+            "retry_operation = adapter.submit_prompt(build_prompt(task, compact_repo_state(root), handoff), completion_markers=completion_markers)",
+            text,
+        )
+        self.assertIn(
+            "fallback_operation = adapter.submit_prompt(fallback_prompt, completion_markers=completion_markers)",
+            text,
+        )
+
 if __name__ == "__main__":
     unittest.main()
