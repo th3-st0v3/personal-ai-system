@@ -7,6 +7,7 @@
   const DOM_POLL_MS = 50;
   const CLICK_SETTLE_MS = 250;
   const RESPONSE_SETTLE_MS = 200;
+  const MAX_RESPONSE_TEXT_CHARS = 120_000;
   const SUBMISSION_ACK_MS = 5000;
   const SUBMISSION_ATTEMPTS = 3;
   const TIMEOUTS = { menu: 8000, composer: 15000, send: 10000, submit: 5000, generation: 60 * 60 * 1000 };
@@ -828,9 +829,9 @@
     const markdown = Array.from(node.querySelectorAll?.('.markdown, [class*="markdown"]') || []).filter(visible);
     for (let i = markdown.length - 1; i >= 0; i -= 1) {
       const text = String(markdown[i].innerText || markdown[i].textContent || '').replace(/\s+/g, ' ').trim();
-      if (text) return text.slice(0, 50000);
+      if (text) return text.slice(0, MAX_RESPONSE_TEXT_CHARS);
     }
-    return messageText(node).slice(0, 50000);
+    return messageText(node).slice(0, MAX_RESPONSE_TEXT_CHARS);
   }
 
   function latestAssistant() {
@@ -1197,7 +1198,7 @@
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
-      response_text: responseText.slice(0, 50000),
+      response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
