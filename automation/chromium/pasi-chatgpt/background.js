@@ -10,15 +10,25 @@ const BRIDGE_ROUTES = new Set([
   'GET /status',
   'GET /browser/observation',
   'GET /browser/response',
-  'GET /next-operation',
-  'POST /browser/observation',
+    'POST /browser/observation',
   'POST /queue',
   'POST /chat/claim',
   'POST /chat/heartbeat',
   'POST /chat/finished',
-  'POST /chat/failed'
+  'POST /chat/failed',
+  'POST /chat/cancel',
+  'POST /next-operation'
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
+
+async function bridgeToken() {
+  try {
+    const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
+    return response.ok ? (await response.text()).trim() : '';
+  } catch (_) {
+    return '';
+  }
+}
 
 function allowedBridgeRequest(method, path) {
   const normalized = String(method || 'GET').toUpperCase();
@@ -38,7 +48,10 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
   try {
     const response = await fetch(`${BRIDGE}${path}`, {
       method: normalizedMethod,
-      headers: body ? { 'Content-Type': 'text/plain;charset=UTF-8' } : undefined,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(await bridgeToken() ? { 'Authorization': `Bearer ${await bridgeToken()}` } : {})
+      },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
       credentials: 'omit',
