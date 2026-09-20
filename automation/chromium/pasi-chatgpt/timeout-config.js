@@ -12,7 +12,11 @@
     submitMs: 5000,
     generationMs: 1500 * 1000,
     recoveryTriggerMs: 1500 * 1000,
-    recoveryGraceMs: 600 * 1000
+    recoveryGraceMs: 600 * 1000,
+    clickSettleMs: 75,
+    thinkingVerifyMs: 3000,
+    responseSettleMs: 750,
+    submissionAckMs: 2500
   });
 
   let policy = { ...DEFAULTS };
@@ -34,7 +38,11 @@
       submitMs: Number(raw.submit_ms),
       generationMs: Number(raw.generation_seconds) * 1000,
       recoveryTriggerMs: Number(raw.recovery_trigger_seconds) * 1000,
-      recoveryGraceMs: Number(raw.recovery_grace_seconds) * 1000
+      recoveryGraceMs: Number(raw.recovery_grace_seconds) * 1000,
+      clickSettleMs: Number(raw.click_settle_ms),
+      thinkingVerifyMs: Number(raw.thinking_verify_ms),
+      responseSettleMs: Number(raw.response_settle_ms),
+      submissionAckMs: Number(raw.submission_ack_ms)
     };
     if (!Object.values(next).every(validNumber)) return null;
     if (next.staleMs < next.heartbeatMs * 3) return null;
