@@ -913,7 +913,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         finished_at=now_utc().isoformat(),
         changed_files=len(changed_files),
     )
-    commit = legacy.commit_and_push(worktree, branch, task, push)
+    commit = legacy.commit_and_push(worktree, branch, task, push, paths=legacy.patch_paths_from_diff(patch))
     if push:
         promotion = command(
             [
