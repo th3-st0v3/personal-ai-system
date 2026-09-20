@@ -1,6 +1,6 @@
 # PASI Overnight Automation
 
-PASI can run a bounded unattended engineering loop for **8-12 hours**. The launcher now defaults to **12 hours**. The duration is a scheduler ceiling: useful progress still depends on the machine remaining powered, browser/controller availability, provider availability, and the ability to find verified work.
+PASI can run a bounded unattended engineering loop for **168 hours (7 days)**. The canonical long-run launcher is fixed to a 168-hour window. The duration is a scheduler ceiling: useful progress still depends on the machine remaining powered, browser/controller availability, provider availability, and the ability to find verified work.
 
 The runner uses an isolated Git worktree, persistent state, bounded retries, deterministic repository validation, and a dedicated Git branch. It does not write directly to `main`.
 
@@ -89,24 +89,14 @@ The scheduler never treats “approval is required” as a reason to sit idle. W
 
 ## One-command overnight run
 
-The detached launcher defaults to 12 hours:
+The canonical detached launcher is the 168-hour runner:
 
 ```bash
 cd ~/workspace/personal-ai-system
-bash scripts/start_pasi_overnight.sh
+bash scripts/start_pasi_168h.sh
 ```
 
-Choose another duration inside the supported range when needed:
-
-```bash
-PASI_OVERNIGHT_HOURS=8 bash scripts/start_pasi_overnight.sh
-```
-
-or:
-
-```bash
-PASI_OVERNIGHT_HOURS=12 bash scripts/start_pasi_overnight.sh
-```
+For shorter supported runs, `scripts/start_pasi_overnight.sh` remains the configurable launcher.
 
 The launcher prints the runner log, persistent state file, and action-list paths. Structured events are stored in `.runtime/overnight/events.jsonl`.
 
