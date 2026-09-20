@@ -5,10 +5,15 @@
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
+  const RECOVERY_PROGRESS = globalThis.PASI_RECOVERY_PROGRESS;
   const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
   const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY.generationMs || 60 * 60 * 1000;
   const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY.recoveryTriggerMs || GENERATION_TIMEOUT_MS;
   const RECOVERY_GRACE_MS = TIMEOUT_POLICY.recoveryGraceMs || 10 * 60 * 1000;
+  const RECOVERY_STALL_MS = TIMEOUT_POLICY.recoveryStallMs || 8 * 60 * 1000;
+  const RECOVERY_HARD_CEILING_MS = TIMEOUT_POLICY.recoveryHardCeilingMs || 90 * 60 * 1000;
+  const RECOVERY_PROGRESS_SAMPLE_MS = TIMEOUT_POLICY.recoveryProgressSampleMs || 250;
+  const RECOVERY_PROGRESS_POLL_MS = TIMEOUT_POLICY.recoveryProgressPollMs || 5000;
   const MAX_RELOADS = 1;
   const MAX_NEW_CHAT_WAIT_MS = 30 * 1000;
   const MAX_CONTEXT_RECOVERIES = 1;
@@ -17,6 +22,12 @@
   const RECOVERY_VERSION = '1.0.6';
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
   let inspecting = false;
+  let progressTracker = null;
+  let progressOperationId = null;
+  let progressObserverHandle = null;
+  const progressNodeIds = new WeakMap();
+  let nextProgressNodeId = 1;
+  let lastProgressPersistMs = 0;
 
   const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const compact = (value) => String(value || '').replace(/\s+/g, ' ').trim();
@@ -119,9 +130,38 @@
     return ["verify you're human", 'captcha', 'cloudflare', 'security check', 'turnstile', 'session has expired', 'log in to continue', 'sign in to continue'].some((marker) => text.includes(marker));
   }
 
+  function visibleElement(element) {
+    if (!element) return false;
+    try {
+      const style = getComputedStyle(element);
+      return style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        element.getClientRects().length > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function connectionFailure() {
-    const text = normalize(document.body?.innerText || '');
-    return ['network error', 'connection lost', 'failed to fetch', 'websocket', 'reconnecting'].some((marker) => text.includes(marker));
+    const selectors = [
+      '[role="alert"]',
+      '[aria-live="assertive"]',
+      '[data-testid*="error" i]',
+      '[data-testid*="connection" i]',
+      '[data-testid*="network" i]',
+      '[class*="error" i]',
+      '[class*="connection" i]',
+      '[class*="network" i]'
+    ];
+    const markers = ['network error', 'connection lost', 'failed to fetch', 'websocket error', 'reconnecting', 'connection error'];
+    for (const selector of selectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (!visibleElement(element)) continue;
+        const text = normalize(element.innerText || element.textContent || '');
+        if (markers.some((marker) => text.includes(marker))) return true;
+      }
+    }
+    return false;
   }
 
   function contextExhausted() {
@@ -161,6 +201,114 @@
   }
 
   function fingerprint() { return latestAssistant().slice(-4000); }
+
+  function progressNodeId(node) {
+    if (!node || typeof node !== 'object') return null;
+    let id = progressNodeIds.get(node);
+    if (!id) {
+      id = 'assistant-' + String(nextProgressNodeId++);
+      progressNodeIds.set(node, id);
+    }
+    return id;
+  }
+
+  function latestAssistantNode() {
+    const nodes = assistants();
+    return nodes.length ? nodes[nodes.length - 1] : null;
+  }
+
+  function assistantProgressIndicator(node) {
+    if (!node) return '';
+    const selectors = [
+      '[role="status"]',
+      '[aria-live]',
+      '[data-testid*="thinking" i]',
+      '[data-testid*="reason" i]',
+      '[data-testid*="status" i]',
+      '[class*="thinking" i]',
+      '[class*="reason" i]'
+    ];
+    for (const selector of selectors) {
+      for (const element of node.querySelectorAll?.(selector) || []) {
+        if (!visibleElement(element)) continue;
+        const text = compact(element.innerText || element.textContent || '');
+        if (text && text.length <= 300) return text;
+      }
+    }
+    return '';
+  }
+
+  function assistantProgressSample() {
+    const node = latestAssistantNode();
+    if (!node) return null;
+    const text = compact(node.innerText || node.textContent || '');
+    return {
+      nodeId: progressNodeId(node),
+      length: Math.min(text.length, MAX_RESPONSE_TEXT_CHARS),
+      indicator: assistantProgressIndicator(node)
+    };
+  }
+
+  function seedProgressTracker(state) {
+    if (!RECOVERY_PROGRESS?.ProgressTracker) return null;
+    const startedMs = Number(state?.started_ms || Date.now());
+    const lastProgressMs = Number(state?.last_progress_ms || startedMs);
+    const tracker = new RECOVERY_PROGRESS.ProgressTracker(
+      Number.isFinite(lastProgressMs) ? lastProgressMs : startedMs
+    );
+    const sample = assistantProgressSample();
+    if (sample) {
+      tracker.nodeId = sample.nodeId;
+      tracker.maxLength = sample.length;
+      tracker.indicator = RECOVERY_PROGRESS.normalizeIndicator(sample.indicator);
+    }
+    return tracker;
+  }
+
+  function beginProgressTracking(operationId, state) {
+    if (!RECOVERY_PROGRESS?.ProgressTracker) return;
+    if (progressOperationId === operationId && progressTracker) return;
+    progressOperationId = operationId;
+    progressTracker = seedProgressTracker(state);
+  }
+
+  function persistProgressState(state) {
+    if (!progressTracker || !state) return;
+    const now = Date.now();
+    if (now - lastProgressPersistMs < 1000) return;
+    lastProgressPersistMs = now;
+    writeRecoveryState({
+      ...state,
+      last_progress_ms: progressTracker.lastProgressMs,
+      progress_node_id: progressTracker.nodeId,
+      progress_max_length: progressTracker.maxLength,
+      progress_indicator: progressTracker.indicator || ''
+    });
+  }
+
+  function sampleProgress(state) {
+    if (!RECOVERY_PROGRESS?.ProgressTracker || !state?.operation_id) return;
+    beginProgressTracking(state.operation_id, state);
+    const sample = assistantProgressSample();
+    if (!sample || !progressTracker) return;
+    progressTracker.observe(sample, Date.now());
+    persistProgressState(state);
+  }
+
+  function recoveryProgressConfig() {
+    if (!RECOVERY_PROGRESS?.resolveRecoveryConfig) return null;
+    try {
+      return RECOVERY_PROGRESS.resolveRecoveryConfig({
+        stallMs: RECOVERY_STALL_MS,
+        hardCeilingMs: RECOVERY_HARD_CEILING_MS,
+        sampleThrottleMs: RECOVERY_PROGRESS_SAMPLE_MS,
+        backstopPollMs: RECOVERY_PROGRESS_POLL_MS,
+        maxReloads: MAX_RELOADS
+      });
+    } catch (_) {
+      return null;
+    }
+  }
 
   function readRecoveryState() {
     try {
@@ -461,18 +609,47 @@
     }
 
     const startedMs = Number(state.started_ms || Date.now());
-    const age = Date.now() - startedMs;
-    const shouldRecover = connectionFailure() || age >= RECOVERY_TRIGGER_MS;
-    if (shouldRecover && Number(state.reload_count || 0) < MAX_RELOADS) {
+    beginProgressTracking(operationId, state);
+    sampleProgress(state);
+    const config = recoveryProgressConfig();
+    if (!config || !RECOVERY_PROGRESS?.decideRecovery) return false;
+    const decision = RECOVERY_PROGRESS.decideRecovery({
+      nowMs: Date.now(),
+      startedMs: Number.isFinite(startedMs) ? startedMs : Date.now(),
+      lastProgressMs: progressTracker?.lastProgressMs ?? startedMs,
+      generating: generating(),
+      connectionError: connectionFailure(),
+      securityChallenge: securityChallenge(),
+      reloadCount: Number(state.reload_count || 0)
+    }, config);
+
+    if (decision.recover) {
+      const recoveryStartedAtMs = Date.now();
       const next = {
         ...state,
         recovery_context: state.recovery_context || recoveryContextFromActiveState(),
         reload_count: Number(state.reload_count || 0) + 1,
         phase: 'reloaded',
-        reload_at: new Date().toISOString()
+        reload_at: new Date().toISOString(),
+        recovery_reason: decision.reason,
+        recovery_started_at_ms: recoveryStartedAtMs,
+        recovery_last_progress_ms: progressTracker?.lastProgressMs ?? startedMs
       };
       writeRecoveryState(next);
-      await report('chatgpt_recovery', { phase: 'reloading', operation_id: operationId, recovery_action: 'reload_page', reload_count: next.reload_count, generation_timeout_ms: GENERATION_TIMEOUT_MS });
+      await report('chatgpt_recovery', {
+        phase: 'reloading',
+        operation_id: operationId,
+        recovery_action: 'reload_page',
+        reload_count: next.reload_count,
+        recovery_reason: decision.reason,
+        age_ms: decision.ageMs,
+        idle_ms: decision.idleMs,
+        recovery_started_at_ms: recoveryStartedAtMs,
+        generation_timeout_ms: GENERATION_TIMEOUT_MS,
+        hard_ceiling_ms: RECOVERY_HARD_CEILING_MS
+      });
+      progressOperationId = null;
+      progressTracker = null;
       location.reload();
       return true;
     }
@@ -661,8 +838,8 @@
       }
 
       if (state.phase === 'monitoring') {
-        const startedMs = Number(state.started_ms || Date.parse(current.created_at || '') || Date.now());
-        if (Date.now() - startedMs < RECOVERY_TRIGGER_MS && !connectionFailure()) return;
+        beginProgressTracking(state.operation_id, state);
+        sampleProgress(state);
         await preserveOrReload(state.operation_id, state);
         return;
       }
@@ -713,8 +890,9 @@
     };
     writeRecoveryState(stateForTimer);
 
-    const age = Date.now() - startedMs;
-    if (age < RECOVERY_TRIGGER_MS && !connectionFailure() && !contextExhausted()) return;
+    beginProgressTracking(operationId, stateForTimer);
+    sampleProgress(stateForTimer);
+    if (contextExhausted()) return;
     await preserveOrReload(operationId, stateForTimer);
   }
 
@@ -729,7 +907,32 @@
   }
 
   async function start() {
-    await report('chatgpt_recovery', { phase: 'started', recovery_action: 'monitor', generation_timeout_ms: GENERATION_TIMEOUT_MS, recovery_grace_ms: RECOVERY_GRACE_MS });
+    await report('chatgpt_recovery', {
+      phase: 'started',
+      recovery_action: 'monitor',
+      generation_timeout_ms: GENERATION_TIMEOUT_MS,
+      recovery_grace_ms: RECOVERY_GRACE_MS,
+      recovery_stall_ms: RECOVERY_STALL_MS,
+      recovery_hard_ceiling_ms: RECOVERY_HARD_CEILING_MS
+    });
+    if (RECOVERY_PROGRESS?.attachProgressObserver && document.documentElement) {
+      const config = recoveryProgressConfig();
+      if (config) {
+        progressObserverHandle = RECOVERY_PROGRESS.attachProgressObserver({
+          root: document.documentElement,
+          readSample: assistantProgressSample,
+          onSample: (sample, nowMs) => {
+            if (!progressOperationId || !progressTracker || !sample) return;
+            progressTracker.observe(sample, nowMs);
+            const state = readRecoveryState();
+            if (state?.operation_id === progressOperationId && state.phase === 'monitoring') {
+              persistProgressState(state);
+            }
+          },
+          config
+        });
+      }
+    }
     setInterval(() => { runInspection().catch(() => {}); }, POLL_MS);
     await runInspection();
   }
