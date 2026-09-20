@@ -271,9 +271,12 @@ def needs_github_context(_task: str, *, override: str = "auto") -> bool:
 
 def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
     try:
-        observation = adapter.read_browser_observation()
+        observation = adapter.read_browser_state()
     except Exception:
-        return {}
+        try:
+            observation = adapter.read_browser_observation()
+        except Exception:
+            return {}
     if not isinstance(observation, Mapping):
         return {}
     data = observation.get("data")
@@ -289,7 +292,7 @@ def controller_observation_is_live(
     if max_age_seconds <= 0 or not isinstance(observation, Mapping):
         return False
     data = observation.get("data")
-    if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
+    if not isinstance(data, Mapping) or data.get("kind") not in {"chatgpt_health", "chatgpt_state"}:
         return False
     captured_at_value = data.get("captured_at")
     if not isinstance(captured_at_value, str) or not captured_at_value.strip():
