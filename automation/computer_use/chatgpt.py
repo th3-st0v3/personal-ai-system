@@ -92,7 +92,7 @@ class ChatGPTAdapter(AIAdapter):
     transport: BridgeTransport
     session_id: str
     poll_interval_seconds: float = 0.25
-    max_wait_seconds: float = 1500.0
+    max_wait_seconds: float = 3600.0
     current_operation_id: str | None = None
     last_chat_url: str | None = None
 
