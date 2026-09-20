@@ -248,9 +248,10 @@ class BridgeState:
                     continue
                 events = item.get("recovery_events")
                 events = list(events) if isinstance(events, list) else []
-                events.append(event)
-                item["recovery_events"] = events[-MAX_RECOVERY_EVENTS_PER_OPERATION:]
-                self.state_manager.save_queue(queue)
+                if not events or events[-1] != event:
+                    events.append(event)
+                    item["recovery_events"] = events[-MAX_RECOVERY_EVENTS_PER_OPERATION:]
+                    self.state_manager.save_queue(queue)
                 return dict(item)
         return None
 
