@@ -45,6 +45,20 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_168h_launcher_reuses_requested_branch_worktree_and_syncs_remote(self) -> None:
+        script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        for required in (
+            "worktree_for_branch",
+            "REUSE_EXISTING_WORKTREE=0",
+            "git worktree list --porcelain",
+            "git -C \"$WORKTREE\" branch --show-current",
+            "git -C \"$WORKTREE\" status --porcelain --untracked-files=all",
+            "git -C \"$WORKTREE\" merge --ff-only \"origin/$BRANCH\"",
+            "has diverged from origin",
+            "PASI_OVERNIGHT_BASE_REF",
+        ):
+            self.assertIn(required, script)
+
     def test_168h_launcher_contains_isolation_and_service_guards(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
@@ -95,6 +109,12 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             'chmod 600 "$EXTENSION_TOKEN_FILE"',
         ):
             self.assertIn(required, script)
+
+    def test_168h_launcher_surfaces_detached_runner_failure_log(self) -> None:
+        script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        self.assertIn("last runner log lines", script)
+        self.assertIn('tail -80 "$log_file"', script)
+        self.assertIn('kill "$pid"', script)
 
     def test_168h_launcher_verifies_detached_runner_startup(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
