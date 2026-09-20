@@ -25,7 +25,6 @@
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
   const MAX_CONTEXT_AUTO_RECOVERIES = 1;
-  const MISSING_OPERATION_GRACE_MS = 60 * 1000;
   const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
   let processing = false;
@@ -1126,7 +1125,20 @@
   }
 
 
-  async function waitForResponse(baseline, operationId) {
+  function completionMarkersSatisfied(responseText, markers) {
+    const text = typeof responseText === 'string' ? responseText : '';
+    if (!text.trim()) return false;
+    const configured = Array.isArray(markers)
+      ? markers.filter((marker) => typeof marker === 'string' && marker.trim()).map((marker) => marker.trim())
+      : [];
+    if (!configured.length) return true;
+    const lines = text.split(/\r?\n/).map((line) => line.trim());
+    return configured.some((marker) =>
+      lines.some((line) => line === marker || line.startsWith(marker + ':'))
+    );
+  }
+
+  async function waitForResponse(baseline, operationId, completionMarkers = []) {
     const started = Date.now();
     let sawGeneration = false;
     let stableFingerprint = '';
@@ -1145,7 +1157,7 @@
             stableFingerprint = current;
             stableSince = Date.now();
           }
-          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
+          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && completionMarkersSatisfied(response, completionMarkers)) return response;
         }
       } else {
         const current = fingerprint();
@@ -1359,7 +1371,7 @@
               return;
             }
             if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-            const response = await waitForResponse(savedBaseline, operation.operation_id);
+            const response = await waitForResponse(savedBaseline, operation.operation_id, operation.completion_markers || []);
             await finishOperation(operation.operation_id, response, true);
             finalized = true;
             return;
@@ -1379,7 +1391,7 @@
           const send = await waitForSend(box);
           if (!send) throw new Error('PASI_NATIVE: send control unavailable');
           await submitPrompt(promptText);
-          const response = await waitForResponse(baseline, operation.operation_id);
+          const response = await waitForResponse(baseline, operation.operation_id, operation.completion_markers || []);
           await finishOperation(operation.operation_id, response, true);
           finalized = true;
           return;
@@ -1558,27 +1570,6 @@
             const operation = current.ok ? current.json().operation : null;
             if (operation && ['completed', 'failed', 'cancelled'].includes(operation.status)) {
               localStorage.removeItem(RECOVERY_KEY);
-              localStorage.removeItem(ACTIVE_KEY);
-            } else if (current.status === 404) {
-              const state = readJsonStorage(RECOVERY_KEY) || {};
-              const now = Date.now();
-              const missingSince = Number(state.missing_operation_since_ms || now);
-              if (!state.missing_operation_since_ms) {
-                localStorage.setItem(
-                  RECOVERY_KEY,
-                  JSON.stringify({ ...state, operation_id: recoveryOperation, missing_operation_since_ms: now })
-                );
-              } else if (now - missingSince >= MISSING_OPERATION_GRACE_MS) {
-                await reportObservation('chatgpt_recovery', {
-                  phase: 'operation_missing_expired',
-                  operation_id: recoveryOperation,
-                  recovery_action: 'clear_stale_state',
-                  missing_operation_age_ms: now - missingSince,
-                  grace_ms: MISSING_OPERATION_GRACE_MS
-                });
-                localStorage.removeItem(RECOVERY_KEY);
-                localStorage.removeItem(ACTIVE_KEY);
-              }
             }
           } catch (_) {}
         }
@@ -1600,21 +1591,12 @@
 
   async function start() {
     await globalThis.PASI_TIMEOUT_POLICY?.load?.();
-    if (extensionContextInvalidated) return;
-
-    // Heartbeat must begin before recovery. Recovery can legitimately wait for
-    // the full generation ceiling, so delaying the health timer makes a healthy
-    // controller look dead to the watchdog while it is reconciling state.
-    try { await reportHealth(); } catch (_) {}
-    healthTimerId = setInterval(reportHealth, HEALTH_MS);
-
     await recoverInterruptedOperation();
+    try { await reportHealth(); } catch (_) {}
     await poll();
-    if (extensionContextInvalidated) {
-      if (healthTimerId !== null) clearInterval(healthTimerId);
-      return;
-    }
+    if (extensionContextInvalidated) return;
     pollTimerId = setInterval(poll, POLL_MS);
+    healthTimerId = setInterval(reportHealth, HEALTH_MS);
   }
 
   if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
