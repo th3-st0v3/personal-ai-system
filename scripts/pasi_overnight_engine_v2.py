@@ -28,7 +28,7 @@ EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
-CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
+CONTROLLER_SOURCE_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 DEFAULT_WORKTREE = Path.home() / ".pasi-worktrees" / "personal-ai-system-overnight"
 DEFAULT_HOURS = 10.0
 MIN_HOURS = 8.0
@@ -745,11 +745,14 @@ def _observation_time(observation: dict[str, Any]) -> datetime | None:
 
 def expected_controller_version() -> str | None:
     try:
-        raw = json.loads(CONTROLLER_MANIFEST_PATH.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        source = CONTROLLER_SOURCE_PATH.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
         return None
-    version = raw.get("version") if isinstance(raw, dict) else None
-    return version.strip() if isinstance(version, str) and version.strip() else None
+    match = re.search(r"""\bconst\s+CONTROLLER_VERSION\s*=\s*['"]([^'"]+)['"]""", source)
+    if not match:
+        return None
+    version = match.group(1).strip()
+    return version or None
 
 
 def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
