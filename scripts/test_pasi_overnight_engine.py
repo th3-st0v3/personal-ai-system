@@ -180,7 +180,7 @@ new file mode 120000
         with tempfile.TemporaryDirectory() as directory:
             worktree = Path(directory)
             subprocess.run(["git", "init", "-q"], cwd=worktree, check=True)
-            (worktree / "example.txt").write_text("new\n", encoding="utf-8")
+            (worktree / "example.txt").write_text("old\n", encoding="utf-8")
             (worktree / "unrelated.txt").write_text("must not be committed\n", encoding="utf-8")
             subprocess.run(["git", "add", "example.txt"], cwd=worktree, check=True)
             subprocess.run(
@@ -195,6 +195,7 @@ new file mode 120000
                 capture_output=True,
                 text=True,
             )
+            (worktree / "example.txt").write_text("new\n", encoding="utf-8")
 
             commit = __import__("scripts.pasi_overnight_engine", fromlist=["commit_and_push"]).commit_and_push(
                 worktree,
