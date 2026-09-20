@@ -1,3 +1,5 @@
+# Pull Request Scope
+
 ## Primary subsystem
 
 <!-- Choose one primary owner. Cross-subsystem changes require justification below. -->
@@ -29,7 +31,7 @@
 
 | Path / module | Why it is required | Primary owner / dependency |
 | --- | --- | --- |
-|  |  |  |
+| file/path | reason | owner or dependency |
 
 ### Cross-subsystem exception
 
