@@ -341,6 +341,27 @@ def test_completed_operation_repairs_response_after_state_observation_overwrites
     assert latest["response_source"] == "browser_observation"
 
 
+def test_recovery_schema_cannot_supply_response_evidence(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "current prompt")
+    recovery_observation = {
+        "schema_version": "pasi-chatgpt-recovery-v3",
+        "captured_at": "2026-09-19T21:50:00Z",
+        "data": {
+            "kind": "chatgpt_response",
+            "active_operation_id": operation["operation_id"],
+            "chat_url": "https://chatgpt.com/c/current",
+            "response_text": "stale previous response",
+            "response_text_available": True,
+        },
+    }
+    bridge.save_browser_observation(recovery_observation)
+    stored = bridge.get_operation(operation["operation_id"])
+    assert stored is not None
+    assert stored.get("response_text_available") is not True
+    assert stored.get("response_text", "") == ""
+
+
 def test_lower_priority_page_observer_cannot_overwrite_native_browser_heartbeat(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     native = {
