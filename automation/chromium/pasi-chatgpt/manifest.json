@@ -12,6 +12,12 @@
   "background": {
     "service_worker": "background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["timeout-policy.json"],
+      "matches": ["https://chatgpt.com/*", "https://www.chatgpt.com/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://www.chatgpt.com/*"],
