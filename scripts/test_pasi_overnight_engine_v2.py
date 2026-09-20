@@ -453,6 +453,55 @@ PASI_RESULT_PATCH_END
 
         self.assertEqual(service_checks, ["checked", "checked"])
 
+    def test_command_feeds_unified_patch_to_git_apply_stdin(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir)
+            subprocess.run(
+                ["git", "init", "-q"],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            (worktree / "example.txt").write_text("old\n", encoding="utf-8")
+            subprocess.run(["git", "add", "example.txt"], cwd=worktree, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c", "user.email=test@example.com",
+                    "-c", "user.name=PASI Test",
+                    "commit", "-q", "-m", "baseline",
+                ],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            patch = """diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1,2 @@
+ old
++new
+"""
+            code, output = engine.command(
+                ["git", "apply", "--check", "--whitespace=nowarn"],
+                worktree,
+                30.0,
+                input_text=patch,
+            )
+            self.assertEqual(code, 0, output)
+            code, output = engine.command(
+                ["git", "apply", "--whitespace=nowarn"],
+                worktree,
+                30.0,
+                input_text=patch,
+            )
+            self.assertEqual(code, 0, output)
+            self.assertEqual((worktree / "example.txt").read_text(encoding="utf-8"), "old\nnew\n")
+
     def test_state_round_trip_uses_schema_v2(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
