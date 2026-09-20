@@ -58,12 +58,16 @@ def compute(events: list[dict[str, Any]]) -> dict[str, Any]:
     attempts: dict[Any, set[Any]] = defaultdict(set)
     recoveries: dict[str, list[float]] = defaultdict(list)
     classes: Counter[str] = Counter()
+    queue_sizes: list[float] = []
     for e in events:
         kind = e["kind"]
         key = (e.get("task_id"), e.get("attempt"))
         if kind == "prompt_dispatch_started":
             dispatch[key] = _ts_ms(e) or 0.0
             attempts[e.get("task_id")].add(e.get("attempt"))
+            queue_bytes = _num(e.get("queue_file_bytes"))
+            if queue_bytes is not None:
+                queue_sizes.append(queue_bytes)
         elif kind == "prompt_queued" and isinstance(e.get("operation_id"), str):
             queued[e["operation_id"]] = key
         elif kind == "browser_timing" and isinstance(e.get("operation_id"), str):
@@ -131,6 +135,7 @@ def compute(events: list[dict[str, Any]]) -> dict[str, Any]:
         "retries_per_task": summarize(retries),
         "recovery_duration_ms_by_reason": {k: summarize(v) for k, v in sorted(recoveries.items())},
         "failure_classification": dict(classes),
+        "queue_file_bytes": summarize(queue_sizes),
         "m1": {
             "duplicate_sends": duplicates,
             "max_consecutive_clean_prompts": best_run,
