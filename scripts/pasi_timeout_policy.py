@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+POLICY_PATH = Path(__file__).resolve().parents[1] / "automation" / "chromium" / "pasi-chatgpt" / "timeout-policy.json"
+
+DEFAULTS: dict[str, float] = {
+    "heartbeat_seconds": 15.0,
+    "stale_seconds": 45.0,
+    "controller_poll_ms": 2000.0,
+    "dom_poll_ms": 250.0,
+    "menu_ms": 8000.0,
+    "composer_ms": 15000.0,
+    "send_ms": 10000.0,
+    "submit_ms": 5000.0,
+    "generation_seconds": 1500.0,
+    "recovery_trigger_seconds": 1500.0,
+    "recovery_grace_seconds": 600.0,
+    "python_wait_seconds": 1800.0,
+    "bridge_claim_lease_seconds": 1800.0,
+    "queue_ttl_seconds": 86400.0,
+}
+
+
+def load_timeout_policy(path: Path = POLICY_PATH) -> dict[str, float]:
+    values: dict[str, float] = dict(DEFAULTS)
+    try:
+        raw: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        raw = {}
+    if isinstance(raw, dict):
+        for key in DEFAULTS:
+            value = raw.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                values[key] = float(value)
+
+    if values["stale_seconds"] < values["heartbeat_seconds"] * 3:
+        raise ValueError("timeout policy requires stale_seconds >= 3 * heartbeat_seconds")
+    if values["generation_seconds"] < values["recovery_trigger_seconds"]:
+        raise ValueError("timeout policy requires generation_seconds >= recovery_trigger_seconds")
+    if values["python_wait_seconds"] < values["generation_seconds"]:
+        raise ValueError("timeout policy requires python_wait_seconds >= generation_seconds")
+    return values
