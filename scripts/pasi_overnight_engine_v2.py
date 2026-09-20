@@ -38,6 +38,7 @@ MAX_PATCH_BYTES = 250_000
 MAX_OUTPUT_CHARS = 20_000
 MAX_ATTEMPTS = 3
 PROTECTED_UNATTENDED_PATHS = frozenset({
+    "scripts/check_all.sh",
     "scripts/check_offline.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
@@ -469,7 +470,7 @@ def repository_worktree_is_clean(worktree: Path) -> bool:
 
 
 def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
-    """Run canonical validation from an isolated filesystem/network view."""
+    """Run offline validation from an isolated filesystem/network view."""
     if not shutil.which("bwrap"):
         raise RuntimeError(
             "bubblewrap is required for network/filesystem-isolated validation; "
