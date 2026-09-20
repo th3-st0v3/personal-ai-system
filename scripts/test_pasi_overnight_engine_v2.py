@@ -224,6 +224,75 @@ class TestPasiOvernightEngineV2(unittest.TestCase):
         self.assertIn("CHAT_AUTH_REQUIRED", output)
         self.assertEqual(command.call_count, 1)
 
+    def test_failed_fallback_router_enters_bounded_cooldown(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="fallback-cooldown-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        responses = iter((
+            (90, "CHAT_USAGE_LIMITED: provider limit"),
+            (1, "all configured fallback providers failed: ollama: no model; openrouter: HTTP 429 after bounded 429 retry"),
+        ))
+        with mock.patch.object(engine, "command", side_effect=lambda *args, **kwargs: next(responses)) as command:
+            with mock.patch.object(engine, "save_state") as save_state:
+                code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual(code, 90)
+        self.assertIn("PASI FALLBACK ROUTER", output)
+        self.assertFalse(engine.fallback_router_available(state))
+        self.assertEqual(command.call_count, 2)
+        save_state.assert_called_once()
+
+    def test_fallback_cooldown_skips_router_without_losing_primary_provider_condition(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="fallback-skip-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            fallback_router_disabled_until=(now + timedelta(minutes=5)).isoformat(),
+        )
+        with mock.patch.object(engine, "command", return_value=(90, "CHAT_USAGE_LIMITED: provider limit")) as command:
+            code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual(code, 90)
+        self.assertIn("PASI FALLBACK ROUTER SKIPPED", output)
+        self.assertEqual(command.call_count, 1)
+
+    def test_successful_fallback_clears_previous_cooldown(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="fallback-clear-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            fallback_router_disabled_until=(now - timedelta(seconds=1)).isoformat(),
+        )
+        with mock.patch.object(
+            engine,
+            "command",
+            side_effect=((90, "CHAT_USAGE_LIMITED: provider limit"), (0, "fallback response")),
+        ):
+            with mock.patch.object(engine, "save_state") as save_state:
+                code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual((code, output), (0, "fallback response"))
+        self.assertEqual(state.fallback_router_disabled_until, "")
+        self.assert_called_once if False else None
+        self.assertGreaterEqual(save_state.call_count, 1)
+
     def test_auth_recovery_wait_budget_is_bounded(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
