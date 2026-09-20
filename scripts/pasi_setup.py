@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import urllib.error
@@ -29,7 +30,15 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _runtime_observation() -> dict[str, Any] | None:
     try:
-        with urllib.request.urlopen(f"{BRIDGE_URL}/browser/observation", timeout=3.0) as response:
+        token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+        if not token:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        request = urllib.request.Request(
+            f"{BRIDGE_URL}/browser/observation",
+            headers={"Authorization": f"Bearer {token}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read(1_000_000).decode("utf-8"))
     except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
         return None
