@@ -1,6 +1,6 @@
 # PASI 12-Hour Automation Run
 
-This is the supported WSL launch path for a long unattended engineering run. The runner uses a dedicated worktree, persistent state, bounded task retries, deterministic verification, provider fallback, dynamic setup discovery, web-evidence injection, and browser recovery. It is designed to make substantial repository progress without turning external web content or provider output into unrestricted execution authority.
+This is the supported WSL launch path for a long unattended engineering run. The runner uses a dedicated worktree, persistent state, bounded task retries, deterministic verification, provider fallback, and browser recovery. It is designed to make substantial repository progress without turning external web content or provider output into unrestricted execution authority.
 
 ## Free-first operating premise
 
