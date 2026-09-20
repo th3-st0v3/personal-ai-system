@@ -264,7 +264,7 @@ PASI_RESULT_PATCH_END"""
                     engine.AUTOMATION_TASKS[2],
                 )
                 candidate = "Implement a concrete seam diagnostic for queued ChatGPT operations."
-                self.assertEqual(engine.choose_next_task(state, candidate), engine.AUTOMATION_TASKS[2])
+                self.assertEqual(engine.choose_next_task(state, candidate), candidate)
 
     def test_commit_message_contains_task_identity_for_restart_reconciliation(self) -> None:
         self.assertIn("commit_tag = f\"task-{task_key(task)[:12]}\"", (Path(engine.__file__).read_text(encoding="utf-8")))
