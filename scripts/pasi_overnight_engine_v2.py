@@ -44,6 +44,7 @@ ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
+CONTROL_SCRIPTS_ROOT = REPO_ROOT / "scripts"
 AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
@@ -347,6 +348,17 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
     legacy.validate_patch_paths(patch, allow_delete)
 
 
+def control_script(name: str) -> Path:
+    candidate = (CONTROL_SCRIPTS_ROOT / name).resolve()
+    try:
+        candidate.relative_to(CONTROL_SCRIPTS_ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(f"control script escapes launcher root: {name}") from exc
+    if not candidate.is_file():
+        raise FileNotFoundError(f"control script is missing from launcher checkout: {candidate}")
+    return candidate
+
+
 def command(
     command: list[str],
     cwd: Path,
@@ -599,8 +611,8 @@ def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
     prompt = build_prompt(task, state, failure)
     code, output = command(
-        [legacy.sys.executable, "scripts/pasi_chat_guard.py", prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS)],
-        Path(state.worktree),
+        [legacy.sys.executable, str(control_script("pasi_chat_guard.py")), prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS), "--repo", state.worktree],
+        REPO_ROOT,
         TASK_TIMEOUT_SECONDS + 45.0,
     )
     if provider_condition(code, output) == "auth_required":
@@ -612,7 +624,7 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
     if not fallback_router_available(state):
         return code, output + "\n\n[PASI FALLBACK ROUTER SKIPPED]\noptional fallback route is in a bounded cooldown after a recent failure"
     fallback = command(
-        [legacy.sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
+        [legacy.sys.executable, str(control_script("pasi_provider_router.py")), "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
         Path(state.worktree),
         225.0,
     )
@@ -895,7 +907,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
         promotion = command(
             [
                 legacy.sys.executable,
-                "scripts/pasi_promote.py",
+                str(control_script("pasi_promote.py")),
                 "--commit",
                 commit,
                 "--branch",
@@ -904,7 +916,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
                 task,
                 "--json",
             ],
-            worktree,
+            REPO_ROOT,
             90.0,
         )
         if promotion[0] == 0:
