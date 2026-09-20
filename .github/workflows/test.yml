@@ -71,7 +71,9 @@ jobs:
       - name: Run Chromium prompt-submission and chaining acceptance test
         run: python scripts/e2e_chromium_prompt_submission.py
       - name: Run Tampermonkey controller contract tests
-        run: node --test automation/tampermonkey/chatgpt-controller.test.js
+        run: |
+          node --test automation/tampermonkey/chatgpt-controller.test.js
+          node --test automation/legacy/tampermonkey/chatgpt-runtime-watchdog.test.js
       - name: Run Tampermonkey controller loader contract tests
         run: node --test automation/tampermonkey/chatgpt-controller-loader.test.js
       - name: Validate Tampermonkey controller syntax
