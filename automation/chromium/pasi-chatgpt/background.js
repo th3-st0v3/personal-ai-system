@@ -1,9 +1,20 @@
+importScripts('timeout-config.js');
+
 const BRIDGE = 'http://127.0.0.1:8765';
 const ALARM = 'pasi-watchdog';
 const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
-const STALE_MS = 30 * 1000;
+let STALE_MS = 45 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
+const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
+const CONTROLLER_LEASE_MS = 10 * 1000;
+let controllerClaimTail = Promise.resolve();
+
+function serializeControllerClaim(task) {
+  const next = controllerClaimTail.then(task, task);
+  controllerClaimTail = next.catch(() => undefined);
+  return next;
+}
 
 const BRIDGE_ROUTES = new Set([
   'GET /health',
@@ -79,6 +90,30 @@ async function bridgeJson(path) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'pasi-controller-claim') {
+    const tabId = sender?.tab?.id;
+    if (typeof tabId !== 'number') {
+      sendResponse({ ok: false, leader: false });
+      return undefined;
+    }
+    serializeControllerClaim(async () => {
+      const stored = await chrome.storage.local.get(CONTROLLER_LEASE_KEY);
+      const current = stored?.[CONTROLLER_LEASE_KEY];
+      const now = Date.now();
+      const owned = current && current.tabId === tabId && now - Number(current.renewedAt || 0) < CONTROLLER_LEASE_MS;
+      const available = !current || now - Number(current.renewedAt || 0) >= CONTROLLER_LEASE_MS;
+      if (!owned && !available) {
+        sendResponse({ ok: true, leader: false });
+        return;
+      }
+      await chrome.storage.local.set({
+        [CONTROLLER_LEASE_KEY]: { tabId, renewedAt: now }
+      });
+      sendResponse({ ok: true, leader: true });
+    }).catch(() => sendResponse({ ok: false, leader: false }));
+    return true;
+  }
+
   if (!message || message.type !== 'pasi-bridge-request') return undefined;
   const senderUrl = String(sender?.url || '');
   if (!/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)) {
@@ -154,7 +189,9 @@ async function inspect() {
   if (health.data.auth_required === true) return;
   if (typeof health.data.active_operation_id !== 'string' || !health.data.active_operation_id.trim()) return;
   if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
-  if (observationAge(health.observation) <= STALE_MS) return;
+  const connectionFailure = health.data.connection_failure === true;
+  const observationStale = observationAge(health.observation) > STALE_MS;
+  if (!connectionFailure && !observationStale) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
   const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
@@ -178,12 +215,19 @@ async function inspect() {
   await reloadBoundedTab(matchingTab);
 }
 
+async function applyTimeoutPolicy() {
+  try {
+    const policy = await globalThis.PASI_TIMEOUT_POLICY?.load?.();
+    if (policy?.staleMs) STALE_MS = policy.staleMs;
+  } catch (_) {}
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
