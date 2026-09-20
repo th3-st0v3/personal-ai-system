@@ -18,7 +18,7 @@ DEFAULTS: dict[str, float] = {
     "generation_seconds": 3600.0,
     "recovery_trigger_seconds": 3600.0,
     "recovery_grace_seconds": 600.0,
-    "python_wait_seconds": 1800.0,
+    "python_wait_seconds": 3600.0,
     "bridge_claim_lease_seconds": 1800.0,
     "queue_ttl_seconds": 86400.0,
     "click_settle_ms": 20.0,
