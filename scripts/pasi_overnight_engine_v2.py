@@ -462,30 +462,87 @@ def repository_worktree_is_clean(worktree: Path) -> bool:
 
 
 def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
-    clean_env = {
-        "PATH": f"{worktree / '.venv' / 'bin'}:/usr/local/bin:/usr/bin:/bin",
-        "HOME": str(worktree / ".runtime" / "validation-home"),
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
-        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
-        "PYTHONPATH": str(worktree),
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_ASKPASS": "/bin/false",
-    }
-    Path(clean_env["HOME"]).mkdir(parents=True, exist_ok=True)
-    base = ["env", "-i", *[f"{key}={value}" for key, value in clean_env.items()], "bash", "scripts/check_all.sh"]
-    if shutil.which("bwrap"):
-        sandbox_command = ["bwrap", "--ro-bind", "/", "/", "--bind", str(worktree), str(worktree), "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--unshare-net", "--chdir", str(worktree), *base]
-        code, output = command(sandbox_command, worktree, timeout)
+    """Run canonical validation from an isolated filesystem/network view."""
+    if not shutil.which("bwrap"):
+        raise RuntimeError(
+            "bubblewrap is required for network/filesystem-isolated validation; "
+            "install the bubblewrap package before running PASI unattended"
+        )
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="pasi-validation-") as temp_dir:
+        sandbox_root = Path(temp_dir)
+        sandbox_repo = sandbox_root / "repo"
+        shutil.copytree(
+            worktree,
+            sandbox_repo,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(
+                ".git",
+                ".runtime",
+                "__pycache__",
+                "*.pyc",
+            ),
+        )
+
+        code, output = command(
+            ["git", "init", "-b", "pasi-validation"],
+            sandbox_repo,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"could not initialize validation sandbox repository: {output}")
+        code, output = command(
+            ["git", "add", "-A"],
+            sandbox_repo,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"could not stage validation sandbox snapshot: {output}")
+
+        env_values = {
+            "PATH": "/pasi-venv/bin:/usr/local/bin:/usr/bin:/bin",
+            "HOME": "/tmp/pasi-validation-home",
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+            "PYTHONPATH": "/workspace",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_ASKPASS": "/bin/false",
+            "CI": "1",
+        }
+        base = [
+            "env",
+            "-i",
+            *[f"{key}={value}" for key, value in env_values.items()],
+            "bash",
+            "scripts/check_all.sh",
+        ]
+        sandbox_command = [
+            "bwrap",
+            "--ro-bind", "/usr", "/usr",
+            "--ro-bind", "/bin", "/bin",
+            "--ro-bind", "/lib", "/lib",
+            "--ro-bind", "/lib64", "/lib64",
+            "--ro-bind", "/etc", "/etc",
+            "--dev", "/dev",
+            "--proc", "/proc",
+            "--tmpfs", "/tmp",
+            "--tmpfs", "/home",
+            "--tmpfs", "/root",
+            "--tmpfs", "/mnt",
+            "--tmpfs", "/media",
+            "--bind", str(sandbox_repo), "/workspace",
+            "--ro-bind", str(worktree / ".venv"), "/pasi-venv",
+            "--unshare-net",
+            "--chdir", "/workspace",
+            *base,
+        ]
+        code, output = command(sandbox_command, sandbox_repo, timeout)
         if code == 0:
             return output
         raise RuntimeError(f"sandboxed canonical validation failed:\n{output}")
-    if shutil.which("unshare"):
-        sandbox_command = ["unshare", "--user", "--map-root-user", "--net", "--"] + base
-        code, output = command(sandbox_command, worktree, timeout)
-        if code == 0:
-            return output
-    raise RuntimeError("network-isolated validation sandbox is unavailable; install bubblewrap (recommended) or enable an unshare-compatible user namespace")
 
 
 def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
