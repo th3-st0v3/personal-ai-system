@@ -56,7 +56,10 @@ class TestProviderRouter(unittest.TestCase):
             "NVIDIA_API_KEY",
             "ANTHROPIC_API_KEY",
         ):
-            self.assertIn(repr(secret_name), source)
+            self.assertTrue(
+                repr(secret_name) in source or f'"{secret_name}"' in source,
+                secret_name,
+            )
 
     def test_repo_path_remains_a_path_object_for_callers(self) -> None:
         self.assertIsInstance(Path("."), Path)
