@@ -30,8 +30,7 @@ const BRIDGE_ROUTES = new Set([
   'POST /chat/finished',
   'POST /chat/failed',
   'POST /chat/cancel',
-  'GET /next-operation',
-  'POST /next-operation'
+  'GET /next-operation'
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
