@@ -1234,7 +1234,10 @@
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
     };
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
-    await reportObservation('chatgpt_response', {
+    // Response evidence is submitted asynchronously so bridge observation
+    // latency cannot sit between one completed generation and the next prompt.
+    // The durable /chat/finished request remains the completion gate.
+    void reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
       response_text: body.response_text,
       response_text_available: body.response_text_available,
@@ -1243,7 +1246,7 @@
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
       active_operation_id: operationId
-    });
+    }).catch(() => {});
 
     void reportObservation('chat_response_received', { operation_id: operationId, phase: 'response_complete', captured_at: new Date().toISOString() });
     let lastError = null;
