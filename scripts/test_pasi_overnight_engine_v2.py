@@ -166,6 +166,8 @@ PASI_RESULT_PATCH_END
         self.assertNotIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
         self.assertIn("RECENT TASKS:", prompt)
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
+        self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
+        self.assertIn("machine-read as task evidence", prompt)
         self.assertIn("empty patch", prompt)
         self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
 
