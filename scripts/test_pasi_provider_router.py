@@ -11,6 +11,13 @@ from scripts.pasi_provider_router import extract_chat_text, providers_available
 
 
 class TestProviderRouter(unittest.TestCase):
+    def test_opencode_environment_scrubs_control_credentials(self) -> None:
+        source = Path(router.__file__).read_text(encoding="utf-8")
+        self.assertIn('"PASI_BRIDGE_TOKEN"', source)
+        self.assertIn('"GITHUB_TOKEN"', source)
+        self.assertIn('"OPENROUTER_API_KEY"', source)
+        self.assertIn('"PERPLEXITY_API_KEY"', source)
+
     def test_extract_chat_text_from_openai_shape(self) -> None:
         payload = {"choices": [{"message": {"content": "PASI_RESULT_STATUS: complete"}}]}
         self.assertEqual(extract_chat_text(payload), "PASI_RESULT_STATUS: complete")
