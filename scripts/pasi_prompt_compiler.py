@@ -4,7 +4,7 @@ import hashlib
 import re
 from typing import Sequence
 
-PROMPT_PATTERN_VERSION = "1.0.0"
+PROMPT_PATTERN_VERSION = "1.1.0"
 MAX_TASK_CHARS = 4000
 MAX_FAILURE_CHARS = 12000
 MAX_RECENT_TASKS = 12
@@ -30,6 +30,28 @@ def prompt_hash(prompt: str) -> str:
     return "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
+def _conditional_directive(phase: str, attempt: int, previous_failure: str) -> str:
+    if previous_failure.strip():
+        return (
+            "RECOVERY RETRY MODE: Verify PREVIOUS FAILURE EVIDENCE before acting, "
+            "then change the implementation strategy instead of replaying the failed path."
+        )
+    if int(attempt) > 1:
+        return (
+            "RETRY MODE: Re-inspect the current repository state and solve the remaining "
+            "requirement without repeating an unsuccessful approach."
+        )
+    if str(phase).casefold().strip() == "automation":
+        return (
+            "AUTOMATION FIRST PASS: Prefer concrete reliability, continuity, recovery, "
+            "and response-to-next-prompt latency reductions while preserving all control boundaries."
+        )
+    return (
+        "ENGINEERING FIRST PASS: Prefer reproducible evidence and verification of the "
+        "current requirement before expanding scope."
+    )
+
+
 def compile_task_prompt(
     task: str,
     *,
@@ -49,8 +71,20 @@ def compile_task_prompt(
         raise ValueError("task must not be empty")
 
     recent = _lines(tuple(recent_tasks)[-MAX_RECENT_TASKS:])
-    roadmap = _lines(tuple(roadmap_tasks)[:MAX_ROADMAP_TASKS])
+    roadmap_values = tuple(roadmap_tasks)
+    retry_mode = bool(previous_failure.strip()) or int(attempt) > 1
+    if retry_mode:
+        task_key = _compact(task_text, MAX_TASK_CHARS).casefold()
+        focused = tuple(
+            item
+            for item in roadmap_values
+            if _compact(item, MAX_TASK_CHARS).casefold() == task_key
+        )
+        roadmap = _lines(focused or (task_text,))
+    else:
+        roadmap = _lines(roadmap_values[:MAX_ROADMAP_TASKS])
     failure = _bounded_block(previous_failure, MAX_FAILURE_CHARS) if previous_failure.strip() else ""
+    conditional_directive = _conditional_directive(phase, int(attempt), failure)
 
     failure_section = (
         f"""
@@ -75,6 +109,9 @@ DO NOT STOP UNTIL YOU ARE FINISHED.
 "Finished" means the current task has been implemented or objectively confirmed already satisfied, relevant verification has been performed, the result is supported by concrete evidence, and the repository is left in the required state. Do not stop merely because you found the file, understand the problem, made a small edit, or believe the task should be finished.
 
 If the current task is not finished, continue inspecting, implementing, testing, diagnosing, and repairing it. If a verification failure occurs, change the approach rather than repeating an unsuccessful attempt. Do not manufacture cosmetic work to keep the task alive.
+
+CONDITIONAL EXECUTION MODE:
+- {conditional_directive}
 
 RUN CONTEXT:
 - Prompt pattern version: {PROMPT_PATTERN_VERSION}
