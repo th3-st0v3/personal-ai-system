@@ -68,6 +68,12 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'activity.js', 'content.js', 'recovery.js']);
 });
 
+test('native controller keeps response telemetry off the completion critical path', () => {
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
+  assert.match(content, /\\}\\)\\.catch\\(\\(\\) => \\{\\}\\);/);
+  assert.doesNotMatch(content, /await reportObservation\\('chatgpt_response'/);
+});
+
 test('native controller chains the next queued operation immediately after terminal completion', () => {
   assert.match(content, /let immediatePollQueued = false;/);
   assert.match(content, /function scheduleImmediatePoll\(\)/);
