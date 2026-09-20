@@ -665,3 +665,13 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /visibleFingerprint !== baseline/);
   assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
 });
+
+test('native heartbeat starts before restart recovery', () => {
+  const startIndex = content.indexOf('async function start()');
+  const healthTimerIndex = content.indexOf('healthTimerId = setInterval(reportHealth, HEALTH_MS);', startIndex);
+  const recoveryIndex = content.indexOf('await recoverInterruptedOperation();', startIndex);
+  assert.ok(startIndex >= 0);
+  assert.ok(healthTimerIndex >= 0);
+  assert.ok(recoveryIndex >= 0);
+  assert.ok(healthTimerIndex < recoveryIndex);
+});

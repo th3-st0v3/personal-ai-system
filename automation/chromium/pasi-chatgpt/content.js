@@ -1578,12 +1578,21 @@
 
   async function start() {
     await globalThis.PASI_TIMEOUT_POLICY?.load?.();
-    await recoverInterruptedOperation();
-    try { await reportHealth(); } catch (_) {}
-    await poll();
     if (extensionContextInvalidated) return;
-    pollTimerId = setInterval(poll, POLL_MS);
+
+    // Heartbeat must begin before recovery. Recovery can legitimately wait for
+    // the full generation ceiling, so delaying the health timer makes a healthy
+    // controller look dead to the watchdog while it is reconciling state.
+    try { await reportHealth(); } catch (_) {}
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
+
+    await recoverInterruptedOperation();
+    await poll();
+    if (extensionContextInvalidated) {
+      if (healthTimerId !== null) clearInterval(healthTimerId);
+      return;
+    }
+    pollTimerId = setInterval(poll, POLL_MS);
   }
 
   if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
