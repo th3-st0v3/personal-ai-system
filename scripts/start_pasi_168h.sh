@@ -32,12 +32,22 @@ fi
 TOKEN_FILE="$HOME/.pasi/bridge-token"
 EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
 mkdir -p "$HOME/.pasi"
-if [[ ! -s "$TOKEN_FILE" ]]; then
+bridge_already_healthy=0
+if curl -fsS --max-time 3 'http://127.0.0.1:8765/health' >/dev/null 2>&1; then
+    bridge_already_healthy=1
+fi
+if (( bridge_already_healthy == 0 )); then
+    # A newly launched bridge gets a fresh per-process bearer token. Reusing the
+    # token file is avoided so a stale local credential cannot authorize a new
+    # bridge instance.
     "$PYTHON" - <<'PY' > "$TOKEN_FILE"
 import secrets
 print(secrets.token_urlsafe(48))
 PY
     chmod 600 "$TOKEN_FILE"
+elif [[ ! -s "$TOKEN_FILE" ]]; then
+    printf 'error: bridge is already healthy but its managed token file is missing; stop the bridge and restart via this launcher.\n' >&2
+    exit 3
 fi
 cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
 chmod 600 "$EXTENSION_TOKEN_FILE"
