@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 import unittest
 from pathlib import Path
 
@@ -96,6 +97,9 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             )
             child_pid = int(result.stdout.strip())
             fd_path = Path("/proc") / str(child_pid) / "fd" / "9"
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline and not fd_path.exists():
+                time.sleep(0.02)
             self.assertFalse(fd_path.exists())
             subprocess.run(["kill", str(child_pid)], check=False)
 
