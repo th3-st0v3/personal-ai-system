@@ -861,18 +861,39 @@ def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
 
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
     prompt = build_prompt(task, state, failure)
+    guard_path = REPO_ROOT / "scripts" / "pasi_chat_guard.py"
     code, output = command(
-        [sys.executable, "scripts/pasi_chat_guard.py", prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS)],
-        Path(state.worktree),
+        [
+            sys.executable,
+            str(guard_path),
+            prompt,
+            "--github",
+            "public",
+            "--timeout",
+            str(TASK_TIMEOUT_SECONDS),
+            "--repo",
+            state.worktree,
+        ],
+        REPO_ROOT,
         TASK_TIMEOUT_SECONDS + 45.0,
     )
     if provider_condition(code, output) is None:
         return code, output
     if os.environ.get("PASI_PRIMARY_CHATGPT_ONLY", "").strip().casefold() in {"1", "true", "yes"}:
         return code, sanitize_failure_evidence(code, output)
+    router_path = REPO_ROOT / "scripts" / "pasi_provider_router.py"
     fallback = command(
-        [sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
-        Path(state.worktree),
+        [
+            sys.executable,
+            str(router_path),
+            "--task",
+            prompt,
+            "--repo",
+            str(state.worktree),
+            "--timeout",
+            "180",
+        ],
+        REPO_ROOT,
         225.0,
     )
     if fallback[0] == 0 and fallback[1].strip():
