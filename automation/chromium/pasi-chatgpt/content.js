@@ -1125,7 +1125,20 @@
   }
 
 
-  async function waitForResponse(baseline, operationId) {
+  function completionMarkersSatisfied(responseText, markers) {
+    const text = typeof responseText === 'string' ? responseText : '';
+    if (!text.trim()) return false;
+    const configured = Array.isArray(markers)
+      ? markers.filter((marker) => typeof marker === 'string' && marker.trim()).map((marker) => marker.trim())
+      : [];
+    if (!configured.length) return true;
+    const lines = text.split(/\r?\n/).map((line) => line.trim());
+    return configured.some((marker) =>
+      lines.some((line) => line === marker || line.startsWith(marker + ':'))
+    );
+  }
+
+  async function waitForResponse(baseline, operationId, completionMarkers = []) {
     const started = Date.now();
     let sawGeneration = false;
     let stableFingerprint = '';
@@ -1144,7 +1157,7 @@
             stableFingerprint = current;
             stableSince = Date.now();
           }
-          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
+          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && completionMarkersSatisfied(response, completionMarkers)) return response;
         }
       } else {
         const current = fingerprint();
@@ -1358,7 +1371,7 @@
               return;
             }
             if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-            const response = await waitForResponse(savedBaseline, operation.operation_id);
+            const response = await waitForResponse(savedBaseline, operation.operation_id, operation.completion_markers || []);
             await finishOperation(operation.operation_id, response, true);
             finalized = true;
             return;
@@ -1378,7 +1391,7 @@
           const send = await waitForSend(box);
           if (!send) throw new Error('PASI_NATIVE: send control unavailable');
           await submitPrompt(promptText);
-          const response = await waitForResponse(baseline, operation.operation_id);
+          const response = await waitForResponse(baseline, operation.operation_id, operation.completion_markers || []);
           await finishOperation(operation.operation_id, response, true);
           finalized = true;
           return;
