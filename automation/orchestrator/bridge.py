@@ -26,6 +26,16 @@ RETRY_BUDGETS = {"controller": 3, "response": 2, "context": 1}
 MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 MAX_IDEMPOTENCY_KEY_CHARS = 128
+MAX_RECOVERY_EVENTS_PER_OPERATION = 64
+MAX_TIMING_KEYS = frozenset({
+    "injected_at_ms",
+    "ack_at_ms",
+    "generation_start_ms",
+    "completed_at_ms",
+    "user_messages_added",
+    "ack_verified",
+    "submission_via",
+})
 BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
@@ -159,6 +169,91 @@ class BridgeState:
 
         return None
 
+    @staticmethod
+    def normalize_timing(value: object) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        if any(key not in MAX_TIMING_KEYS for key in value):
+            return None
+        result: dict[str, Any] = {}
+        for key in ("injected_at_ms", "ack_at_ms", "generation_start_ms", "completed_at_ms"):
+            if key not in value:
+                continue
+            raw = value[key]
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+                return None
+            result[key] = float(raw) if isinstance(raw, float) else int(raw)
+        if "user_messages_added" in value:
+            raw = value["user_messages_added"]
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0 or raw > 100:
+                return None
+            result["user_messages_added"] = raw
+        if "ack_verified" in value:
+            if not isinstance(value["ack_verified"], bool):
+                return None
+            result["ack_verified"] = value["ack_verified"]
+        if "submission_via" in value:
+            raw = value["submission_via"]
+            if not isinstance(raw, str) or not raw.strip() or len(raw) > 64:
+                return None
+            result["submission_via"] = raw.strip()
+        previous: float | None = None
+        for key in ("injected_at_ms", "ack_at_ms", "generation_start_ms", "completed_at_ms"):
+            raw = result.get(key)
+            if raw is None:
+                continue
+            numeric = float(raw)
+            if previous is not None and numeric < previous:
+                return None
+            previous = numeric
+        if result.get("ack_verified") is True and "ack_at_ms" not in result:
+            return None
+        return result
+
+    def persist_timing(self, operation_id: str, timing: object) -> dict[str, Any] | None:
+        normalized = self.normalize_timing(timing)
+        if normalized is None or not operation_id.strip():
+            return None
+        with self.lock:
+            queue = self.state_manager.load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                item["timing"] = normalized
+                self.state_manager.save_queue(queue)
+                return dict(item)
+        return None
+
+    def append_recovery_event(
+        self,
+        operation_id: str,
+        data: dict[str, Any],
+        captured_at: object,
+    ) -> dict[str, Any] | None:
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            return None
+        allowed = (
+            "phase", "reason", "recovery_reason", "recovery_action",
+            "replacement_reason", "reload_count", "age_ms", "idle_ms",
+            "recovery_started_at_ms", "recovery_finished_at_ms",
+            "recovery_duration_ms", "outcome", "observed_status", "error"
+        )
+        event = {key: data[key] for key in allowed if key in data}
+        if isinstance(captured_at, str):
+            event["captured_at"] = captured_at
+        with self.lock:
+            queue = self.state_manager.load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                events = item.get("recovery_events")
+                events = list(events) if isinstance(events, list) else []
+                events.append(event)
+                item["recovery_events"] = events[-MAX_RECOVERY_EVENTS_PER_OPERATION:]
+                self.state_manager.save_queue(queue)
+                return dict(item)
+        return None
+
     def persist_response_evidence(
         self,
         operation_id: str,
@@ -193,6 +288,7 @@ class BridgeState:
         chat_url: str | None = None,
         response_text: str | None = None,
         response_text_available: bool = False,
+        timing: object = None,
     ) -> dict[str, Any] | None:
         return self._update_operation(
             operation_id=operation_id,
@@ -200,6 +296,7 @@ class BridgeState:
             chat_url=chat_url,
             response_text=response_text,
             response_text_available=response_text_available,
+            timing=timing,
         )
 
     def fail_operation(
@@ -269,7 +366,15 @@ class BridgeState:
             self._persist_verified_response_observation(observation)
             data = observation.get("data")
             if isinstance(data, dict) and data.get("kind") == "chatgpt_response":
+                timing = data.get("timing")
+                active_operation_id = data.get("active_operation_id")
+                if isinstance(active_operation_id, str) and timing is not None:
+                    self.persist_timing(active_operation_id, timing)
                 self.state_manager.save_browser_response(observation)
+            if isinstance(data, dict) and data.get("kind") == "chatgpt_recovery":
+                operation_id = data.get("operation_id")
+                if isinstance(operation_id, str):
+                    self.append_recovery_event(operation_id, data, observation.get("captured_at"))
 
             current = self.state_manager.load_browser_results()
             incoming_priority = self._browser_observation_priority(observation)
@@ -560,6 +665,7 @@ class BridgeState:
         error: str | None = None,
         response_text: str | None = None,
         response_text_available: bool = False,
+        timing: object = None,
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self.state_manager.load_queue()
@@ -585,6 +691,12 @@ class BridgeState:
                         response_text_available
                         and bool(bounded_response.strip())
                     )
+
+                if timing is not None:
+                    normalized_timing = self.normalize_timing(timing)
+                    if normalized_timing is None:
+                        raise ValueError("invalid timing payload")
+                    item["timing"] = normalized_timing
 
                 self.state_manager.save_queue(queue)
 
@@ -1141,6 +1253,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "response_text_available",
             False,
         )
+        timing = payload.get("timing")
 
         if not isinstance(
             operation_id,
@@ -1266,12 +1379,23 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             response_text = existing_operation.get("response_text")
             response_text_available = True
 
+        normalized_timing = None
+        if timing is not None:
+            normalized_timing = self.bridge_state.normalize_timing(timing)
+            if normalized_timing is None:
+                self._send_json(
+                    {"error": "invalid timing payload."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+
         try:
             operation = self.bridge_state.complete_operation(
                 operation_id=operation_id,
                 chat_url=chat_url,
                 response_text=response_text,
                 response_text_available=response_text_available,
+                timing=normalized_timing,
             )
         except InvalidOperationTransition:
             # Completion acknowledgements are retried by the browser controller.
