@@ -25,13 +25,14 @@ class PreapprovalTests(unittest.TestCase):
             result = engine.acquire_public_download("https://example.com/tool.tar.gz", task_id="task-1")
             self.assertEqual(result["status"], "blocked")
             self.assertTrue(result["approval_required"])
-            self.assertTrue((root / ".runtime" / "automation" / "action-list.md").exists())
+            self.assertTrue((state_root / "automation" / "action-list.md").exists())
 
     def test_matching_host_download_preapproval_is_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "worktree"
             state_root = Path(directory) / "state"
             root.mkdir()
+            state_root.mkdir()
             policy = self._policy(root, state_root, [{"id": "download-example", "action": "public_download", "hosts": ["example.com"], "max_bytes": 1000}])
             decision = policy.approve_public_download("https://example.com/tool.tar.gz", max_bytes=900)
             self.assertTrue(decision.allowed)
@@ -53,8 +54,10 @@ class PreapprovalTests(unittest.TestCase):
 
     def test_default_policy_ignores_model_editable_worktree_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            state_root = root / "operator-state"
+            container = Path(directory)
+            root = container / "worktree"
+            state_root = container / "operator-state"
+            root.mkdir()
             state_root.mkdir()
             model_policy = root / ".runtime" / "policy"
             model_policy.mkdir(parents=True)
@@ -79,7 +82,9 @@ class PreapprovalTests(unittest.TestCase):
 
     def test_state_root_cannot_be_inside_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            container = Path(directory)
+            root = container / "worktree"
+            root.mkdir()
             import os
             old = os.environ.get("PASI_STATE_ROOT")
             os.environ["PASI_STATE_ROOT"] = str(root / ".runtime")
