@@ -84,7 +84,7 @@ def main() -> int:
         "schema_version": "1",
         "enabled": True,
         "version": version,
-        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/tampermonkey/chatgpt-controller.user.js",
+        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/legacy/tampermonkey/chatgpt-controller.user.js",
         "git_blob_sha": git_blob_sha,
         "release_commit": commit,
         "reason": reason,
