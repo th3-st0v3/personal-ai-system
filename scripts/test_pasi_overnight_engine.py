@@ -174,6 +174,55 @@ new file mode 120000
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
         self.assertIn("empty patch", prompt)
 
+    def test_commit_stages_only_declared_patch_paths(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as directory:
+            worktree = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=worktree, check=True)
+            (worktree / "example.txt").write_text("new\n", encoding="utf-8")
+            (worktree / "unrelated.txt").write_text("must not be committed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "example.txt"], cwd=worktree, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c", "user.email=test@example.com",
+                    "-c", "user.name=PASI Test",
+                    "commit", "-q", "-m", "baseline",
+                ],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            commit = __import__("scripts.pasi_overnight_engine", fromlist=["commit_and_push"]).commit_and_push(
+                worktree,
+                "pasi/test",
+                "staging hygiene",
+                push=False,
+                paths=["example.txt"],
+            )
+            committed_files = subprocess.run(
+                ["git", "show", "--format=", "--name-only", commit],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+            self.assertEqual(committed_files, ["example.txt"])
+            self.assertTrue((worktree / "unrelated.txt").exists())
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "status", "--porcelain", "--untracked-files=all"],
+                    cwd=worktree,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+                "?? unrelated.txt",
+            )
+
     def test_no_change_completion_requires_stopped_progress_and_clean_repository(self) -> None:
         values = {
             "requirements": "complete",
