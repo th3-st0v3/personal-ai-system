@@ -130,6 +130,13 @@ mapfile -d '' PYTHON_TEST_FILES < <(
 mapfile -d '' JAVASCRIPT_FILES < <(
     "${find_expr[@]}" \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0 | sort -z
 )
+mapfile -d '' JAVASCRIPT_TEST_FILES < <(
+    "${find_expr[@]}" \(
+        -name 'test_*.js' -o -name '*_test.js' -o -name '*.test.js' -o -name '*.spec.js' \
+        -o -name 'test_*.mjs' -o -name '*_test.mjs' -o -name '*.test.mjs' -o -name '*.spec.mjs' \
+        -o -name 'test_*.cjs' -o -name '*_test.cjs' -o -name '*.test.cjs' -o -name '*.spec.cjs'
+    \) -print0 | sort -z
+)
 mapfile -d '' SHELL_FILES < <(
     "${find_expr[@]}" -name '*.sh' -print0 | sort -z
 )
@@ -137,8 +144,8 @@ mapfile -d '' JSON_FILES < <(
     "${find_expr[@]}" -name '*.json' -print0 | sort -z
 )
 
-printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript files, %d shell files, %d JSON files\n' \
-    "${#PYTHON_FILES[@]}" "${#PYTHON_TEST_FILES[@]}" "${#JAVASCRIPT_FILES[@]}" "${#SHELL_FILES[@]}" "${#JSON_FILES[@]}"
+printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript files, %d JavaScript test suites, %d shell files, %d JSON files\n' \
+    "${#PYTHON_FILES[@]}" "${#PYTHON_TEST_FILES[@]}" "${#JAVASCRIPT_FILES[@]}" "${#JAVASCRIPT_TEST_FILES[@]}" "${#SHELL_FILES[@]}" "${#JSON_FILES[@]}"
 
 pull_origin_main
 
@@ -172,8 +179,22 @@ run_check "Markdown lint" npx --yes markdownlint-cli2@0.23.2 '**/*.md' \
     '#**/generated/**' '#**/artifacts/**' '#**/tmp/**' '#**/site-packages/**' \
     '#**/vendor/**' '#**/third_party/**'
 
-printf '\n==> JavaScript syntax\n'
+printf '\n==> JavaScript test suites\n'
+if ((${#JAVASCRIPT_TEST_FILES[@]})); then
+    node --test "${JAVASCRIPT_TEST_FILES[@]}"
+else
+    printf 'No supported JavaScript test suites discovered.\n'
+fi
+
+printf '\n==> JavaScript syntax (non-test files)\n'
+declare -A JAVASCRIPT_TEST_SET=()
+for file in "${JAVASCRIPT_TEST_FILES[@]}"; do
+    JAVASCRIPT_TEST_SET["$file"]=1
+done
 for file in "${JAVASCRIPT_FILES[@]}"; do
+    if [[ -n "${JAVASCRIPT_TEST_SET["$file"]+x}" ]]; then
+        continue
+    fi
     node --check "$file"
 done
 
@@ -193,11 +214,6 @@ for path in paths:
         json.load(handle)
 print(f"validated {len(paths)} JSON files")
 PY
-
-run_check "Native Chromium controller contract tests" node --test \
-    automation/chromium/pasi-chatgpt/test_extension.js \
-    automation/chromium/pasi-chatgpt/test_recovery.js
-
 
 run_check "Frontend contract smoke test" python scripts/frontend_contract_test.py
 run_check "Browser/API smoke test" python scripts/ci_web_smoke.py
