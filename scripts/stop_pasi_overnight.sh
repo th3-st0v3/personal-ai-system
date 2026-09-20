@@ -4,6 +4,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PID_FILE="$REPO_ROOT/.runtime/overnight/runner.pid"
+SUPERVISOR_PID_FILE="$REPO_ROOT/.runtime/overnight/supervisor.pid"
+SUPERVISOR_STOP_FILE="$REPO_ROOT/.runtime/overnight/supervisor.stop"
 START_PID_FILE="$REPO_ROOT/.runtime/overnight/start.pid"
 BRIDGE_PID_FILE="$REPO_ROOT/.runtime/overnight/bridge.pid"
 
@@ -90,6 +92,16 @@ stop_managed_service() {
     printf '%s: required forced termination.\n' "$name"
 }
 
+stop_supervisor() {
+    if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+        : > "$SUPERVISOR_STOP_FILE"
+        stop_managed_service "PASI 168-hour supervisor" "$SUPERVISOR_PID_FILE" "pasi_168h_supervisor.sh"
+    fi
+    rm -f "$SUPERVISOR_STOP_FILE"
+}
+
+stop_supervisor
+
 if [[ ! -f "$PID_FILE" ]]; then
     if [[ -z "$launcher_pid" ]]; then
         printf 'PASI overnight runner is not active.\n'
@@ -103,7 +115,6 @@ if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
     rm -f "$PID_FILE"
     printf 'Removed stale PASI overnight PID file.\n'
     stop_managed_service "PASI bridge" "$BRIDGE_PID_FILE" "pasi_log_router.py"
-    stop_managed_service "PASI controller distribution" "$CONTROLLER_PID_FILE" "pasi_controller_server.py"
     exit 0
 fi
 
