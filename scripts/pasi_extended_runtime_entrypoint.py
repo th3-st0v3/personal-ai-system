@@ -53,6 +53,8 @@ def main() -> int:
         configured_task_file = DEFAULT_TASK_FILE
 
     selected_task = args.task.strip()
+    if not selected_task:
+        selected_task = os.environ.get("PASI_TASK", "").strip()
     if not selected_task and configured_task_file is not None:
         selected_task = load_task_file(configured_task_file)
     if not selected_task:
