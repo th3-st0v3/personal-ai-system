@@ -312,7 +312,7 @@ test('native prompt execution prevents duplicate sends and requires stable final
   assert.match(content, /PASI_OPERATION/);
   assert.match(content, /generating\(\) \|\| userMessages\(\)\.length > baselineUserCount/);
   assert.match(content, /prompt submission already appears to be in progress/);
-  assert.match(content, /const RESPONSE_SETTLE_MS = 3500/);
+  assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 750/);
   assert.match(content, /stableFingerprint/);
   assert.match(content, /stableSince/);
   assert.match(content, /Date\.now\(\) - stableSince >= RESPONSE_SETTLE_MS/);
@@ -380,7 +380,7 @@ test('native Thinking selection prefers the composer model pill and stable intel
 });
 
 test('native prompt submission re-checks auth, exhaustion, and Thinking at the send boundary', () => {
-  assert.match(content, /const THINKING_VERIFY_MS = 5000;/);
+  assert.match(content, /const THINKING_VERIFY_MS = TIMEOUT_POLICY\.thinkingVerifyMs \|\| 3000/);
   assert.match(content, /async function verifyThinkingState\(\)/);
   assert.match(content, /return waitFor\(\(\) => \{/);
   assert.match(content, /\}, THINKING_VERIFY_MS\)/);
@@ -404,8 +404,16 @@ test('native prompt submission re-checks auth, exhaustion, and Thinking at the s
   assert.equal((content.match(/function composerContainsPrompt\(element, expected\)/g) || []).length, 1);
 });
 
+test('native controller exposes fast successful-path timing through the shared policy', () => {
+  assert.match(content, /const CLICK_SETTLE_MS = TIMEOUT_POLICY\.clickSettleMs \|\| 75/);
+  assert.match(content, /const THINKING_VERIFY_MS = TIMEOUT_POLICY\.thinkingVerifyMs \|\| 3000/);
+  assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 750/);
+  assert.match(content, /const SUBMISSION_ACK_MS = TIMEOUT_POLICY\.submissionAckMs \|\| 2500/);
+  assert.match(content, /TIMEOUT_POLICY\.domPollMs \|\| DOM_POLL_MS/);
+});
+
 test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
-  assert.match(content, /SUBMISSION_ACK_MS = 7500/);
+  assert.match(content, /SUBMISSION_ACK_MS = TIMEOUT_POLICY\.submissionAckMs \|\| 2500/);
   assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /newestUserMatches/);
   assert.match(content, /waitForSubmissionAck/);
