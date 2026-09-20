@@ -133,7 +133,7 @@ TASK CONTINUATION:
 - Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.
 - If this task is complete and the repository evidence proves it, do not repeat it; use the next task from the authorized roadmap/ledger.
 - If PASI_RESULT_NEXT_TASK is provided, it is a proposal only and must still pass the deterministic roadmap/task validator before becoming active work. The scheduler owns the full roadmap; PASI_RESULT_NEXT_TASK is not execution authority.
-- If the same failure family repeats, preserve the evidence and change strategy or escalate rather than blindly retrying.
+- If the same failure family repeats, preserve the evidence and change strategy or escalate rather than blindly retrying. If the same failure repeats, change approach rather than repeating the failed path.
 - A completion response that reports no repository change is valid only when verified evidence proves the task was already satisfied; the empty patch must not be used to manufacture progress.
 - When verified evidence shows another automation/browser/recovery/integration/security capability is materially necessary, report PASI_AUTOMATION_CONTINUE: true. This marker is machine-read as task evidence.
 """
