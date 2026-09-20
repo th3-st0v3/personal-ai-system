@@ -667,6 +667,29 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
     return legacy.completion_contract_is_satisfied(status, values)
 
 
+def completed_task_keys() -> set[str]:
+    return {
+        key
+        for key, value in load_task_ledger().items()
+        if str(value.get("status", "")).casefold() == "completed"
+    }
+
+
+def no_change_completion_is_satisfied(
+    worktree: Path,
+    status: str,
+    next_task: str,
+    patch: str,
+    values: dict[str, str],
+    task_already_completed: bool,
+) -> bool:
+    return (
+        legacy.no_change_completion_is_satisfied(worktree, status, next_task, patch, values)
+        and bool(values.get("evidence", "").strip())
+        and task_already_completed
+    )
+
+
 def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     roadmap = "\n".join(f"- {item}" for item in candidates)
@@ -1071,8 +1094,13 @@ def run(state: OvernightState, *, push: bool) -> None:
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
-            if contract_ok and legacy.no_change_completion_is_satisfied(
-                Path(state.worktree), status, next_task, patch, values
+            if contract_ok and no_change_completion_is_satisfied(
+                Path(state.worktree),
+                status,
+                next_task,
+                patch,
+                values,
+                task_key(state.current_task) in completed_task_keys(),
             ):
                 state.completed_tasks += 1
                 evidence_text = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
