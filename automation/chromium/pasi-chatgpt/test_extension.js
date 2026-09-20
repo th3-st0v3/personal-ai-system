@@ -80,7 +80,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
 test('native controller keeps response telemetry off the completion critical path', () => {
   assert.match(content, /void reportObservation\('chatgpt_response'/);
   assert.ok(content.includes('}).catch(() => {});'));
-  assert.doesNotMatch(content, /await reportObservation\\('chatgpt_response'/);
+  assert.doesNotMatch(content, /await reportObservation\('chatgpt_response'/);
 });
 
 test('native controller chains the next queued operation immediately after terminal completion', () => {
@@ -89,7 +89,7 @@ test('native controller chains the next queued operation immediately after termi
   assert.match(content, /queueMicrotask\(\(\) =>/);
   assert.match(content, /if \(finalized\) scheduleImmediatePoll\(\)/);
   assert.match(content, /void reportHealth\(\)/);
-  assert.match(content, /const detail = errorMessage \+ ' \\| ui=' \+ JSON\.stringify\(captureUiDiagnostics\(\)\)/);
+  assert.match(content, /const detail = errorMessage \+ ' \| ui=' \+ JSON\.stringify\(captureUiDiagnostics\(\)\)/);
 });
 
 test('native controller reports roadmap completion and repository progress markers', () => {
