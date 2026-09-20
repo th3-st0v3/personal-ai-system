@@ -11,6 +11,7 @@ from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine_v2 as supervisor
 from scripts import pasi_overnight_hardening as hardening
 from scripts.pasi_overnight_hardening import (
+    nonblocking_ensure_services,
     nonblocking_sleep,
     nonblocking_standby,
     resilient_invoke_chat,
