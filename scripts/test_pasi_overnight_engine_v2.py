@@ -228,6 +228,22 @@ PASI_RESULT_PATCH_END"""
                 candidate = "Implement a concrete seam diagnostic for queued ChatGPT operations."
                 self.assertEqual(engine.choose_next_task(state, candidate), engine.AUTOMATION_TASKS[2])
 
+    def test_task_ledger_records_completion_before_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger_path = Path(temp_dir) / "task-ledger.json"
+            with mock.patch.object(engine, "TASK_LEDGER_PATH", ledger_path):
+                engine.record_task_ledger(
+                    engine.AUTOMATION_TASKS[0],
+                    "completed",
+                    commit="abc123",
+                    evidence="verified",
+                    phase="automation",
+                )
+                self.assertIn(
+                    engine.task_key(engine.AUTOMATION_TASKS[0]),
+                    engine.completed_task_keys(),
+                )
+
     def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
         now = datetime.now(timezone.utc)
         current = engine.AUTOMATION_TASKS[1]
@@ -266,11 +282,11 @@ PASI_RESULT_PATCH_END"""
         self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
         self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
 
-    def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
+    def test_choose_next_task_honors_unique_concrete_suggestion(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
-            run_id="non-roadmap-test",
+            run_id="dynamic-next-task-test",
             started_at=now.isoformat(),
             deadline_at=(now + timedelta(hours=8)).isoformat(),
             worktree=str(Path.cwd()),
@@ -279,10 +295,8 @@ PASI_RESULT_PATCH_END"""
             current_task=engine.AUTOMATION_TASKS[0],
             recent_tasks=[],
         )
-        self.assertEqual(
-            engine.choose_next_task(state, "invented task outside roadmap"),
-            engine.AUTOMATION_TASKS[0],
-        )
+        suggestion = "Implement a concrete seam diagnostic for queued ChatGPT operations."
+        self.assertEqual(engine.choose_next_task(state, suggestion), suggestion)
 
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
         now = datetime.now(timezone.utc)
