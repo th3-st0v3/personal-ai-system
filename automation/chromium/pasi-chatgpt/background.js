@@ -46,11 +46,12 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const token = await bridgeToken();
     const response = await fetch(`${BRIDGE}${path}`, {
       method: normalizedMethod,
       headers: {
         ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...(await bridgeToken() ? { 'Authorization': `Bearer ${await bridgeToken()}` } : {})
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
