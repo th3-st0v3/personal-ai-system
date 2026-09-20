@@ -6,7 +6,6 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PID_FILE="$REPO_ROOT/.runtime/overnight/runner.pid"
 START_PID_FILE="$REPO_ROOT/.runtime/overnight/start.pid"
 BRIDGE_PID_FILE="$REPO_ROOT/.runtime/overnight/bridge.pid"
-CONTROLLER_PID_FILE="$REPO_ROOT/.runtime/overnight/controller-distribution.pid"
 
 launcher_pid=""
 if [[ -f "$START_PID_FILE" ]]; then
@@ -96,7 +95,6 @@ if [[ ! -f "$PID_FILE" ]]; then
         printf 'PASI overnight runner is not active.\n'
     fi
     stop_managed_service "PASI bridge" "$BRIDGE_PID_FILE" "pasi_log_router.py"
-    stop_managed_service "PASI controller distribution" "$CONTROLLER_PID_FILE" "pasi_controller_server.py"
     exit 0
 fi
 
