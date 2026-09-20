@@ -115,11 +115,18 @@ pruned_dirs=(
     ./third_party
 )
 
-find_expr=(find .)
+find_expr=(find . \\()
+first_prune=true
 for dir in "${pruned_dirs[@]}"; do
-    find_expr+=( -path "*/${dir#./}" -prune -o )
+    path_name="${dir#./}"
+    if [[ "$first_prune" == true ]]; then
+        first_prune=false
+    else
+        find_expr+=( -o )
+    fi
+    find_expr+=( -path "./${path_name}" -o -path "./${path_name}/*" )
 done
-find_expr+=( -type f )
+find_expr+=( \\) -prune -o -type f )
 
 mapfile -d '' PYTHON_FILES < <(
     "${find_expr[@]}" -name '*.py' -print0 | sort -z
