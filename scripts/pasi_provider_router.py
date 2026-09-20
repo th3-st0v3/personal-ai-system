@@ -45,7 +45,6 @@ Do not claim tests passed unless the evidence is present in the supplied reposit
 Prefer small, reversible, well-tested changes over rewrites.
 """
 
-CONTRACT = CONTRACT
 
 
 def bounded_text(value: str, limit: int) -> str:
