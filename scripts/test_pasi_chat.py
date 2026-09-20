@@ -288,7 +288,7 @@ class TestPasiChat(unittest.TestCase):
 
     def test_github_app_is_not_selected_by_task_classification(self) -> None:
         self.assertFalse(needs_github_context("inspect the GitHub repository and fix the bridge"))
-        self.assertFalse(needs_github_context("update automation/tampermonkey/chatgpt-controller.user.js"))
+        self.assertFalse(needs_github_context("update automation/legacy/tampermonkey/chatgpt-controller.user.js"))
         self.assertFalse(needs_github_context("review the pull request and latest commit"))
         self.assertFalse(needs_github_context("what is GitHub?"))
         self.assertFalse(needs_github_context("run the unit tests"))
