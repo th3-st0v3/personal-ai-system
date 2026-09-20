@@ -4,11 +4,16 @@ const test = require('node:test');
 
 const source = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery.js', 'utf8');
 
-test('recovery uses the shared long-response ceiling and starts recovery at the configured trigger', () => {
+test('recovery uses progress-based stall detection with a hard ceiling instead of age-only reloads', () => {
   assert.match(source, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
-  assert.match(source, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
-  assert.match(source, /RECOVERY_GRACE_MS = TIMEOUT_POLICY\.recoveryGraceMs \|\| 10 \* 60 \* 1000/);
-  assert.match(source, /generation_timeout_ms: GENERATION_TIMEOUT_MS/);
+  assert.match(source, /const RECOVERY_STALL_MS = TIMEOUT_POLICY\.recoveryStallMs \|\| 8 \* 60 \* 1000/);
+  assert.match(source, /const RECOVERY_HARD_CEILING_MS = TIMEOUT_POLICY\.recoveryHardCeilingMs \|\| 90 \* 60 \* 1000/);
+  assert.match(source, /RECOVERY_PROGRESS.*decideRecovery/);
+  assert.match(source, /lastProgressMs/);
+  assert.match(source, /recovery_stall_ms: RECOVERY_STALL_MS/);
+  assert.match(source, /hard_ceiling_ms: RECOVERY_HARD_CEILING_MS/);
+  assert.doesNotMatch(source, /Date\.now\(\) - startedMs < RECOVERY_TRIGGER_MS/);
+  assert.doesNotMatch(source, /age < RECOVERY_TRIGGER_MS/);
 });
 
 test('recovery preserves a verified response and includes response text in completion persistence', () => {
@@ -40,6 +45,14 @@ test('recovery never prepares a replacement chat without verified exhaustion', (
 test('recovery clears terminal operations and does not loop on the same failed operation', () => {
   assert.match(source, /current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'/);
   assert.match(source, /if \(!current\) return/);
+});
+
+test('connection failure detection is scoped to visible error/alert elements', () => {
+  assert.match(source, /\[role="alert"\]/);
+  assert.match(source, /\[aria-live="assertive"\]/);
+  assert.match(source, /\[data-testid\*="connection"/);
+  assert.match(source, /if \(!visibleElement\(element\)\) continue/);
+  assert.doesNotMatch(source, /const text = normalize\(document\.body\?\.innerText \|\| ''\);\n    return \['network error'/);
 });
 
 test('recovery detects security challenges without attempting to bypass them', () => {
@@ -75,6 +88,14 @@ test('recovery never finalizes a partial assistant response during generation', 
 test('recovery preserves response text casing while still normalizing marker checks', () => {
   assert.match(source, /const compact =/);
   assert.doesNotMatch(source, /const text = normalize\(markdown\[index\]/);
+});
+
+test('monitoring recovery invokes the progress decision core without an age gate', () => {
+  assert.match(source, /if \(state\.phase === 'monitoring'\)/);
+  assert.match(source, /beginProgressTracking\(state\.operation_id, state\)/);
+  assert.match(source, /sampleProgress\(state\)/);
+  assert.match(source, /await preserveOrReload\(state\.operation_id, state\)/);
+  assert.doesNotMatch(source, /if \(Date\.now\(\) - startedMs < RECOVERY_TRIGGER_MS/);
 });
 
 test('monitoring recovery keeps the normal bounded reload path before reloaded-state handling', () => {
