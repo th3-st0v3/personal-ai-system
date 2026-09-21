@@ -267,7 +267,7 @@ start_service() {
     # Close the launcher's flock descriptor in the child before exec. Without
     # this, long-lived services inherit fd 9 and keep start.lock held after the
     # launcher exits, falsely reporting that a run is still starting.
-    nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 1048576 --backups 2 -- "$@" < /dev/null &
+    nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 1048576 --backups 2 -- "$@" < /dev/null > /dev/null 2>&1 &
     local service_pid=$!
     printf '%s\n' "$service_pid" > "$pid_file"
 }
@@ -385,7 +385,7 @@ printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
 
 log_file="$RUNTIME_DIR/runner.log"
 # The 168-hour supervisor owns restart/recovery of the extended runtime. Its engine handoff target is scripts/pasi_extended_runtime_entrypoint.py.
-nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "$@" < /dev/null &
+nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "$@" < /dev/null > /dev/null 2>&1 &
 pid=$!
 
 runner_start_deadline=$((SECONDS + 15))

@@ -84,3 +84,6 @@ notes.db.*
 
 # Generated local bridge credential
 automation/chromium/pasi-chatgpt/.bridge-token
+
+# Detached launcher output
+nohup.out
