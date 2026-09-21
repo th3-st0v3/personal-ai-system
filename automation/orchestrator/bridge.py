@@ -43,6 +43,8 @@ MAX_TIMING_KEYS = frozenset({
     "submission_via",
 })
 BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
+RUNNER_CAPABILITIES_PATH = Path.home() / ".pasi" / "runner" / "capabilities.json"
+MAX_RUNNER_CAPABILITIES_BYTES = 256_000
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -69,6 +71,19 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "PASI_NATIVE: response text unavailable",
 )
 
+
+def load_runner_capabilities() -> dict[str, Any]:
+    try:
+        if not RUNNER_CAPABILITIES_PATH.is_file() or RUNNER_CAPABILITIES_PATH.stat().st_size > MAX_RUNNER_CAPABILITIES_BYTES:
+            return {"available": False, "reason": "capability report unavailable"}
+        payload = json.loads(RUNNER_CAPABILITIES_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "reason": "capability report unreadable"}
+    if not isinstance(payload, dict):
+        return {"available": False, "reason": "capability report invalid"}
+    # The bridge exposes only machine-health metadata; secrets and command output are not persisted here.
+    allowed = {"schema_version", "generated_at", "runner_name", "repository", "resources", "boundary", "runtime", "required_ok", "failures", "recommended_labels", "actions"}
+    return {"available": True, **{key: payload[key] for key in allowed if key in payload}}
 
 class BridgeState:
     """
@@ -1224,6 +1239,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 self.bridge_state.get_status()
             )
+            return
+
+        if path == "/runner/capabilities":
+            self._send_json(load_runner_capabilities())
             return
 
         if path == "/browser/observation":
