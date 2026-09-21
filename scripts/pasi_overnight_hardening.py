@@ -183,7 +183,11 @@ def nonblocking_standby(state: Any, *, ledger: ObstacleLedger, child_registry: l
     logged = False
     while not supervisor.STOP and supervisor.now_utc() < supervisor.datetime.fromisoformat(state.deadline_at):
         try:
-            supervisor.ensure_services()
+            started_children = supervisor.ensure_services()
+            if child_registry is not None:
+                for child in started_children:
+                    if not any(existing is child for existing in child_registry):
+                        child_registry.append(child)
         except Exception as exc:
             supervisor.log_event("service_recovery_failed", error=str(exc)[-4_000:])
 
