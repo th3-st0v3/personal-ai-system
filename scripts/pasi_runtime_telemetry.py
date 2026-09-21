@@ -27,6 +27,9 @@ class RuntimeReport:
     browser_handoff_samples: tuple[float, ...]
     browser_ack_samples: tuple[float, ...]
     browser_generation_samples: tuple[float, ...]
+    accepted_patch_sizes: tuple[int, ...]
+    accepted_evidence_sizes: tuple[int, ...]
+    thin_evidence_count: int
     prompt_sizes: tuple[int, ...]
     recovery_events: int
     provider_limit_events: int
@@ -125,6 +128,9 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
     browser_handoff_samples: list[float] = []
     browser_ack_samples: list[float] = []
     browser_generation_samples: list[float] = []
+    accepted_patch_sizes: list[int] = []
+    accepted_evidence_sizes: list[int] = []
+    thin_evidence_count = 0
     prompt_sizes: list[int] = []
     recovery_events = provider_limit_events = auth_events = 0
     previous_dispatch: datetime | None = None
@@ -169,6 +175,16 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
                     response_to_next_dispatch_samples.append(latency_ms)
                 last_response = None
             previous_dispatch = timestamp
+        elif kind == "task_response_evidence":
+            if event.get("contract_ok") is True:
+                patch_chars = event.get("patch_chars")
+                evidence_chars = event.get("evidence_chars")
+                if isinstance(patch_chars, int) and patch_chars >= 0:
+                    accepted_patch_sizes.append(patch_chars)
+                if isinstance(evidence_chars, int) and evidence_chars >= 0:
+                    accepted_evidence_sizes.append(evidence_chars)
+                    if evidence_chars < 200:
+                        thin_evidence_count += 1
         elif kind == "browser_timing":
             injected_ms = event.get("injected_at_ms")
             ack_ms = event.get("ack_at_ms")
@@ -221,6 +237,9 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
         browser_handoff_samples=tuple(browser_handoff_samples),
         browser_ack_samples=tuple(browser_ack_samples),
         browser_generation_samples=tuple(browser_generation_samples),
+        accepted_patch_sizes=tuple(accepted_patch_sizes),
+        accepted_evidence_sizes=tuple(accepted_evidence_sizes),
+        thin_evidence_count=thin_evidence_count,
         prompt_sizes=tuple(prompt_sizes),
         recovery_events=recovery_events,
         provider_limit_events=provider_limit_events,
@@ -271,6 +290,8 @@ def render_markdown(report: RuntimeReport) -> str:
         f"| Recovery events | {report.recovery_events} |",
         f"| Provider-limit pauses | {report.provider_limit_events} |",
         f"| Auth/re-auth events | {report.auth_events} |",
+        f"| Accepted task evidence samples | {len(report.accepted_evidence_sizes)} |",
+        f"| Accepted tasks with <200 evidence chars | {report.thin_evidence_count} |",
         "",
         "## Browser latency",
         "",
@@ -287,6 +308,15 @@ def render_markdown(report: RuntimeReport) -> str:
         f"- Response event to next engine dispatch samples: {len(report.response_to_next_dispatch_samples)}",
         f"- P50: {_fmt(report.p50_response_to_next_dispatch_ms, ' ms')}",
         f"- P95: {_fmt(report.p95_response_to_next_dispatch_ms, ' ms')}",
+        "",
+        "## Accepted task substance",
+        "",
+        f"- Median patch size: {_fmt(statistics.median(report.accepted_patch_sizes) if report.accepted_patch_sizes else None, ' chars')}",
+        f"- Maximum patch size: {max(report.accepted_patch_sizes) if report.accepted_patch_sizes else 'n/a'} chars",
+        f"- Median evidence size: {_fmt(statistics.median(report.accepted_evidence_sizes) if report.accepted_evidence_sizes else None, ' chars')}",
+        f"- Tasks with very small evidence (<200 chars): {report.thin_evidence_count}",
+        "",
+        "This is a diagnostic signal only; legitimate small patches and concise evidence can be valid.",
         "",
         "## Prompt economy",
         "",
