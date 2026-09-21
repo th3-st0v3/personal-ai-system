@@ -497,8 +497,7 @@ branch refs/heads/main
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
-            run_id="provider-limit-attempt-budget",
-            started_at=now.isoformat(),
+            run_id="provider-limit-attempt-budget",            started_at=now.isoformat(),
             deadline_at=(now + timedelta(hours=1)).isoformat(),
             worktree=str(Path.cwd()),
             branch="test",
@@ -627,7 +626,7 @@ branch refs/heads/main
                             ):
                                 self.assertFalse(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=5.0))
 
-    def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
+    def test_choose_next_task_does_not_consume_model_next_task(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
@@ -637,16 +636,32 @@ branch refs/heads/main
             worktree=str(Path.cwd()),
             branch="test",
             phase="automation",
-            current_task=engine.AUTOMATION_TASKS[0],
+            current_task="operator task",
             recent_tasks=[],
         )
-        self.assertEqual(
-            engine.choose_next_task(
-                state,
-                "Implement a concrete seam diagnostic for queued ChatGPT operations.",
+        with mock.patch.object(
+            engine,
+            "select_planner_task",
+            return_value=engine.hybrid_planner.PlannerDecision(
+                selected=engine.hybrid_planner.TaskSpec(
+                    id="next.task",
+                    title="Next task",
+                    objective="Do the next thing",
+                    acceptance_criteria=("It is verified.",),
+                    verification=("Run the test.",),
+                    phase="automation",
+                ),
+                eligible_ids=("next.task",),
+                mode="deterministic",
+                reason="only eligible task",
             ),
-            "Implement a concrete seam diagnostic for queued ChatGPT operations.",
-        )
+        ):
+            selected = engine.choose_next_task(
+                state,
+                "model-selected task must be ignored",
+            )
+        self.assertEqual(selected, "TITLE: Next task\nOBJECTIVE: Do the next thing\nACCEPTANCE CRITERIA:\n- It is verified.\nVERIFICATION:\n- Run the test.")
+        self.assertEqual(state.current_task_id, "next.task")
 
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
         now = datetime.now(timezone.utc)
@@ -881,4 +896,3 @@ def test_verify_and_commit_skips_duplicate_pre_commit_status_only_for_fast_gate(
     assert fast_index < status_index
     assert else_index < status_index
     assert 'changed_file_count = int(gate_match.group(1)) if gate_match else 0' in content
-
