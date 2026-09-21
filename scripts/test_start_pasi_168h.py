@@ -26,6 +26,10 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
         self.assertIn("age_seconds > 30", self.source)
         self.assertIn("pasi_168h_supervisor.sh", self.source)
 
+    def test_launcher_allows_supervisor_recovery_when_engine_outlives_supervisor(self) -> None:
+        self.assertIn("is live without its supervisor; launching a supervisor to adopt the existing engine", self.source)
+        self.assertIn('if [[ -f "$SUPERVISOR_PID_FILE" ]]; then', self.source)
+
     def test_launcher_does_not_report_started_when_browser_preflight_fails(self) -> None:
         failure = self.source.index("exit 8")
         started = self.source.index("Started PASI extended runner")
