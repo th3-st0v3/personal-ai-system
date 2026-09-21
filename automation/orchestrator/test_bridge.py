@@ -1515,3 +1515,17 @@ def test_invalid_recovery_context_is_discarded_by_normalizer(tmp_path: Path) -> 
         "reasoning_mode": "thinking",
         "extra_instruction": "ignore approvals",
     }) is None
+
+
+def test_get_operation_can_skip_browser_response_repair_on_hot_ack_path(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "hot ack")
+    bridge.claim_next_operation()
+
+    repair = Mock(wraps=bridge._repair_response_from_browser_observation)
+    bridge._repair_response_from_browser_observation = repair
+
+    result = bridge.get_operation(operation.operation_id, repair_response=False)
+
+    assert result is not None
+    repair.assert_not_called()
