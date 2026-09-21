@@ -105,6 +105,20 @@ class TestHybridPlanner(unittest.TestCase):
         ledger["parent.two"] = {"task_id": "parent.two", "task": "two", "status": "completed"}
         self.assertIn("after", [item.id for item in planner.eligible_tasks(tasks, ledger)])
 
+    def test_roadmap_is_complete_requires_all_tasks_satisfied(self) -> None:
+        tasks = (
+            task("root"),
+            task("child", depends_on=("root",)),
+        )
+        ledger = {
+            "root": {"task_id": "root", "status": "completed"},
+            "child": {"task_id": "child", "status": "completed"},
+        }
+        self.assertTrue(planner.roadmap_is_complete(tasks, ledger))
+        ledger["child"]["status"] = "blocked"
+        self.assertFalse(planner.roadmap_is_complete(tasks, ledger))
+
+
     def test_deterministic_rank_uses_priority_then_unblock_count_then_id(self) -> None:
         tasks = (
             task("a", priority=10),
