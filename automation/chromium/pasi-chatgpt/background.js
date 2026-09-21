@@ -313,12 +313,6 @@ async function ensureWatchdogAlarm() {
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureWatchdogAlarm();
-
-if (chrome.sidePanel?.setPanelBehavior) {
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.warn('[PASI side panel]', error));
-}
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -327,6 +321,10 @@ chrome.runtime.onStartup.addListener(() => {
 
 void ensureWatchdogAlarm();
 
+chrome.runtime.onStartup.addListener(() => {
+  void ensureWatchdogAlarm();
+});
+ 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) inspect();
 });
