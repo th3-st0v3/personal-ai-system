@@ -481,17 +481,18 @@ class ChatGPTAdapterTests(unittest.TestCase):
         self.assertEqual(response.completion, "complete")
         self.assertTrue(response.response_available)
         self.assertEqual(response.text, "late answer")
+        paths = [path for _, path, _ in transport.requests]
+        self.assertTrue(paths[0].startswith("/operation?operation_id=op-1&wait_ms="))
         self.assertEqual(
-            [path for _, path, _ in transport.requests],
+            paths[1:5],
             [
-                "/operation?operation_id=op-1",
                 "/browser/response",
                 "/browser/response",
                 "/browser/response",
                 "/browser/response",
-                "/operation?operation_id=op-1",
             ],
         )
+        self.assertEqual(paths[5], "/operation?operation_id=op-1")
 
     def test_failed_prompt_recovers_verified_durable_response_after_completion_ack_loss(self) -> None:
         transport = FakeTransport([
