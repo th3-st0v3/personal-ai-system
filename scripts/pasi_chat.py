@@ -270,7 +270,11 @@ def browser_state(adapter: ChatGPTRoutingAdapter) -> dict[str, object]:
     if not isinstance(observation, Mapping):
         return {}
     data = observation.get("data")
-    return dict(data) if isinstance(data, Mapping) and data.get("kind") == "chatgpt_state" else {}
+    return (
+        dict(data)
+        if isinstance(data, Mapping) and data.get("kind") in {"chatgpt_health", "chatgpt_state"}
+        else {}
+    )
 
 
 def controller_observation_is_live(
@@ -378,7 +382,10 @@ def recover_replacement_chat_url(
         if not isinstance(observation, Mapping):
             continue
         data = observation.get("data")
-        if not isinstance(data, Mapping) or data.get("kind") != "chatgpt_state":
+        if (
+            not isinstance(data, Mapping)
+            or data.get("kind") not in {"chatgpt_health", "chatgpt_state"}
+        ):
             continue
         if data.get("active_operation_id") != operation_id:
             continue
