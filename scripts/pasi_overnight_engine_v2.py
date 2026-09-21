@@ -41,6 +41,7 @@ WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
 AUTOMATION_TASKS_PER_GATE = 2
 MAX_PROVIDER_LIMIT_PAUSES = 3
+PROVIDER_LIMIT_EXHAUSTED_COOLDOWN_SECONDS = 900.0
 AUTH_RECOVERY_WAIT_SECONDS = 300.0
 AUTH_RECOVERY_POLL_SECONDS = 5.0
 FALLBACK_ROUTER_COOLDOWN_SECONDS = 900.0
@@ -1179,7 +1180,8 @@ def run(state: OvernightState, *, push: bool) -> None:
         state.current_attempt = 0
         save_state(state)
         finished = False
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        attempt = 1
+        while attempt <= MAX_ATTEMPTS:
             if STOP or now_utc() >= datetime.fromisoformat(state.deadline_at):
                 return
             state.current_attempt = attempt
@@ -1219,8 +1221,21 @@ def run(state: OvernightState, *, push: bool) -> None:
                     state.provider_limit_pauses += 1
                     if state.provider_limit_pauses > MAX_PROVIDER_LIMIT_PAUSES:
                         failure = response[-12_000:] or "provider usage limit persisted across bounded pauses"
-                        log_event("provider_pause_budget_exhausted", task_number=state.task_number, count=state.provider_limit_pauses)
-                        break
+                        log_event(
+                            "provider_pause_budget_exhausted",
+                            task_number=state.task_number,
+                            count=state.provider_limit_pauses,
+                            action="cooldown_and_retry_same_task",
+                            cooldown_seconds=PROVIDER_LIMIT_EXHAUSTED_COOLDOWN_SECONDS,
+                        )
+                        state.provider_limit_pauses = 0
+                        save_state(state)
+                        if not sleep_until_retry(
+                            state,
+                            PROVIDER_LIMIT_EXHAUSTED_COOLDOWN_SECONDS,
+                        ):
+                            return
+                        continue
                 log_event(
                     "failure_classified",
                     task_id=task_key(state.current_task),
@@ -1252,6 +1267,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                     failure = "RESULT NOT EVALUATED: evidence is ambiguous or infrastructure-related; do not invent a code repair.\n" + (response[-12_000:] or "No reliable evaluation evidence was produced.")
                 else:
                     failure = response[-12_000:] or "ChatGPT returned a code/protocol failure."
+                attempt += 1
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
@@ -1291,6 +1307,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 break
             if not contract_ok or not patch:
                 failure = summary or response[-12_000:] or "provider returned no usable completion contract"
+                attempt += 1
                 continue
             try:
                 commit, verification = verify_and_commit(
@@ -1317,6 +1334,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 log_event("verification_failed", task_number=state.task_number, attempt=attempt, error=failure[-6000:], classification=classification)
                 command(["git", "reset", "--hard", "HEAD"], Path(state.worktree), 60.0)
                 command(["git", "clean", "-fd"], Path(state.worktree), 60.0)
+                attempt += 1
                 continue
             state.completed_tasks += 1
             if state.phase == "automation":
