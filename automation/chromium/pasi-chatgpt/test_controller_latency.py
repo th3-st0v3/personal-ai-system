@@ -118,8 +118,8 @@ def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_con
 def test_native_controller_has_immediate_terminal_poll_and_event_driven_waits() -> None:
     source = _read(NATIVE)
 
-    assert "const POLL_MS = TIMEOUT_POLICY.pollMs || 500;" in source
-    assert "const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;" in source
+    assert "const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;" in source
+    assert "const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 100;" in source
     assert "function waitUntil(predicate, timeoutMs, pollMs = DOM_POLL_MS)" in source
     assert "new MutationObserver" in source
     assert "queueMicrotask(() =>" in source
