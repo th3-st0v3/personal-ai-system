@@ -107,7 +107,8 @@ import sys
 try:
     state = json.loads(open(sys.argv[1], encoding="utf-8").read())
     reason = str(state.get("stop_reason", "")).strip().casefold()
-    raise SystemExit(0 if reason in {"deadline_reached", "stopped"} else 1)
+    terminal_reasons = {"deadline_reached", "stopped", "roadmap_complete", "roadmap_blocked_or_no_eligible_task"}
+    raise SystemExit(0 if reason in terminal_reasons else 1)
 except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
     raise SystemExit(1)
 PY
