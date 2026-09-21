@@ -223,7 +223,7 @@ test('native Thinking selection prefers the composer model pill and stable intel
 
 test('native prompt submission uses best-effort Thinking and event-driven acknowledgement', () => {
   assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
-  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 20/);
+  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 100/);
   assert.match(content, /function waitUntil\(predicate, timeoutMs, pollMs = DOM_POLL_MS\)/);
   assert.match(content, /MutationObserver/);
   assert.match(content, /function snapshotUserMessages\(\)/);
