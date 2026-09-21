@@ -60,7 +60,8 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     children = hardening.nonblocking_ensure_services(ledger=ledger)
 
     assert len(children) == 1
-    assert calls == [
-        [sys.executable, "-m", "automation.orchestrator.bridge"],
-    ]
+    assert calls[0][0] == sys.executable
+    assert calls[0][1].endswith("scripts/pasi_log_router.py")
+    assert "--" in calls[0]
+    assert calls[0][-3:] == [sys.executable, "-m", "automation.orchestrator.bridge"]
     assert ledger.pending() == []
