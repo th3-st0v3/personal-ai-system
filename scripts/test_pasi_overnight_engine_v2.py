@@ -14,6 +14,35 @@ from scripts import pasi_prompt_compiler as prompt_compiler
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
 
+    def test_parse_response_allows_scheduler_owned_next_task(self) -> None:
+        response = """PASI_RESULT_STATUS: complete
+PASI_RESULT_SUMMARY: fixed the task
+PASI_RESULT_REQUIREMENTS: complete
+PASI_RESULT_LIMITATIONS: none
+PASI_RESULT_RESEARCH: not_applicable
+PASI_RESULT_UX: not_applicable
+PASI_RESULT_BACKEND: verified
+PASI_RESULT_EVIDENCE: deterministic verification passed
+PASI_RESULT_REPOSITORY_PROGRESS: changed
+PASI_RESULT_ALLOW_DELETE: false
+PASI_RESULT_PATCH_BEGIN
+diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1 @@
+-old
++new
+PASI_RESULT_PATCH_END
+"""
+        status, summary, next_task, patch, allow_delete, values = engine.parse_response(response)
+        self.assertEqual(status, "complete")
+        self.assertEqual(summary, "fixed the task")
+        self.assertEqual(next_task, "")
+        self.assertTrue(patch)
+        self.assertFalse(allow_delete)
+        self.assertEqual(values["requirements"], "complete")
+
+
     def test_parse_response_records_optional_automation_continue(self) -> None:
         response = """PASI_RESULT_STATUS: complete
 PASI_RESULT_SUMMARY: fixed the issue
