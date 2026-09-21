@@ -1310,6 +1310,22 @@ def test_claim_only_returns_queued_operations(
     assert status["counts"] == {"claimed": 2}
 
 
+def test_timing_normalization_preserves_completion_to_prompt_latency_metric() -> None:
+    normalized = BridgeState.normalize_timing(
+        {
+            "injected_at_ms": 100,
+            "ack_at_ms": 110,
+            "generation_start_ms": 120,
+            "completed_at_ms": 130,
+            "completion_to_prompt_injected_ms": 7,
+            "ack_verified": True,
+        }
+    )
+
+    assert normalized is not None
+    assert normalized["completion_to_prompt_injected_ms"] == 7
+
+
 def test_completion_claims_exactly_one_next_operation_atomically(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     first = bridge.queue_operation("prompt", "first")
