@@ -37,6 +37,8 @@ class TaskSpec:
     estimated_size: str = "medium"
     phase: str = "engineering_os"
     status: str = "pending"
+    decomposition_parent: str = ""
+    decomposed_children: tuple[str, ...] = ()
 
     def execution_text(self) -> str:
         lines = [f"TITLE: {self.title}", f"OBJECTIVE: {self.objective}"]
@@ -65,6 +67,8 @@ class TaskSpec:
             "estimated_size": self.estimated_size,
             "phase": self.phase,
             "status": self.status,
+            "decomposition_parent": self.decomposition_parent,
+            "decomposed_children": list(self.decomposed_children),
         }
 
 
@@ -128,6 +132,15 @@ def task_from_mapping(raw: Mapping[str, Any], *, default_phase: str = "engineeri
     splittable = raw.get("splittable", False)
     if not isinstance(splittable, bool):
         raise PlannerError(f"{task_id}.splittable must be boolean")
+    decomposition_parent = str(raw.get("decomposition_parent", "")).strip()
+    raw_children = raw.get("decomposed_children", [])
+    decomposed_children = _string_list(
+        raw_children,
+        field=f"{task_id}.decomposed_children",
+        limit=MAX_CHILDREN,
+    )
+    if status != "decomposed" and decomposed_children:
+        raise PlannerError(f"{task_id}.decomposed_children requires decomposed status")
     return TaskSpec(
         id=task_id,
         title=title,
@@ -141,6 +154,8 @@ def task_from_mapping(raw: Mapping[str, Any], *, default_phase: str = "engineeri
         estimated_size=estimated_size,
         phase=phase,
         status=status,
+        decomposition_parent=decomposition_parent,
+        decomposed_children=decomposed_children,
     )
 
 
@@ -231,6 +246,10 @@ def load_roadmap_with_overlay(
     updated: list[TaskSpec] = []
     for task in tasks:
         if task.id in decomposed_ids:
+            info = decompositions[task.id]
+            children = info.get("children", [])
+            if not isinstance(children, list) or not all(isinstance(item, str) for item in children):
+                raise PlannerError(f"invalid decomposition children for {task.id}")
             updated.append(
                 TaskSpec(
                     id=task.id,
@@ -245,6 +264,8 @@ def load_roadmap_with_overlay(
                     estimated_size=task.estimated_size,
                     phase=task.phase,
                     status="decomposed",
+                    decomposition_parent=task.decomposition_parent,
+                    decomposed_children=tuple(children),
                 )
             )
         else:
@@ -323,19 +344,45 @@ def eligible_tasks(
     *,
     phase: str | None = None,
 ) -> tuple[TaskSpec, ...]:
-    completed = {
-        task.id
-        for task in tasks
-        if ledger_task_status(ledger, task) in {"completed", "decomposed"}
-    }
+    by_id = {task.id: task for task in tasks}
+    memo: dict[str, bool] = {}
+    visiting: set[str] = set()
+
+    def satisfied(task_id: str) -> bool:
+        if task_id in memo:
+            return memo[task_id]
+        if task_id in visiting:
+            return False
+        task = by_id.get(task_id)
+        if task is None:
+            return False
+        status = ledger_task_status(ledger, task) or task.status
+        if status == "completed":
+            memo[task_id] = True
+            return True
+        if status == "decomposed":
+            visiting.add(task_id)
+            result = bool(task.decomposed_children) and all(
+                satisfied(child_id) for child_id in task.decomposed_children
+            )
+            visiting.remove(task_id)
+            memo[task_id] = result
+            return result
+        memo[task_id] = False
+        return False
+
     result: list[TaskSpec] = []
     for task in tasks:
         if phase is not None and task.phase != phase:
             continue
         status = ledger_task_status(ledger, task) or task.status
-        if status in {"completed", "blocked", "cancelled", "decomposed", "in_progress"}:
+        if status in {"completed", "cancelled", "in_progress"}:
             continue
-        if any(dependency not in completed for dependency in task.depends_on):
+        if status == "blocked":
+            continue
+        if status == "decomposed" and satisfied(task.id):
+            continue
+        if any(not satisfied(dependency) for dependency in task.depends_on):
             continue
         result.append(task)
     return tuple(result)
@@ -543,6 +590,10 @@ def validate_decomposition(parent: TaskSpec, children: Sequence[TaskSpec]) -> tu
     for child in children:
         if child.status != "pending":
             raise PlannerError(f"decomposition child {child.id} must start pending")
+        if child.status != "pending":
+            raise PlannerError(f"decomposition child {child.id} must start pending")
+        if child.decomposition_parent != parent.id:
+            raise PlannerError(f"decomposition child {child.id} must identify its parent")
         if not child.acceptance_criteria or not child.verification:
             raise PlannerError(f"decomposition child {child.id} is incomplete")
         if child.phase != parent.phase:
@@ -556,10 +607,11 @@ def validate_decomposition(parent: TaskSpec, children: Sequence[TaskSpec]) -> tu
                 ):
                     raise PlannerError(f"decomposition child {child.id} escapes parent scope")
         dependencies = set(child.depends_on)
-        if dependencies - ids - {parent.id}:
+        allowed_dependencies = set(parent.depends_on) | ids
+        if dependencies - allowed_dependencies:
             raise PlannerError(f"decomposition child {child.id} has an external dependency")
-        if parent.id not in dependencies:
-            raise PlannerError(f"decomposition child {child.id} must depend on {parent.id}")
+        if parent.id in dependencies:
+            raise PlannerError(f"decomposition child {child.id} must not depend on the decomposed parent")
 
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -592,7 +644,7 @@ def ai_decompose_with_ollama(
     raw = _ollama_call(
         system_prompt="Decompose only the supplied engineering task. Return JSON only.",
         user_payload={
-            "instruction": "Return 2 to 16 independently verifiable child tasks. Every child must depend on the parent ID, stay within scope, and contain acceptance criteria and verification.",
+            "instruction": "Return 2 to 16 independently verifiable child tasks. Keep the parent's prerequisites, stay within its scope, and include acceptance criteria and verification. Do not make a child depend on the decomposed parent.",
             "parent": task.to_dict(),
         },
         timeout_seconds=timeout_seconds,
