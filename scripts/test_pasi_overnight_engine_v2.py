@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts import pasi_hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 
 
@@ -398,7 +399,7 @@ branch refs/heads/main
             phase="automation",
             current_task="current task",
         )
-        selected = engine.hybrid_planner.TaskSpec(
+        selected = pasi_hybrid_planner.TaskSpec(
             id="next.task",
             title="Next task",
             objective="Execute the planner-selected task.",
@@ -409,7 +410,7 @@ branch refs/heads/main
         with mock.patch.object(
             engine,
             "select_planner_task",
-            return_value=engine.hybrid_planner.PlannerDecision(
+            return_value=pasi_hybrid_planner.PlannerDecision(
                 selected=selected,
                 eligible_ids=("next.task",),
                 mode="deterministic",
@@ -467,8 +468,8 @@ branch refs/heads/main
                 with mock.patch.object(
                     engine,
                     "select_planner_task",
-                    return_value=engine.hybrid_planner.PlannerDecision(
-                        selected=engine.hybrid_planner.TaskSpec(
+                    return_value=pasi_hybrid_planner.PlannerDecision(
+                        selected=pasi_hybrid_planner.TaskSpec(
                             id="automation.after-retry",
                             title="After retry",
                             objective="Proceed to the next verified task.",
@@ -526,7 +527,7 @@ branch refs/heads/main
             current_task=failed,
             recent_tasks=[failed],
         )
-        selected = engine.hybrid_planner.TaskSpec(
+        selected = pasi_hybrid_planner.TaskSpec(
             id="automation.repair",
             title="Automation repair",
             objective="Repair the failed task using new evidence.",
@@ -537,7 +538,7 @@ branch refs/heads/main
         with mock.patch.object(
             engine,
             "select_planner_task",
-            return_value=engine.hybrid_planner.PlannerDecision(
+            return_value=pasi_hybrid_planner.PlannerDecision(
                 selected=selected,
                 eligible_ids=("automation.repair",),
                 mode="deterministic",
@@ -598,8 +599,8 @@ branch refs/heads/main
                 with mock.patch.object(
                     engine,
                     "select_planner_task",
-                    return_value=engine.hybrid_planner.PlannerDecision(
-                        selected=engine.hybrid_planner.TaskSpec(
+                    return_value=pasi_hybrid_planner.PlannerDecision(
+                        selected=pasi_hybrid_planner.TaskSpec(
                             id="automation.after-provider-recovery",
                             title="After provider recovery",
                             objective="Proceed to the next verified task.",
@@ -720,8 +721,8 @@ branch refs/heads/main
         with mock.patch.object(
             engine,
             "select_planner_task",
-            return_value=engine.hybrid_planner.PlannerDecision(
-                selected=engine.hybrid_planner.TaskSpec(
+            return_value=pasi_hybrid_planner.PlannerDecision(
+                selected=pasi_hybrid_planner.TaskSpec(
                     id="next.task",
                     title="Next task",
                     objective="Do the next thing",
