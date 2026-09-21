@@ -557,7 +557,8 @@ branch refs/heads/main
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
-            run_id="provider-limit-attempt-budget",            started_at=now.isoformat(),
+            run_id="provider-limit-attempt-budget",
+            started_at=now.isoformat(),
             deadline_at=(now + timedelta(hours=1)).isoformat(),
             worktree=str(Path.cwd()),
             branch="test",
