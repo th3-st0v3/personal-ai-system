@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -67,6 +70,102 @@ class TestPasiLogRouter(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 7)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX process groups are required")
+    def test_sigterm_terminates_managed_descendants(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "service.log"
+            grandchild_pid_file = root / "grandchild.pid"
+            terminated_marker = root / "grandchild.terminated"
+
+            grandchild_code = """
+import pathlib
+import signal
+import sys
+import time
+
+marker = pathlib.Path(sys.argv[1])
+
+def handle_term(_signum, _frame):
+    marker.write_text("terminated", encoding="utf-8")
+    raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, handle_term)
+signal.signal(signal.SIGINT, handle_term)
+while True:
+    time.sleep(60)
+""".strip()
+            child_code = """
+import pathlib
+import signal
+import subprocess
+import sys
+
+pid_file = pathlib.Path(sys.argv[1])
+marker = sys.argv[2]
+grandchild = subprocess.Popen([
+    sys.executable,
+    "-c",
+    sys.argv[3],
+    marker,
+])
+pid_file.write_text(str(grandchild.pid), encoding="utf-8")
+signal.pause()
+""".strip()
+
+            router = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(ROUTER),
+                    "--log",
+                    str(log),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    child_code,
+                    str(grandchild_pid_file),
+                    str(terminated_marker),
+                    grandchild_code,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            try:
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline and not grandchild_pid_file.exists():
+                    time.sleep(0.05)
+                self.assertTrue(
+                    grandchild_pid_file.exists(),
+                    "managed child did not publish its descendant PID",
+                )
+
+                os.kill(router.pid, signal.SIGTERM)
+                self.assertEqual(router.wait(timeout=5.0), 128 + signal.SIGTERM)
+
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline and not terminated_marker.exists():
+                    time.sleep(0.05)
+                self.assertTrue(
+                    terminated_marker.exists(),
+                    "SIGTERM did not reach the managed descendant process group",
+                )
+            finally:
+                if router.poll() is None:
+                    router.terminate()
+                    try:
+                        router.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        router.kill()
+                        router.wait(timeout=2.0)
+                if router.stderr is not None:
+                    stderr = router.stderr.read()
+                    router.stderr.close()
+                    self.assertNotIn("Traceback", stderr)
+                    self.assertNotIn("No child processes", stderr)
 
 
 if __name__ == "__main__":
