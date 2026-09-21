@@ -548,7 +548,8 @@ test('native completion telemetry is deferred off the hot path', () => {
 });
 
 test('native completion acknowledgement returns a durable next-operation handoff', () => {
-  assert.match(content, /return response\.json\(\)/);
+  assert.match(content, /const payload = response\.json\(\)/);
+  assert.match(content, /setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
   assert.match(content, /next_operation/);
   assert.match(content, /let immediateOperationQueued = false/);
   assert.match(content, /function scheduleImmediateOperation\(operation\)/);
