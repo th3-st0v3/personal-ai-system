@@ -86,7 +86,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'activity.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller keeps response telemetry off the completion critical path', () => {
@@ -163,7 +163,8 @@ test('native prompt submission retains stable Thinking selectors while using bes
   assert.match(content, /currentModelMode\(\) === 'thinking'/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
-  assert.match(content, /await submitPrompt\(operation\.prompt\)/);
+  assert.match(content, /const promptText = operationPrompt\(operation\);/);
+  assert.match(content, /await submitPrompt\(promptText\)/);
   assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 20/);
   assert.match(content, /const PREVIOUS_RESPONSE_WAIT_MS = 5 \* 60 \* 1000;/);
   assert.match(content, /const GENERATION_START_WAIT_MS = 30 \* 1000;/);
