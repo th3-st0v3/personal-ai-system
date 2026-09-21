@@ -21,6 +21,7 @@ function serializeControllerClaim(task) {
 const BRIDGE_ROUTES = new Set([
   'GET /health',
   'GET /status',
+  'GET /runner/capabilities',
   'GET /browser/observation',
   'GET /browser/health',
   'GET /browser/state',
