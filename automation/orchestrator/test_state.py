@@ -79,3 +79,14 @@ def test_terminal_response_storage_is_operation_scoped(tmp_path: Path) -> None:
     assert manager.load_terminal_response("op-1") is None
     assert manager.load_terminal_response("op-2") == "second response"
 
+
+
+
+def test_terminal_response_prune_skips_repeated_scan_for_unchanged_retained_set(tmp_path: Path) -> None:
+    manager = StateManager(tmp_path)
+    manager.terminal_responses_dir.mkdir(parents=True, exist_ok=True)
+    path_type = type(manager.terminal_responses_dir)
+    with patch.object(path_type, "glob", return_value=[]) as glob:
+        manager.prune_terminal_responses({"op-1"})
+        manager.prune_terminal_responses({"op-1"})
+    assert glob.call_count == 1
