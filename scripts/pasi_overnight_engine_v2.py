@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from scripts import pasi_hybrid_planner as hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 from scripts.pasi_stage_events import StageTimer, classify_failure
 
@@ -63,6 +64,9 @@ FALLBACK_ROUTER_COOLDOWN_SECONDS = 900.0
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
+DEFAULT_ROADMAP_PATH = REPO_ROOT / "roadmaps" / "pasi-default.json"
+ROADMAP_OVERLAY_PATH = RUNTIME_DIR / "roadmap-decompositions.json"
+PLANNER_AI_TIMEOUT_SECONDS = 1.5
 MAX_TASK_TEXT_CHARS = 4000
 CONTROL_SCRIPTS_ROOT = REPO_ROOT / "scripts"
 
@@ -132,6 +136,8 @@ class OvernightState:
     next_task: str = ""
     stop_reason: str = ""
     recent_tasks: list[str] = field(default_factory=list)
+    roadmap_path: str = ""
+    current_task_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -160,6 +166,8 @@ class OvernightState:
             "next_task": self.next_task,
             "stop_reason": self.stop_reason,
             "recent_tasks": self.recent_tasks[-12:],
+            "roadmap_path": self.roadmap_path,
+            "current_task_id": self.current_task_id,
         }
 
 
@@ -221,6 +229,8 @@ def load_state() -> OvernightState | None:
             next_task=str(raw.get("next_task", "")),
             stop_reason=str(raw.get("stop_reason", "")),
             recent_tasks=recent_tasks[-12:],
+            roadmap_path=str(raw.get("roadmap_path", "")),
+            current_task_id=str(raw.get("current_task_id", "")),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -261,6 +271,7 @@ def record_task_ledger(
     evidence: str = "",
     phase: str = "",
     automation_continue: bool = False,
+    task_id: str = "",
 ) -> None:
     normalized = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
     if not normalized:
@@ -273,6 +284,7 @@ def record_task_ledger(
         "evidence": evidence[-4000:],
         "phase": phase,
         "automation_continue": automation_continue,
+        "task_id": task_id.strip(),
         "updated_at": now_utc().isoformat(),
     }
     save_task_ledger(ledger)
@@ -460,6 +472,7 @@ def reconcile_committed_task(state: OvernightState) -> bool:
         commit=commit.strip(),
         evidence="Recovered completed task from an already-created tagged Git commit after restart.",
         phase=state.phase,
+        task_id=state.current_task_id,
     )
     state.completed_tasks += 1
     if state.phase == "automation":
@@ -497,8 +510,7 @@ def load_roadmap_selection_history() -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         phase = item.get("phase")
-        task = item.get("task")
-        run_id = item.get("run_id")
+        task = item.get("task")        run_id = item.get("run_id")
         timestamp = item.get("timestamp")
         if not isinstance(phase, str) or not isinstance(task, str):
             continue
@@ -545,34 +557,114 @@ def consecutive_roadmap_selection_count(
     return count
 
 
-def choose_run_start_task(phase: str, requested_task: str, run_id: str) -> tuple[str, bool, int]:
-    candidates = AUTOMATION_TASKS if phase == "automation" else ENGINEERING_TASKS
-    candidate = re.sub(r"\s+", " ", requested_task).strip()
-    configured = {item.casefold(): item for item in candidates}
+def planner_roadmap_path(state: OvernightState | None = None, explicit: Path | None = None) -> Path:
+    candidate = explicit
+    if candidate is None and state is not None and state.roadmap_path.strip():
+        candidate = Path(state.roadmap_path)
+    if candidate is None:
+        env_path = os.environ.get("PASI_ROADMAP_PATH", "").strip()
+        candidate = Path(env_path) if env_path else DEFAULT_ROADMAP_PATH
+    return candidate.expanduser().resolve()
 
-    if candidate and candidate.casefold() not in configured:
-        return candidate, False, 0
 
-    candidate = configured.get(candidate.casefold(), candidates[0])
+def planner_ai_ranker():
+    enabled = os.environ.get("PASI_PLANNER_AI_RANK", "").strip().casefold() in {"1", "true", "yes", "on"}
+    model = os.environ.get("PASI_PLANNER_MODEL", "").strip() or os.environ.get("OLLAMA_MODEL", "").strip()
+    if not enabled or not model:
+        return None
+    return lambda candidates: hybrid_planner.ollama_ranker(
+        candidates,
+        timeout_seconds=PLANNER_AI_TIMEOUT_SECONDS,
+        model=model,
+    )
+
+
+def load_planner_tasks(state: OvernightState, phase: str | None = None) -> tuple[hybrid_planner.TaskSpec, ...]:
+    source = planner_roadmap_path(state)
+    tasks = hybrid_planner.load_roadmap_with_overlay(source, ROADMAP_OVERLAY_PATH)
+    if phase is None:
+        return tasks
+    return tuple(task for task in tasks if task.phase == phase)
+
+
+def task_id_for_prompt(tasks: Sequence[hybrid_planner.TaskSpec], prompt: str) -> str:
+    normalized = " ".join(prompt.split())
+    for task in tasks:
+        if " ".join(task.execution_text().split()) == normalized:
+            return task.id
+    return ""
+
+
+def select_planner_task(
+    state: OvernightState,
+    *,
+    phase: str | None = None,
+) -> hybrid_planner.PlannerDecision:
+    tasks = load_planner_tasks(state)
+    decision = hybrid_planner.select_task(
+        tasks,
+        load_task_ledger(),
+        phase=phase,
+        ai_ranker=planner_ai_ranker(),
+    )
+    log_event(
+        "planner_selection",
+        phase=phase or state.phase,
+        mode=decision.mode,
+        reason=decision.reason,
+        ai_used=decision.ai_used,
+        eligible_ids=list(decision.eligible_ids),
+        selected_id=decision.selected.id if decision.selected else "",
+    )
+    return decision
+
+
+def choose_run_start_task(
+    phase: str,
+    requested_task: str,
+    run_id: str,
+    roadmap_path: Path | None = None,
+) -> tuple[str, bool, int]:
+    source = roadmap_path.expanduser().resolve() if roadmap_path else planner_roadmap_path()
+    tasks = hybrid_planner.load_roadmap_with_overlay(source, ROADMAP_OVERLAY_PATH)
+    candidates = tuple(task for task in tasks if task.phase == phase)
+    candidate_text = re.sub(r"\s+", " ", requested_task).strip()
+    candidate = None
+    for task in candidates:
+        if candidate_text.casefold() in {task.id.casefold(), task.title.casefold(), task.execution_text().casefold()}:
+            candidate = task
+            break
+    if candidate is None and candidate_text:
+        return candidate_text, False, 0
+    if candidate is None:
+        decision = hybrid_planner.select_task(
+            tasks,
+            load_task_ledger(),
+            phase=phase,
+            ai_ranker=planner_ai_ranker(),
+        )
+        if decision.selected is None:
+            raise RuntimeError(f"roadmap has no eligible {phase} task")
+        candidate = decision.selected
+
     history = load_roadmap_selection_history()
-    prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate)
+    prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate.execution_text())
     guard_applied = prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
-
-    if guard_applied:
-        index = next(index for index, item in enumerate(candidates) if item.casefold() == candidate.casefold())
-        candidate = candidates[(index + 1) % len(candidates)]
+    if guard_applied and len(candidates) > 1:
+        ordered = [task for task in candidates if task.id != candidate.id]
+        candidate = ordered[0]
 
     updated = [
         *history,
         {
             "phase": phase,
-            "task": candidate,
+            "task": candidate.execution_text(),
             "run_id": run_id,
             "timestamp": now_utc().isoformat(),
         },
     ]
     save_roadmap_selection_history(updated)
-    return candidate, guard_applied, prior_repeats
+    return candidate.execution_text(), guard_applied, prior_repeats
 
 
 def acquire_lock() -> None:
@@ -997,7 +1089,6 @@ def browser_auth_required() -> bool:
     return data.get("auth_required") is True or data.get("login_required") is True
 
 
-
 def fallback_router_available(state: OvernightState) -> bool:
     value = state.fallback_router_disabled_until.strip()
     if not value:
@@ -1219,6 +1310,11 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
+    del suggested
+    decision = select_planner_task(state, phase=state.phase)
+    if decision.selected is not None:
+        state.current_task_id = decision.selected.id
+        return decision.selected.execution_text()
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     completed = completed_task_keys()
     validated_suggestion = valid_next_task(suggested, state.current_task, state.recent_tasks)
@@ -1258,7 +1354,9 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
     ordered = list(candidates[start_index:]) + list(candidates[:start_index])
     for configured_task in ordered:
         if task_key(configured_task) not in completed:
+            state.current_task_id = ""
             return configured_task
+    state.current_task_id = ""
     return choose_unique(candidates, state)
 
 
@@ -1497,8 +1595,7 @@ def verify_and_commit(
                 task,
                 "--json",
             ],
-            REPO_ROOT,
-            90.0,
+            REPO_ROOT,            90.0,
         )
         if promotion[0] == 0:
             output = output + "\n\n[PASI PROMOTION]\n" + promotion[1]
@@ -1604,7 +1701,13 @@ def run(state: OvernightState, *, push: bool) -> None:
                 save_state(state)
                 log_event("automation_gate", gate=state.automation_gates, action="proceed_to_engineering_os")
                 state.phase = "engineering_os"
-                state.current_task = ENGINEERING_TASKS[0]
+                engineering_decision = select_planner_task(state, phase="engineering_os")
+                if engineering_decision.selected is None:
+                    state.stop_reason = "roadmap has no eligible engineering task after automation gate"
+                    save_state(state)
+                    return
+                state.current_task = engineering_decision.selected.execution_text()
+                state.current_task_id = engineering_decision.selected.id
                 save_state(state)
                 continue
 
@@ -1779,6 +1882,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                     evidence=(f"provider={provider_source}\n" + evidence_text).strip(),
                     phase=state.phase,
                     automation_continue=values.get("automation_continue", "").lower() == "true",
+                    task_id=state.current_task_id,
                 )
                 state.last_result = evidence_text
                 state.next_task = choose_next_task(state, next_task)
@@ -1842,6 +1946,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 evidence=(f"provider={provider_source}\n" + (summary or verification[-3000:])).strip(),
                 phase=state.phase,
                 automation_continue=values.get("automation_continue", "").lower() == "true",
+                task_id=state.current_task_id,
             )
             state.last_result = summary or verification[-3000:]
             state.next_task = next_task.strip()
@@ -1910,6 +2015,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run PASI unattended with bounded recovery and provider fallback.")
     parser.add_argument("--hours", type=float, default=DEFAULT_HOURS)
     parser.add_argument("--task", default="")
+    parser.add_argument("--roadmap", type=Path, default=None)
     parser.add_argument("--worktree", type=Path, default=DEFAULT_WORKTREE)
     parser.add_argument("--branch", default=f"pasi/overnight-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
     parser.add_argument("--resume", action="store_true")
@@ -1930,14 +2036,18 @@ def main() -> int:
         saved = load_state() if args.resume else None
         if saved is not None and now_utc() < datetime.fromisoformat(saved.deadline_at):
             state = saved
+            if not state.roadmap_path.strip():
+                state.roadmap_path = str(planner_roadmap_path(explicit=args.roadmap))
             state.stop_reason = ""
             resume = True
             log_event("run_resumed", **state.to_dict())
         else:
             started = now_utc()
             run_id = f"overnight-{uuid.uuid4().hex}"
+            selected_roadmap = planner_roadmap_path(explicit=args.roadmap)
+            hybrid_planner.load_roadmap_with_overlay(selected_roadmap, ROADMAP_OVERLAY_PATH)
             selected_task, guard_applied, prior_repeats = choose_run_start_task(
-                "automation", args.task.strip(), run_id
+                "automation", args.task.strip(), run_id, selected_roadmap
             )
             state = OvernightState(
                 schema_version=2,
@@ -1949,6 +2059,11 @@ def main() -> int:
                 phase="automation",
                 current_task=selected_task,
                 requested_task=args.task.strip(),
+                roadmap_path=str(selected_roadmap),
+                current_task_id=task_id_for_prompt(
+                    hybrid_planner.load_roadmap_with_overlay(selected_roadmap, ROADMAP_OVERLAY_PATH),
+                    selected_task,
+                ),
             )
             resume = False
             save_state(state)
@@ -1997,7 +2112,6 @@ def main() -> int:
             except Exception:
                 pass
         release_lock()
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
