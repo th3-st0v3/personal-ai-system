@@ -489,6 +489,64 @@ Acceptance:
         self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
         self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
 
+    def test_provider_limit_recovery_does_not_consume_task_attempt_budget(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="provider-limit-attempt-budget",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        attempts: list[int] = []
+        provider_failures = 4
+        responses = iter(
+            [(90, "CHAT_USAGE_LIMITED: provider limit")] * provider_failures
+            + [(0, "fixture response")]
+        )
+        parsed = (
+            "complete",
+            "provider recovery test passed",
+            engine.AUTOMATION_TASKS[1],
+            "diff --git a/example.txt b/example.txt\n",
+            False,
+            {
+                "evidence": "provider recovery preserved the same task attempt",
+                "automation_continue": "false",
+            },
+        )
+
+        def invoke(_task, local_state, _failure):
+            attempts.append(local_state.current_attempt)
+            return next(responses)
+
+        def verify(*_args, **_kwargs):
+            engine.STOP = True
+            return "provider-recovery-commit", "verified"
+
+        original_stop = engine.STOP
+        try:
+            engine.STOP = False
+            with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
+                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                    with mock.patch.object(engine, "parse_response", return_value=parsed):
+                        with mock.patch.object(engine, "completion_contract", return_value=True):
+                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                with mock.patch.object(engine, "record_task_ledger"):
+                                    with mock.patch.object(engine, "save_state"):
+                                        with mock.patch.object(engine, "sleep_until_retry", return_value=True):
+                                            with mock.patch.object(engine, "log_event"):
+                                                engine.run(state, push=False)
+        finally:
+            engine.STOP = original_stop
+
+        self.assertEqual(attempts, [1, 1, 1, 1, 1])
+        self.assertEqual(state.completed_tasks, 1)
+        self.assertEqual(state.failed_tasks, 0)
+
     def test_auth_recovery_waits_for_interactive_recovery_before_resuming_same_session(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
