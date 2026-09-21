@@ -23,6 +23,8 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
         self.assertIn("browser_deadline=$((SECONDS + 30))", self.source)
         self.assertIn("exit 8", self.source)
         self.assertIn("captured_at", self.source)
+        self.assertIn('raw_capture = observation.get("captured_at") if isinstance(observation, dict) else None', self.source)
+        self.assertIn('captured_at = raw_capture if isinstance(raw_capture, str) else None', self.source)
         self.assertIn("age_seconds > 30", self.source)
         self.assertIn("pasi_168h_supervisor.sh", self.source)
 
