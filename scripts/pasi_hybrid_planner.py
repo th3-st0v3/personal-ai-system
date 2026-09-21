@@ -107,11 +107,13 @@ def _string_list(value: object, *, field: str, limit: int = MAX_CRITERIA) -> tup
 
 
 def _priority(value: object) -> int:
-    if isinstance(value, bool):
+    if value is None:
+        return 0
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise PlannerError("priority must be an integer")
     try:
-        result = int(value) if value is not None else 0
-    except (TypeError, ValueError) as exc:
+        result = int(value)
+    except ValueError as exc:
         raise PlannerError("priority must be an integer") from exc
     return max(-1000, min(1000, result))
 
