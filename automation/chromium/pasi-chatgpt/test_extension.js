@@ -700,4 +700,4 @@ test('native submission fast path performs one readiness detector pass and can u
 test('native response settle fallback remains aligned with the 10ms latency target', () => {
   assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 10;/);
 });
-\n
+
