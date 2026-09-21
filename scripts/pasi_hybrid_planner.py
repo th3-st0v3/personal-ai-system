@@ -171,6 +171,26 @@ def validate_roadmap(tasks: Sequence[TaskSpec]) -> tuple[TaskSpec, ...]:
         by_id[task.id] = task
 
     for task in tasks:
+        if task.decomposition_parent:
+            parent = by_id.get(task.decomposition_parent)
+            if parent is None:
+                raise PlannerError(
+                    f"{task.id} references unknown decomposition parent {task.decomposition_parent}"
+                )
+            if task.id not in parent.decomposed_children:
+                raise PlannerError(
+                    f"{task.id} is missing from decomposition parent {parent.id}"
+                )
+        for child_id in task.decomposed_children:
+            child = by_id.get(child_id)
+            if child is None:
+                raise PlannerError(
+                    f"{task.id} references unknown decomposition child {child_id}"
+                )
+            if child.decomposition_parent != task.id:
+                raise PlannerError(
+                    f"{task.id} decomposition child {child_id} has the wrong parent"
+                )
         for dependency in task.depends_on:
             if dependency not in by_id:
                 raise PlannerError(f"{task.id} depends on unknown task {dependency}")
@@ -382,6 +402,12 @@ def eligible_tasks(
             continue
         if status == "decomposed" and satisfied(task.id):
             continue
+        if task.decomposition_parent:
+            parent = by_id.get(task.decomposition_parent)
+            parent_status = ledger_task_status(ledger, parent) if parent is not None else ""
+            parent_status = parent_status or (parent.status if parent is not None else "")
+            if parent is None or parent_status != "decomposed" or task.id not in parent.decomposed_children:
+                continue
         if any(not satisfied(dependency) for dependency in task.depends_on):
             continue
         result.append(task)
@@ -450,6 +476,12 @@ def _http_json(url: str, payload: Mapping[str, Any], timeout: float) -> dict[str
 
 def _model_json(text: str) -> Any:
     candidate = text.strip()
+    if candidate.startswith(chr(96) * 3) and candidate.endswith(chr(96) * 3):
+        lines = candidate.splitlines()
+        if len(lines) >= 3:
+            candidate = "\n".join(lines[1:-1]).strip()
+            if candidate.startswith("json"):
+                candidate = candidate[4:].lstrip()
     try:
         return json.loads(candidate)
     except json.JSONDecodeError as exc:
