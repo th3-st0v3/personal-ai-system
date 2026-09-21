@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "PASI Satellite self-hosted runner",
+  "runner_labels": ["pasi-desktop", "pasi-wsl", "pasi-capabilities-v1"],
+  "resource_boundary": {"max_memory_mib": 3072, "max_cpu_count": 2, "max_swap_mib": 0},
+  "required_commands": {
+    "bash": {"min_major": 4},
+    "curl": {},
+    "git": {"min_major": 2},
+    "node": {"min_major": 20},
+    "npm": {"min_major": 9},
+    "python3": {"min_major": 3, "min_minor": 11},
+    "bwrap": {}
+  },
+  "required_python_modules": ["pytest"],
+  "required_system_packages": ["git", "curl", "bubblewrap"],
+  "optional_tools": {"ollama": {"model": "qwen3:8b"}},
+  "runtime_checks": {
+    "bridge_health_url": "http://127.0.0.1:8765/health",
+    "browser_health_url": "http://127.0.0.1:8765/browser/health"
+  }
+}
