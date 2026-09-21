@@ -8,7 +8,7 @@
   const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 100;
   const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 250;
   const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
-  const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;
+  const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 10;
   const PREVIOUS_RESPONSE_WAIT_MS = 5 * 60 * 1000;
   const GENERATION_START_WAIT_MS = 30 * 1000;
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
@@ -16,6 +16,7 @@
   const RESPONSE_TELEMETRY_DEFER_MS = 100;
   const SUBMISSION_ATTEMPTS = 3;
   const COMPLETION_RETRY_DELAY_MS = 20;
+  const HANDOFF_ACK_MAX_AGE_MS = 5000;
   const TIMEOUTS = {
     menu: TIMEOUT_POLICY.menuMs || 8000,
     composer: TIMEOUT_POLICY.composerMs || 15000,
@@ -1176,7 +1177,11 @@
   }
 
 
-  async function submitPrompt(expected) {
+  async function submitPrompt(expected, options = {}) {
+    const fastPath = options.fastPath === true;
+    const handoffBox = options.readyBox && options.readyBox.isConnected === true
+      ? options.readyBox
+      : null;
     const snapshot = snapshotUserMessages();
     const { head, tail } = promptFingerprints(expected);
     const newMessageState = () => classifyNewUserMessages(userMessages(), snapshot, head, tail, messageText);
@@ -1228,8 +1233,18 @@
         }
       };
 
-      await ensurePromptSubmissionReady();
-      const box = composer();
+      if (fastPath) {
+        const detected = detectorState();
+        if (detected.auth_required === true) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
+        if (detected.context_exhausted === true) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
+        if (detected.context_exhausted !== true && detected.usage_limited === true) {
+          throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
+        }
+        if (reasoningMode !== 'thinking' && reasoningMode !== 'unavailable') await ensureThinkingBestEffort();
+      } else {
+        await ensurePromptSubmissionReady();
+      }
+      const box = handoffBox || composer();
       const composerEmptied = !box || !composerContainsPrompt(box, expected);
       if ((attempt > 1 && composerEmptied) || generating() || newMessageState()) {
         via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
@@ -1255,7 +1270,9 @@
         throw new Error('PASI_NATIVE: composer lost the requested prompt before submission after bounded recovery');
       }
 
-      const button = await waitForSend(readyBox);
+      const immediateButton = sendCandidatesForComposer(readyBox)[0] ||
+        labeledSendInScope(readyBox.closest?.('form') || readyBox.parentElement || null);
+      const button = immediateButton || await waitForSend(readyBox);
       if (!button) {
         if (attempt < strategies.length) continue;
         throw new Error('PASI_NATIVE: send control unavailable');
@@ -1289,6 +1306,13 @@
     throw new Error('PASI_NATIVE: prompt submission could not be verified after bounded attempts');
   }
 
+
+  function freshCompletionHandoff(operation) {
+    const ackAt = Number(operation?.__pasi_completion_ack_at_ms);
+    if (!Number.isFinite(ackAt) || ackAt <= 0) return false;
+    const age = Date.now() - ackAt;
+    return age >= 0 && age <= HANDOFF_ACK_MAX_AGE_MS;
+  }
 
   function operationPrompt(operation) {
     return `[PASI_OPERATION ${operation.operation_id}]\n${operation.prompt}`;
@@ -1468,6 +1492,9 @@
             lastCompletionAckAtMs = Date.now();
             if (payload && typeof payload === 'object' && payload.next_operation && typeof payload.next_operation === 'object') {
               payload.next_operation.__pasi_completion_ack_at_ms = lastCompletionAckAtMs;
+              if (typeof responseText === 'string' && responseText.trim()) {
+                payload.next_operation.__pasi_baseline_fingerprint = fingerprintFromText(responseText);
+              }
             }
             setTimeout(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS);
             return payload;
@@ -1542,17 +1569,29 @@
         case 'select_reasoning': await ensureThinkingBestEffort(); break;
         case 'attach_github': await attachGithub(operation.prompt); break;
         case 'prompt': {
+          const fastHandoff = freshCompletionHandoff(operation);
           await restoreRecoveryContext(operation.recovery_context);
-          await ensureThinkingBestEffort();
+          if (!fastHandoff || (reasoningMode !== 'thinking' && reasoningMode !== 'unavailable')) {
+            await ensureThinkingBestEffort();
+          }
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-          // Never inject into a composer while an earlier response is still generating.
-          const box = await waitUntil(() => {
+          // A just-completed chained operation already proved generation ended.
+          // Take the ready composer synchronously on this hot path, with the
+          // existing event-driven wait as a bounded fallback if the UI is one
+          // render behind.
+          const immediateBox = fastHandoff ? (() => {
+            const current = composer();
+            return current && !generating() ? current : null;
+          })() : null;
+          const box = immediateBox || await waitUntil(() => {
             const current = composer();
             return current && !generating() ? current : null;
           }, PREVIOUS_RESPONSE_WAIT_MS, DOM_POLL_MS);
           if (!box) throw new Error(generating() ? 'PASI_NATIVE: previous response still generating' : 'PASI_NATIVE: composer unavailable');
-          const baseline = fingerprint();
+          const baseline = typeof operation.__pasi_baseline_fingerprint === 'string'
+            ? operation.__pasi_baseline_fingerprint
+            : fingerprint();
           if (!activeRecoveryState || activeRecoveryState.operation_id !== operation.operation_id) {
             activeRecoveryState = {
               operation_id: operation.operation_id,
@@ -1567,7 +1606,10 @@
           activeRecoveryState.baseline = baseline;
           localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeRecoveryState));
           const promptText = operationPrompt(operation);
-          const submission = await submitPrompt(promptText);
+          const submission = await submitPrompt(promptText, {
+            fastPath: fastHandoff,
+            readyBox: box
+          });
           const browserTiming = { ...(submission.timing || {}) };
           const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);
           if (
@@ -1673,10 +1715,14 @@
         }
         clearMonitoringStateFor(operation.operation_id);
       }
-      void reportHealth();
       if (finalized) {
+        // Schedule the next operation before any health telemetry so the
+        // completion -> prompt critical path wins the event loop immediately.
         if (chainedOperation?.operation_id) scheduleImmediateOperation(chainedOperation);
         else scheduleImmediatePoll();
+        setTimeout(() => { void reportHealth(); }, 0);
+      } else {
+        void reportHealth();
       }
     }
   }
