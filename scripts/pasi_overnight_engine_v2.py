@@ -1115,9 +1115,13 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
         raise ValueError("model response must be text")
     values: dict[str, str] = {}
     missing_or_duplicate: list[str] = []
+    optional_markers = {"next_task"}
     for key, pattern in MARKERS.items():
         matches = pattern.findall(response)
         if len(matches) != 1:
+            if key in optional_markers and not matches:
+                values[key] = ""
+                continue
             missing_or_duplicate.append(key)
             if matches:
                 values[key] = matches[0].strip()

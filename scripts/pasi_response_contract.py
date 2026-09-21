@@ -8,7 +8,6 @@ source of truth for parser and prompt requirements.
 REQUIRED_MARKERS = (
     "PASI_RESULT_STATUS",
     "PASI_RESULT_SUMMARY",
-    "PASI_RESULT_NEXT_TASK",
     "PASI_RESULT_REQUIREMENTS",
     "PASI_RESULT_LIMITATIONS",
     "PASI_RESULT_RESEARCH",
@@ -22,7 +21,6 @@ REQUIRED_MARKERS = (
 CONTRACT = """Return each marker exactly once:
 PASI_RESULT_STATUS: complete|needs_revision|blocked
 PASI_RESULT_SUMMARY: one concise sentence
-PASI_RESULT_NEXT_TASK: one concrete high-value next task
 PASI_RESULT_REQUIREMENTS: complete
 PASI_RESULT_LIMITATIONS: handled|none|not_applicable
 PASI_RESULT_RESEARCH: performed|not_applicable
