@@ -17,6 +17,7 @@ EXTENSION_FILES = (
     "timeout-config.js",
     "timeout-policy.json",
     "background.js",
+    "detectors.js",
     "content.js",
     "recovery_progress.js",
     "recovery.js",
