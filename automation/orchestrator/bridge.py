@@ -44,8 +44,9 @@ MAX_TIMING_KEYS = frozenset({
 })
 BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 RUNNER_CAPABILITIES_PATH = Path.home() / ".pasi" / "runner" / "capabilities.json"
-RUNNER_STATE_PATH = Path.home() / ".pasi" / "overnight" / "state.json"
-RUNNER_CONTROL_PATH = Path.home() / ".pasi" / "overnight" / "control.json"
+RUNNER_RUNTIME_DIR = Path(os.environ.get("PASI_RUNTIME_DIR", str(Path.home() / ".pasi" / "overnight"))).expanduser().resolve()
+RUNNER_STATE_PATH = RUNNER_RUNTIME_DIR / "state.json"
+RUNNER_CONTROL_PATH = RUNNER_RUNTIME_DIR / "control.json"
 MAX_RUNNER_CAPABILITIES_BYTES = 256_000
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
@@ -116,7 +117,7 @@ def request_runner_control(action: str) -> dict[str, Any]:
         if pid <= 1:
             return {"accepted": False, "action": action, "reason": "runner pid invalid"}
         try:
-            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\\x00", b" ").decode("utf-8", "ignore")
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "ignore")
         except OSError:
             return {"accepted": False, "action": action, "reason": "runner process is no longer present"}
         if "pasi_overnight_engine_v2.py" not in cmdline and "pasi_168h_supervisor.sh" not in cmdline:
