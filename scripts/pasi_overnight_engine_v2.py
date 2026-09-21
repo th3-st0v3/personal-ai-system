@@ -726,7 +726,9 @@ def choose_run_start_task(
 
     history = load_roadmap_selection_history()
     prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate.execution_text())
-    guard_applied = prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
+    # Explicit operator selection is authoritative; the anti-loop guard applies
+    # only when PASI is choosing an initial task automatically.
+    guard_applied = not candidate_text and prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
     if guard_applied:
         ledger = load_task_ledger()
         eligible = hybrid_planner.eligible_tasks(candidates, ledger, phase=phase)
