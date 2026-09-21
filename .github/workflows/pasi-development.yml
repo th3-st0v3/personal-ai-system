@@ -42,7 +42,8 @@ jobs:
           REQUESTED_REF: ${{ inputs.ref }}
         run: |
           ref="${REQUESTED_REF:-${GITHUB_REF_NAME}}"
-          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          printf 'ref=%s
+' "$ref" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
@@ -63,35 +64,34 @@ jobs:
           python -m pip install -r requirements-dev.txt
           npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
 
-      - name: Validate selected roadmap
+      - name: Validate roadmap
         env:
           ROADMAP: ${{ inputs.roadmap }}
-        shell: bash
         run: |
-          case "$ROADMAP" in
-            /*|../*|*/../*|*".."*) echo "roadmap must be repository-relative" >&2; exit 2 ;;
-          esac
-          test -f "$ROADMAP"
-          python -m json.tool "$ROADMAP" >/dev/null
-          echo "Roadmap JSON valid: $ROADMAP"
+          python - "$ROADMAP" <<'PY'
+          import sys
+          from pathlib import Path
+          from scripts.pasi_hybrid_planner import PlannerError, load_roadmap
 
-      - name: Run hybrid planner tests when available
-        shell: bash
-        run: |
-          if [[ -f scripts/test_pasi_hybrid_planner.py ]]; then
-            python -m pytest -q scripts/test_pasi_hybrid_planner.py
-          else
-            echo "Hybrid planner tests not present on selected ref; continuing."
-          fi
+          root = Path.cwd().resolve()
+          candidate = (root / sys.argv[1]).resolve()
+          if root not in candidate.parents:
+              raise SystemExit("roadmap must remain inside the checked-out repository")
+          if not candidate.is_file():
+              raise SystemExit(f"roadmap not found: {candidate}")
+          try:
+              tasks = load_roadmap(candidate)
+          except PlannerError as exc:
+              raise SystemExit(f"invalid roadmap: {exc}") from exc
+          print(f"Roadmap valid: {candidate} ({len(tasks)} tasks)")
+          PY
+
+      - name: Run hybrid planner tests
+        run: python -m pytest -q scripts/test_pasi_hybrid_planner.py
 
       - name: Run controller/frontend contract tests
-        shell: bash
         run: |
-          if [[ -f automation/chromium/pasi-chatgpt/test_dom_fixtures.js ]]; then
-            node --test               automation/chromium/pasi-chatgpt/test_extension.js               automation/chromium/pasi-chatgpt/test_recovery.js               automation/chromium/pasi-chatgpt/test_native_mutation.js               automation/chromium/pasi-chatgpt/test_dom_fixtures.js
-          else
-            echo "Native extension contract tests not present on selected ref; continuing."
-          fi
+          node --test automation/chromium/pasi-chatgpt/test_extension.js             automation/chromium/pasi-chatgpt/test_recovery.js             automation/chromium/pasi-chatgpt/test_native_mutation.js             automation/chromium/pasi-chatgpt/test_dom_fixtures.js
 
       - name: Run canonical validation
         run: bash scripts/check_all.sh
@@ -109,7 +109,8 @@ jobs:
           REQUESTED_REF: ${{ inputs.ref }}
         run: |
           ref="${REQUESTED_REF:-${GITHUB_REF_NAME}}"
-          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          printf 'ref=%s
+' "$ref" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
@@ -118,7 +119,9 @@ jobs:
 
       - name: Verify native desktop boundary
         if: ${{ inputs.mode == 'start-automation' }}
-        run: python3 scripts/pasi_desktop_preflight.py
+        run: |
+          python3 scripts/reconcile_runner_capabilities.py --spec config/runner/capabilities.json --report "$HOME/.pasi/runner/capabilities.json" --json
+          python3 scripts/pasi_desktop_preflight.py
 
       - name: Start PASI development automation
         if: ${{ inputs.mode == 'start-automation' }}
