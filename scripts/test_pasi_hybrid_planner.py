@@ -265,6 +265,38 @@ class TestHybridPlanner(unittest.TestCase):
                 )
                 http_json.assert_not_called()
 
+    def test_stale_decomposition_overlay_is_ignored_after_roadmap_changes(self) -> None:
+        parent = task("parent", splittable=True, estimated_size="large")
+        children = (
+            task("parent.one", decomposition_parent="parent"),
+            task("parent.two", decomposition_parent="parent"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            roadmap = Path(directory) / "roadmap.json"
+            overlay = Path(directory) / "overlay.json"
+            roadmap.write_text(
+                json.dumps({"schema_version": 1, "tasks": [parent.to_dict()]}),
+                encoding="utf-8",
+            )
+            planner.save_decomposition_overlay(
+                overlay,
+                parent=parent,
+                children=children,
+                roadmap_path=roadmap,
+            )
+            roadmap.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "tasks": [task("replacement").to_dict()],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            loaded = planner.load_roadmap_with_overlay(roadmap, overlay)
+            self.assertEqual([item.id for item in loaded], ["replacement"])
+
+
     def test_ollama_ranker_validates_structured_response(self) -> None:
         candidates = (task("a"), task("b"))
         with mock.patch.object(
