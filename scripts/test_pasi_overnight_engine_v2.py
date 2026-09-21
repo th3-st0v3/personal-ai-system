@@ -315,7 +315,7 @@ branch refs/heads/main
         )
         self.assertEqual(
             prompt.split("RESULT:", 1)[0],
-            "CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.\n\n",
+            "CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.\n\nWork on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n",
         )
         self.assertNotIn("run-prompt-compiler", prompt)
         self.assertNotIn("Task number", prompt)
