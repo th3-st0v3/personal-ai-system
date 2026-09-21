@@ -23,6 +23,8 @@ _DIFF_PATH_RE = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]+\n\+\+\+ /dev/null$", re.MULTILINE)
 _AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 _BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
+_BRIDGE_PID_FILE = supervisor.REPO_ROOT / ".runtime" / "overnight" / "bridge.pid"
+_BRIDGE_LOG_FILE = supervisor.REPO_ROOT / ".runtime" / "overnight" / "bridge.log"
 _CONTROLLER_HEALTH_URL = "http://127.0.0.1:8765/browser/health"
 _STANDBY_SECONDS = 30.0
 PROTECTED_UNATTENDED_PATHS = frozenset({
@@ -127,7 +129,20 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger, child_registry: list[
         (
             "bridge",
             supervisor.healthy(_BRIDGE_HEALTH_URL),
-            [sys.executable, "-m", "automation.orchestrator.bridge"],
+            [
+                sys.executable,
+                str(supervisor.control_script("pasi_log_router.py")),
+                "--log",
+                str(_BRIDGE_LOG_FILE),
+                "--max-bytes",
+                "1048576",
+                "--backups",
+                "2",
+                "--",
+                sys.executable,
+                "-m",
+                "automation.orchestrator.bridge",
+            ],
         ),
     )
     for service_name, already_healthy, command in services:
@@ -142,8 +157,22 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger, child_registry: list[
                 continue
         supervisor.log_event("service_start_nonblocking", service=service_name)
         try:
-            child = subprocess.Popen(command, cwd=supervisor.REPO_ROOT)
+            child = subprocess.Popen(
+                command,
+                cwd=supervisor.REPO_ROOT,
+                stdin=subprocess.DEVNULL,
+            )
             children.append(child)
+            if service_name == "bridge":
+                try:
+                    _BRIDGE_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    _BRIDGE_PID_FILE.write_text(f"{child.pid}\n", encoding="utf-8")
+                except OSError as exc:
+                    supervisor.log_event(
+                        "service_pid_record_failed",
+                        service=service_name,
+                        error=str(exc),
+                    )
             if child_registry is not None:
                 child_registry.append(child)
         except OSError as exc:
