@@ -103,13 +103,15 @@ class OvernightHardeningTests(unittest.TestCase):
 
             child = Child()
             registry: list[object] = []
+            pid_file = root / "bridge.pid"
             with patch.object(supervisor, "healthy", return_value=False), patch.object(
                 hardening.subprocess, "Popen", return_value=child
-            ):
+            ), patch.object(hardening, "_BRIDGE_PID_FILE", pid_file):
                 started = hardening.nonblocking_ensure_services(ledger=ledger, child_registry=registry)
 
             self.assertEqual(started, [child])
             self.assertEqual(registry, [child])
+            self.assertEqual(pid_file.read_text(encoding="utf-8").strip(), str(child.pid))
 
     def test_nonblocking_service_restart_does_not_spawn_duplicate_while_child_is_live(self) -> None:
         with TemporaryDirectory() as directory:
