@@ -442,6 +442,10 @@
       .trim();
   }
 
+  function collapseWhitespace(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
   function snapshotUserMessages() {
     const nodes = userMessages();
     return {
@@ -900,7 +904,7 @@
     return nodes.length ? extractAssistant(nodes[nodes.length - 1]) : '';
   }
 
-  function fingerprint() { return latestAssistant().slice(-4000); }
+  function fingerprint() { return collapseWhitespace(latestAssistant()).slice(-4000); }
 
   function nearbyScopedControls(box) {
     const controls = [];
