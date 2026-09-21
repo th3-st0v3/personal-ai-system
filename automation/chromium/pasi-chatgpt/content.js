@@ -35,6 +35,8 @@
   let githubRepository = null;
   let lastKnownChatUrl = null;
   let extensionContextInvalidated = false;
+  let controllerLeader = false;
+  let leaseTimerId = null;
   let pollTimerId = null;
   let healthTimerId = null;
   let immediatePollQueued = false;
@@ -293,6 +295,27 @@
 
   function contextExhausted() {
     return detectorState().context_exhausted === true;
+  }
+
+  function controllerClaim() {
+    if (!globalThis.chrome?.runtime?.sendMessage) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'pasi-controller-claim' }, (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError || !response || response.ok !== true) {
+            controllerLeader = false;
+            resolve(false);
+            return;
+          }
+          controllerLeader = response.leader === true;
+          resolve(controllerLeader);
+        });
+      } catch (_) {
+        controllerLeader = false;
+        resolve(false);
+      }
+    });
   }
 
   function usageLimited() {
@@ -1368,6 +1391,13 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
+    if (leaseTimerId !== null) clearInterval(leaseTimerId);
+    await controllerClaim();
+    leaseTimerId = setInterval(() => {
+      controllerClaim().catch(() => {
+        controllerLeader = false;
+      });
+    }, 3000);
     localStorage.setItem(ACTIVE_KEY, JSON.stringify({
       operation_id: operation.operation_id,
       operation_type: operation.operation_type,
@@ -1474,6 +1504,11 @@
       }
       throw error;
     } finally {
+      if (leaseTimerId !== null) {
+        clearInterval(leaseTimerId);
+        leaseTimerId = null;
+      }
+      controllerLeader = false;
       activeOperationId = null;
       processing = false;
       if (finalized) {
@@ -1553,6 +1588,7 @@
 
   async function poll() {
     if (processing || activeOperationId !== null || extensionContextInvalidated) return;
+    if (!(await controllerClaim())) return;
     try {
       const recoveryOperation = recoveryOperationId();
       if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
