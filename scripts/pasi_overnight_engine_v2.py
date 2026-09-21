@@ -497,8 +497,7 @@ def reconcile_committed_task(state: OvernightState) -> bool:
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
     try:
-        raw = json.loads(ROADMAP_LOOP_GUARD_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw = json.loads(ROADMAP_LOOP_GUARD_PATH.read_text(encoding="utf-8"))    except (OSError, json.JSONDecodeError):
         return []
     if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != 1:
         return []
@@ -595,6 +594,10 @@ def task_id_for_prompt(tasks: Sequence[hybrid_planner.TaskSpec], prompt: str) ->
     return ""
 
 
+def planner_ai_decompose_enabled() -> bool:
+    return os.environ.get("PASI_PLANNER_AI_DECOMPOSE", "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
 def select_planner_task(
     state: OvernightState,
     *,
@@ -607,6 +610,37 @@ def select_planner_task(
         phase=phase,
         ai_ranker=planner_ai_ranker(),
     )
+    selected = decision.selected
+    if selected is not None and selected.splittable and selected.estimated_size in {"large", "very_large"} and planner_ai_decompose_enabled():
+        try:
+            children = hybrid_planner.ai_decompose_with_ollama(
+                selected,
+                timeout_seconds=PLANNER_AI_TIMEOUT_SECONDS,
+            )
+            hybrid_planner.save_decomposition_overlay(
+                ROADMAP_OVERLAY_PATH,
+                parent=selected,
+                children=children,
+            )
+            log_event(
+                "planner_decomposed_task",
+                parent_id=selected.id,
+                child_ids=[child.id for child in children],
+                reason="eligible task exceeded configured planner size threshold",
+            )
+            tasks = load_planner_tasks(state)
+            decision = hybrid_planner.select_task(
+                tasks,
+                load_task_ledger(),
+                phase=phase,
+                ai_ranker=planner_ai_ranker(),
+            )
+        except (hybrid_planner.PlannerError, OSError, TimeoutError):
+            log_event(
+                "planner_decomposition_fallback",
+                task_id=selected.id,
+                reason="AI decomposition unavailable or rejected; retaining original eligible task",
+            )
     log_event(
         "planner_selection",
         phase=phase or state.phase,
@@ -997,8 +1031,7 @@ def browser_observation() -> dict[str, Any] | None:
     token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
     if not token:
         try:
-            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
-        except OSError:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()        except OSError:
             return None
     request = urllib.request.Request(
         f"{BRIDGE_URL}/browser/observation",
@@ -1310,47 +1343,21 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
+    # The executor response is intentionally not authoritative about sequencing.
     del suggested
     decision = select_planner_task(state, phase=state.phase)
     if decision.selected is not None:
         state.current_task_id = decision.selected.id
         return decision.selected.execution_text()
+
+    # Compatibility fallback for legacy/custom runs that do not have a usable
+    # roadmap entry. This path never consumes model-supplied next-task text.
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     completed = completed_task_keys()
-    validated_suggestion = valid_next_task(suggested, state.current_task, state.recent_tasks)
-    if validated_suggestion:
-        return validated_suggestion
-    normalized_suggestion = re.sub(r"\s+", " ", suggested).strip()
     current_key = task_key(state.current_task)
     configured = {task_key(item): (index, item) for index, item in enumerate(candidates)}
-    suggestion_key = task_key(normalized_suggestion) if normalized_suggestion else ""
     current_entry = configured.get(current_key)
-    suggestion_entry = configured.get(suggestion_key)
-
-    if suggestion_entry and suggestion_key not in completed and suggestion_key != current_key:
-        return suggestion_entry[1]
-
-    advance_from_key: str | None = None
-    if suggestion_entry and (suggestion_key == current_key or suggestion_key in completed):
-        advance_from_key = suggestion_key
-    elif not normalized_suggestion:
-        recent = {task_key(item) for item in state.recent_tasks[-12:]}
-        if current_key in completed or current_key in recent:
-            advance_from_key = current_key
-        elif current_entry and current_key not in completed:
-            return current_entry[1]
-    elif current_entry and current_key not in completed:
-        completed_indices = [
-            index for key, (index, _item) in configured.items() if key in completed
-        ]
-        later_completed = [index for index in completed_indices if index > current_entry[0]]
-        if later_completed:
-            advance_from_key = task_key(candidates[max(later_completed)])
-        else:
-            # An invented/non-roadmap suggestion cannot replace an unfinished task.
-            return current_entry[1]
-
-    start_index = configured[advance_from_key][0] + 1 if advance_from_key in configured else 0
+    start_index = current_entry[0] + 1 if current_entry and current_key in completed else 0
     ordered = list(candidates[start_index:]) + list(candidates[:start_index])
     for configured_task in ordered:
         if task_key(configured_task) not in completed:
@@ -1497,8 +1504,7 @@ def verify_and_commit(
     gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower() or "full"
     verify_started_at = now_utc().isoformat()
     log_event(
-        "verify_started",
-        task=task,
+        "verify_started",        task=task,
         gate_mode=gate_mode,
         started_at=verify_started_at,
     )
@@ -1997,8 +2003,7 @@ def run(state: OvernightState, *, push: bool) -> None:
 
 def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
     if deadline_reached:
-        return "deadline_reached"
-    if stop_requested:
+        return "deadline_reached"    if stop_requested:
         return "stopped"
     return "unexpected_early_exit"
 
