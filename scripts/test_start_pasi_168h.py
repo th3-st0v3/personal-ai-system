@@ -18,6 +18,8 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
         self.assertNotIn("127.0.0.1:8766", self.source)
         self.assertNotIn("pasi_controller_server.py", self.source)
         self.assertIn('data.get("controller_version") != expected_version.strip()', self.source)
+        self.assertIn("captured_at", self.source)
+        self.assertIn("age_seconds > 30", self.source)
         self.assertIn("auth_required", self.source)
         self.assertIn("browser_deadline=$((SECONDS + 30))", self.source)
         self.assertIn("exit 8", self.source)
