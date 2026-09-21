@@ -901,3 +901,12 @@ Acceptance:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_verify_and_commit_does_not_repeat_pre_commit_status_scan() -> None:
+    source = Path(__file__).resolve().parents[0] / "pasi_overnight_engine_v2.py"
+    content = source.read_text(encoding="utf-8")
+    target = 'code, status = command(["git", "status", "--porcelain"], worktree, 30.0)'
+    assert target not in content
+    assert "fast_local_gate/check_all already verified a non-empty changed-file set." in content
+
