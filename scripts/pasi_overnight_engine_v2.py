@@ -639,6 +639,7 @@ def select_planner_task(
                 ROADMAP_OVERLAY_PATH,
                 parent=selected,
                 children=children,
+                roadmap_path=planner_roadmap_path(state),
             )
             log_event(
                 "planner_decomposed_task",
