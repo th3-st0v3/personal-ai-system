@@ -341,7 +341,7 @@ def wait_for_browser_controller(
     *,
     timeout_seconds: float = CONTROLLER_LIVENESS_TIMEOUT_SECONDS,
     max_age_seconds: float = CONTROLLER_MAX_OBSERVATION_AGE_SECONDS,
-) -> None:
+) -> Mapping[str, Any]:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
     started = time.monotonic()
@@ -351,7 +351,7 @@ def wait_for_browser_controller(
         except Exception:
             observation = None
         if controller_observation_is_live(observation, max_age_seconds=max_age_seconds):
-            return
+            return dict(observation) if isinstance(observation, Mapping) else {}
         time.sleep(0.5)
     raise RuntimeError("PASI ChatGPT browser controller is not reporting a live heartbeat. Enable the native PASI ChatGPT Controller extension or the PASI ChatGPT Controller Loader in Tampermonkey, open chatgpt.com, and refresh the page before running scripts/pasi_chat.py.")
 
@@ -446,6 +446,8 @@ def route_chat(
     task: str,
     repository: str,
     github_mode: str,
+    *,
+    initial_observation: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, object], str | None]:
     # A persisted exact-task operation means the prompt was already queued.
     # Resume it before any routing/replacement logic can create a new chat.
@@ -456,7 +458,12 @@ def route_chat(
             print(f"Resuming persisted ChatGPT operation: {pending_operation}")
         return handoff, known_url
 
-    state = browser_state(adapter)
+    state = (
+        dict(initial_observation.get("data"))
+        if isinstance(initial_observation, Mapping)
+        and isinstance(initial_observation.get("data"), Mapping)
+        else browser_state(adapter)
+    )
     observed_url = valid_chat_url(state.get("chat_url"))
     known_url = valid_chat_url(handoff.get("chat_url"))
 
@@ -560,8 +567,18 @@ def main() -> int:
     adapter = ChatGPTAdapter(UrllibBridgeTransport(), session_id=f"launcher-{uuid.uuid4().hex}", poll_interval_seconds=0.25, max_wait_seconds=args.timeout)
     try:
         print("Checking for a live PASI ChatGPT browser controller...")
-        wait_for_browser_controller(adapter, timeout_seconds=min(args.timeout, CONTROLLER_LIVENESS_TIMEOUT_SECONDS))
-        handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
+        live_observation = wait_for_browser_controller(
+            adapter,
+            timeout_seconds=min(args.timeout, CONTROLLER_LIVENESS_TIMEOUT_SECONDS),
+        )
+        handoff, _ = route_chat(
+            adapter,
+            handoff,
+            task,
+            args.repository,
+            args.github,
+            initial_observation=live_observation,
+        )
         # Persist the verified session/context checkpoint before prompt submission so a
         # process interruption cannot discard the replacement chat identity.
         save_handoff(handoff)

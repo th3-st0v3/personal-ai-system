@@ -103,6 +103,14 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("latest_chat_url = valid_chat_url(response.chat_url)", content)
         self.assertIn("if latest_chat_url is None:", content)
 
+    def test_live_controller_observation_is_reused_for_chat_routing(self) -> None:
+        source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
+        content = source.read_text(encoding="utf-8")
+        self.assertIn("initial_observation: Mapping[str, Any] | None = None", content)
+        self.assertIn("live_observation = wait_for_browser_controller(", content)
+        self.assertIn("initial_observation=live_observation", content)
+        self.assertIn("else browser_state(adapter)", content)
+
     def test_controller_update_evaluation_is_skipped_without_explicit_marker(self) -> None:
         source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
         content = source.read_text(encoding="utf-8")
