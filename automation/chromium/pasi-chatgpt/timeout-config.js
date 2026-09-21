@@ -19,7 +19,7 @@
     recoveryProgressPollMs: 5000,
     clickSettleMs: 20,
     thinkingVerifyMs: 3000,
-    responseSettleMs: 20,
+    responseSettleMs: 10,
     submissionAckMs: 1000
   });
 
