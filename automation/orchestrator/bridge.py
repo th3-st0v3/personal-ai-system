@@ -323,6 +323,79 @@ class BridgeState:
 
         return None
 
+    def get_chained_operation(self, operation_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self._load_queue()
+            current = next(
+                (item for item in queue if item.get("operation_id") == operation_id),
+                None,
+            )
+            if not current:
+                return None
+            next_operation_id = current.get("next_operation_id")
+            if not isinstance(next_operation_id, str) or not next_operation_id.strip():
+                return None
+            for item in queue:
+                if (
+                    item.get("operation_id") == next_operation_id
+                    and item.get("status") == "claimed"
+                ):
+                    return dict(item)
+            return None
+
+    def complete_operation_and_claim_next(
+        self,
+        operation_id: str,
+        chat_url: str | None = None,
+        response_text: str | None = None,
+        response_text_available: bool = False,
+        timing: object = None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Complete one operation and claim exactly one next operation in one durable queue write."""
+        with self.lock:
+            queue = self._load_queue()
+            self._sweep_queue_locked(queue)
+
+            current = next(
+                (item for item in queue if item.get("operation_id") == operation_id),
+                None,
+            )
+            if current is None:
+                return None, None
+
+            if current.get("status") == "completed":
+                chained = self.get_chained_operation(operation_id)
+                return self._hydrate_terminal_response(dict(current)), chained
+
+            current_status = str(current.get("status", ""))
+            validate_transition(current_status, "completed")
+            current["status"] = "completed"
+
+            if chat_url is not None:
+                current["chat_url"] = chat_url
+            if response_text is not None:
+                bounded_response = response_text[:MAX_RESPONSE_TEXT_CHARS]
+                current["response_text"] = bounded_response
+                current["response_text_available"] = bool(
+                    response_text_available and bool(bounded_response.strip())
+                )
+            if timing is not None:
+                normalized_timing = self.normalize_timing(timing)
+                if normalized_timing is None:
+                    raise ValueError("invalid timing payload")
+                current["timing"] = normalized_timing
+
+            chained = None
+            for item in queue:
+                if item is current or item.get("status") != "queued":
+                    continue
+                chained = dict(self._mark_claimed(item))
+                current["next_operation_id"] = item.get("operation_id")
+                break
+
+            self._save_queue(queue)
+            return dict(current), chained
+
     @staticmethod
     def normalize_timing(value: object) -> dict[str, Any] | None:
         if not isinstance(value, dict):
@@ -1162,7 +1235,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            self._send_json({"operation": operation})
+            payload = {"operation": operation}
+            chained = self.bridge_state.get_chained_operation(operation_id)
+            if chained is not None:
+                payload["next_operation"] = chained
+            self._send_json(payload)
             return
 
         if path == "/next-operation":
@@ -1599,16 +1676,21 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     operation_id,
                     normalized_timing,
                 ) or existing_operation
+            chained_operation = self.bridge_state.get_chained_operation(operation_id)
             if ack_only:
-                self._send_json(
-                    {
-                        "ok": True,
-                        "operation_id": existing_operation.get("operation_id"),
-                        "status": existing_operation.get("status"),
-                    }
-                )
+                payload = {
+                    "ok": True,
+                    "operation_id": existing_operation.get("operation_id"),
+                    "status": existing_operation.get("status"),
+                }
+                if chained_operation is not None:
+                    payload["next_operation"] = chained_operation
+                self._send_json(payload)
             else:
-                self._send_json({"operation": existing_operation})
+                payload = {"operation": existing_operation}
+                if chained_operation is not None:
+                    payload["next_operation"] = chained_operation
+                self._send_json(payload)
             return
 
         if existing_operation.get("operation_type") == "prompt":
@@ -1641,7 +1723,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             response_text_available = True
 
         try:
-            operation = self.bridge_state.complete_operation(
+            operation, chained_operation = self.bridge_state.complete_operation_and_claim_next(
                 operation_id=operation_id,
                 chat_url=chat_url,
                 response_text=response_text,
@@ -1667,13 +1749,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         if ack_only:
-            self._send_json(
-                {
-                    "ok": True,
-                    "operation_id": operation.get("operation_id"),
-                    "status": operation.get("status"),
-                }
-            )
+            payload = {
+                "ok": True,
+                "operation_id": operation.get("operation_id"),
+                "status": operation.get("status"),
+            }
+            if chained_operation is not None:
+                payload["next_operation"] = chained_operation
+            self._send_json(payload)
         else:
             self._send_json(
                 {

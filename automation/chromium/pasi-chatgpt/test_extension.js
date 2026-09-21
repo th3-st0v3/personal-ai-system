@@ -516,3 +516,13 @@ test('native controller coalesces overlapping idle polls', () => {
   assert.match(content, /pollInFlight = \(async \(\) => \{/);
   assert.match(content, /pollInFlight = null;/);
 });
+
+
+test('native completion acknowledgement returns a durable next-operation handoff', () => {
+  assert.match(content, /return response\.json\(\)/);
+  assert.match(content, /next_operation/);
+  assert.match(content, /let immediateOperationQueued = false/);
+  assert.match(content, /function scheduleImmediateOperation\(operation\)/);
+  assert.match(content, /chainedOperation = completion\?\.next_operation \|\| null/);
+  assert.match(content, /scheduleImmediateOperation\(chainedOperation\)/);
+});

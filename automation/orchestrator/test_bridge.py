@@ -1309,6 +1309,54 @@ def test_claim_only_returns_queued_operations(
     assert status["counts"] == {"claimed": 2}
 
 
+def test_completion_claims_exactly_one_next_operation_atomically(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "first")
+    second = bridge.queue_operation("prompt", "second")
+    third = bridge.queue_operation("prompt", "third")
+    bridge.claim_next_operation()
+    bridge.heartbeat(first.operation_id)
+
+    completed, chained = bridge.complete_operation_and_claim_next(
+        first.operation_id,
+        response_text="first response",
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["next_operation_id"] == second.operation_id
+    assert chained is not None
+    assert chained["operation_id"] == second.operation_id
+    assert chained["status"] == "claimed"
+    assert bridge.get_operation(third.operation_id)["status"] == "queued"
+
+
+def test_duplicate_completion_returns_the_same_chained_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "first")
+    second = bridge.queue_operation("prompt", "second")
+    bridge.claim_next_operation()
+    bridge.complete_operation_and_claim_next(
+        first.operation_id,
+        response_text="first response",
+        response_text_available=True,
+    )
+
+    completed, chained = bridge.complete_operation_and_claim_next(
+        first.operation_id,
+        response_text="stale duplicate",
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    assert completed["response_text"] == "first response"
+    assert chained is not None
+    assert chained["operation_id"] == second.operation_id
+    assert chained["status"] == "claimed"
+
+
+
 def test_missing_operation_returns_none(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     assert bridge.get_operation("op-does-not-exist") is None

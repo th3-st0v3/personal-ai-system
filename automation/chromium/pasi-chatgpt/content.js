@@ -46,6 +46,18 @@
   let lastStateReportAt = 0;
   const STATE_REPORT_MS = 10000;
   let immediatePollQueued = false;
+  let immediateOperationQueued = false;
+
+  function scheduleImmediateOperation(operation) {
+    if (immediateOperationQueued || extensionContextInvalidated || !operation?.operation_id) return;
+    immediateOperationQueued = true;
+    queueMicrotask(() => {
+      immediateOperationQueued = false;
+      if (!processing && activeOperationId === null && !extensionContextInvalidated) {
+        void processOperation(operation);
+      }
+    });
+  }
 
   function scheduleImmediatePoll() {
     if (immediatePollQueued || extensionContextInvalidated) return;
@@ -1397,7 +1409,13 @@
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const response = await bridge('/chat/finished', { method: 'POST', body });
-        if (response.ok) return;
+        if (response.ok) {
+          try {
+            return response.json();
+          } catch (_) {
+            return { ok: true, operation_id: operationId, status: 'completed' };
+          }
+        }
         lastError = new Error(`PASI_NATIVE: bridge completion failed: HTTP ${response.status}`);
       } catch (error) {
         lastError = error;
@@ -1411,7 +1429,7 @@
           payload?.operation?.response_text_available === true &&
           typeof payload?.operation?.response_text === 'string' &&
           Boolean(payload.operation.response_text.trim())
-        ) return;
+) return payload;
       } catch (_) {}
 
       if (attempt < 3) await sleep(COMPLETION_RETRY_DELAY_MS);
@@ -1449,6 +1467,7 @@
       github_repository: githubRepository
     }));
     let finalized = false;
+    let chainedOperation = null;
     try {
       switch (operation.operation_type) {
         case 'new_chat': await newChat(); break;
@@ -1505,13 +1524,15 @@
               : []
           );
           browserTiming.completed_at_ms = Date.now();
-          await finishOperation(operation.operation_id, response, true, browserTiming);
+          const completion = await finishOperation(operation.operation_id, response, true, browserTiming);
+          chainedOperation = completion?.next_operation || null;
           finalized = true;
           return;
         }
         default: throw new Error(`PASI_NATIVE: unsupported operation ${operation.operation_type}`);
       }
-      await finishOperation(operation.operation_id);
+      const completion = await finishOperation(operation.operation_id);
+      chainedOperation = completion?.next_operation || null;
       finalized = true;
     } catch (error) {
       const errorMessage = String(error?.message || error);
@@ -1563,7 +1584,10 @@
         clearMonitoringStateFor(operation.operation_id);
       }
       void reportHealth();
-      if (finalized) scheduleImmediatePoll();
+      if (finalized) {
+        if (chainedOperation?.operation_id) scheduleImmediateOperation(chainedOperation);
+        else scheduleImmediatePoll();
+      }
     }
   }
 
