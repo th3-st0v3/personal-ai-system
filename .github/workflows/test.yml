@@ -72,6 +72,8 @@ jobs:
         run: |
           python -m pytest -q automation/orchestrator/test_bridge.py automation/computer_use/test_chatgpt.py scripts/test_pasi_chat.py
           node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js automation/chromium/pasi-chatgpt/test_native_mutation.js automation/chromium/pasi-chatgpt/test_dom_fixtures.js
+      - name: Run runtime telemetry contract tests
+        run: python -m pytest -q scripts/test_pasi_runtime_telemetry.py
       - name: Run minimized Chromium response-recovery acceptance test
         run: python scripts/e2e_chromium_response_recovery.py
       - name: Run Chromium prompt-submission and chaining acceptance test
