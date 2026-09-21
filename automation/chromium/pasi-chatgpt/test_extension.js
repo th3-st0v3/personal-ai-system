@@ -549,6 +549,14 @@ test('native response completion reuses the extracted assistant text for fingerp
   assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
 });
 
+test('native chained operation skips controller lease await when the lease is fresh', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  assert.match(source, /if \(!hasFreshControllerLease\(\) && !\(await controllerClaim\(\)\)\) return/);
+  assert.match(content, /function hasFreshControllerLease\(\)/);
+});
+
 test('native completion telemetry is deferred off the hot path', () => {
   const start = content.indexOf('async function finishOperation(');
   const end = content.indexOf('  async function failOperation(', start);
@@ -557,6 +565,13 @@ test('native completion telemetry is deferred off the hot path', () => {
   assert.match(source, /const payload = response\.json\(\);\n            setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
   assert.match(source, /publishResponseTelemetry\(\);\n    throw lastError/);
   assert.doesNotMatch(source, /publishResponseTelemetry\(\);\n    let lastError/);
+});
+
+test('native chained operation carries completion acknowledgement timing', () => {
+  assert.match(content, /lastCompletionAckAtMs = Date\.now\(\)/);
+  assert.match(content, /__pasi_completion_ack_at_ms/);
+  assert.match(content, /completion_to_prompt_injected_ms/);
+  assert.match(content, /pasi_latency_measurement/);
 });
 
 test('native completion acknowledgement returns a durable next-operation handoff', () => {

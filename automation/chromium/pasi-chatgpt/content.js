@@ -48,6 +48,7 @@
   const STATE_REPORT_MS = 10000;
   let immediatePollQueued = false;
   let immediateOperationQueued = false;
+  let lastCompletionAckAtMs = 0;
 
   function scheduleImmediateOperation(operation) {
     if (immediateOperationQueued || extensionContextInvalidated || !operation?.operation_id) return;
@@ -321,6 +322,10 @@
 
   function contextExhausted() {
     return detectorState().context_exhausted === true;
+  }
+
+  function hasFreshControllerLease() {
+    return controllerLeader && Date.now() - controllerClaimedAt < CONTROLLER_CLAIM_CACHE_MS;
   }
 
   function controllerClaim({ force = false } = {}) {
@@ -1431,6 +1436,10 @@
         if (response.ok) {
           try {
             const payload = response.json();
+            lastCompletionAckAtMs = Date.now();
+            if (payload && typeof payload === 'object' && payload.next_operation && typeof payload.next_operation === 'object') {
+              payload.next_operation.__pasi_completion_ack_at_ms = lastCompletionAckAtMs;
+            }
             setTimeout(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS);
             return payload;
           } catch (_) {
@@ -1472,7 +1481,7 @@
     activeOperationId = operation.operation_id;
     processing = true;
     if (leaseTimerId !== null) clearInterval(leaseTimerId);
-    await controllerClaim();
+    if (!hasFreshControllerLease() && !(await controllerClaim())) return;
     leaseTimerId = setInterval(() => {
       controllerClaim({ force: true }).catch(() => {
         controllerLeader = false;
@@ -1515,6 +1524,20 @@
           const promptText = operationPrompt(operation);
           const submission = await submitPrompt(promptText);
           const browserTiming = { ...(submission.timing || {}) };
+          const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);
+          if (Number.isFinite(previousCompletionAckAtMs) && Number.isFinite(browserTiming.injected_at_ms)) {
+            browserTiming.completion_to_prompt_injected_ms = Math.max(
+              0,
+              browserTiming.injected_at_ms - previousCompletionAckAtMs
+            );
+            void reportObservation('pasi_latency_measurement', {
+              operation_id: operation.operation_id,
+              phase: 'completion_to_prompt_injected',
+              elapsed_ms: browserTiming.completion_to_prompt_injected_ms,
+              previous_completion_ack_at_ms: previousCompletionAckAtMs,
+              prompt_injected_at_ms: browserTiming.injected_at_ms
+            });
+          }
           void reportObservation('prompt_injected', {
             operation_id: operation.operation_id,
             captured_at: new Date().toISOString(),
