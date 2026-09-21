@@ -39,7 +39,15 @@ PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_offline.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
+    "scripts/start_pasi_168h.sh",
+    "scripts/pasi_168h_supervisor.sh",
+    "scripts/pasi_timeout_policy.py",
+    "scripts/pasi_chat_guard.py",
+    "scripts/pasi_provider_router.py",
+    "scripts/pasi_setup.py",
+    "scripts/pasi_promote.py",
     "automation/chromium/pasi-chatgpt/manifest.json",
+    "automation/chromium/pasi-chatgpt/timeout-policy.json",
 })
 PROTECTED_UNATTENDED_PREFIXES = (
     ".github/",
@@ -633,8 +641,15 @@ def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
             candidate.relative_to(root)
         except ValueError as exc:
             raise RuntimeError(f"git apply resolved an unsafe path: {path_value}") from exc
-        if path_value in PROTECTED_UNATTENDED_PATHS or any(
-            path_value.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES
+        from scripts import pasi_overnight_hardening as hardening
+        protected_paths = getattr(hardening, "PROTECTED_UNATTENDED_PATHS", PROTECTED_UNATTENDED_PATHS)
+        protected_prefixes = getattr(
+            hardening,
+            "PROTECTED_UNATTENDED_PREFIXES",
+            PROTECTED_UNATTENDED_PREFIXES,
+        )
+        if path_value in protected_paths or any(
+            path_value.startswith(prefix) for prefix in protected_prefixes
         ):
             raise RuntimeError(
                 f"git apply resolved a protected unattended path: {path_value}"
