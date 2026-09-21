@@ -198,8 +198,8 @@ def load_state() -> OvernightState | None:
     if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != 2:
         return None
     try:
-        phase = str(raw["phase"])
-        if phase not in {"automation", "engineering_os"}:
+        phase = str(raw["phase"]).strip()
+        if not phase:
             return None
         recent = raw.get("recent_tasks", [])
         recent_tasks = [str(item) for item in recent if isinstance(item, str)] if isinstance(recent, list) else []
@@ -556,6 +556,18 @@ def consecutive_roadmap_selection_count(
             break
         count += 1
     return count
+
+
+def initial_roadmap_phase(tasks: Sequence[hybrid_planner.TaskSpec]) -> str:
+    phases = []
+    for task in tasks:
+        if task.phase not in phases:
+            phases.append(task.phase)
+    if not phases:
+        raise RuntimeError("roadmap contains no tasks")
+    if "automation" in phases:
+        return "automation"
+    return phases[0]
 
 
 def planner_roadmap_path(state: OvernightState | None = None, explicit: Path | None = None) -> Path:
@@ -1698,7 +1710,10 @@ def run(state: OvernightState, *, push: bool) -> None:
                 save_state(state)
                 return
 
-        if state.phase == "automation" and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE:
+        if (
+            state.phase == "automation"
+            and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE
+        ):
             gate_evidence = automation_gate_evidence(state)
             log_event(
                 "automation_gate_evidence",
@@ -2057,8 +2072,12 @@ def main() -> int:
             run_id = f"overnight-{uuid.uuid4().hex}"
             selected_roadmap = planner_roadmap_path(explicit=args.roadmap)
             hybrid_planner.load_roadmap_with_overlay(selected_roadmap, ROADMAP_OVERLAY_PATH)
+            roadmap_tasks = hybrid_planner.load_roadmap_with_overlay(
+                selected_roadmap, ROADMAP_OVERLAY_PATH
+            )
+            initial_phase = initial_roadmap_phase(roadmap_tasks)
             selected_task, guard_applied, prior_repeats = choose_run_start_task(
-                "automation", args.task.strip(), run_id, selected_roadmap
+                initial_phase, args.task.strip(), run_id, selected_roadmap
             )
             state = OvernightState(
                 schema_version=2,
@@ -2067,7 +2086,7 @@ def main() -> int:
                 deadline_at=(started + timedelta(hours=args.hours)).isoformat(),
                 worktree=str(args.worktree.expanduser().resolve()),
                 branch=args.branch,
-                phase="automation",
+                phase=initial_phase,
                 current_task=selected_task,
                 requested_task=args.task.strip(),
                 roadmap_path=str(selected_roadmap),
