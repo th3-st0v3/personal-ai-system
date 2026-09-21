@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Iterable, cast
 from unittest import mock
 
 from scripts import pasi_hybrid_planner as planner
@@ -156,6 +157,7 @@ class TestHybridPlanner(unittest.TestCase):
             return ["b", "a"]
 
         decision = planner.select_task(tasks, ledger, ai_ranker=ranker)
+        assert decision.selected is not None
         self.assertEqual(decision.selected.id, "b")
         self.assertEqual(decision.mode, "ai_rank")
         self.assertEqual(seen, ["a", "b"])
@@ -168,6 +170,7 @@ class TestHybridPlanner(unittest.TestCase):
             {},
             ai_ranker=lambda _candidates: ["not-eligible", "b"],
         )
+        assert decision.selected is not None
         self.assertEqual(decision.selected.id, "a")
         self.assertEqual(decision.mode, "deterministic_fallback")
         self.assertFalse(decision.ai_used)
@@ -175,7 +178,7 @@ class TestHybridPlanner(unittest.TestCase):
     def test_ai_ranking_rejects_non_string_task_ids(self) -> None:
         candidates = (task("a"), task("b"))
         with self.assertRaisesRegex(planner.PlannerError, "IDs must be strings"):
-            planner.validate_ai_ranking(candidates, ["a", 1])
+            planner.validate_ai_ranking(candidates, cast(Iterable[str], ["a", 1]))
 
     def test_single_eligible_task_never_calls_ai(self) -> None:
         tasks = (task("a"), task("b", depends_on=("a",)))
@@ -191,6 +194,7 @@ class TestHybridPlanner(unittest.TestCase):
             {"a": {"task_id": "a", "status": "completed"}},
             ai_ranker=ranker,
         )
+        assert decision.selected is not None
         self.assertEqual(decision.selected.id, "b")
         self.assertFalse(called)
 
