@@ -183,7 +183,7 @@ Interrupted uncommitted task changes in the dedicated overnight worktree are cle
 
 A task is not accepted from model prose alone. The response must provide the PASI completion markers and a unified patch. PASI then checks patch paths, forbids symlink/submodule additions, applies the patch, runs `scripts/check_all.sh`, confirms that changes remain, and commits the verified result to the dedicated branch.
 
-A task that fails deterministic verification receives bounded repair attempts. When those attempts are exhausted, PASI records the failure and advances to a different task/recovery path instead of repeating forever.
+A task that fails deterministic verification receives a bounded retry cycle. When that cycle is exhausted, PASI records the failure, retains the same current task, carries the failure evidence into the next cycle, and changes approach rather than silently advancing past incomplete work.
 
 ## Safety boundary
 
