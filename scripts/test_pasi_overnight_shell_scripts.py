@@ -88,6 +88,8 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         self.assertIn("stop_managed_service", stop_script)
         self.assertIn("bridge.pid", stop_script)
         self.assertNotIn("controller-distribution.pid", stop_script)
+        self.assertNotIn("pasi_controller_server.py", stop_script)
+        self.assertNotIn("PASI controller distribution", stop_script)
         self.assertIn("START_PID_FILE", stop_script)
         self.assertIn("start_pasi_168h.sh", stop_script)
 
