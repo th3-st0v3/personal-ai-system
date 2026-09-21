@@ -54,7 +54,7 @@ test('native background controller serializes concurrent lease claims', () => {
 test('native content controller participates in the serialized controller lease', () => {
   assert.match(content, /let controllerLeader = false/);
   assert.match(content, /let leaseTimerId = null/);
-  assert.match(content, /function controllerClaim\(\)/);
+  assert.match(content, /function controllerClaim\(\{ force = false \} = \{\}\)/);
   assert.match(content, /type: 'pasi-controller-claim'/);
   assert.match(content, /if \(\!\(await controllerClaim\(\)\)\) return/);
   assert.match(content, /leaseTimerId = setInterval/);
