@@ -45,6 +45,7 @@ MAX_TIMING_KEYS = frozenset({
 BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 RUNNER_CAPABILITIES_PATH = Path.home() / ".pasi" / "runner" / "capabilities.json"
 RUNNER_STATE_PATH = Path.home() / ".pasi" / "overnight" / "state.json"
+RUNNER_CONTROL_PATH = Path.home() / ".pasi" / "overnight" / "control.json"
 MAX_RUNNER_CAPABILITIES_BYTES = 256_000
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
@@ -102,6 +103,41 @@ def load_runner_state() -> dict[str, Any]:
         "last_provider", "last_result", "next_task", "stop_reason", "recent_tasks",
     }
     return {"available": True, **{key: payload[key] for key in allowed if key in payload}}
+
+def request_runner_control(action: str) -> dict[str, Any]:
+    if action not in {"stop", "retry_current"}:
+        raise ValueError("unsupported runner control action")
+    if action == "stop":
+        try:
+            raw_pid = (RUNNER_STATE_PATH.parent / "runner.pid").read_text(encoding="utf-8").strip()
+            pid = int(raw_pid)
+        except (OSError, ValueError):
+            return {"accepted": False, "action": action, "reason": "runner pid unavailable"}
+        if pid <= 1:
+            return {"accepted": False, "action": action, "reason": "runner pid invalid"}
+        try:
+            os.kill(pid, 15)
+        except ProcessLookupError:
+            return {"accepted": False, "action": action, "reason": "runner process already stopped"}
+        except PermissionError:
+            return {"accepted": False, "action": action, "reason": "runner process signal denied"}
+        return {"accepted": True, "action": action, "pid": pid}
+
+    current_state = load_runner_state()
+    current_task = str(current_state.get("current_task", "")).strip()
+    if not current_state.get("available") or not current_task:
+        return {"accepted": False, "action": action, "reason": "no current runner task"}
+    RUNNER_CONTROL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "action": action,
+        "task_id": current_state.get("current_task_id", ""),
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    temporary = RUNNER_CONTROL_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(RUNNER_CONTROL_PATH)
+    return {"accepted": True, "action": action, "task": current_task}
 
 class BridgeState:
     """
@@ -1390,6 +1426,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
             if path == "/browser/observation":
                 self._browser_observation(payload)
+                return
+
+            if path == "/runner/control":
+                action = payload.get("action")
+                if not isinstance(action, str):
+                    self._send_json({"error": "action is required."}, HTTPStatus.BAD_REQUEST)
+                    return
+                self._send_json(request_runner_control(action.strip().casefold()))
                 return
 
             if path == "/queue":
