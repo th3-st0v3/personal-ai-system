@@ -96,6 +96,7 @@ class ChatGPTAdapter(AIAdapter):
     max_wait_seconds: float = 3600.0
     current_operation_id: str | None = None
     last_chat_url: str | None = None
+    last_operation: dict[str, Any] | None = None
 
     provider: str = "chatgpt"
 
@@ -194,6 +195,7 @@ class ChatGPTAdapter(AIAdapter):
         operation = payload.get("operation")
         if not isinstance(operation, Mapping):
             raise ChatGPTAdapterError("bridge response did not contain an operation")
+        self.last_operation = dict(operation)
         return self._response_from_operation(operation)
 
     def read_browser_observation(self) -> Mapping[str, Any] | None:
@@ -253,6 +255,7 @@ class ChatGPTAdapter(AIAdapter):
                 operation = payload.get("operation")
                 if not isinstance(operation, Mapping):
                     raise ChatGPTAdapterError("bridge response did not contain an operation")
+                self.last_operation = dict(operation)
                 response = self._response_from_operation(operation)
                 read_failures = 0
             except ChatGPTAdapterError:

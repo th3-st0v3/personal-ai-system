@@ -718,6 +718,17 @@ def bridge_operation(operation_id: str) -> dict[str, Any] | None:
     return dict(operation) if isinstance(operation, dict) else None
 
 
+def embedded_operation_metrics(output: str) -> dict[str, Any] | None:
+    match = re.search(r"^PASI_OPERATION_METRICS: (.+)$", output, re.MULTILINE)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return dict(payload) if isinstance(payload, dict) else None
+
+
 def emit_operation_metrics(task: str, attempt: int, output: str) -> None:
     operation_id = extract_operation_id(output)
     if not operation_id:
@@ -729,7 +740,7 @@ def emit_operation_metrics(task: str, attempt: int, output: str) -> None:
         operation_id=operation_id,
         queue_file_bytes=queue_file_bytes(),
     )
-    operation = bridge_operation(operation_id)
+    operation = embedded_operation_metrics(output) or bridge_operation(operation_id)
     if not operation:
         return
     timing = operation.get("timing")

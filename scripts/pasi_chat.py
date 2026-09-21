@@ -618,6 +618,15 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    operation_metrics = getattr(adapter, "last_operation", None)
+    if isinstance(operation_metrics, Mapping):
+        metrics = {
+            "operation_id": operation_metrics.get("operation_id"),
+            "timing": operation_metrics.get("timing"),
+            "recovery_events": operation_metrics.get("recovery_events"),
+        }
+        if metrics.get("operation_id"):
+            print("PASI_OPERATION_METRICS: " + json.dumps(metrics, separators=(",", ":"), ensure_ascii=False))
     print(f"Completion: {response.completion}")
     print(f"Chat URL: {response.chat_url or 'not reported'}")
     update_signal: dict[str, object] = {"state": "no_response"}
