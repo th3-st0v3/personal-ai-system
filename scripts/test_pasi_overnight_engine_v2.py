@@ -167,7 +167,7 @@ new file mode 100644
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with mock.patch.object(engine.legacy, "repository_worktree_is_clean", return_value=True):
+            with mock.patch.object(engine, "repository_worktree_is_clean", return_value=True):
                 self.assertFalse(
                     engine.no_change_completion_is_satisfied(
                         root, "complete", "next", "", values, False
