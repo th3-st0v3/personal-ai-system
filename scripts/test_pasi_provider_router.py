@@ -196,5 +196,45 @@ class TestProviderRouter(unittest.TestCase):
         ollama.assert_called_once()
 
 
+    def test_groq_and_gemini_provider_adapters_use_openai_compatible_shape(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "GROQ_API_KEY": "groq-secret",
+                "GEMINI_API_KEY": "gemini-secret",
+                "GROQ_MODEL": "test-groq",
+                "GEMINI_MODEL": "test-gemini",
+            },
+            clear=True,
+        ):
+            with patch.object(
+                pasi_provider_router,
+                "post_json",
+                return_value={"choices": [{"message": {"content": "response"}}]},
+            ) as post:
+                self.assertEqual(pasi_provider_router.call_groq("task", 10.0), "response")
+                self.assertEqual(pasi_provider_router.call_gemini("task", 10.0), "response")
+        self.assertEqual(post.call_count, 2)
+        first = post.call_args_list[0].args
+        second = post.call_args_list[1].args
+        self.assertIn("/chat/completions", first[0])
+        self.assertIn("/chat/completions", second[0])
+        self.assertEqual(first[1]["model"], "test-groq")
+        self.assertEqual(second[1]["model"], "test-gemini")
+
+    def test_provider_discovery_includes_optional_groq_and_gemini(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"GROQ_API_KEY": "secret", "GEMINI_API_KEY": "secret2"},
+            clear=True,
+        ):
+            with patch("shutil.which", return_value=None):
+                values = providers_available()
+        self.assertIn("groq", values)
+        self.assertIn("gemini", values)
+        self.assertNotIn("secret", values)
+        self.assertNotIn("secret2", values)
+
+
 if __name__ == "__main__":
     unittest.main()

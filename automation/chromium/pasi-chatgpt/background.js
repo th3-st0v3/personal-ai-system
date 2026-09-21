@@ -21,6 +21,9 @@ function serializeControllerClaim(task) {
 const BRIDGE_ROUTES = new Set([
   'GET /health',
   'GET /status',
+  'GET /runner/capabilities',
+  'GET /runner/state',
+  'POST /runner/control',
   'GET /browser/observation',
   'GET /browser/health',
   'GET /browser/state',
@@ -146,14 +149,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     const method = String(message.method || 'GET').toUpperCase();
     const path = String(message.path || '');
-    const allowed = method === 'GET'
-      && new Set(['/status', '/browser/observation']).has(path);
+    const allowed = (
+      (method === 'GET' && new Set(['/status', '/browser/observation', '/runner/capabilities', '/runner/state']).has(path))
+      || (method === 'POST' && path === '/runner/control')
+    );
     if (!allowed) {
       sendResponse({ ok: false, status: 403, text: '' });
       return undefined;
     }
 
-    bridgeFetch(path, method, null, 5000).then(sendResponse);
+    bridgeFetch(path, method, message.body ?? null, 5000).then(sendResponse);
     return true;
   }
 

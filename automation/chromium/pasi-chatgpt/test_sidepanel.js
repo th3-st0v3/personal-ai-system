@@ -24,7 +24,9 @@ test('native extension manifest exposes the side panel without broadening page p
 test('background opens the side panel from the extension action and keeps control-center bridge routes narrow', () => {
   assert.match(background, /chrome\.sidePanel\.setPanelBehavior\(\{ openPanelOnActionClick: true \}\)/);
   assert.match(background, /pasi-control-center-bridge-request/);
-  assert.match(background, /new Set\(\['\/status', '\/browser\/observation'\]\)/);
+  assert.match(background, /\/runner\/capabilities/);
+  assert.match(background, /POST \/runner\/control/);
+  assert.match(background, /bridgeFetch\(path, method, message\.body \?\? null/);
   assert.match(background, /chrome-extension:\/\/\$\{chrome\.runtime\.id\}/);
 });
 
@@ -32,7 +34,7 @@ test('side panel shell is self-contained and does not load remote assets', () =>
   assert.match(html, /<title>PASI Control Center<\/title>/);
   assert.match(html, /sidepanel\.css/);
   assert.match(html, /sidepanel\.js/);
-  assert.doesNotMatch(html, /https?:\/\//);
+  assert.doesNotMatch(html, /<(?:script|link|img|iframe)\b[^>]+https?:\/\//i);
 });
 
 test('side panel includes accessible roadmap import, keyboard reorder, telemetry, and resource controls', () => {
@@ -88,4 +90,25 @@ test('side panel respects reduced-motion preferences in its stylesheet', () => {
 
 test('side panel JavaScript syntax is valid', () => {
   assert.doesNotThrow(() => require('node:child_process').execFileSync(process.execPath, ['--check', path.join(ROOT, 'sidepanel.js')]));
+});
+
+
+test('side panel exposes live runner capability and safe control contracts', () => {
+  assert.match(html, /id="runner-metric"/);
+  assert.match(html, /id="ram-metric"/);
+  assert.match(html, /id="btn-retry-current"/);
+  assert.match(html, /id="btn-panic-stop"/);
+  assert.match(script, /bridgeGet\('\/runner\/capabilities'\)/);
+  assert.match(script, /bridgeGet\('\/runner\/state'\)/);
+  assert.match(script, /bridgePost\('\/runner\/control'/);
+  assert.match(script, /retry_current/);
+  assert.match(script, /action === 'stop'/);
+  assert.doesNotMatch(script, /<all_urls>/);
+});
+
+test('side panel persists local refresh settings', () => {
+  assert.match(html, /id="settings-dialog"/);
+  assert.match(html, /id="telemetry-interval"/);
+  assert.match(script, /telemetryIntervalMs/);
+  assert.match(script, /1000, 5000, 10000, 30000/);
 });

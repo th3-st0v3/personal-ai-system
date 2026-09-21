@@ -4,6 +4,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import pasi_extended_runtime_entrypoint as runtime
 
@@ -36,6 +37,15 @@ class ExtendedRuntimeTests(unittest.TestCase):
             else:
                 runtime.supervisor.MAX_HOURS = original_supervisor
 
+    def test_roadmap_selection_is_detected_from_passthrough_or_environment(self) -> None:
+        self.assertTrue(runtime.roadmap_selected(["--roadmap", "/tmp/roadmap.json"]))
+        self.assertFalse(runtime.roadmap_selected(["--hours", "168"]))
+        with mock.patch.dict(
+            runtime.os.environ,
+            {"PASI_ROADMAP_PATH": "/tmp/roadmap.json"},
+            clear=False,
+        ):
+            self.assertTrue(runtime.roadmap_selected(["--hours", "168"]))
     def test_task_source_precedence_matches_documented_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

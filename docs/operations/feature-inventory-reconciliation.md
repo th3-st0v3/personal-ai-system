@@ -19,7 +19,14 @@ This document reconciles the current PASI feature inventory against the reposito
 - **Runtime efficiency report** — existing telemetry reports repeated task numbers, short-response streaks, evidence thickness, recovery events, prompt sizes, and response-to-next-dispatch latency.
 - **Provider fallback boundary** — the repository already has a bounded provider router and local-provider fallback path; provider output remains subject to the same completion and verification contracts.
 - **Adversarial modification audit** — the repository has an isolated self-modification audit workflow and a protected unattended patch boundary for controller/runtime/workflow changes.
-- **Manifest capability validation** — PR #249 adds an explicit native-extension capability contract that checks Chrome API use, permission coverage, host coverage, and the Python↔localhost bridge boundary without broadening permissions.
+- **Manifest capability validation** — an explicit native-extension capability contract checks Chrome API use, permission coverage, host coverage, and the Python↔localhost bridge boundary without broadening permissions.
+- **Self-hosted runner capability reconciliation** — the desired runner environment is versioned, detected, bounded, optionally repaired, and exposed through sanitized bridge telemetry; GitHub has a dedicated dispatchable reconciliation workflow.
+- **Read-only runner state + safe Control Center controls** — the side panel can see the actual runner phase/task/resource state and request only a task-bound retry or a PASI-identified supervised stop.
+- **Live WSL resource telemetry** — the capability report records total, available, and used memory plus CPU/swap values, allowing the UI to display the enforced 3 GiB / 2 CPU / 0-swap boundary with actual usage.
+- **Optional provider expansion** — Groq and Gemini are implemented as bounded OpenAI-compatible adapters behind the same fallback/completion contract; credentials remain environment-only.
+- **Repository secret scan** — a tracked-file high-confidence secret scanner is covered by tests and the security workflow.
+- **Security automation** — CodeQL, dependency audit, and Dependabot configuration are now repository-managed security controls.
+- **Deterministic run storyteller** — durable state, handoff, and recovery events can be rendered as a bounded human-readable run narrative.
 - **WSL resource boundary** — the current development environment uses the documented 3 GiB WSL / 0 swap / 2 CPU constraint as an operator-level resource boundary.
 
 ## Implemented with a safer architectural form
@@ -31,8 +38,8 @@ This document reconciles the current PASI feature inventory against the reposito
 - **MessagePack DOM transfer** — not needed because PASI does not mirror/transmit full DOM trees across the control-plane boundary.
 - **Task churning guard** — the existing roadmap loop guard, unique-task selection, retry-cycle retention, durable ledger, short-response telemetry, and completion effort floor already address the failure mode without adding a second competing scheduler.
 - **Automatic PR autosplitting** — scope and promotion policy remain explicit. Security/runtime/control-plane changes retain their review boundary rather than being silently exploded into many automatically promoted PRs.
-- **Ghost dissection retry** — planner/dissection failures are bounded and validated by the backend contract; a UI retry affordance is not treated as the source of truth.
-- **Panic/force skip** — the system prefers bounded recovery, retry, and durable task retention. There is no unrestricted UI path that can silently bypass verification or dependency rules.
+- **Ghost dissection retry** — planner/dissection failures are bounded and validated by the backend contract; the UI retry button does not become a second scheduler.
+- **Panic/force skip** — panic stop is now available through the authenticated Control Center, but force-skip remains planner-owned so a UI action cannot bypass verification or dependency rules.
 - **Hardware profile toggle** — the Control Center stores a local preference, but hardware profiles do not override the enforced WSL/runtime safety boundary.
 - **AST modification shield** — protected runtime/controller paths are denied to unattended patches before application. A future AST-level semantic detector can add another review layer, but duplicating the same path guard is not necessary for the current M0/M1/M2 gate.
 
@@ -40,12 +47,8 @@ This document reconciles the current PASI feature inventory against the reposito
 
 These are useful future work, but they should follow live M0/M1/M2 acceptance rather than precede it.
 
-- **Groq/Gemini free-tier routing** — candidates for later provider expansion after the primary browser path and recovery gates are proven in live operation.
-- **Idempotency replay simulation** — should be added as a dedicated live/recovery acceptance harness once M2 is passing consistently.
-- **Automated storyteller** — human-readable commit summaries can be layered onto the existing impact/ledger data after core execution reliability is established.
-- **Secret scanning and broader supply-chain scanning** — repository-level security automation remains a later hardening wave; it should not become a substitute for the existing runtime authorization boundary.
-- **Extended dependency vulnerability automation** — evaluate Dependabot/CodeQL or equivalent integration as a separate security-focused change after the current CI execution problem is resolved.
-- **Visual telemetry barometer** — the side panel foundation can consume stronger host/RAM/latency telemetry once an authenticated bridge contract exists for those fields.
+- **Idempotency replay simulation** — existing bridge tests cover response-loss/idempotent replay behavior; a dedicated live M2 harness remains a runtime acceptance task.
+- **Visual telemetry barometer** — the panel now consumes authenticated runner RAM/capability telemetry; richer historical charts remain optional after live acceptance.
 - **Dissection progress UI** — the current side panel can display roadmap/task state, but authoritative multi-pass cloud dissection progress should not be fabricated before a stable dissection service exists.
 - **Speculative branching and large in-memory vector caches** — intentionally postponed until higher-memory profiles are real, measured, and justified by a demonstrated workload.
 

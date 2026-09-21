@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "name": "PASI default unattended engineering roadmap",
+  "tasks": [
+    {
+      "id": "automation.browser-observation-recovery",
+      "title": "Harden browser observation freshness and recovery",
+      "objective": "Make the native Chromium observation heartbeat remain fresh across service-worker restarts, browser refreshes, and transient bridge failures without weakening the existing watchdog boundary.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "A stale or missing observation is detected without treating a stale heartbeat as healthy.",
+        "Native controller recovery restores a fresh observation without requiring Tampermonkey.",
+        "Recovery does not create duplicate operations or bypass authentication boundaries."
+      ],
+      "verification": [
+        "Run the targeted browser/controller recovery tests.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "automation/chromium/",
+        "automation/orchestrator/",
+        "scripts/",
+        "tests/"
+      ],
+      "priority": 100,
+      "splittable": false,
+      "estimated_size": "medium",
+      "phase": "automation",
+      "status": "pending"
+    },
+    {
+      "id": "automation.response-handoff-latency",
+      "title": "Minimize completed-response to next-prompt handoff latency",
+      "objective": "Reduce unnecessary work between detected response completion and the next prompt being injected and submitted while preserving deterministic submission acknowledgement and recovery behavior.",
+      "depends_on": [
+        "automation.browser-observation-recovery"
+      ],
+      "acceptance_criteria": [
+        "The normal chained-operation path avoids avoidable polling or fixed sleeps after response completion.",
+        "Completion-to-prompt-injection timing is instrumented and covered by deterministic tests.",
+        "Thinking selection, submission acknowledgement, and recovery behavior remain correct."
+      ],
+      "verification": [
+        "Run the controller latency and browser-use compatibility tests.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "automation/chromium/",
+        "automation/orchestrator/",
+        "scripts/",
+        "tests/"
+      ],
+      "priority": 90,
+      "splittable": false,
+      "estimated_size": "medium",
+      "phase": "automation",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.task-evidence-verification",
+      "title": "Make completion evidence authoritative",
+      "objective": "Ensure unattended task completion is based on reproducible repository verification and durable ledger evidence rather than model claims alone.",
+      "depends_on": [
+        "automation.response-handoff-latency"
+      ],
+      "acceptance_criteria": [
+        "A model cannot mark an unverified patch complete.",
+        "Verification failures retain the current task for repair.",
+        "Completed-task records include concrete verification evidence and remain recoverable after restart."
+      ],
+      "verification": [
+        "Run the overnight engine and task-ledger tests.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "scripts/",
+        "tests/"
+      ],
+      "priority": 100,
+      "splittable": true,
+      "estimated_size": "large",
+      "phase": "engineering_os",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.hybrid-roadmap-planning",
+      "title": "Add deterministic-first hybrid roadmap planning",
+      "objective": "Select the next executable task from a structured roadmap using deterministic dependency and safety rules first, with optional AI ranking only among eligible tasks.",
+      "depends_on": [
+        "engineering.task-evidence-verification"
+      ],
+      "acceptance_criteria": [
+        "Roadmaps have stable task IDs, dependencies, acceptance criteria, verification, scope, and finite status values.",
+        "Dependency cycles, missing dependencies, invalid AI rankings, and scope escapes are rejected deterministically.",
+        "The executor receives only one selected task and never receives authority to choose the next task."
+      ],
+      "verification": [
+        "Run the hybrid planner unit tests.",
+        "Run the overnight engine scheduler tests.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "scripts/",
+        "roadmaps/",
+        "tests/"
+      ],
+      "priority": 100,
+      "splittable": false,
+      "estimated_size": "medium",
+      "phase": "engineering_os",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.provider-boundaries",
+      "title": "Harden provider-neutral planning and execution boundaries",
+      "objective": "Keep provider-specific adapters behind explicit capability boundaries so planner and executor behavior remains provider-neutral and authorization rules remain controller-owned.",
+      "depends_on": [
+        "engineering.hybrid-roadmap-planning"
+      ],
+      "acceptance_criteria": [
+        "Planner inputs and outputs are provider-neutral.",
+        "Fallback providers cannot apply repository changes directly.",
+        "Provider failures remain recoverable without transferring control-plane authority to a model."
+      ],
+      "verification": [
+        "Run provider router and security boundary tests.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "scripts/",
+        "automation/orchestrator/",
+        "tests/"
+      ],
+      "priority": 80,
+      "splittable": true,
+      "estimated_size": "large",
+      "phase": "engineering_os",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.application-verification",
+      "title": "Strengthen application and website verification",
+      "objective": "Extend verification so application behavior, integration failures, accessibility basics, and obvious functional regressions are tested rather than inferred from model output.",
+      "depends_on": [
+        "engineering.provider-boundaries"
+      ],
+      "acceptance_criteria": [
+        "Verification checks target observable application behavior instead of narrative claims.",
+        "Failures produce actionable evidence for the current task retry cycle.",
+        "The added checks remain bounded and deterministic for unattended operation."
+      ],
+      "verification": [
+        "Run the application/web smoke tests and their targeted regressions.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "scripts/",
+        "tests/",
+        "automation/"
+      ],
+      "priority": 70,
+      "splittable": true,
+      "estimated_size": "large",
+      "phase": "engineering_os",
+      "status": "pending"
+    }
+  ]
+}
