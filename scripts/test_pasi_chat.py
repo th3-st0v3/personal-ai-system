@@ -22,6 +22,8 @@ from scripts.pasi_chat import (
     task_fingerprint,
     public_github_context_unavailable,
     route_chat,
+    browser_state,
+    recover_replacement_chat_url,
     wait_for_browser_controller,
     repair_response_capture,
     response_capture_succeeded,
@@ -123,6 +125,39 @@ class TestPasiChat(unittest.TestCase):
         source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
         content = source.read_text(encoding="utf-8")
         self.assertIn('state.get("conversation_context_exhausted") is True', content)
+
+    def test_browser_state_accepts_health_observations(self) -> None:
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_health",
+            "chat_url": "https://chatgpt.com/c/health",
+            "chat_exhausted": False,
+        })
+        self.assertEqual(
+            browser_state(adapter).get("chat_url"),
+            "https://chatgpt.com/c/health",
+        )
+
+    def test_replacement_url_reconciliation_accepts_health_observations(self) -> None:
+        class HealthReplacementAdapter(FakeChatAdapter):
+            def __init__(self) -> None:
+                super().__init__()
+                self.reads = 0
+
+            def read_browser_observation(self) -> dict[str, object]:
+                self.reads += 1
+                return {
+                    "data": {
+                        "kind": "chatgpt_health",
+                        "active_operation_id": "op-new",
+                        "chat_url": "https://chatgpt.com/c/replacement",
+                    }
+                }
+
+        adapter = HealthReplacementAdapter()
+        self.assertEqual(
+            recover_replacement_chat_url(adapter, "op-new", attempts=1, interval_seconds=0),
+            "https://chatgpt.com/c/replacement",
+        )
 
     def test_controller_liveness_accepts_health_observations_from_browser_health(self) -> None:
         observation = {
