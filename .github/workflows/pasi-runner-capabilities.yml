@@ -1,0 +1,68 @@
+name: pasi-runner-capabilities
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to reconcile"
+        required: false
+        default: "main"
+      apply:
+        description: "Install allowlisted missing system/Python dependencies"
+        required: true
+        type: boolean
+        default: true
+      apply_optional:
+        description: "Also reconcile optional tools such as the configured Ollama model"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pasi-runner-capabilities
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 45
+    steps:
+      - name: Resolve ref
+        id: ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: printf 'ref=%s\\n' "${REQUESTED_REF:-main}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 1
+
+      - name: Reconcile runner capabilities
+        env:
+          APPLY: ${{ inputs.apply }}
+          APPLY_OPTIONAL: ${{ inputs.apply_optional }}
+        run: |
+          args=(--spec config/runner/capabilities.json --report "$HOME/.pasi/runner/capabilities.json" --json)
+          if [[ "$APPLY" == "true" ]]; then args+=(--apply); fi
+          if [[ "$APPLY_OPTIONAL" == "true" ]]; then args+=(--apply-optional); fi
+          python3 scripts/reconcile_runner_capabilities.py "${args[@]}"
+
+      - name: Verify PASI desktop boundary
+        run: python3 scripts/pasi_desktop_preflight.py
+
+      - name: Stage capability evidence
+        run: |
+          mkdir -p "$RUNNER_TEMP/pasi-capabilities"
+          cp "$HOME/.pasi/runner/capabilities.json" "$RUNNER_TEMP/pasi-capabilities/capabilities.json"
+
+      - name: Upload capability evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: pasi-runner-capabilities
+          path: ${{ runner.temp }}/pasi-capabilities/capabilities.json
+          if-no-files-found: error
