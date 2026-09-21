@@ -456,3 +456,24 @@ class TestPasiChat(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_compact_repo_state_uses_two_git_commands(self) -> None:
+        calls = []
+
+        def fake_run(command, root, *, timeout=5.0):
+            calls.append(tuple(command))
+            if command[:3] == ("git", "status", "--short"):
+                return "## feature/demo...origin/feature/demo\n M automation/foo.py"
+            if command[:2] == ("git", "log"):
+                return "0123456789abcdef feature commit (HEAD -> feature/demo)\n"
+            raise AssertionError(f"unexpected command: {command}")
+
+        with patch("scripts.pasi_chat.run", side_effect=fake_run):
+            context = compact_repo_state(Path("/tmp/repo"))
+
+        self.assertIn("Repository: " + PUBLIC_REPOSITORY_URL, context)
+        self.assertIn("Branch: feature/demo", context)
+        self.assertIn("Commit: 0123456789abcdef", context)
+        self.assertIn("Working tree:  M automation/foo.py", context)
+        self.assertEqual(len(calls), 2)
