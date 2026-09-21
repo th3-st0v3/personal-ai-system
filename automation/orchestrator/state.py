@@ -31,6 +31,7 @@ class StateManager:
         self.execution_results_path = ai_dir / "execution-results.json"
         self.handoff_path = ai_dir / "handoff.json"
         self.queue_path = ai_dir / "queue.json"
+        self.terminal_responses_path = ai_dir / "terminal-responses.json"
         self.lock_path = ai_dir / "lock.json"
 
     def write_json(self, path: Path, value: Any) -> None:
@@ -263,7 +264,7 @@ class StateManager:
     def save_queue(
         self,
         queue: list[dict[str, Any]],
-    ) -> None:
+    ) -> list[dict[str, Any]]:
         terminal_indexes = [
             index
             for index, item in enumerate(queue)
@@ -273,7 +274,7 @@ class StateManager:
             drop_indexes = set(
                 terminal_indexes[:-MAX_PERSISTED_TERMINAL_QUEUE_ITEMS]
             )
-            queue = [
+            queue[:] = [
                 item
                 for index, item in enumerate(queue)
                 if index not in drop_indexes
@@ -282,6 +283,29 @@ class StateManager:
             self.queue_path,
             queue,
         )
+        return queue
+
+    def save_terminal_responses(
+        self,
+        responses: dict[str, str],
+    ) -> None:
+        self.write_json(
+            self.terminal_responses_path,
+            responses,
+        )
+
+    def load_terminal_responses(
+        self,
+    ) -> dict[str, str]:
+        value = self.read_json(self.terminal_responses_path, {})
+        if not isinstance(value, dict) or any(
+            not isinstance(key, str) or not isinstance(response, str)
+            for key, response in value.items()
+        ):
+            raise StateCorruptionError(
+                f"Invalid state shape for {self.terminal_responses_path}: expected string response map"
+            )
+        return value
 
     def load_queue(
         self,
