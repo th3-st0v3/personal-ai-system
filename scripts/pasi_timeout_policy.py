@@ -27,7 +27,7 @@ DEFAULTS: dict[str, float] = {
     "queue_ttl_seconds": 86400.0,
     "click_settle_ms": 20.0,
     "thinking_verify_ms": 3000.0,
-    "response_settle_ms": 20.0,
+    "response_settle_ms": 10.0,
     "submission_ack_ms": 1000.0,
 }
 
