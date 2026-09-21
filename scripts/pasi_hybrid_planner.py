@@ -480,7 +480,9 @@ def validate_ai_ranking(
     ordered: list[TaskSpec] = []
     seen: set[str] = set()
     for item in ranking:
-        task_id = str(item).strip()
+        if not isinstance(item, str):
+            raise PlannerError("AI planner task IDs must be strings")
+        task_id = item.strip()
         if task_id not in by_id or task_id in seen:
             raise PlannerError("AI planner returned an invalid or duplicate task id")
         seen.add(task_id)
