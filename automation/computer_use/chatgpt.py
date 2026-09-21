@@ -84,6 +84,7 @@ BROWSER_RESPONSE_RECHECK_ATTEMPTS = 4
 BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS = 0.25
 OPERATION_READ_RETRY_ATTEMPTS = 4
 OPERATION_WAIT_CHUNK_SECONDS = 5.0
+OPERATION_READ_RETRY_BACKOFF_SECONDS = 0.02
 
 
 @dataclass
@@ -262,7 +263,7 @@ class ChatGPTAdapter(AIAdapter):
                 read_failures += 1
                 if read_failures >= OPERATION_READ_RETRY_ATTEMPTS or time.monotonic() - started >= limit:
                     raise
-                time.sleep(min(self.poll_interval_seconds, 0.25))
+                time.sleep(min(self.poll_interval_seconds, OPERATION_READ_RETRY_BACKOFF_SECONDS))
                 continue
             if response.completion in {"complete", "error", "interrupted"}:
                 if response.completion == "complete" and recover_response_text and not response.response_available:

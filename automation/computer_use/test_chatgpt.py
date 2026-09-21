@@ -268,6 +268,13 @@ class TransientOperationReadTransport(FakeTransport):
         raise AssertionError(f"unexpected transport request: {method} {path}")
 
 
+def test_wait_retry_uses_short_localhost_backoff() -> None:
+    source = Path(__file__).resolve().parents[0] / "chatgpt.py"
+    content = source.read_text(encoding="utf-8")
+    assert "OPERATION_READ_RETRY_BACKOFF_SECONDS = 0.02" in content
+    assert "min(self.poll_interval_seconds, OPERATION_READ_RETRY_BACKOFF_SECONDS)" in content
+
+
 class ChatGPTWaitTransport(FakeTransport):
     def __init__(self) -> None:
         super().__init__([])
