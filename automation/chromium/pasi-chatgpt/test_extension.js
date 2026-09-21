@@ -384,7 +384,7 @@ test('native restart reconciliation trusts nonblank persisted response text over
 test('native prompt completion refuses an empty response payload while non-prompt operations may complete without one', () => {
   assert.match(content, /async function finishOperation\(operationId, responseText = '', requireResponseText = false, timing = null\)/);
   assert.match(content, /if \(requireResponseText && \(typeof responseText !== 'string' \|\| !responseText\.trim\(\)\)\)/);
-  assert.match(content, /await finishOperation\(operation\.operation_id, response, true\)/);
+  assert.match(content, /await finishOperation\(operation\.operation_id, response, true, browserTiming\)/);
   assert.match(content, /await finishOperation\(operation\.operation_id\);/);
 });
 
