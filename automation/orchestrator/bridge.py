@@ -79,6 +79,7 @@ class BridgeState:
     def __init__(self, state_manager: StateManager):
         self.state_manager = state_manager
         self.lock = threading.RLock()
+        self.operation_changed = threading.Condition(self.lock)
         self._queue_cache: list[dict[str, Any]] | None = None
         self._queue_cache_mtime_ns: int | None = None
 
@@ -145,6 +146,7 @@ class BridgeState:
         # only when a specific terminal operation is inspected.
         self._queue_cache = normalized_queue
         self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
+        self.operation_changed.notify_all()
 
     def _hydrate_terminal_response(self, item: dict[str, Any]) -> dict[str, Any]:
         operation_id = item.get("operation_id")
@@ -395,6 +397,34 @@ class BridgeState:
 
             self._save_queue(queue)
             return dict(current), chained
+
+    def wait_for_operation(
+        self,
+        operation_id: str,
+        timeout_seconds: float,
+    ) -> dict[str, Any] | None:
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            return None
+        if timeout_seconds < 0:
+            return None
+
+        deadline = time.monotonic() + timeout_seconds
+        with self.operation_changed:
+            while True:
+                queue = self._load_queue()
+                for item in queue:
+                    if item.get("operation_id") != operation_id:
+                        continue
+                    hydrated = self._hydrate_terminal_response(dict(item))
+                    if hydrated.get("status") in TERMINAL_QUEUE_STATUSES:
+                        return hydrated
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return hydrated
+                    self.operation_changed.wait(timeout=remaining)
+                    break
+                else:
+                    return None
 
     @staticmethod
     def normalize_timing(value: object) -> dict[str, Any] | None:
@@ -1227,7 +1257,25 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            operation = self.bridge_state.get_operation(operation_id)
+            wait_values = parse_qs(parsed.query).get("wait_ms", [])
+            wait_ms = 0
+            if wait_values:
+                try:
+                    wait_ms = min(max(int(wait_values[0]), 0), 10000)
+                except ValueError:
+                    self._send_json(
+                        {"error": "wait_ms must be an integer."},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+
+            if wait_ms:
+                operation = self.bridge_state.wait_for_operation(
+                    operation_id,
+                    wait_ms / 1000.0,
+                )
+            else:
+                operation = self.bridge_state.get_operation(operation_id)
             if operation is None:
                 self._send_json(
                     {"error": "Operation not found."},

@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import threading
 from unittest.mock import Mock
+import time
 from http.client import HTTPConnection, RemoteDisconnected
 
 import pytest
@@ -1355,6 +1356,43 @@ def test_duplicate_completion_returns_the_same_chained_operation(tmp_path: Path)
     assert chained["operation_id"] == second.operation_id
     assert chained["status"] == "claimed"
 
+
+
+def test_wait_for_operation_wakes_on_durable_completion(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "wait")
+    bridge.claim_next_operation()
+
+    result: list[dict | None] = []
+
+    def waiter() -> None:
+        result.append(bridge.wait_for_operation(operation.operation_id, 1.0))
+
+    thread = threading.Thread(target=waiter)
+    thread.start()
+    time.sleep(0.01)
+    bridge.complete_operation(
+        operation.operation_id,
+        response_text="done",
+        response_text_available=True,
+    )
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert result
+    assert result[0] is not None
+    assert result[0]["status"] == "completed"
+
+
+def test_wait_for_operation_returns_current_nonterminal_state_at_deadline(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "deadline")
+    bridge.claim_next_operation()
+
+    result = bridge.wait_for_operation(operation.operation_id, 0)
+
+    assert result is not None
+    assert result["status"] == "claimed"
 
 
 def test_missing_operation_returns_none(tmp_path: Path) -> None:

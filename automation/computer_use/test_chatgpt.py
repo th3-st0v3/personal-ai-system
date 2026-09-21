@@ -268,7 +268,30 @@ class TransientOperationReadTransport(FakeTransport):
         raise AssertionError(f"unexpected transport request: {method} {path}")
 
 
+class ChatGPTWaitTransport(FakeTransport):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.wait_requests = 0
+
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        self.requests.append((method, path, payload))
+        if path.startswith("/operation?"):
+            self.wait_requests += 1
+            if "&wait_ms=" not in path:
+                raise AssertionError("completion wait must use the bounded server wait")
+            return {"operation": {"operation_id": "op-1", "operation_type": "prompt", "status": "completed", "response_text": "done", "response_text_available": True}}
+        raise AssertionError(f"unexpected transport request: {method} {path}")
+
+
 class ChatGPTAdapterTests(unittest.TestCase):
+    def test_wait_for_completion_uses_server_side_operation_wait(self) -> None:
+        transport = ChatGPTWaitTransport()
+        adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)
+        response = adapter.wait_for_completion("op-1", timeout_seconds=1.0)
+        self.assertEqual(response.completion, "complete")
+        self.assertEqual(response.text, "done")
+        self.assertEqual(transport.wait_requests, 1)
+
     def test_completed_prompt_rechecks_delayed_durable_response(self) -> None:
         transport = DelayedObservationTransport(delay_cycles=2)
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001)

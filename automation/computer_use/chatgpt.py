@@ -83,6 +83,7 @@ COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
 BROWSER_RESPONSE_RECHECK_ATTEMPTS = 4
 BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS = 0.25
 OPERATION_READ_RETRY_ATTEMPTS = 4
+OPERATION_WAIT_CHUNK_SECONDS = 5.0
 
 
 @dataclass
@@ -235,8 +236,24 @@ class ChatGPTAdapter(AIAdapter):
         started = time.monotonic()
         read_failures = 0
         while True:
+            remaining = limit - (time.monotonic() - started)
+            if remaining <= 0:
+                try:
+                    self.cancel_operation(operation_id, "ChatGPT adapter wait timeout")
+                except ChatGPTAdapterError:
+                    pass
+                return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
+            wait_seconds = min(OPERATION_WAIT_CHUNK_SECONDS, remaining)
+            wait_ms = max(1, int(wait_seconds * 1000))
             try:
-                response = self.read_operation(operation_id)
+                payload = self.transport.request(
+                    "GET",
+                    f"/operation?operation_id={quote(operation_id, safe='')}&wait_ms={wait_ms}",
+                )
+                operation = payload.get("operation")
+                if not isinstance(operation, Mapping):
+                    raise ChatGPTAdapterError("bridge response did not contain an operation")
+                response = self._response_from_operation(operation)
                 read_failures = 0
             except ChatGPTAdapterError:
                 read_failures += 1
