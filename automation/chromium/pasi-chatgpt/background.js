@@ -158,7 +158,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return undefined;
     }
 
-    bridgeFetch(path, method, null, 5000).then(sendResponse);
+    bridgeFetch(path, method, message.body ?? null, 5000).then(sendResponse);
     return true;
   }
 
