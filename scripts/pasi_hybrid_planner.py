@@ -359,6 +359,56 @@ def ledger_task_status(ledger: Mapping[str, Mapping[str, Any]], task: TaskSpec) 
     return ""
 
 
+def task_satisfied(
+    task_id: str,
+    tasks: Sequence[TaskSpec],
+    ledger: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    by_id = {task.id: task for task in tasks}
+    memo: dict[str, bool] = {}
+    visiting: set[str] = set()
+
+    def satisfied(current_id: str) -> bool:
+        if current_id in memo:
+            return memo[current_id]
+        if current_id in visiting:
+            return False
+        task = by_id.get(current_id)
+        if task is None:
+            return False
+        status = ledger_task_status(ledger, task) or task.status
+        if status == "completed":
+            memo[current_id] = True
+            return True
+        if status == "decomposed":
+            visiting.add(current_id)
+            result = bool(task.decomposed_children) and all(
+                satisfied(child_id) for child_id in task.decomposed_children
+            )
+            visiting.remove(current_id)
+            memo[current_id] = result
+            return result
+        memo[current_id] = False
+        return False
+
+    return satisfied(task_id)
+
+
+def roadmap_is_complete(
+    tasks: Sequence[TaskSpec],
+    ledger: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    if not tasks:
+        return False
+    for task in tasks:
+        status = ledger_task_status(ledger, task) or task.status
+        if status == "cancelled":
+            continue
+        if not task_satisfied(task.id, tasks, ledger):
+            return False
+    return True
+
+
 def eligible_tasks(
     tasks: Sequence[TaskSpec],
     ledger: Mapping[str, Mapping[str, Any]],
@@ -366,32 +416,6 @@ def eligible_tasks(
     phase: str | None = None,
 ) -> tuple[TaskSpec, ...]:
     by_id = {task.id: task for task in tasks}
-    memo: dict[str, bool] = {}
-    visiting: set[str] = set()
-
-    def satisfied(task_id: str) -> bool:
-        if task_id in memo:
-            return memo[task_id]
-        if task_id in visiting:
-            return False
-        task = by_id.get(task_id)
-        if task is None:
-            return False
-        status = ledger_task_status(ledger, task) or task.status
-        if status == "completed":
-            memo[task_id] = True
-            return True
-        if status == "decomposed":
-            visiting.add(task_id)
-            result = bool(task.decomposed_children) and all(
-                satisfied(child_id) for child_id in task.decomposed_children
-            )
-            visiting.remove(task_id)
-            memo[task_id] = result
-            return result
-        memo[task_id] = False
-        return False
-
     result: list[TaskSpec] = []
     for task in tasks:
         if phase is not None and task.phase != phase:
@@ -401,7 +425,7 @@ def eligible_tasks(
             continue
         if status == "blocked":
             continue
-        if status == "decomposed" and satisfied(task.id):
+        if status == "decomposed" and task_satisfied(task.id, tasks, ledger):
             continue
         if task.decomposition_parent:
             parent = by_id.get(task.decomposition_parent)
@@ -409,7 +433,7 @@ def eligible_tasks(
             parent_status = parent_status or (parent.status if parent is not None else "")
             if parent is None or parent_status != "decomposed" or task.id not in parent.decomposed_children:
                 continue
-        if any(not satisfied(dependency) for dependency in task.depends_on):
+        if any(not task_satisfied(dependency, tasks, ledger) for dependency in task.depends_on):
             continue
         result.append(task)
     return tuple(result)
