@@ -67,6 +67,7 @@ TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 HANDOFF_PATH = RUNTIME_DIR / "handoff.json"
 DEFAULT_ROADMAP_PATH = REPO_ROOT / "roadmaps" / "pasi-default.json"
 ROADMAP_OVERLAY_PATH = RUNTIME_DIR / "roadmap-decompositions.json"
+RUNNER_CONTROL_PATH = RUNTIME_DIR / "control.json"
 PLANNER_AI_TIMEOUT_SECONDS = 1.5
 MAX_TASK_TEXT_CHARS = 4000
 MIN_COMPLETION_SUMMARY_CHARS = 24
@@ -1761,9 +1762,43 @@ def sleep_until_retry(state: OvernightState, seconds: float) -> bool:
     return not STOP and now_utc() < deadline
 
 
+def consume_runner_control(state: OvernightState) -> bool:
+    """Consume one authenticated, prevalidated local control request for the current task."""
+    try:
+        if not RUNNER_CONTROL_PATH.is_file() or RUNNER_CONTROL_PATH.stat().st_size > 16_000:
+            return False
+        payload = json.loads(RUNNER_CONTROL_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        try:
+            RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+        return False
+    action = str(payload.get("action", "")).strip().casefold()
+    requested_task_id = str(payload.get("task_id", "")).strip()
+    if action != "retry_current" or not requested_task_id or requested_task_id != state.current_task_id:
+        RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+        log_event("runner_control_rejected", action=action, requested_task_id=requested_task_id, current_task_id=state.current_task_id)
+        return False
+    state.current_attempt = 0
+    state.task_retry_cycle = 0
+    state.last_failure_signature = ""
+    state.same_failure_cycles = 0
+    state.last_result = "Control Center requested a fresh bounded retry cycle for the current task."
+    state.stop_reason = ""
+    RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+    save_state(state)
+    log_event("runner_control_consumed", action=action, task_id=state.current_task_id, task_number=state.task_number)
+    return True
+
+
 def run(state: OvernightState, *, push: bool) -> None:
     failure = ""
     while not STOP and not state.stop_reason and now_utc() < datetime.fromisoformat(state.deadline_at):
+        consume_runner_control(state)
         if reconcile_committed_task(state):
             failure = ""
             continue
