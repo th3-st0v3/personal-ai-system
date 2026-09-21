@@ -136,27 +136,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === 'pasi-control-center-bridge-request') {
-    const senderUrl = String(sender?.url || '');
-    const extensionPrefix = `chrome-extension://${chrome.runtime.id}/`;
-    if (!senderUrl.startsWith(extensionPrefix)) {
-      sendResponse({ ok: false, status: 403, text: '' });
-      return undefined;
-    }
-
-    const method = String(message.method || 'GET').toUpperCase();
-    const path = String(message.path || '');
-    const allowed = method === 'GET'
-      && new Set(['/status', '/browser/observation']).has(path);
-    if (!allowed) {
-      sendResponse({ ok: false, status: 403, text: '' });
-      return undefined;
-    }
-
-    bridgeFetch(path, method, null, 5000).then(sendResponse);
-    return true;
-  }
-
   if (!message || message.type !== 'pasi-bridge-request') return undefined;
   const senderUrl = String(sender?.url || '');
   if (!/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)) {
@@ -320,12 +299,6 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 void ensureWatchdogAlarm();
-
-if (chrome.sidePanel?.setPanelBehavior) {
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.warn('[PASI side panel]', error));
-}
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) inspect();
