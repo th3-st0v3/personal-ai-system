@@ -6,7 +6,7 @@ const source = fs.readFileSync('automation/chromium/pasi-chatgpt/content.js', 'u
 
 function buildMessageText(sourceText) {
   const start = sourceText.indexOf('function messageText(node)');
-  const end = sourceText.indexOf('  function newestUserMatches', start);
+  const end = sourceText.indexOf('  function snapshotUserMessages', start);
   assert.ok(start >= 0 && end > start);
   return new Function(
     sourceText.slice(start, end) + '\nreturn messageText;'
