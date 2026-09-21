@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -44,6 +45,26 @@ def _runtime_observation() -> dict[str, Any] | None:
         return None
     observation = payload.get("observation") if isinstance(payload, dict) else None
     return observation if isinstance(observation, dict) else None
+
+
+
+
+BROWSER_OBSERVATION_MAX_AGE_SECONDS = 30.0
+
+
+def _observation_age_seconds(observation: dict[str, Any] | None) -> float | None:
+    if not isinstance(observation, dict):
+        return None
+    captured_at = observation.get("captured_at")
+    if not isinstance(captured_at, str):
+        return None
+    try:
+        captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        if captured.tzinfo is None:
+            captured = captured.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - captured).total_seconds()
 
 
 def _health(url: str, token: str | None = None) -> dict[str, Any] | None:
@@ -98,8 +119,14 @@ def build_report() -> dict[str, Any]:
         except OSError:
             browser_health_token = ""
     browser_health = _health(BROWSER_HEALTH_URL, token=browser_health_token)
+    observation_age_seconds = _observation_age_seconds(observation)
+    observation_fresh = (
+        observation_age_seconds is not None
+        and observation_age_seconds >= -5.0
+        and observation_age_seconds <= BROWSER_OBSERVATION_MAX_AGE_SECONDS
+    )
     runtime_data: dict[str, Any] = {}
-    if observation is not None:
+    if observation is not None and observation_fresh:
         observed_data = observation.get("data")
         if isinstance(observed_data, dict):
             runtime_data = observed_data
@@ -118,6 +145,8 @@ def build_report() -> dict[str, Any]:
             "bridge_health": bridge_health or {"status": "unavailable"},
             "browser_health": browser_health or {"status": "unavailable"},
             "browser_observation": observation or {"status": "unavailable"},
+            "browser_observation_age_seconds": observation_age_seconds,
+            "browser_observation_fresh": observation_fresh,
             "chatgpt_login_required": runtime_data.get("auth_required") is True,
             "chatgpt_usage_limited": runtime_data.get("provider_usage_limited") is True,
             "chatgpt_context_exhausted": runtime_data.get("conversation_context_exhausted") is True,
@@ -175,16 +204,22 @@ def print_report(report: dict[str, Any]) -> None:
         and isinstance(browser_observation.get("data"), dict)
         else None
     )
-    browser = (
-        "ok"
-        if isinstance(browser_data, dict)
+    browser_valid = (
+        isinstance(browser_data, dict)
         and browser_data.get("native_controller") is True
         and browser_data.get("kind") in {"chatgpt_health", "chatgpt_state"}
-        else "unavailable"
     )
+    browser_fresh = report["runtime"].get("browser_observation_fresh") is True
+    browser = "ok" if browser_valid and browser_fresh else ("stale" if browser_valid else "unavailable")
     print(f"  Bridge: {bridge}")
     print(f"  Native Chromium: {browser}")
-    if report["runtime"]["chatgpt_login_required"]:
+    if browser == "stale":
+        age = report["runtime"].get("browser_observation_age_seconds")
+        age_text = f"{float(age):.1f}s" if isinstance(age, (int, float)) else "unknown age"
+        print(f"  Browser observation: STALE ({age_text}); current browser state is not freshly verified.")
+    if not browser_fresh:
+        print("  ChatGPT: current browser state is not freshly verified.")
+    elif report["runtime"]["chatgpt_login_required"]:
         print("  ChatGPT: ACTION REQUIRED — authenticate / complete the interactive security check in the browser.")
     elif report["runtime"]["chatgpt_usage_limited"]:
         print("  ChatGPT: provider/account usage limit detected; PASI will use configured fallbacks when possible.")

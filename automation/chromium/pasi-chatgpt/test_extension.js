@@ -1,3 +1,9 @@
+test('native background bridge respects content-side request timeouts', () => {
+  assert.match(background, /const requestedTimeout = Number\(message\.timeout\);/);
+  assert.match(background, /Math\.min\(Math\.max\(requestedTimeout, 250\), 10000\)/);
+  assert.match(background, /bridgeFetch\(path, method, body, timeoutMs\)\.then\(sendResponse\)/);
+});
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,8 +28,8 @@ test('native bridge caches the token and refreshes once after unauthorized respo
 
 test('native timeout defaults remain fast enough for the browser freshness gate', () => {
   const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
-  assert.match(timeoutConfig, /heartbeatMs: 2 \* 1000/);
-  assert.match(timeoutConfig, /staleMs: 10 \* 1000/);
+  assert.match(timeoutConfig, /heartbeatMs: 5 \* 1000/);
+  assert.match(timeoutConfig, /staleMs: 15 \* 1000/);
 });
 
 test('native extension packages and loads the shared timeout policy resource', () => {
@@ -144,21 +150,23 @@ test('native controller reconciles completed interrupted operations before clear
 });
 
 test('native controller keeps browser health on a fast bounded cadence separate from state telemetry', () => {
-  assert.match(content, /const HEALTH_MS = Math\.min\(TIMEOUT_POLICY\.heartbeatMs \|\| 2000, 2000\);/);
-  assert.match(content, /const STATE_REPORT_MS = 5000;/);
+  assert.match(content, /const HEALTH_MS = Math\.min\(TIMEOUT_POLICY\.heartbeatMs \|\| 5000, 5000\);/);
+  assert.match(content, /const STATE_REPORT_MS = 10000;/);
   assert.match(content, /let healthReportInFlight = null;/);
   assert.match(content, /if \(healthReportInFlight\) return healthReportInFlight;/);
   assert.match(content, /await reportObservation\('chatgpt_health',[\s\S]*?, 2000\);/);
   assert.match(content, /void reportObservation\('chatgpt_state',[\s\S]*conversation_signature/);
   assert.match(content, /healthReportInFlight = null;/);
+  assert.match(content, /timeout: timeoutMs/);
 });
 
-test('native controller starts heartbeat and polling timers before the initial poll can block startup', () => {
+test('native controller starts heartbeat and polling timers before recovery or queue work can block startup', () => {
   const startIndex = content.indexOf('  async function start() {');
   const start = content.slice(startIndex, content.indexOf('\n  }', startIndex) + 4);
   assert.ok(startIndex >= 0);
-  assert.ok(start.indexOf('pollTimerId = setInterval(poll, POLL_MS);') < start.indexOf('await poll();'));
-  assert.ok(start.indexOf('healthTimerId = setInterval(reportHealth, HEALTH_MS);') < start.indexOf('await poll();'));
+  assert.ok(start.indexOf('pollTimerId = setInterval(poll, POLL_MS);') < start.indexOf('await recoverInterruptedOperation();'));
+  assert.ok(start.indexOf('healthTimerId = setInterval(reportHealth, HEALTH_MS);') < start.indexOf('await recoverInterruptedOperation();'));
+  assert.ok(start.indexOf('void reportHealth();') < start.indexOf('await recoverInterruptedOperation();'));
   assert.match(start, /if \(extensionContextInvalidated\) \{/);
 });
 

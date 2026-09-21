@@ -4,7 +4,7 @@
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
   const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
-  const HEALTH_MS = Math.min(TIMEOUT_POLICY.heartbeatMs || 2000, 2000);
+  const HEALTH_MS = Math.min(TIMEOUT_POLICY.heartbeatMs || 5000, 5000);
   const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;
   const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;
   const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
@@ -41,7 +41,7 @@
   let healthTimerId = null;
   let healthReportInFlight = null;
   let lastStateReportAt = 0;
-  const STATE_REPORT_MS = 5000;
+  const STATE_REPORT_MS = 10000;
   let immediatePollQueued = false;
 
   function scheduleImmediatePoll() {
@@ -90,7 +90,8 @@
           type: 'pasi-bridge-request',
           path: String(path || ''),
           method: String(options.method || 'GET').toUpperCase(),
-          body: options.body ?? null
+          body: options.body ?? null,
+          timeout: timeoutMs
         }, (response) => {
           if (settled) return;
           settled = true;
@@ -569,8 +570,12 @@
         lastKnownChatUrl = currentUrl;
       }
 
-      const exhausted = contextExhausted();
-      const limited = usageLimited();
+      // One detector pass per heartbeat. Repeated DOM scans here are
+      // unnecessary and can compete with the prompt/response hot path.
+      const detected = detectorState();
+      const exhausted = detected.context_exhausted === true;
+      const limited = !exhausted && detected.usage_limited === true;
+      const auth = detected.auth_required === true;
       const thinking = thinkingEnabled();
       const composerPresent = Boolean(composer());
 
@@ -579,7 +584,7 @@
       await reportObservation('chatgpt_health', {
         chat_url: currentUrl,
         provider_usage_limited: limited,
-        auth_required: authRequired(),
+        auth_required: auth,
         conversation_context_exhausted: exhausted,
         thinking_enabled: thinking,
         thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
@@ -1651,15 +1656,20 @@
   }
 
   async function start() {
-    await recoverInterruptedOperation();
-    try { await reportHealth(); } catch (_) {}
-    if (extensionContextInvalidated) return;
-
-    // Keep the heartbeat independent of the initial queue poll. A slow bridge,
-    // recovery lookup, or other startup operation must not allow the browser
-    // observation to age past the launcher's freshness gate.
+    // Start health reporting before any recovery or queue work. Freshness must
+    // not depend on the duration of interrupted-operation reconciliation.
     pollTimerId = setInterval(poll, POLL_MS);
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
+    void reportHealth();
+
+    await recoverInterruptedOperation();
+    if (extensionContextInvalidated) {
+      if (pollTimerId !== null) clearInterval(pollTimerId);
+      if (healthTimerId !== null) clearInterval(healthTimerId);
+      pollTimerId = null;
+      healthTimerId = null;
+      return;
+    }
 
     await poll();
     if (extensionContextInvalidated) {

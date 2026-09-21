@@ -1,6 +1,6 @@
 {
-  "heartbeat_seconds": 2,
-  "stale_seconds": 10,
+  "heartbeat_seconds": 5,
+  "stale_seconds": 15,
   "controller_poll_ms": 500,
   "dom_poll_ms": 20,
   "menu_ms": 5000,

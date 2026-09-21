@@ -7,8 +7,8 @@ from typing import Any
 POLICY_PATH = Path(__file__).resolve().parents[1] / "automation" / "chromium" / "pasi-chatgpt" / "timeout-policy.json"
 
 DEFAULTS: dict[str, float] = {
-    "heartbeat_seconds": 15.0,
-    "stale_seconds": 45.0,
+    "heartbeat_seconds": 5.0,
+    "stale_seconds": 15.0,
     "controller_poll_ms": 500.0,
     "dom_poll_ms": 20.0,
     "menu_ms": 5000.0,

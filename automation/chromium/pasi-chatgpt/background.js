@@ -4,7 +4,7 @@ const BRIDGE = 'http://127.0.0.1:8765';
 const ALARM = 'pasi-watchdog';
 const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
-let STALE_MS = 45 * 1000;
+let STALE_MS = 15 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
@@ -156,7 +156,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return undefined;
   }
 
-  bridgeFetch(path, method, body, 10000).then(sendResponse);
+  const requestedTimeout = Number(message.timeout);
+  const timeoutMs = Number.isFinite(requestedTimeout)
+    ? Math.min(Math.max(requestedTimeout, 250), 10000)
+    : 10000;
+  bridgeFetch(path, method, body, timeoutMs).then(sendResponse);
   return true;
 });
 function observationAge(observation) {
