@@ -157,6 +157,14 @@ run_check "Browser Use compatibility" python -c '
 import importlib.metadata
 from browser_use import Agent, Browser
 
+
+# The browser DOM fixture suite uses jsdom. Keep local validation aligned with
+# the CI workflow by provisioning the pinned test-only dependency when needed.
+if ! node -e 'require.resolve("jsdom")' >/dev/null 2>&1; then
+    printf '\n==> JavaScript DOM fixture dependency\n'
+    npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
+fi
+
 version = importlib.metadata.version("browser-use")
 assert version == "0.13.10", version
 assert Agent is not None
