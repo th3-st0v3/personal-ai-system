@@ -436,9 +436,7 @@ def eligible_tasks(
         status = ledger_task_status(ledger, task) or task.status
         if status in {"completed", "cancelled", "in_progress"}:
             continue
-        if status == "blocked":
-            continue
-        if status == "decomposed" and task_satisfied(task.id, tasks, ledger):
+        if status in {"blocked", "decomposed"}:
             continue
         if task.decomposition_parent:
             parent = by_id.get(task.decomposition_parent)
