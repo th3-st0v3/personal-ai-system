@@ -86,6 +86,7 @@ class OvernightState:
     automation_gates: int = 0
     provider_limit_pauses: int = 0
     fallback_router_disabled_until: str = ""
+    last_provider: str = "chatgpt_browser"
     last_result: str = ""
     next_task: str = ""
     stop_reason: str = ""
@@ -110,6 +111,7 @@ class OvernightState:
             "automation_gates": self.automation_gates,
             "provider_limit_pauses": self.provider_limit_pauses,
             "fallback_router_disabled_until": self.fallback_router_disabled_until,
+            "last_provider": self.last_provider,
             "last_result": self.last_result,
             "next_task": self.next_task,
             "stop_reason": self.stop_reason,
@@ -167,6 +169,7 @@ def load_state() -> OvernightState | None:
             automation_gates=int(raw.get("automation_gates", 0)),
             provider_limit_pauses=int(raw.get("provider_limit_pauses", 0)),
             fallback_router_disabled_until=str(raw.get("fallback_router_disabled_until", "")),
+            last_provider=str(raw.get("last_provider", "chatgpt_browser")),
             last_result=str(raw.get("last_result", "")),
             next_task=str(raw.get("next_task", "")),
             stop_reason=str(raw.get("stop_reason", "")),
@@ -783,6 +786,7 @@ def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
 
 
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
+    state.last_provider = "chatgpt_browser"
     prompt = build_prompt(task, state, failure)
     log_event(
         "prompt_compiled",
@@ -797,12 +801,15 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
         REPO_ROOT,
         TASK_TIMEOUT_SECONDS + 45.0,
     )
-    if provider_condition(code, output) == "auth_required":
-        # Authentication/security challenges remain a human-control boundary. Preserve
-        # the active ChatGPT session long enough for interactive recovery before fallback.
+    condition = provider_condition(code, output)
+    if condition is None:
         return code, output
-    if provider_condition(code, output) is None:
-        return code, output
+    if condition != "auth_required":
+        # Runtime-guard and provider-limit failures stay on the primary path. They are
+        # infrastructure recovery conditions, not authorization to switch providers.
+        return code, sanitize_failure_evidence(code, output)
+    if os.environ.get("PASI_PRIMARY_CHATGPT_ONLY", "").strip().casefold() in {"1", "true", "yes"}:
+        return code, sanitize_failure_evidence(code, output)
     if not fallback_router_available(state):
         return code, output + "\n\n[PASI FALLBACK ROUTER SKIPPED]\noptional fallback route is in a bounded cooldown after a recent failure"
     fallback = command(
@@ -811,9 +818,21 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
         225.0,
     )
     if fallback[0] == 0 and fallback[1].strip():
+        raw_fallback = fallback[1].strip()
+        lines = raw_fallback.splitlines()
+        marker = lines[0].strip() if lines else ""
+        if not marker.startswith("PASI_FALLBACK_PROVIDER:"):
+            return code, "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
+        provider = marker.split(":", 1)[1].strip()
+        if not provider or len(provider) > 80:
+            return code, "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
+        response = "\n".join(lines[1:]).lstrip()
+        if not response.strip():
+            return code, "failure_class=fallback_empty_response; provider router returned no response body"
+        state.last_provider = f"fallback:{provider}"
         state.fallback_router_disabled_until = ""
         save_state(state)
-        return 0, fallback[1]
+        return 0, response
     fallback_output = fallback[1]
     disable_fallback_router(state, fallback_output or "fallback router returned no usable response")
     return code, output + "\n\n[PASI FALLBACK ROUTER]\n" + fallback_output
@@ -1031,6 +1050,7 @@ def verify_and_commit(
     push: bool,
     task_number: int | None = None,
     attempt: int | None = None,
+    promote: bool = True,
 ) -> tuple[str, str]:
     validate_patch_paths(patch, allow_delete, worktree)
     gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower() or "full"
@@ -1115,7 +1135,7 @@ def verify_and_commit(
         raise RuntimeError(f"post-commit hygiene check failed: {status}")
     if status.strip():
         raise RuntimeError(f"post-commit hygiene check found uncommitted files:\n{status}")
-    if push:
+    if push and promote:
         promotion = command(
             [
                 legacy.sys.executable,
@@ -1256,6 +1276,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 queue_file_bytes=queue_file_bytes(),
             )
             code, response = invoke_chat(state.current_task, state, failure)
+            provider_source = state.last_provider
             emit_operation_metrics(state.current_task, attempt, response)
             condition = provider_condition(code, response)
             if condition == "auth_required":
@@ -1344,7 +1365,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 record_task_ledger(
                     state.current_task,
                     "completed",
-                    evidence=evidence_text,
+                    evidence=(f"provider={provider_source}\n" + evidence_text).strip(),
                     phase=state.phase,
                     automation_continue=values.get("automation_continue", "").lower() == "true",
                 )
@@ -1379,6 +1400,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                     push=push,
                     task_number=state.task_number,
                     attempt=attempt,
+                    promote=provider_source == "chatgpt_browser",
                 )
             except Exception as exc:
                 failure = str(exc)
@@ -1403,7 +1425,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 state.current_task,
                 "completed",
                 commit=commit,
-                evidence=summary or verification[-3000:],
+                evidence=(f"provider={provider_source}\n" + (summary or verification[-3000:])).strip(),
                 phase=state.phase,
                 automation_continue=values.get("automation_continue", "").lower() == "true",
             )
