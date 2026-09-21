@@ -29,9 +29,11 @@ class TestPasiRuntimeTelemetry(unittest.TestCase):
         self.assertEqual(report.short_responses, 2)
         self.assertEqual(report.short_response_streak_max, 2)
         self.assertEqual(report.prompt_sizes, (3400,))
-        self.assertEqual(len(report.latency_samples), 2)
-        self.assertAlmostEqual(report.latency_samples[0], 1000.0)
-        self.assertAlmostEqual(report.latency_samples[1], 1000.0)
+        self.assertEqual(len(report.response_latency_samples), 2)
+        self.assertEqual(len(report.response_to_next_dispatch_samples), 1)
+        self.assertAlmostEqual(report.response_latency_samples[0], 1000.0)
+        self.assertAlmostEqual(report.response_latency_samples[1], 1000.0)
+        self.assertAlmostEqual(report.response_to_next_dispatch_samples[0], 49000.0)
 
     def test_malformed_json_is_counted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -65,7 +67,8 @@ class TestPasiRuntimeTelemetry(unittest.TestCase):
             repeated_task_numbers=0,
             short_responses=1,
             short_response_streak_max=1,
-            latency_samples=(),
+            response_latency_samples=(),
+            response_to_next_dispatch_samples=(),
             prompt_sizes=(),
             recovery_events=0,
             provider_limit_events=0,
