@@ -124,6 +124,15 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("initial_observation=live_observation", content)
         self.assertIn("else browser_state(adapter)", content)
 
+    def test_operation_metrics_are_emitted_at_end_of_child_output(self) -> None:
+        source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
+        content = source.read_text(encoding="utf-8")
+        response_pos = content.index("print(response.text)")
+        metrics_pos = content.index("if metrics_output:")
+        update_pos = content.index("latest_chat_url = valid_chat_url(response.chat_url)")
+        self.assertGreater(metrics_pos, response_pos)
+        self.assertLess(metrics_pos, update_pos)
+
     def test_controller_update_evaluation_is_skipped_without_explicit_marker(self) -> None:
         source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
         content = source.read_text(encoding="utf-8")

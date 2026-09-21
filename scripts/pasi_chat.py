@@ -636,6 +636,7 @@ def main() -> int:
         return 1
 
     operation_metrics = getattr(adapter, "last_operation", None)
+    metrics_output = None
     if isinstance(operation_metrics, Mapping):
         metrics = {
             "operation_id": operation_metrics.get("operation_id"),
@@ -643,7 +644,11 @@ def main() -> int:
             "recovery_events": operation_metrics.get("recovery_events"),
         }
         if metrics.get("operation_id"):
-            print("PASI_OPERATION_METRICS: " + json.dumps(metrics, separators=(",", ":"), ensure_ascii=False))
+            metrics_output = "PASI_OPERATION_METRICS: " + json.dumps(
+                metrics,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
     print(f"Completion: {response.completion}")
     print(f"Chat URL: {response.chat_url or 'not reported'}")
     update_signal: dict[str, object] = {"state": "no_response"}
@@ -661,6 +666,12 @@ def main() -> int:
             print("Controller update request staged; it is not applied by this response itself.")
     else:
         print("No response text was captured by the bridge.")
+
+    # Keep the compact machine-readable operation record at the end of stdout.
+    # The runner truncates oversized child output from the front, so this keeps
+    # the zero-extra-bridge-read fast path reliable even for very large responses.
+    if metrics_output:
+        print(metrics_output)
 
     # The terminal operation acknowledgement already carries the current chat URL.
     # Only perform the browser-state reconciliation read when the completion did not
