@@ -16,6 +16,9 @@
       progress: 0,
       pass: 0,
       message: 'Awaiting roadmap input'
+    },
+    settings: {
+      telemetryIntervalMs: 5000
     }
   });
 
@@ -122,8 +125,11 @@
     state = {
       ...defaultState(),
       ...saved,
-      dissection: { ...defaultState().dissection, ...(saved.dissection || {}) }
+      dissection: { ...defaultState().dissection, ...(saved.dissection || {}) },
+      settings: { ...defaultState().settings, ...(saved.settings || {}) }
     };
+    const allowedIntervals = new Set([1000, 5000, 10000, 30000]);
+    if (!allowedIntervals.has(Number(state.settings.telemetryIntervalMs))) state.settings.telemetryIntervalMs = 5000;
     state.preferredOrder = preferredOrderFor(state.tasks, state.preferredOrder);
   }
 
@@ -385,10 +391,29 @@
     }
   }
 
+  function openSettingsDialog() {
+    const dialog = byId('settings-dialog');
+    if (!dialog) return;
+    byId('telemetry-interval').value = String(state.settings.telemetryIntervalMs);
+    dialog.showModal();
+  }
+
+  async function saveSettings() {
+    const interval = Number(byId('telemetry-interval').value);
+    state.settings.telemetryIntervalMs = [1000, 5000, 10000, 30000].includes(interval) ? interval : 5000;
+    await persistState();
+    if (telemetryTimer !== null) clearInterval(telemetryTimer);
+    telemetryTimer = setInterval(() => { void refreshTelemetry(); }, state.settings.telemetryIntervalMs);
+    byId('settings-dialog').close();
+    void refreshTelemetry();
+  }
+
   function wireEvents() {
     byId('btn-import').addEventListener('click', openImportDialog);
     byId('btn-save-roadmap').addEventListener('click', () => { void importRoadmap(); });
     byId('btn-refresh').addEventListener('click', () => { void refreshTelemetry(); });
+    if (byId('btn-settings')) byId('btn-settings').addEventListener('click', openSettingsDialog);
+    if (byId('btn-save-settings')) byId('btn-save-settings').addEventListener('click', () => { void saveSettings(); });
     if (byId('btn-retry-current')) byId('btn-retry-current').addEventListener('click', () => { void controlRunner('retry_current'); });
     if (byId('btn-panic-stop')) byId('btn-panic-stop').addEventListener('click', () => { void controlRunner('stop'); });
     byId('hardware-profile').addEventListener('change', (event) => {
@@ -402,7 +427,7 @@
     renderAll();
     wireEvents();
     await refreshTelemetry();
-    telemetryTimer = setInterval(() => { void refreshTelemetry(); }, TELEMETRY_INTERVAL_MS);
+    telemetryTimer = setInterval(() => { void refreshTelemetry(); }, state.settings.telemetryIntervalMs || TELEMETRY_INTERVAL_MS);
     window.addEventListener('pagehide', () => {
       if (telemetryTimer !== null) clearInterval(telemetryTimer);
     }, { once: true });
