@@ -617,6 +617,10 @@ def select_planner_task(
     *,
     phase: str | None = None,
 ) -> hybrid_planner.PlannerDecision:
+    # Fresh runs persist an explicit roadmap path. Legacy state fixtures and
+    # resumed pre-planner runs intentionally keep their compatibility path.
+    if not state.roadmap_path.strip() and not os.environ.get("PASI_ROADMAP_PATH", "").strip():
+        return hybrid_planner.PlannerDecision(None, (), "legacy", "no explicit roadmap configured")
     tasks = load_planner_tasks(state)
     decision = hybrid_planner.select_task(
         tasks,
@@ -673,6 +677,31 @@ def choose_run_start_task(
     run_id: str,
     roadmap_path: Path | None = None,
 ) -> tuple[str, bool, int]:
+    if roadmap_path is None and not os.environ.get("PASI_ROADMAP_PATH", "").strip():
+        candidates = AUTOMATION_TASKS if phase == "automation" else ENGINEERING_TASKS
+        candidate = re.sub(r"\s+", " ", requested_task).strip()
+        configured = {item.casefold(): item for item in candidates}
+        if candidate and candidate.casefold() not in configured:
+            return candidate, False, 0
+        candidate = configured.get(candidate.casefold(), candidates[0])
+        history = load_roadmap_selection_history()
+        prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate)
+        guard_applied = prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
+        if guard_applied:
+            index = next(index for index, item in enumerate(candidates) if item.casefold() == candidate.casefold())
+            candidate = candidates[(index + 1) % len(candidates)]
+        updated = [
+            *history,
+            {
+                "phase": phase,
+                "task": candidate,
+                "run_id": run_id,
+                "timestamp": now_utc().isoformat(),
+            },
+        ]
+        save_roadmap_selection_history(updated)
+        return candidate, guard_applied, prior_repeats
+
     source = roadmap_path.expanduser().resolve() if roadmap_path else planner_roadmap_path()
     tasks = hybrid_planner.load_roadmap_with_overlay(source, ROADMAP_OVERLAY_PATH)
     candidates = tuple(task for task in tasks if task.phase == phase)
