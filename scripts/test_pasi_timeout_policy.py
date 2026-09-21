@@ -14,8 +14,8 @@ def test_browser_json_and_python_loader_share_the_same_fast_normal_path_policy()
         )
     )
     policy = load_timeout_policy()
-    assert raw["heartbeat_seconds"] == 15
-    assert raw["stale_seconds"] == 45
+    assert raw["heartbeat_seconds"] == 2
+    assert raw["stale_seconds"] == 10
     assert raw["controller_poll_ms"] == 500
     assert raw["dom_poll_ms"] == 20
     assert raw["click_settle_ms"] == 20
