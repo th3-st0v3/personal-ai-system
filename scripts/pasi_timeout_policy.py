@@ -7,10 +7,10 @@ from typing import Any
 POLICY_PATH = Path(__file__).resolve().parents[1] / "automation" / "chromium" / "pasi-chatgpt" / "timeout-policy.json"
 
 DEFAULTS: dict[str, float] = {
-    "heartbeat_seconds": 5.0,
-    "stale_seconds": 15.0,
-    "controller_poll_ms": 500.0,
-    "dom_poll_ms": 20.0,
+    "heartbeat_seconds": 15.0,
+    "stale_seconds": 45.0,
+    "controller_poll_ms": 2000.0,
+    "dom_poll_ms": 100.0,
     "menu_ms": 5000.0,
     "composer_ms": 10000.0,
     "send_ms": 5000.0,
@@ -25,7 +25,7 @@ DEFAULTS: dict[str, float] = {
     "python_wait_seconds": 3600.0,
     "bridge_claim_lease_seconds": 1800.0,
     "queue_ttl_seconds": 86400.0,
-    "click_settle_ms": 20.0,
+    "click_settle_ms": 250.0,
     "thinking_verify_ms": 3000.0,
     "response_settle_ms": 10.0,
     "submission_ack_ms": 1000.0,
