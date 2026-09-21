@@ -299,7 +299,10 @@
   function readText(element) { return isTextControl(element) ? String(element.value || '') : String(element?.innerText || element?.textContent || ''); }
 
   function generating() {
-    return Boolean(firstVisible(['button[data-testid="stop-button"]', 'button[aria-label="Stop generating"]', 'button[aria-label*="Stop"]']));
+    const stop = document.querySelector(
+      'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label*="Stop"]'
+    );
+    return visible(stop);
   }
 
   function chatUrl() { return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null; }

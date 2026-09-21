@@ -518,6 +518,14 @@ test('native controller coalesces overlapping idle polls', () => {
 });
 
 
+test('native generating detection uses one grouped selector', () => {
+  const start = content.indexOf('function generating()');
+  const end = content.indexOf('function chatUrl()', start);
+  const source = content.slice(start, end);
+  assert.match(source, /document\.querySelector\(\n\s*'button\[data-testid="stop-button"\], button\[aria-label="Stop generating"\], button\[aria-label\*="Stop"\]'\n\s*\)/);
+  assert.doesNotMatch(source, /firstVisible\(\['button\[data-testid="stop-button"/);
+});
+
 test('native response completion reuses the extracted assistant text for fingerprinting', () => {
   const start = content.indexOf('function latestAssistant()');
   const end = content.indexOf('function nearbyScopedControls', start);
