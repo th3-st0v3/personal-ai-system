@@ -206,6 +206,106 @@ def load_roadmap(path: Path) -> tuple[TaskSpec, ...]:
     return validate_roadmap(tasks)
 
 
+def load_roadmap_with_overlay(
+    source_path: Path,
+    overlay_path: Path | None = None,
+) -> tuple[TaskSpec, ...]:
+    tasks = list(load_roadmap(source_path))
+    if overlay_path is None or not overlay_path.is_file():
+        return tuple(tasks)
+    try:
+        raw = json.loads(overlay_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PlannerError(f"invalid roadmap decomposition overlay: {overlay_path}") from exc
+    if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != SCHEMA_VERSION:
+        raise PlannerError("invalid roadmap decomposition overlay schema")
+    decompositions = raw.get("decompositions", {})
+    generated = raw.get("generated_tasks", [])
+    if not isinstance(decompositions, dict) or not isinstance(generated, list):
+        raise PlannerError("invalid roadmap decomposition overlay")
+    decomposed_ids = {
+        str(parent_id)
+        for parent_id, info in decompositions.items()
+        if isinstance(info, dict) and info.get("status") == "decomposed"
+    }
+    updated: list[TaskSpec] = []
+    for task in tasks:
+        if task.id in decomposed_ids:
+            updated.append(
+                TaskSpec(
+                    id=task.id,
+                    title=task.title,
+                    objective=task.objective,
+                    depends_on=task.depends_on,
+                    acceptance_criteria=task.acceptance_criteria,
+                    verification=task.verification,
+                    allowed_paths=task.allowed_paths,
+                    priority=task.priority,
+                    splittable=task.splittable,
+                    estimated_size=task.estimated_size,
+                    phase=task.phase,
+                    status="decomposed",
+                )
+            )
+        else:
+            updated.append(task)
+    for item in generated:
+        if not isinstance(item, dict):
+            raise PlannerError("generated roadmap task must be an object")
+        updated.append(task_from_mapping(item))
+    return validate_roadmap(updated)
+
+
+def save_decomposition_overlay(
+    path: Path,
+    *,
+    parent: TaskSpec,
+    children: Sequence[TaskSpec],
+) -> None:
+    children = validate_decomposition(parent, children)
+    decompositions: dict[str, dict[str, Any]] = {}
+    generated: dict[str, dict[str, Any]] = {}
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise PlannerError(f"invalid existing decomposition overlay: {path}") from exc
+        if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != SCHEMA_VERSION:
+            raise PlannerError("invalid existing decomposition overlay schema")
+        raw_decompositions = raw.get("decompositions", {})
+        raw_generated = raw.get("generated_tasks", [])
+        if isinstance(raw_decompositions, dict):
+            decompositions = {
+                str(key): dict(item)
+                for key, item in raw_decompositions.items()
+                if isinstance(item, dict)
+            }
+        if isinstance(raw_generated, list):
+            generated = {
+                str(item["id"]): dict(item)
+                for item in raw_generated
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            }
+    decompositions[parent.id] = {
+        "status": "decomposed",
+        "children": [child.id for child in children],
+    }
+    for child in children:
+        generated[child.id] = child.to_dict()
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "decompositions": decompositions,
+        "generated_tasks": list(generated.values()),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
 def ledger_task_status(ledger: Mapping[str, Mapping[str, Any]], task: TaskSpec) -> str:
     for entry in ledger.values():
         if str(entry.get("task_id", "")).strip() == task.id:
@@ -223,7 +323,11 @@ def eligible_tasks(
     *,
     phase: str | None = None,
 ) -> tuple[TaskSpec, ...]:
-    completed = {task.id for task in tasks if ledger_task_status(ledger, task) == "completed"}
+    completed = {
+        task.id
+        for task in tasks
+        if ledger_task_status(ledger, task) in {"completed", "decomposed"}
+    }
     result: list[TaskSpec] = []
     for task in tasks:
         if phase is not None and task.phase != phase:
@@ -439,14 +543,20 @@ def validate_decomposition(parent: TaskSpec, children: Sequence[TaskSpec]) -> tu
             raise PlannerError(f"decomposition child {child.id} is incomplete")
         if child.phase != parent.phase:
             raise PlannerError(f"decomposition child {child.id} changed phase")
-        if parent.allowed_paths and any(path not in set(parent.allowed_paths) for path in child.allowed_paths):
-            raise PlannerError(f"decomposition child {child.id} escapes parent scope")
+        if parent.allowed_paths:
+            parent_paths = tuple(parent.allowed_paths)
+            for path in child.allowed_paths:
+                if not any(
+                    path == allowed or path.startswith(allowed.rstrip("/") + "/")
+                    for allowed in parent_paths
+                ):
+                    raise PlannerError(f"decomposition child {child.id} escapes parent scope")
         dependencies = set(child.depends_on)
         if dependencies - ids - {parent.id}:
             raise PlannerError(f"decomposition child {child.id} has an external dependency")
         if parent.id not in dependencies:
             raise PlannerError(f"decomposition child {child.id} must depend on {parent.id}")
-    return validate_roadmap(children)
+    return validate_roadmap((parent, *children))[1:]
 
 
 def ai_decompose_with_ollama(
