@@ -271,7 +271,7 @@ branch refs/heads/main
                 ["git", "worktree", "add", "-B", "pasi/test", str(worktree), "origin/pasi/consolidated"],
             )
 
-    def test_prompt_compiler_replaces_task_and_preserves_required_context(self) -> None:
+    def test_prompt_compiler_contains_only_current_task_and_result_contract(self) -> None:
         prompt = prompt_compiler.compile_task_prompt(
             "Fix the browser-to-Git patch seam and verify it end to end.",
             run_id="run-prompt-compiler",
@@ -283,126 +283,40 @@ branch refs/heads/main
             phase="engineering_os",
             recent_tasks=["previous verified task"],
             roadmap_tasks=["Roadmap task A", "Roadmap task B"],
-            previous_failure="git apply received an empty stdin payload",
         )
-        self.assertIn(
-            "CONTINUE WORKING ON THE CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.",
-            prompt,
+        self.assertEqual(
+            prompt.split("RESULT:", 1)[0],
+            "CURRENT TASK:\\nFix the browser-to-Git patch seam and verify it end to end.\\n\\n",
         )
-        self.assertIn("DO NOT STOP UNTIL YOU ARE FINISHED.", prompt)
-        self.assertIn(
-            "Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.",
-            prompt,
-        )
-        self.assertIn("Task number: 7", prompt)
-        self.assertIn("Attempt: 2/3", prompt)
-        self.assertIn("PREVIOUS FAILURE EVIDENCE:", prompt)
-        self.assertIn("git apply received an empty stdin payload", prompt)
-        self.assertIn("previous verified task", prompt)
-        self.assertIn("Fix the browser-to-Git patch seam and verify it end to end.", prompt)
+        self.assertNotIn("run-prompt-compiler", prompt)
+        self.assertNotIn("Task number", prompt)
+        self.assertNotIn("Attempt", prompt)
         self.assertNotIn("Roadmap task A", prompt)
         self.assertNotIn("Roadmap task B", prompt)
-        self.assertIn("PASI_RESULT_NEXT_TASK: one concrete next task", prompt)
+        self.assertNotIn("previous verified task", prompt)
+        self.assertNotIn("DO NOT STOP UNTIL YOU ARE FINISHED", prompt)
+        self.assertNotIn("PASI_RESULT_NEXT_TASK:", prompt)
+        self.assertIn("PASI_RESULT_STATUS:", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
-        self.assertIn("empty patch", prompt)
-        self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
-        self.assertIn("machine-read as task evidence", prompt)
 
-    def test_prompt_compiler_preserves_multiline_task_requirements(self) -> None:
-        task = """Implement the feature.
-Requirements:
-- Preserve existing behavior.
-- Add deterministic regression coverage.
-Acceptance:
-- Run the canonical gate."""
+    def test_prompt_compiler_includes_bounded_failure_only_on_retry(self) -> None:
         prompt = prompt_compiler.compile_task_prompt(
-            task,
-            run_id="run-multiline",
-            task_number=1,
-            attempt=1,
-            max_attempts=3,
-            branch="pasi/test",
-            worktree="/tmp/pasi-worktree",
-            phase="engineering_os",
-        )
-        self.assertIn(
-            "CONTINUE WORKING ON THE CURRENT TASK:\nImplement the feature.\nRequirements:\n- Preserve existing behavior.",
-            prompt,
-        )
-        self.assertIn("Acceptance:\n- Run the canonical gate.", prompt)
-
-    def test_prompt_compiler_selects_automation_first_pass_mode(self) -> None:
-        prompt = prompt_compiler.compile_task_prompt(
-            engine.AUTOMATION_TASKS[0],
-            run_id="run-conditional-automation",
-            task_number=1,
-            attempt=1,
-            max_attempts=3,
-            branch="pasi/test",
-            worktree="/tmp/pasi-worktree",
-            phase="automation",
-            roadmap_tasks=["Roadmap task A", "Roadmap task B", "Roadmap task C"],
-        )
-        self.assertIn("CONDITIONAL EXECUTION MODE:", prompt)
-        self.assertIn("AUTOMATION FIRST PASS:", prompt)
-        self.assertIn("Roadmap task A", prompt)
-        self.assertIn("Roadmap task B", prompt)
-        self.assertIn("Roadmap task C", prompt)
-
-    def test_prompt_compiler_selects_recovery_mode_and_focuses_roadmap(self) -> None:
-        prompt = prompt_compiler.compile_task_prompt(
-            "Roadmap task A",
-            run_id="run-conditional-recovery",
+            "Fix the browser-to-Git patch seam.",
+            run_id="run-retry",
             task_number=2,
             attempt=2,
             max_attempts=3,
             branch="pasi/test",
             worktree="/tmp/pasi-worktree",
             phase="automation",
-            roadmap_tasks=["Roadmap task A", "Roadmap task B", "Roadmap task C"],
-            previous_failure="targeted verification failed on the previous approach",
+            previous_failure="git apply received an empty stdin payload",
         )
-        self.assertIn("RECOVERY RETRY MODE:", prompt)
-        self.assertIn("Verify PREVIOUS FAILURE EVIDENCE", prompt)
-        self.assertIn("Roadmap task A", prompt)
-        self.assertNotIn("Roadmap task B", prompt)
-        self.assertNotIn("Roadmap task C", prompt)
+        self.assertIn("CURRENT TASK:\\nFix the browser-to-Git patch seam.", prompt)
+        self.assertIn("PREVIOUS FAILURE EVIDENCE:\\ngit apply received an empty stdin payload", prompt)
+        self.assertNotIn("ROADMAP", prompt)
+        self.assertNotIn("RECOVERY RETRY MODE", prompt)
+        self.assertNotIn("NEXT_TASK", prompt)
 
-    def test_prompt_compiler_hash_is_stable_for_identical_prompt(self) -> None:
-        prompt = "deterministic prompt\n"
-        self.assertEqual(
-            prompt_compiler.prompt_hash(prompt),
-            prompt_compiler.prompt_hash(prompt),
-        )
-        self.assertTrue(prompt_compiler.prompt_hash(prompt).startswith("sha256:"))
-
-    def test_build_prompt_contains_anti_loop_continuation_rule(self) -> None:
-        now = datetime.now(timezone.utc)
-        state = engine.OvernightState(
-            schema_version=2,
-            run_id="prompt-test",
-            started_at=now.isoformat(),
-            deadline_at=(now + timedelta(hours=8)).isoformat(),
-            worktree=str(Path.cwd()),
-            branch="test",
-            phase="engineering_os",
-            current_task="Improve task continuation",
-            recent_tasks=["already completed task"],
-        )
-        prompt = engine.build_prompt(state.current_task, state)
-        self.assertIn("TASK CONTINUATION:", prompt)
-        self.assertIn("Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.", prompt)
-        self.assertIn("The scheduler owns the full roadmap", prompt)
-        self.assertIn("If the same failure repeats, change approach", prompt)
-        self.assertIn("do not invent work or cosmetic changes", prompt.casefold())
-        self.assertNotIn("KEEP WORKING UNTIL YOU'RE FINISHED:", prompt)
-        self.assertNotIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
-        self.assertIn("RECENT TASKS:", prompt)
-        self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
-        self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
-        self.assertIn("machine-read as task evidence", prompt)
-        self.assertIn("empty patch", prompt)
-        self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
 
     def test_cross_run_loop_guard_skips_repeated_roadmap_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
