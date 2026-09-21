@@ -85,10 +85,17 @@ trap cleanup_start_pid EXIT
 if [[ -f "$RUNNER_PID_FILE" ]]; then
     pid="$(cat "$RUNNER_PID_FILE" 2>/dev/null || true)"
     if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-        printf 'PASI overnight runner is already active (PID %s).\n' "$pid"
-        exit 0
+        if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+            supervisor_pid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)"
+            if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
+                printf 'PASI overnight runner and supervisor are already active (runner PID %s, supervisor PID %s).\n' "$pid" "$supervisor_pid"
+                exit 0
+            fi
+        fi
+        printf 'PASI overnight engine PID %s is live without its supervisor; launching a supervisor to adopt the existing engine.\n' "$pid"
+    else
+        rm -f "$RUNNER_PID_FILE"
     fi
-    rm -f "$RUNNER_PID_FILE"
 fi
 
 # Each run is isolated, but the consolidated branch may already be attached
