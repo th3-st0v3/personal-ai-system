@@ -560,10 +560,16 @@ class BridgeState:
                 continue
             if item.get("operation_type") != "prompt":
                 return
+            stored_response = self.state_manager.load_terminal_response(operation_id)
             current_response = item.get("response_text")
-            if item.get("response_text_available") is True and isinstance(
-                current_response, str
-            ) and current_response.strip():
+            if (
+                isinstance(stored_response, str)
+                and stored_response.strip()
+            ) or (
+                item.get("response_text_available") is True
+                and isinstance(current_response, str)
+                and current_response.strip()
+            ):
                 return
 
             item["response_text"] = response_text
@@ -1520,11 +1526,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self._send_json(
-            {
-                "operation": operation
-            }
-        )
+        if ack_only:
+            self._send_json(
+                {
+                    "ok": True,
+                    "operation_id": operation.get("operation_id"),
+                    "status": operation.get("status"),
+                }
+            )
+        else:
+            self._send_json(
+                {
+                    "operation": operation
+                }
+            )
 
     def _failed(
         self,
