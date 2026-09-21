@@ -433,7 +433,7 @@ Acceptance:
         )
         self.assertEqual(engine.choose_next_task(state, current), engine.AUTOMATION_TASKS[2])
 
-    def test_attempt_budget_advances_to_next_task_instead_of_ending_run(self) -> None:
+    def test_attempt_budget_starts_next_retry_cycle_on_same_task(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
@@ -494,12 +494,13 @@ Acceptance:
                 (engine.AUTOMATION_TASKS[0], 1),
                 (engine.AUTOMATION_TASKS[0], 2),
                 (engine.AUTOMATION_TASKS[0], 3),
-                (engine.AUTOMATION_TASKS[1], 1),
+                (engine.AUTOMATION_TASKS[0], 1),
             ],
         )
         self.assertEqual(state.failed_tasks, 1)
         self.assertEqual(state.completed_tasks, 1)
         self.assertEqual(state.current_task, engine.AUTOMATION_TASKS[2])
+        self.assertEqual(state.task_retry_cycle, 0)
 
     def test_failed_task_is_excluded_before_next_selection(self) -> None:
         now = datetime.now(timezone.utc)
