@@ -368,6 +368,21 @@ class TestHybridPlanner(unittest.TestCase):
             ranked = planner.ollama_ranker(candidates, model="test-model")
         self.assertEqual(ranked, ("b", "a"))
 
+    def test_ollama_decomposition_rejects_conflicting_parent(self) -> None:
+        parent = task("parent", splittable=True, estimated_size="large")
+        with mock.patch.object(
+            planner,
+            "_ollama_call",
+            return_value={
+                "tasks": [
+                    task("parent.one", decomposition_parent="other").to_dict(),
+                    task("parent.two").to_dict(),
+                ]
+            },
+        ):
+            with self.assertRaisesRegex(planner.PlannerError, "conflicting parent"):
+                planner.ai_decompose_with_ollama(parent, model="test-model")
+
     def test_ollama_decomposition_requires_verifiable_children(self) -> None:
         parent = task("parent", splittable=True, estimated_size="large")
         with mock.patch.object(
