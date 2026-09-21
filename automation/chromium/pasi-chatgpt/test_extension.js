@@ -38,6 +38,17 @@ test('native background controller serializes concurrent lease claims', () => {
   assert.match(background, /message\?\.type === 'pasi-controller-claim'/);
 });
 
+test('native content controller participates in the serialized controller lease', () => {
+  assert.match(content, /let controllerLeader = false/);
+  assert.match(content, /let leaseTimerId = null/);
+  assert.match(content, /function controllerClaim\(\)/);
+  assert.match(content, /type: 'pasi-controller-claim'/);
+  assert.match(content, /if \(\!\(await controllerClaim\(\)\)\) return/);
+  assert.match(content, /leaseTimerId = setInterval/);
+  assert.match(content, /controllerClaim\(\)\.catch/);
+  assert.match(content, /clearInterval\(leaseTimerId\)/);
+});
+
 test('native background watchdog reacts to explicit connection failures even with a fresh observation', () => {
   assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
   assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
