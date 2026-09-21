@@ -35,7 +35,7 @@ jobs:
         shell: bash
         env:
           REQUESTED_REF: ${{ inputs.ref }}
-        run: printf 'ref=%s\\n' "${REQUESTED_REF:-main}" >> "$GITHUB_OUTPUT"
+        run: printf 'ref=%s\n' "${REQUESTED_REF:-main}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
