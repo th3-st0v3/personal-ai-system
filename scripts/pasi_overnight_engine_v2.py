@@ -1393,6 +1393,15 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
         state.current_task_id = decision.selected.id
         return decision.selected.execution_text()
 
+    if state.roadmap_path.strip() or os.environ.get("PASI_ROADMAP_PATH", "").strip():
+        tasks = load_planner_tasks(state)
+        if hybrid_planner.roadmap_is_complete(tasks, load_task_ledger()):
+            state.stop_reason = "roadmap_complete"
+        else:
+            state.stop_reason = "roadmap_blocked_or_no_eligible_task"
+        state.current_task_id = ""
+        return ""
+
     # Compatibility fallback for legacy/custom runs with no usable roadmap
     # entry. This path is deterministic and ignores model-supplied next-task data.
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
