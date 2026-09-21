@@ -13,6 +13,7 @@ from automation.computer_use.chatgpt import ChatGPTAdapter
 from scripts.pasi_chat import (
     PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL,
     PUBLIC_REPOSITORY_URL,
+    compact_repo_state,
     build_prompt,
     controller_observation_is_live,
     needs_github_context,
