@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-PROMPT_PATTERN_VERSION = "2.0.0"
+PROMPT_PATTERN_VERSION = "2.1.0"
 MAX_TASK_CHARS = 4000
 MAX_FAILURE_CHARS = 12000
 
@@ -39,7 +39,12 @@ def compile_task_prompt(
     if not task_text:
         raise ValueError("task must not be empty")
 
-    lines = ["CURRENT TASK:", task_text]
+    lines = [
+        "CURRENT TASK:",
+        task_text,
+        "",
+        "Work on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.",
+    ]
     if previous_failure.strip():
         lines.extend([
             "",
