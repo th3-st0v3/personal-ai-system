@@ -30,6 +30,7 @@ class RuntimeReport:
     accepted_patch_sizes: tuple[int, ...]
     accepted_evidence_sizes: tuple[int, ...]
     thin_evidence_count: int
+    retry_cycle_exhaustions: int
     prompt_sizes: tuple[int, ...]
     recovery_events: int
     provider_limit_events: int
@@ -131,6 +132,7 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
     accepted_patch_sizes: list[int] = []
     accepted_evidence_sizes: list[int] = []
     thin_evidence_count = 0
+    retry_cycle_exhaustions = 0
     prompt_sizes: list[int] = []
     recovery_events = provider_limit_events = auth_events = 0
     previous_dispatch: datetime | None = None
@@ -175,6 +177,8 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
                     response_to_next_dispatch_samples.append(latency_ms)
                 last_response = None
             previous_dispatch = timestamp
+        elif kind == "task_retry_cycle_exhausted":
+            retry_cycle_exhaustions += 1
         elif kind == "task_response_evidence":
             if event.get("contract_ok") is True:
                 patch_chars = event.get("patch_chars")
@@ -240,6 +244,7 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
         accepted_patch_sizes=tuple(accepted_patch_sizes),
         accepted_evidence_sizes=tuple(accepted_evidence_sizes),
         thin_evidence_count=thin_evidence_count,
+        retry_cycle_exhaustions=retry_cycle_exhaustions,
         prompt_sizes=tuple(prompt_sizes),
         recovery_events=recovery_events,
         provider_limit_events=provider_limit_events,
@@ -292,6 +297,7 @@ def render_markdown(report: RuntimeReport) -> str:
         f"| Auth/re-auth events | {report.auth_events} |",
         f"| Accepted task evidence samples | {len(report.accepted_evidence_sizes)} |",
         f"| Accepted tasks with <200 evidence chars | {report.thin_evidence_count} |",
+        f"| Exhausted retry cycles retained on task | {report.retry_cycle_exhaustions} |",
         "",
         "## Browser latency",
         "",
