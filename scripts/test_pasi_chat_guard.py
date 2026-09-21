@@ -17,8 +17,9 @@ class TestPasiChatGuard(unittest.TestCase):
 
     def test_guard_does_not_classify_completed_child_from_late_health_observation(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
-        request_pos = source.index('observed = classify_observation(request_json("/browser/observation"))')
-        post_request_poll_pos = source.index("if process.poll() is not None:", request_pos)
+        request_pos = source.index("observed = classify_observation(")
+        observation_timeout_pos = source.index("timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS", request_pos)
+        post_request_poll_pos = source.index("if process.poll() is not None:", observation_timeout_pos)
         observed_limit_pos = source.index('if observed in {"usage_limit", "auth_required"}:', request_pos)
         self.assertLess(request_pos, post_request_poll_pos)
         self.assertLess(post_request_poll_pos, observed_limit_pos)
