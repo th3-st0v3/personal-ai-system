@@ -70,29 +70,45 @@ def compile_task_prompt(
     roadmap_tasks: Sequence[str] = (),
     previous_failure: str = "",
 ) -> str:
-    """Compile the smallest model-facing task prompt.
+    """Compile the minimal model-facing prompt for one bounded task.
 
-    Scheduler/runtime metadata remains controller-owned. It is intentionally not
-    repeated in the model prompt; only the current task and bounded retry evidence
-    cross the model boundary.
+    Runtime metadata, safety policy, roadmap selection, and continuation authority
+    stay in the controller. The model receives only the current task plus bounded
+    failure evidence when this is a retry.
     """
-    del run_id, task_number, attempt, max_attempts, branch, worktree, phase, recent_tasks, roadmap_tasks
+    del run_id, task_number, attempt, max_attempts, branch, worktree, phase
+    del recent_tasks, roadmap_tasks
 
     task_text = _bounded_block(task, MAX_TASK_CHARS)
     if not task_text:
         raise ValueError("task must not be empty")
 
-    prompt = f"CURRENT TASK:\n{task_text}"
+    lines = [
+        "CURRENT TASK:",
+        task_text,
+    ]
     if previous_failure.strip():
-        failure = _bounded_block(previous_failure, MAX_FAILURE_CHARS)
-        prompt += (
-            "\n\nPREVIOUS FAILURE EVIDENCE:\n"
-            f"{failure}"
-        )
+        lines.extend([
+            "",
+            "PREVIOUS FAILURE EVIDENCE:",
+            _bounded_block(previous_failure, MAX_FAILURE_CHARS),
+        ])
 
-    prompt += (
-        "\n\nRESULT:\n"
-        "Return the existing PASI result markers and one unified git diff between "
-        "PASI_RESULT_PATCH_BEGIN and PASI_RESULT_PATCH_END."
-    )
-    return prompt
+    lines.extend([
+        "",
+        "RESULT:",
+        "PASI_RESULT_STATUS: complete|needs_revision|blocked",
+        "PASI_RESULT_SUMMARY: one concise sentence",
+        "PASI_RESULT_REQUIREMENTS: complete",
+        "PASI_RESULT_LIMITATIONS: handled|none|not_applicable",
+        "PASI_RESULT_RESEARCH: performed|not_applicable",
+        "PASI_RESULT_UX: verified|not_applicable",
+        "PASI_RESULT_BACKEND: verified|not_applicable",
+        "PASI_RESULT_EVIDENCE: concise tests/verification evidence",
+        "PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped",
+        "PASI_RESULT_ALLOW_DELETE: true|false",
+        "PASI_RESULT_PATCH_BEGIN",
+        "<one unified git diff>",
+        "PASI_RESULT_PATCH_END",
+    ])
+    return "\n".join(lines) + "\n"
