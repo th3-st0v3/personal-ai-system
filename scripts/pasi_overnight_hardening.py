@@ -133,6 +133,13 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger, child_registry: list[
     for service_name, already_healthy, command in services:
         if already_healthy:
             continue
+        if child_registry is not None:
+            live_children = [
+                child for child in child_registry
+                if getattr(child, "poll", lambda: 0)() is None
+            ]
+            if live_children:
+                continue
         supervisor.log_event("service_start_nonblocking", service=service_name)
         try:
             child = subprocess.Popen(command, cwd=supervisor.REPO_ROOT)
@@ -150,7 +157,7 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger, child_registry: list[
     return children
 
 
-def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
+def nonblocking_standby(state: Any, *, ledger: ObstacleLedger, child_registry: list[Any] | None = None) -> bool:
     if supervisor.runtime_watchdog_is_live():
         return True
 
@@ -267,6 +274,7 @@ def main() -> int:
     original_gate = supervisor.automation_gate_is_satisfied
     original_parse = supervisor.parse_response
     original_services = supervisor.ensure_services
+    managed_service_children: list[Any] = []
     automation_continue_requested = False
 
     def parse_response(response: str):
@@ -305,8 +313,15 @@ def main() -> int:
     supervisor.validate_patch_paths = validate_patch_paths
     supervisor.log_event = log_event
     supervisor.runtime_watchdog_is_live = original_watchdog
-    supervisor.ensure_services = lambda: nonblocking_ensure_services(ledger=ledger)
-    supervisor.standby_until_ready = lambda state: nonblocking_standby(state, ledger=ledger)
+    supervisor.ensure_services = lambda: nonblocking_ensure_services(
+        ledger=ledger,
+        child_registry=managed_service_children,
+    )
+    supervisor.standby_until_ready = lambda state: nonblocking_standby(
+        state,
+        ledger=ledger,
+        child_registry=managed_service_children,
+    )
     supervisor.sleep_until_retry = lambda state, seconds: nonblocking_sleep(state, seconds, ledger=ledger)
     supervisor.invoke_chat = lambda task, state, failure: resilient_invoke_chat(task, state, failure, ledger=ledger)
     supervisor.automation_gate_is_satisfied = gate
@@ -314,6 +329,16 @@ def main() -> int:
     try:
         return supervisor.main()
     finally:
+        for child in reversed(managed_service_children):
+            try:
+                poll = getattr(child, "poll", None)
+                if callable(poll) and poll() is not None:
+                    continue
+                terminate = getattr(child, "terminate", None)
+                if callable(terminate):
+                    terminate()
+            except Exception:
+                pass
         supervisor.validate_patch_paths = original_validate
         supervisor.runtime_watchdog_is_live = original_watchdog
         supervisor.ensure_services = original_services
