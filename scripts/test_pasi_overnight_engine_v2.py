@@ -180,6 +180,39 @@ new file mode 100644
                     )
                 )
 
+    def test_failed_task_retry_cycle_retains_current_task(self) -> None:
+        source = Path(engine.__file__).read_text(encoding="utf-8")
+        failure_block = source.split("        if not finished:", 1)[1].split("\n\ndef finish_reason", 1)[0]
+        self.assertIn('action="retain_current_task"', failure_block)
+        self.assertIn("state.task_retry_cycle += 1", failure_block)
+        self.assertNotIn("state.current_task = choose_next_task(state, "")", failure_block)
+
+    def test_retry_cycle_state_round_trips(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="retry-state",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="pasi/retry-state",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            task_retry_cycle=2,
+            last_failure_signature="abc123",
+            same_failure_cycles=2,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            with mock.patch.object(engine, "STATE_PATH", state_path):
+                engine.save_state(state)
+                loaded = engine.load_state()
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual(loaded.task_retry_cycle, 2)
+        self.assertEqual(loaded.last_failure_signature, "abc123")
+        self.assertEqual(loaded.same_failure_cycles, 2)
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
