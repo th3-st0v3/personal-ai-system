@@ -536,9 +536,13 @@ def validate_decomposition(parent: TaskSpec, children: Sequence[TaskSpec]) -> tu
     if not 2 <= len(children) <= MAX_CHILDREN:
         raise PlannerError("decomposition must produce between two and sixteen child tasks")
     ids = {child.id for child in children}
+    if len(ids) != len(children):
+        raise PlannerError("decomposition child IDs must be unique")
     if parent.id in ids:
         raise PlannerError("decomposition child cannot reuse parent id")
     for child in children:
+        if child.status != "pending":
+            raise PlannerError(f"decomposition child {child.id} must start pending")
         if not child.acceptance_criteria or not child.verification:
             raise PlannerError(f"decomposition child {child.id} is incomplete")
         if child.phase != parent.phase:
@@ -556,7 +560,26 @@ def validate_decomposition(parent: TaskSpec, children: Sequence[TaskSpec]) -> tu
             raise PlannerError(f"decomposition child {child.id} has an external dependency")
         if parent.id not in dependencies:
             raise PlannerError(f"decomposition child {child.id} must depend on {parent.id}")
-    return validate_roadmap((parent, *children))[1:]
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(task_id: str) -> None:
+        if task_id in visiting:
+            raise PlannerError(f"decomposition dependency cycle detected at {task_id}")
+        if task_id in visited:
+            return
+        visiting.add(task_id)
+        task = next(child for child in children if child.id == task_id)
+        for dependency in task.depends_on:
+            if dependency in ids:
+                visit(dependency)
+        visiting.remove(task_id)
+        visited.add(task_id)
+
+    for child in children:
+        visit(child.id)
+    return tuple(children)
 
 
 def ai_decompose_with_ollama(
