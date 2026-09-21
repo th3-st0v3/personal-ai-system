@@ -13,7 +13,8 @@ class TestPasiChatGuard(unittest.TestCase):
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn("HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS = 0.25", source)
         self.assertIn("timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS", source)
-        self.assertIn("monitor.join(timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS + 0.1)", source)
+        self.assertIn("monitor_stop.set()", source)
+        self.assertNotIn("monitor.join(", source)
 
     def test_guard_does_not_classify_completed_child_from_late_health_observation(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
