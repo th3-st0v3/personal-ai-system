@@ -19,6 +19,7 @@ MANIFEST_PATH = EXTENSION_ROOT / "manifest.json"
 API_CONTRACT: dict[str, dict[str, object]] = {
     "alarms": {"permission": "alarms"},
     "storage": {"permission": "storage"},
+    "sidePanel": {"permission": "sidePanel"},
     "tabs": {
         "permission": None,
         "host_patterns": [
@@ -27,11 +28,11 @@ API_CONTRACT: dict[str, dict[str, object]] = {
         ],
     },
 }
-PERMISSIONLESS_APIS = frozenset({"runtime"})
+PERMISSIONLESS_APIS = frozenset({"runtime", "action"})
 LOCAL_BRIDGE_HOST_PATTERN = "http://127.0.0.1:8765/*"
 CHROME_API_RE = re.compile(r"\bchrome\.([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\b")
 URL_RE = re.compile(r"""https?://[^\s'"<>)}\]]+""")
-PYTHON_STRING_URL_RE = re.compile(r"""['"](https?://[^'"\s]+)['"]""")
+PYTHON_STRING_URL_RE = re.compile(r"""['"](https?://[^'\s]+)['"]""")
 
 
 def _extension_javascript_files(root: Path = EXTENSION_ROOT) -> list[Path]:
@@ -102,7 +103,11 @@ def validate_extension_capabilities(
         return ["manifest root must be a JSON object"]
 
     errors.extend(_validate_manifest_shape(manifest))
-    permissions = set(manifest.get("permissions", [])) if isinstance(manifest.get("permissions"), list) else set()
+    permissions = (
+        set(manifest.get("permissions", []))
+        if isinstance(manifest.get("permissions"), list)
+        else set()
+    )
     host_permissions = (
         [item for item in manifest.get("host_permissions", []) if isinstance(item, str)]
         if isinstance(manifest.get("host_permissions"), list)
@@ -114,7 +119,9 @@ def validate_extension_capabilities(
     if isinstance(content_scripts, list):
         for entry in content_scripts:
             if isinstance(entry, dict):
-                declared_files.extend(item for item in entry.get("js", []) if isinstance(item, str))
+                declared_files.extend(
+                    item for item in entry.get("js", []) if isinstance(item, str)
+                )
     background = manifest.get("background", {})
     if isinstance(background, dict) and isinstance(background.get("service_worker"), str):
         declared_files.append(background["service_worker"])
