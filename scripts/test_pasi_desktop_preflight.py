@@ -1,0 +1,38 @@
+from datetime import datetime, timezone
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.pasi_desktop_preflight import capture_time, extract_observation, heartbeat_age_seconds
+
+
+def test_native_v2_envelope_uses_top_level_capture_time() -> None:
+    payload = {
+        "observation": {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-21T05:49:12.177Z",
+            "data": {
+                "kind": "chatgpt_health",
+                "native_controller": True,
+            },
+        }
+    }
+    observation, data = extract_observation(payload)
+    assert data["kind"] == "chatgpt_health"
+    assert capture_time(data, observation) == "2026-09-21T05:49:12.177Z"
+
+
+def test_data_capture_time_takes_precedence_when_present() -> None:
+    observation = {"captured_at": "2026-09-21T05:49:12Z", "data": {"captured_at": "2026-09-21T05:49:13Z"}}
+    _, data = extract_observation({"observation": observation})
+    assert capture_time(data, observation) == "2026-09-21T05:49:13Z"
+
+
+def test_heartbeat_age_supports_utc_iso_timestamp() -> None:
+    captured = "2026-09-21T05:00:00Z"
+    age = heartbeat_age_seconds(captured)
+    assert age >= 0
+    datetime.fromisoformat(captured.replace("Z", "+00:00")).astimezone(timezone.utc)
