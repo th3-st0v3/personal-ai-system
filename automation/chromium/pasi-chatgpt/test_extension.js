@@ -518,6 +518,17 @@ test('native controller coalesces overlapping idle polls', () => {
 });
 
 
+test('native response completion reuses the extracted assistant text for fingerprinting', () => {
+  const start = content.indexOf('function latestAssistant()');
+  const end = content.indexOf('function nearbyScopedControls', start);
+  assert.ok(start >= 0 && end > start);
+  const source = content.slice(start, end);
+  assert.match(source, /function fingerprintFromText\(value\)/);
+  assert.match(source, /function fingerprint\(\) \{ return fingerprintFromText\(latestAssistant\(\)\); \}/);
+  assert.match(source, /fingerprintFromText\(responseText\) !== baseline/);
+  assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
+});
+
 test('native completion acknowledgement returns a durable next-operation handoff', () => {
   assert.match(content, /return response\.json\(\)/);
   assert.match(content, /next_operation/);
