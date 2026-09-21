@@ -19,6 +19,8 @@ class TestPasiRuntimeTelemetry(unittest.TestCase):
             {"timestamp": "2026-09-20T20:01:20+00:00", "kind": "prompt_dispatch_started", "task_id": "a", "task_number": 2},
             {"timestamp": "2026-09-20T20:01:21+00:00", "kind": "response_received", "task_id": "a", "task_number": 2, "chars": 220},
             {"timestamp": "2026-09-20T20:01:22+00:00", "kind": "task_failed", "task_id": "a", "task_number": 2},
+            {"timestamp": "2026-09-20T20:01:23+00:00", "kind": "browser_timing", "injected_at_ms": 200000, "ack_at_ms": 200020, "generation_start_ms": 200100, "completed_at_ms": 201100},
+            {"timestamp": "2026-09-20T20:01:24+00:00", "kind": "browser_timing", "injected_at_ms": 201155, "ack_at_ms": 201175, "generation_start_ms": 201300, "completed_at_ms": 202300},
         ]
         report = telemetry.analyze(events)
         self.assertEqual(report.events, len(events))
@@ -31,9 +33,15 @@ class TestPasiRuntimeTelemetry(unittest.TestCase):
         self.assertEqual(report.prompt_sizes, (3400,))
         self.assertEqual(len(report.response_latency_samples), 2)
         self.assertEqual(len(report.response_to_next_dispatch_samples), 1)
+        self.assertEqual(len(report.browser_handoff_samples), 1)
+        self.assertEqual(len(report.browser_ack_samples), 2)
+        self.assertEqual(len(report.browser_generation_samples), 2)
         self.assertAlmostEqual(report.response_latency_samples[0], 1000.0)
         self.assertAlmostEqual(report.response_latency_samples[1], 1000.0)
         self.assertAlmostEqual(report.response_to_next_dispatch_samples[0], 49000.0)
+        self.assertAlmostEqual(report.browser_handoff_samples[0], 55.0)
+        self.assertAlmostEqual(report.browser_ack_samples[0], 20.0)
+        self.assertAlmostEqual(report.browser_generation_samples[1], 1000.0)
 
     def test_malformed_json_is_counted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -69,6 +77,9 @@ class TestPasiRuntimeTelemetry(unittest.TestCase):
             short_response_streak_max=1,
             response_latency_samples=(),
             response_to_next_dispatch_samples=(),
+            browser_handoff_samples=(),
+            browser_ack_samples=(),
+            browser_generation_samples=(),
             prompt_sizes=(),
             recovery_events=0,
             provider_limit_events=0,
