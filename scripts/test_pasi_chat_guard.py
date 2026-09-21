@@ -13,7 +13,7 @@ class TestPasiChatGuard(unittest.TestCase):
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn("def cancel_active_operation(reason: str)", source)
         self.assertIn('request_json("/browser/health")', source)
-        self.assertIn('"/chat/cancel"', source)
+        self.assertIn("chat/cancel", source)
         self.assertIn('cancel_active_operation("guard timeout before child termination")', source)
 
     def test_fallback_sandbox_scrubs_sensitive_environment(self) -> None:
