@@ -214,6 +214,75 @@ new file mode 100644
             )
         )
 
+    def test_handoff_summary_is_durable_and_bounded(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="handoff-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=168)).isoformat(),
+            worktree="/tmp/pasi-worktree",
+            branch="pasi/handoff-test",
+            phase="automation",
+            current_task="current task",
+            requested_task="requested task",
+            completed_tasks=4,
+            failed_tasks=2,
+            current_attempt=3,
+            task_retry_cycle=2,
+            same_failure_cycles=2,
+            last_failure_signature="failure-signature",
+            last_provider="chatgpt_browser",
+            provider_limit_pauses=1,
+            fallback_router_disabled_until="2026-09-22T00:00:00+00:00",
+            last_result="x" * 8000,
+            next_task="next task",
+            recent_tasks=["one", "two", "three"],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "handoff.json"
+            with (
+                mock.patch.object(engine, "HANDOFF_PATH", path),
+                mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)),
+            ):
+                engine.write_handoff_summary(state, reason="deadline_reached")
+                payload = __import__("json").loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["run_id"], "handoff-test")
+        self.assertEqual(payload["stop_reason"], "deadline_reached")
+        self.assertEqual(payload["completed_tasks"], 4)
+        self.assertEqual(payload["failed_tasks"], 2)
+        self.assertEqual(len(payload["last_result"]), 6000)
+        self.assertEqual(payload["recent_tasks"], ["one", "two", "three"])
+
+    def test_finish_state_writes_handoff_summary_after_state(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="finish-handoff-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=168)).isoformat(),
+            worktree="/tmp/pasi-worktree",
+            branch="pasi/finish-handoff-test",
+            phase="automation",
+            current_task="current task",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            handoff_path = Path(temp_dir) / "handoff.json"
+            with (
+                mock.patch.object(engine, "STATE_PATH", state_path),
+                mock.patch.object(engine, "HANDOFF_PATH", handoff_path),
+                mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)),
+                mock.patch.object(engine, "log_event"),
+            ):
+                engine.finish_state(state, "stopped")
+                self.assertTrue(state_path.is_file())
+                self.assertTrue(handoff_path.is_file())
+                payload = __import__("json").loads(handoff_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["stop_reason"], "stopped")
+        self.assertEqual(payload["run_id"], "finish-handoff-test")
+
     def test_unexpected_early_exit_is_not_treated_as_operator_stop(self) -> None:
         finish_reason = getattr(engine, "finish_reason")
         self.assertEqual(finish_reason(stop_requested=False, deadline_reached=False), "unexpected_early_exit")
