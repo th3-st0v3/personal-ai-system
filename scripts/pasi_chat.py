@@ -68,12 +68,33 @@ def run(command: Sequence[str], root: Path, *, timeout: float = 5.0) -> str:
 
 
 def compact_repo_state(root: Path) -> str:
-    remote = run(["git", "remote", "get-url", "origin"], root) or PUBLIC_REPOSITORY_URL
-    branch = run(["git", "branch", "--show-current"], root) or "detached HEAD"
-    commit = run(["git", "rev-parse", "HEAD"], root) or "unknown"
-    status = run(["git", "status", "--short"], root) or "clean"
-    log = run(["git", "log", "-5", "--oneline", "--decorate"], root) or "unavailable"
-    return "\n".join((f"Repository: {remote}", f"Branch: {branch}", f"Commit: {commit}", f"Working tree: {status}", "Recent commits:", log))
+    # The PASI repository identity is fixed; avoid a remote lookup on every task.
+    remote = PUBLIC_REPOSITORY_URL
+
+    status_output = run(["git", "status", "--short", "--branch"], root) or ""
+    status_lines = status_output.splitlines()
+    branch = "detached HEAD"
+    working_lines = status_lines
+    if status_lines and status_lines[0].startswith("## "):
+        branch = status_lines[0][3:].split("...", 1)[0].strip() or branch
+        working_lines = status_lines[1:]
+    status = "\n".join(working_lines).strip() or "clean"
+
+    # The first log record carries both the current commit and recent history.
+    log = run(["git", "log", "-5", "--format=%H %s %D"], root) or "unavailable"
+    first_log = log.splitlines()[0] if log.strip() else ""
+    commit = first_log.split(" ", 1)[0] if first_log else "unknown"
+
+    return "\n".join(
+        (
+            f"Repository: {remote}",
+            f"Branch: {branch}",
+            f"Commit: {commit}",
+            f"Working tree: {status}",
+            "Recent commits:",
+            log,
+        )
+    )
 
 
 def load_handoff() -> dict[str, object]:
