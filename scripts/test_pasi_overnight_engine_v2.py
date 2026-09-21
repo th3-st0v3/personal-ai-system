@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts import pasi_hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 
 
@@ -135,41 +137,6 @@ new file mode 100644
         with self.assertRaisesRegex(ValueError, "protected unattended"):
             engine.validate_patch_paths(protected, False, Path.cwd())
 
-    def test_168h_runtime_control_paths_are_protected(self) -> None:
-        from scripts import pasi_overnight_hardening as hardening
-
-        expected = {
-            "scripts/check_all.sh",
-            "scripts/check_offline.sh",
-            "scripts/pasi_overnight_hardening.py",
-            "scripts/pasi_overnight_engine_v2.py",
-            "scripts/pasi_extended_runtime_entrypoint.py",
-            "scripts/start_pasi_168h.sh",
-            "scripts/pasi_168h_supervisor.sh",
-            "scripts/pasi_timeout_policy.py",
-            "scripts/pasi_chat_guard.py",
-            "scripts/pasi_provider_router.py",
-            "scripts/pasi_setup.py",
-            "scripts/pasi_promote.py",
-            "automation/chromium/pasi-chatgpt/manifest.json",
-            "automation/chromium/pasi-chatgpt/timeout-policy.json",
-        }
-
-        self.assertTrue(expected.issubset(hardening.PROTECTED_UNATTENDED_PATHS))
-        self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
-
-        for path in sorted(expected):
-            patch = (
-                f"diff --git a/{path} b/{path}\n"
-                f"--- a/{path}\n"
-                f"+++ b/{path}\n"
-                "@@ -1 +1 @@\n"
-                "-old\n"
-                "+new\n"
-            )
-            with self.assertRaisesRegex(ValueError, "protected unattended"):
-                engine.validate_patch_paths(patch, False, Path.cwd())
-
     def test_control_script_stays_inside_launcher_checkout(self) -> None:
         script = engine.control_script("pasi_chat_guard.py")
         self.assertEqual(script.parent.resolve(), engine.CONTROL_SCRIPTS_ROOT.resolve())
@@ -214,110 +181,11 @@ new file mode 100644
             )
         )
 
-    def test_handoff_summary_is_durable_and_bounded(self) -> None:
-        now = datetime.now(timezone.utc)
-        state = engine.OvernightState(
-            schema_version=2,
-            run_id="handoff-test",
-            started_at=now.isoformat(),
-            deadline_at=(now + timedelta(hours=168)).isoformat(),
-            worktree="/tmp/pasi-worktree",
-            branch="pasi/handoff-test",
-            phase="automation",
-            current_task="current task",
-            requested_task="requested task",
-            completed_tasks=4,
-            failed_tasks=2,
-            current_attempt=3,
-            task_retry_cycle=2,
-            same_failure_cycles=2,
-            last_failure_signature="failure-signature",
-            last_provider="chatgpt_browser",
-            provider_limit_pauses=1,
-            fallback_router_disabled_until="2026-09-22T00:00:00+00:00",
-            last_result="x" * 8000,
-            next_task="next task",
-            recent_tasks=["one", "two", "three"],
-        )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "handoff.json"
-            with (
-                mock.patch.object(engine, "HANDOFF_PATH", path),
-                mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)),
-            ):
-                engine.write_handoff_summary(state, reason="deadline_reached")
-                payload = __import__("json").loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(payload["schema_version"], 1)
-        self.assertEqual(payload["run_id"], "handoff-test")
-        self.assertEqual(payload["stop_reason"], "deadline_reached")
-        self.assertEqual(payload["completed_tasks"], 4)
-        self.assertEqual(payload["failed_tasks"], 2)
-        self.assertEqual(len(payload["last_result"]), 6000)
-        self.assertEqual(payload["recent_tasks"], ["one", "two", "three"])
-
-    def test_finish_state_writes_handoff_summary_after_state(self) -> None:
-        now = datetime.now(timezone.utc)
-        state = engine.OvernightState(
-            schema_version=2,
-            run_id="finish-handoff-test",
-            started_at=now.isoformat(),
-            deadline_at=(now + timedelta(hours=168)).isoformat(),
-            worktree="/tmp/pasi-worktree",
-            branch="pasi/finish-handoff-test",
-            phase="automation",
-            current_task="current task",
-        )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            state_path = Path(temp_dir) / "state.json"
-            handoff_path = Path(temp_dir) / "handoff.json"
-            with (
-                mock.patch.object(engine, "STATE_PATH", state_path),
-                mock.patch.object(engine, "HANDOFF_PATH", handoff_path),
-                mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)),
-                mock.patch.object(engine, "log_event"),
-            ):
-                engine.finish_state(state, "stopped")
-                self.assertTrue(state_path.is_file())
-                self.assertTrue(handoff_path.is_file())
-                payload = __import__("json").loads(handoff_path.read_text(encoding="utf-8"))
-        self.assertEqual(payload["stop_reason"], "stopped")
-        self.assertEqual(payload["run_id"], "finish-handoff-test")
-
     def test_unexpected_early_exit_is_not_treated_as_operator_stop(self) -> None:
         finish_reason = getattr(engine, "finish_reason")
         self.assertEqual(finish_reason(stop_requested=False, deadline_reached=False), "unexpected_early_exit")
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=False), "stopped")
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=True), "deadline_reached")
-
-    def test_completion_effort_floor_rejects_low_content_new_task(self) -> None:
-        values = {"evidence": "verified"}
-        self.assertIn(
-            "summary is too short",
-            engine.completion_effort_floor_reason("complete", "done", values, False),
-        )
-        self.assertIn(
-            "evidence is too short",
-            engine.completion_effort_floor_reason(
-                "complete",
-                "Implemented and verified the requested change.",
-                values,
-                False,
-            ),
-        )
-
-    def test_completion_effort_floor_allows_existing_no_change_task(self) -> None:
-        values = {"evidence": ""}
-        self.assertEqual(
-            engine.completion_effort_floor_reason("complete", "done", values, True),
-            "",
-        )
-
-    def test_completion_effort_floor_only_applies_to_complete_status(self) -> None:
-        values = {"evidence": ""}
-        self.assertEqual(
-            engine.completion_effort_floor_reason("needs_revision", "done", values, False),
-            "",
-        )
 
     def test_no_change_completion_requires_durable_task_evidence(self) -> None:
         values = {
@@ -520,9 +388,8 @@ branch refs/heads/main
                     self.assertEqual(repeats, 0)
                 self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
 
-    def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
+    def test_scheduler_ignores_model_task_suggestion(self) -> None:
         now = datetime.now(timezone.utc)
-        current = engine.AUTOMATION_TASKS[1]
         state = engine.OvernightState(
             schema_version=2,
             run_id="forward-progress-test",
@@ -531,10 +398,29 @@ branch refs/heads/main
             worktree=str(Path.cwd()),
             branch="test",
             phase="automation",
-            current_task=current,
-            recent_tasks=list(engine.AUTOMATION_TASKS),
+            current_task="current task",
         )
-        self.assertEqual(engine.choose_next_task(state, current), engine.AUTOMATION_TASKS[2])
+        selected = pasi_hybrid_planner.TaskSpec(
+            id="next.task",
+            title="Next task",
+            objective="Execute the planner-selected task.",
+            acceptance_criteria=("The task is verified.",),
+            verification=("Run the targeted test.",),
+            phase="automation",
+        )
+        with mock.patch.object(
+            engine,
+            "select_planner_task",
+            return_value=pasi_hybrid_planner.PlannerDecision(
+                selected=selected,
+                eligible_ids=("next.task",),
+                mode="deterministic",
+                reason="only eligible task",
+            ),
+        ):
+            result = engine.choose_next_task(state, "model-invented task")
+        self.assertEqual(result, selected.execution_text())
+        self.assertEqual(state.current_task_id, "next.task")
 
     def test_attempt_budget_starts_next_retry_cycle_on_same_task(self) -> None:
         now = datetime.now(timezone.utc)
@@ -580,14 +466,31 @@ branch refs/heads/main
         try:
             engine.STOP = False
             with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
-                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
-                    with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
-                        with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
-                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
-                                with mock.patch.object(engine, "record_task_ledger"):
-                                    with mock.patch.object(engine, "save_state"):
-                                        with mock.patch.object(engine, "log_event"):
-                                            engine.run(state, push=False)
+                with mock.patch.object(
+                    engine,
+                    "select_planner_task",
+                    return_value=pasi_hybrid_planner.PlannerDecision(
+                        selected=pasi_hybrid_planner.TaskSpec(
+                            id="automation.after-retry",
+                            title="After retry",
+                            objective="Proceed to the next verified task.",
+                            acceptance_criteria=("The task is verified.",),
+                            verification=("Run the targeted test.",),
+                            phase="automation",
+                        ),
+                        eligible_ids=("automation.after-retry",),
+                        mode="deterministic",
+                        reason="planner selected the next eligible task",
+                    ),
+                ):
+                    with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                        with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
+                            with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
+                                with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                    with mock.patch.object(engine, "record_task_ledger"):
+                                        with mock.patch.object(engine, "save_state"):
+                                            with mock.patch.object(engine, "log_event"):
+                                                engine.run(state, push=False)
         finally:
             engine.STOP = original_stop
 
@@ -602,7 +505,13 @@ branch refs/heads/main
         )
         self.assertEqual(state.failed_tasks, 1)
         self.assertEqual(state.completed_tasks, 1)
-        self.assertEqual(state.current_task, engine.AUTOMATION_TASKS[2])
+        self.assertEqual(
+            state.current_task,
+            "TITLE: After retry\nOBJECTIVE: Proceed to the next verified task.\n"
+            "ACCEPTANCE CRITERIA:\n- The task is verified.\n"
+            "VERIFICATION:\n- Run the targeted test.",
+        )
+        self.assertEqual(state.current_task_id, "automation.after-retry")
         self.assertEqual(state.task_retry_cycle, 0)
 
     def test_failed_task_is_excluded_before_next_selection(self) -> None:
@@ -619,7 +528,26 @@ branch refs/heads/main
             current_task=failed,
             recent_tasks=[failed],
         )
-        self.assertEqual(engine.choose_next_task(state, ""), engine.AUTOMATION_TASKS[1])
+        selected = pasi_hybrid_planner.TaskSpec(
+            id="automation.repair",
+            title="Automation repair",
+            objective="Repair the failed task using new evidence.",
+            acceptance_criteria=("The repair is verified.",),
+            verification=("Run the targeted test.",),
+            phase="automation",
+        )
+        with mock.patch.object(
+            engine,
+            "select_planner_task",
+            return_value=pasi_hybrid_planner.PlannerDecision(
+                selected=selected,
+                eligible_ids=("automation.repair",),
+                mode="deterministic",
+                reason="planner selected the next eligible task",
+            ),
+        ):
+            result = engine.choose_next_task(state, "")
+        self.assertEqual(result, selected.execution_text())
 
     def test_provider_conditions_are_distinct_from_chat_completion_failures(self) -> None:
         self.assertEqual(engine.provider_condition(90, "CHAT_USAGE_LIMITED: provider limit"), "provider_usage_limit")
@@ -669,15 +597,32 @@ branch refs/heads/main
         try:
             engine.STOP = False
             with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
-                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
-                    with mock.patch.object(engine, "parse_response", return_value=parsed):
-                        with mock.patch.object(engine, "completion_contract", return_value=True):
-                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
-                                with mock.patch.object(engine, "record_task_ledger"):
-                                    with mock.patch.object(engine, "save_state"):
-                                        with mock.patch.object(engine, "sleep_until_retry", return_value=True):
-                                            with mock.patch.object(engine, "log_event"):
-                                                engine.run(state, push=False)
+                with mock.patch.object(
+                    engine,
+                    "select_planner_task",
+                    return_value=pasi_hybrid_planner.PlannerDecision(
+                        selected=pasi_hybrid_planner.TaskSpec(
+                            id="automation.after-provider-recovery",
+                            title="After provider recovery",
+                            objective="Proceed to the next verified task.",
+                            acceptance_criteria=("The task is verified.",),
+                            verification=("Run the targeted test.",),
+                            phase="automation",
+                        ),
+                        eligible_ids=("automation.after-provider-recovery",),
+                        mode="deterministic",
+                        reason="planner selected the next eligible task",
+                    ),
+                ):
+                    with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                        with mock.patch.object(engine, "parse_response", return_value=parsed):
+                            with mock.patch.object(engine, "completion_contract", return_value=True):
+                                with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                    with mock.patch.object(engine, "record_task_ledger"):
+                                        with mock.patch.object(engine, "save_state"):
+                                            with mock.patch.object(engine, "sleep_until_retry", return_value=True):
+                                                with mock.patch.object(engine, "log_event"):
+                                                    engine.run(state, push=False)
         finally:
             engine.STOP = original_stop
 
@@ -761,7 +706,7 @@ branch refs/heads/main
                             ):
                                 self.assertFalse(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=5.0))
 
-    def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
+    def test_choose_next_task_does_not_consume_model_next_task(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
@@ -771,16 +716,32 @@ branch refs/heads/main
             worktree=str(Path.cwd()),
             branch="test",
             phase="automation",
-            current_task=engine.AUTOMATION_TASKS[0],
+            current_task="operator task",
             recent_tasks=[],
         )
-        self.assertEqual(
-            engine.choose_next_task(
-                state,
-                "Implement a concrete seam diagnostic for queued ChatGPT operations.",
+        with mock.patch.object(
+            engine,
+            "select_planner_task",
+            return_value=pasi_hybrid_planner.PlannerDecision(
+                selected=pasi_hybrid_planner.TaskSpec(
+                    id="next.task",
+                    title="Next task",
+                    objective="Do the next thing",
+                    acceptance_criteria=("It is verified.",),
+                    verification=("Run the test.",),
+                    phase="automation",
+                ),
+                eligible_ids=("next.task",),
+                mode="deterministic",
+                reason="only eligible task",
             ),
-            "Implement a concrete seam diagnostic for queued ChatGPT operations.",
-        )
+        ):
+            selected = engine.choose_next_task(
+                state,
+                "model-selected task must be ignored",
+            )
+        self.assertEqual(selected, "TITLE: Next task\nOBJECTIVE: Do the next thing\nACCEPTANCE CRITERIA:\n- It is verified.\nVERIFICATION:\n- Run the test.")
+        self.assertEqual(state.current_task_id, "next.task")
 
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
         now = datetime.now(timezone.utc)
@@ -1002,6 +963,167 @@ branch refs/heads/main
         self.assertNotIn("pasi_controller_server.py", source)
 
 
+    def test_168h_runtime_control_paths_are_protected(self) -> None:
+        from scripts import pasi_overnight_hardening as hardening
+
+        expected = {
+            "scripts/check_all.sh",
+            "scripts/check_offline.sh",
+            "scripts/pasi_overnight_hardening.py",
+            "scripts/pasi_overnight_engine_v2.py",
+            "scripts/pasi_extended_runtime_entrypoint.py",
+            "scripts/start_pasi_168h.sh",
+            "scripts/pasi_168h_supervisor.sh",
+            "scripts/pasi_timeout_policy.py",
+            "scripts/pasi_chat_guard.py",
+            "scripts/pasi_provider_router.py",
+            "scripts/pasi_setup.py",
+            "scripts/pasi_promote.py",
+            "automation/chromium/pasi-chatgpt/manifest.json",
+            "automation/chromium/pasi-chatgpt/timeout-policy.json",
+        }
+        self.assertTrue(expected.issubset(hardening.PROTECTED_UNATTENDED_PATHS))
+        self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
+        for path in sorted(expected):
+            patch = (
+                f"diff --git a/{path} b/{path}\\n"
+                f"--- a/{path}\\n"
+                f"+++ b/{path}\\n"
+                "@@ -1 +1 @@\\n"
+                "-old\\n"
+                "+new\\n"
+            )
+            with self.assertRaisesRegex(ValueError, "protected unattended"):
+                engine.validate_patch_paths(patch, False, Path.cwd())
+
+    def test_completion_effort_floor_rejects_low_content_new_task(self) -> None:
+        values = {"evidence": "verified"}
+        self.assertIn("summary is too short", engine.completion_effort_floor_reason("complete", "done", values, False))
+        self.assertIn(
+            "evidence is too short",
+            engine.completion_effort_floor_reason(
+                "complete", "Implemented and verified the requested change.", values, False
+            ),
+        )
+
+    def test_completion_effort_floor_allows_existing_no_change_task(self) -> None:
+        self.assertEqual(engine.completion_effort_floor_reason("complete", "done", {"evidence": ""}, True), "")
+
+    def test_completion_effort_floor_only_applies_to_complete_status(self) -> None:
+        self.assertEqual(engine.completion_effort_floor_reason("needs_revision", "done", {"evidence": ""}, False), "")
+
+    def test_handoff_summary_is_durable_and_bounded(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2, run_id="handoff-test", started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=168)).isoformat(), worktree="/tmp/pasi-worktree",
+            branch="pasi/handoff-test", phase="automation", current_task="current task",
+            requested_task="requested task", completed_tasks=4, failed_tasks=2, current_attempt=3,
+            task_retry_cycle=2, same_failure_cycles=2, last_failure_signature="failure-signature",
+            last_provider="chatgpt_browser", provider_limit_pauses=1,
+            fallback_router_disabled_until="2026-09-22T00:00:00+00:00", last_result="x" * 8000,
+            next_task="next task", recent_tasks=["one", "two", "three"],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "handoff.json"
+            with mock.patch.object(engine, "HANDOFF_PATH", path), mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)):
+                engine.write_handoff_summary(state, reason="deadline_reached")
+                payload = __import__("json").loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["run_id"], "handoff-test")
+        self.assertEqual(payload["stop_reason"], "deadline_reached")
+        self.assertEqual(payload["completed_tasks"], 4)
+        self.assertEqual(payload["failed_tasks"], 2)
+        self.assertEqual(len(payload["last_result"]), 6000)
+        self.assertEqual(payload["recent_tasks"], ["one", "two", "three"])
+
+    def test_finish_state_writes_handoff_summary_after_state(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2, run_id="finish-handoff-test", started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=168)).isoformat(), worktree="/tmp/pasi-worktree",
+            branch="pasi/finish-handoff-test", phase="automation", current_task="current task",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"; handoff_path = Path(temp_dir) / "handoff.json"
+            with mock.patch.object(engine, "STATE_PATH", state_path), mock.patch.object(engine, "HANDOFF_PATH", handoff_path), mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)), mock.patch.object(engine, "log_event"):
+                engine.finish_state(state, "stopped")
+                self.assertTrue(state_path.is_file()); self.assertTrue(handoff_path.is_file())
+                payload = __import__("json").loads(handoff_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["stop_reason"], "stopped")
+        self.assertEqual(payload["run_id"], "finish-handoff-test")
+
+    def test_consume_runner_control_accepts_matching_current_task(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            control = root / "control.json"
+            state = engine.OvernightState(
+                schema_version=2,
+                run_id="control-test",
+                started_at=datetime.now(timezone.utc).isoformat(),
+                deadline_at=(datetime.now(timezone.utc) + timedelta(hours=168)).isoformat(),
+                worktree=str(root),
+                branch="pasi/control-test",
+                phase="engineering_os",
+                current_task="task",
+                current_task_id="task.id",
+                task_retry_cycle=4,
+                current_attempt=3,
+                last_failure_signature="failure",
+                same_failure_cycles=2,
+                last_result="failed",
+            )
+            control.write_text(json.dumps({
+                "schema_version": 1,
+                "action": "retry_current",
+                "task_id": "task.id",
+            }), encoding="utf-8")
+            with (
+                mock.patch.object(engine, "RUNNER_CONTROL_PATH", control),
+                mock.patch.object(engine, "RUNTIME_DIR", root),
+                mock.patch.object(engine, "STATE_PATH", root / "state.json"),
+                mock.patch.object(engine, "log_event"),
+            ):
+                assert engine.consume_runner_control(state) is True
+            self.assertEqual(state.task_retry_cycle, 0)
+            self.assertEqual(state.current_attempt, 0)
+            self.assertEqual(state.last_failure_signature, "")
+            self.assertFalse(control.exists())
+
+    def test_consume_runner_control_rejects_wrong_task_without_resetting_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            control = root / "control.json"
+            state = engine.OvernightState(
+                schema_version=2,
+                run_id="control-test",
+                started_at=datetime.now(timezone.utc).isoformat(),
+                deadline_at=(datetime.now(timezone.utc) + timedelta(hours=168)).isoformat(),
+                worktree=str(root),
+                branch="pasi/control-test",
+                phase="engineering_os",
+                current_task="task",
+                current_task_id="task.id",
+                task_retry_cycle=4,
+                current_attempt=3,
+                last_failure_signature="failure",
+            )
+            control.write_text(json.dumps({
+                "schema_version": 1,
+                "action": "retry_current",
+                "task_id": "other.id",
+            }), encoding="utf-8")
+            with (
+                mock.patch.object(engine, "RUNNER_CONTROL_PATH", control),
+                mock.patch.object(engine, "log_event"),
+            ):
+                assert engine.consume_runner_control(state) is False
+            self.assertEqual(state.task_retry_cycle, 4)
+            self.assertEqual(state.current_attempt, 3)
+            self.assertEqual(state.last_failure_signature, "failure")
+            self.assertFalse(control.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -1015,4 +1137,3 @@ def test_verify_and_commit_skips_duplicate_pre_commit_status_only_for_fast_gate(
     assert fast_index < status_index
     assert else_index < status_index
     assert 'changed_file_count = int(gate_match.group(1)) if gate_match else 0' in content
-
