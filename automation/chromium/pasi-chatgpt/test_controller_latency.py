@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[3]
 TAMPERMONKEY = ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
 NATIVE = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 BACKGROUND = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "background.js"
+DETECTORS = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "detectors.js"
 
 
 def _read(path: Path) -> str:
@@ -59,6 +60,7 @@ def test_native_controller_uses_bounded_idle_polling() -> None:
 def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     tampermonkey = _read(TAMPERMONKEY)
     native = _read(NATIVE)
+    detectors = _read(DETECTORS)
     background = _read(BACKGROUND)
 
     assert "GM_xmlhttpRequest" in tampermonkey
@@ -71,13 +73,13 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "targetAddressSpace" not in background
     assert "http://127.0.0.1:8765" in background
     assert "allowedBridgeRequest(method, path)" in background
-    assert "captcha" in native
-    assert "session has expired" in native
+    assert "captcha" in detectors
+    assert "session has expired" in detectors
     assert "CHAT_EXHAUSTED" in native
     assert "reportHealth" in native
     assert "aria-labelledby" in native
     assert "hasAttribute?.('disabled')" in native
-    assert "github connection failed" in native
+    assert "github connection failed" in detectors
     assert "GitHub repository must be in owner/name form" in native
     assert 'button[data-testid*="model" i]' in native
     assert 'button[aria-label*="model" i]' in native
