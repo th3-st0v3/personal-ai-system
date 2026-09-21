@@ -87,8 +87,10 @@
         <div class="metric-card"><span>Native controller</span><strong id="native-metric">—</strong></div>
         <div class="metric-card"><span>Heartbeat age</span><strong id="latency-metric">—</strong></div>
         <div class="metric-card"><span>Composer</span><strong id="composer-metric">—</strong></div>
+        <div class="metric-card"><span>Runner</span><strong id="runner-metric">—</strong></div>
+        <div class="metric-card"><span>RAM</span><strong id="ram-metric">—</strong></div>
       </div>
-      <p class="muted" id="telemetry-note">Live WSL memory usage is not exposed by the current bridge contract; the panel reports the enforced resource boundary instead of inventing a host metric.</p>
+      <p class="muted" id="runner-capability-note">Runner capability report is loading.</p>
     </section>
 
     <section class="section automation-section" aria-labelledby="automation-heading">
@@ -100,9 +102,14 @@
       </div>
       <div class="automation-state" id="automation-state" data-state="unknown">
         <span class="status-dot" aria-hidden="true"></span>
-        <span id="automation-state-text">Runner state unavailable from the current bridge contract.</span>
+        <span id="automation-state-text">Runner state unavailable.</span>
       </div>
-      <p class="muted">Start/stop, force-skip, and supervisor actions remain owned by the desktop control plane until a narrow authenticated command contract is added.</p>
+      <div class="button-row automation-actions">
+        <button class="outline-button" id="btn-retry-current" type="button">Retry current</button>
+        <button class="danger-button" id="btn-panic-stop" type="button">Panic stop</button>
+      </div>
+      <p class="muted">Task skipping and dependency overrides remain planner-owned. These controls only request a fresh retry of the current task or a supervised stop.</p>
+      <p class="muted"><a class="text-link" href="https://github.com/th3-st0v3/personal-ai-system/actions/workflows/pasi-development.yml" target="_blank" rel="noreferrer">Open GitHub runner controls</a></p>
     </section>
 
     <footer class="panel-footer">
