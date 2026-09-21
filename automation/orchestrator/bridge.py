@@ -77,8 +77,6 @@ class BridgeState:
         self.lock = threading.RLock()
         self._queue_cache: list[dict[str, Any]] | None = None
         self._queue_cache_mtime_ns: int | None = None
-        self._terminal_response_cache: dict[str, str] | None = None
-        self._terminal_response_cache_mtime_ns: int | None = None
 
     @staticmethod
     def _mtime_ns(path: Path) -> int | None:
@@ -100,24 +98,7 @@ class BridgeState:
         self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
         return queue
 
-    def _load_terminal_responses(self) -> dict[str, str]:
-        mtime_ns = self._mtime_ns(self.state_manager.terminal_responses_path)
-        if (
-            self._terminal_response_cache is not None
-            and self._terminal_response_cache_mtime_ns == mtime_ns
-        ):
-            return self._terminal_response_cache
-
-        responses = self.state_manager.load_terminal_responses()
-        self._terminal_response_cache = responses
-        self._terminal_response_cache_mtime_ns = self._mtime_ns(
-            self.state_manager.terminal_responses_path
-        )
-        return responses
-
     def _save_queue(self, queue: list[dict[str, Any]]) -> None:
-        terminal_responses = self._load_terminal_responses()
-        response_store_changed = False
         persistent_queue: list[dict[str, Any]] = []
 
         for item in queue:
@@ -130,50 +111,25 @@ class BridgeState:
                     and isinstance(response_text, str)
                     and response_text.strip()
                 ):
-                    if terminal_responses.get(operation_id) != response_text:
-                        terminal_responses[operation_id] = response_text
-                        response_store_changed = True
+                    self.state_manager.save_terminal_response(
+                        operation_id,
+                        response_text,
+                    )
                 persistent_item.pop("response_text", None)
             persistent_queue.append(persistent_item)
 
-        if response_store_changed:
-            self.state_manager.save_terminal_responses(terminal_responses)
-            self._terminal_response_cache_mtime_ns = self._mtime_ns(
-                self.state_manager.terminal_responses_path
-            )
-
         normalized_queue = self.state_manager.save_queue(persistent_queue)
-
-        # StateManager bounds retained terminal history. Keep the in-memory
-        # records aligned with the same retained operation IDs while preserving
-        # their full response bodies for low-latency reads.
         retained_terminal_ids = {
             item.get("operation_id")
             for item in normalized_queue
             if item.get("status") in TERMINAL_QUEUE_STATUSES
             and isinstance(item.get("operation_id"), str)
         }
-        queue[:] = [
-            item
-            for item in queue
-            if item.get("status") not in TERMINAL_QUEUE_STATUSES
-            or item.get("operation_id") in retained_terminal_ids
-        ]
+        self.state_manager.prune_terminal_responses(retained_terminal_ids)
 
-        stale_response_ids = [
-            operation_id
-            for operation_id in terminal_responses
-            if operation_id not in retained_terminal_ids
-        ]
-        if stale_response_ids:
-            for operation_id in stale_response_ids:
-                terminal_responses.pop(operation_id, None)
-            self.state_manager.save_terminal_responses(terminal_responses)
-            self._terminal_response_cache_mtime_ns = self._mtime_ns(
-                self.state_manager.terminal_responses_path
-            )
-
-        self._queue_cache = queue
+        # Keep the hot-path cache compact. Terminal response bodies are loaded
+        # only when a specific terminal operation is inspected.
+        self._queue_cache = normalized_queue
         self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
 
     def _hydrate_terminal_response(self, item: dict[str, Any]) -> dict[str, Any]:
@@ -185,7 +141,7 @@ class BridgeState:
         response_text = item.get("response_text")
         if isinstance(response_text, str) and response_text.strip():
             return item
-        stored = self._load_terminal_responses().get(operation_id)
+        stored = self.state_manager.load_terminal_response(operation_id)
         if isinstance(stored, str) and stored.strip():
             item = dict(item)
             item["response_text"] = stored
