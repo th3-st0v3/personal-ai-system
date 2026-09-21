@@ -30,3 +30,17 @@ A page reload during an active operation is recorded in browser-local storage. T
 Use the native extension as the only active ChatGPT controller. Keep the existing Tampermonkey controller disabled but installed until the native path has been validated on the local machine.
 
 Do not run both controllers simultaneously; both can consume the same bridge queue and would create duplicate operations.
+
+
+## PASI Control Center
+
+The native controller exposes a Chromium Side Panel using the sidePanel permission and sidepanel.html. Click the extension action icon to open it.
+
+The first panel milestone is intentionally read-only with respect to privileged automation. It provides:
+
+- raw roadmap import and local persistence;
+- structured task preview with dependency-aware drag/drop and keyboard reordering;
+- bridge/controller health telemetry using the existing authenticated background boundary;
+- a Satellite/local-workstation/beast preference that does not claim to apply host limits from inside the browser.
+
+Cloud roadmap dissection, runner start/stop/force-skip commands, and network-stream interception remain separate milestones with explicit contracts.
