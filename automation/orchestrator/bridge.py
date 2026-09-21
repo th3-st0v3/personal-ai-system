@@ -103,24 +103,33 @@ class BridgeState:
         return queue
 
     def _save_queue(self, queue: list[dict[str, Any]]) -> None:
-        persistent_queue: list[dict[str, Any]] = []
-
-        for item in queue:
-            persistent_item = dict(item)
-            if item.get("status") in TERMINAL_QUEUE_STATUSES:
-                operation_id = item.get("operation_id")
-                response_text = item.get("response_text")
-                if (
-                    isinstance(operation_id, str)
-                    and isinstance(response_text, str)
-                    and response_text.strip()
-                ):
-                    self.state_manager.save_terminal_response(
-                        operation_id,
-                        response_text,
-                    )
-                persistent_item.pop("response_text", None)
-            persistent_queue.append(persistent_item)
+        has_inline_terminal_responses = any(
+            item.get("status") in TERMINAL_QUEUE_STATUSES
+            and isinstance(item.get("response_text"), str)
+            and item.get("response_text").strip()
+            for item in queue
+        )
+        persistent_queue: list[dict[str, Any]]
+        if not has_inline_terminal_responses:
+            persistent_queue = queue
+        else:
+            persistent_queue = []
+            for item in queue:
+                persistent_item = dict(item)
+                if item.get("status") in TERMINAL_QUEUE_STATUSES:
+                    operation_id = item.get("operation_id")
+                    response_text = item.get("response_text")
+                    if (
+                        isinstance(operation_id, str)
+                        and isinstance(response_text, str)
+                        and response_text.strip()
+                    ):
+                        self.state_manager.save_terminal_response(
+                            operation_id,
+                            response_text,
+                        )
+                    persistent_item.pop("response_text", None)
+                persistent_queue.append(persistent_item)
 
         normalized_queue = self.state_manager.save_queue(persistent_queue)
         retained_terminal_ids: set[str] = {
@@ -297,6 +306,8 @@ class BridgeState:
     def get_operation(
         self,
         operation_id: str,
+        *,
+        repair_response: bool = True,
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self._load_queue()
@@ -305,7 +316,7 @@ class BridgeState:
                 if item.get("operation_id") != operation_id:
                     continue
 
-                if self._repair_response_from_browser_observation(item):
+                if repair_response and self._repair_response_from_browser_observation(item):
                     self._save_queue(queue)
 
                 return self._hydrate_terminal_response(dict(item))
@@ -1557,7 +1568,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-        existing_operation = self.bridge_state.get_operation(operation_id)
+        # The acknowledgement already carries response evidence when this is
+        # a prompt completion, so the repair-from-observation path would only
+        # add another filesystem read to the hot completion path.
+        existing_operation = self.bridge_state.get_operation(operation_id, repair_response=False)
         if existing_operation is None:
             self._send_json(
                 {"error": "Operation not found."},

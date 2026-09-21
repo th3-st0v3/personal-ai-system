@@ -36,6 +36,7 @@ class StateManager:
         self.queue_path = ai_dir / "queue.json"
         self.terminal_responses_dir = ai_dir / "terminal-responses"
         self.lock_path = ai_dir / "lock.json"
+        self._terminal_response_prune_signature: frozenset[str] | None = None
 
     def write_json(self, path: Path, value: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -353,7 +354,11 @@ class StateManager:
         self,
         retained_operation_ids: set[str],
     ) -> None:
+        signature = frozenset(retained_operation_ids)
+        if signature == self._terminal_response_prune_signature:
+            return
         if not self.terminal_responses_dir.exists():
+            self._terminal_response_prune_signature = signature
             return
         retained_files = {
             self._terminal_response_filename(operation_id)
@@ -366,6 +371,7 @@ class StateManager:
                 path.unlink()
             except FileNotFoundError:
                 pass
+        self._terminal_response_prune_signature = signature
 
     def load_queue(
         self,
