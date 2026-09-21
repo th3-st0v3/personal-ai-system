@@ -468,16 +468,20 @@ test('native controller preserves prompt operations for bounded response recover
   assert.match(content, /finalized = false/);
 });
 
-test('background watchdog requires an active operation and exact chat identity before reloading', () => {
-  assert.match(background, /if \(typeof health\.data\.active_operation_id !== 'string' \|\| !health\.data\.active_operation_id\.trim\(\)\) return/);
-  assert.match(background, /if \(typeof health\.data\.chat_url !== 'string' \|\| !health\.data\.chat_url\.trim\(\)\) return/);
+test('background watchdog wakes stale exact tabs without creating idle replacement tabs', () => {
+  assert.match(background, /const activeOperation = typeof health\.data\.active_operation_id === 'string'/);
+  assert.match(background, /await chrome\.tabs\.sendMessage\(matchingTab\.id, \{ type: 'pasi-health-ping' \}\)/);
+  assert.match(background, /if \(!activeOperation\) return/);
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
-  assert.match(background, /async function createCooldown\(targetChatUrl\)/);
-  assert.match(background, /await markCreateAttempt\(targetChatUrl\)/);
-  assert.match(background, /try \{\s*await chrome\.tabs\.create\(\{ url: targetChatUrl \}\);\s*\} catch/);
   assert.match(background, /Never substitute another ChatGPT tab/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
+});
+
+test('native controller answers background health pings and visibility transitions', () => {
+  assert.match(content, /message\?\.type === 'pasi-health-ping'/);
+  assert.match(content, /void reportHealth\(\)/);
+  assert.match(content, /document\.addEventListener\('visibilitychange'/);
 });
 
 test('background watchdog recreates only the verified conversation when its tab is missing', () => {
