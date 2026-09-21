@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
-from scripts.pasi_overnight_engine_v2 import find_worktree_for_branch
 from scripts import pasi_prompt_compiler as prompt_compiler
 
 
@@ -235,7 +234,7 @@ new file mode 100644
                 self.assertFalse(engine.runtime_watchdog_is_live())
                 self.assertFalse(engine.runtime_watchdog_is_live())
 
-    def test_branch_lookup_reuses_existing_worktree_instead_of_colliding(self) -> None:
+    def test_existing_branch_worktree_is_reused_instead_of_colliding(self) -> None:
         output = """worktree /tmp/other-pasi-worktree
 HEAD deadbeef
 branch refs/heads/pasi/test
@@ -245,9 +244,20 @@ HEAD cafebabe
 branch refs/heads/main
 
 """
-        with mock.patch.object(engine, "command", return_value=(0, output)):
-            found = find_worktree_for_branch("pasi/test")
-        self.assertEqual(found, Path("/tmp/other-pasi-worktree").resolve())
+        with tempfile.TemporaryDirectory() as temp_dir:
+            requested = Path(temp_dir) / "requested"
+            existing = Path("/tmp/other-pasi-worktree").resolve()
+            responses = [
+                (0, output),
+                (0, ""),
+                (0, ""),
+                (0, "0 0"),
+            ]
+            with mock.patch.object(engine, "command", side_effect=responses) as run_command:
+                found = engine.ensure_worktree(requested, "pasi/test", resume=False)
+        self.assertEqual(found, existing)
+        commands = [call.args[0] for call in run_command.call_args_list]
+        self.assertNotIn(["git", "worktree", "add", "-B", "pasi/test", str(requested), "origin/main"], commands)
 
     def test_fresh_worktree_honors_configured_base_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
