@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from scripts import pasi_hybrid_planner as hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 from scripts.pasi_stage_events import StageTimer, classify_failure
 
@@ -39,16 +40,7 @@ PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_offline.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
-    "scripts/pasi_extended_runtime_entrypoint.py",
-    "scripts/start_pasi_168h.sh",
-    "scripts/pasi_168h_supervisor.sh",
-    "scripts/pasi_timeout_policy.py",
-    "scripts/pasi_chat_guard.py",
-    "scripts/pasi_provider_router.py",
-    "scripts/pasi_setup.py",
-    "scripts/pasi_promote.py",
     "automation/chromium/pasi-chatgpt/manifest.json",
-    "automation/chromium/pasi-chatgpt/timeout-policy.json",
 })
 PROTECTED_UNATTENDED_PREFIXES = (
     ".github/",
@@ -73,6 +65,10 @@ ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 HANDOFF_PATH = RUNTIME_DIR / "handoff.json"
+DEFAULT_ROADMAP_PATH = REPO_ROOT / "roadmaps" / "pasi-default.json"
+ROADMAP_OVERLAY_PATH = RUNTIME_DIR / "roadmap-decompositions.json"
+RUNNER_CONTROL_PATH = RUNTIME_DIR / "control.json"
+PLANNER_AI_TIMEOUT_SECONDS = 1.5
 MAX_TASK_TEXT_CHARS = 4000
 MIN_COMPLETION_SUMMARY_CHARS = 24
 MIN_COMPLETION_EVIDENCE_CHARS = 48
@@ -144,6 +140,8 @@ class OvernightState:
     next_task: str = ""
     stop_reason: str = ""
     recent_tasks: list[str] = field(default_factory=list)
+    roadmap_path: str = ""
+    current_task_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -172,6 +170,8 @@ class OvernightState:
             "next_task": self.next_task,
             "stop_reason": self.stop_reason,
             "recent_tasks": self.recent_tasks[-12:],
+            "roadmap_path": self.roadmap_path,
+            "current_task_id": self.current_task_id,
         }
 
 
@@ -202,8 +202,8 @@ def load_state() -> OvernightState | None:
     if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != 2:
         return None
     try:
-        phase = str(raw["phase"])
-        if phase not in {"automation", "engineering_os"}:
+        phase = str(raw["phase"]).strip()
+        if not phase:
             return None
         recent = raw.get("recent_tasks", [])
         recent_tasks = [str(item) for item in recent if isinstance(item, str)] if isinstance(recent, list) else []
@@ -233,6 +233,8 @@ def load_state() -> OvernightState | None:
             next_task=str(raw.get("next_task", "")),
             stop_reason=str(raw.get("stop_reason", "")),
             recent_tasks=recent_tasks[-12:],
+            roadmap_path=str(raw.get("roadmap_path", "")),
+            current_task_id=str(raw.get("current_task_id", "")),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -273,6 +275,7 @@ def record_task_ledger(
     evidence: str = "",
     phase: str = "",
     automation_continue: bool = False,
+    task_id: str = "",
 ) -> None:
     normalized = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
     if not normalized:
@@ -285,6 +288,7 @@ def record_task_ledger(
         "evidence": evidence[-4000:],
         "phase": phase,
         "automation_continue": automation_continue,
+        "task_id": task_id.strip(),
         "updated_at": now_utc().isoformat(),
     }
     save_task_ledger(ledger)
@@ -472,6 +476,7 @@ def reconcile_committed_task(state: OvernightState) -> bool:
         commit=commit.strip(),
         evidence="Recovered completed task from an already-created tagged Git commit after restart.",
         phase=state.phase,
+        task_id=state.current_task_id,
     )
     state.completed_tasks += 1
     if state.phase == "automation":
@@ -557,34 +562,198 @@ def consecutive_roadmap_selection_count(
     return count
 
 
-def choose_run_start_task(phase: str, requested_task: str, run_id: str) -> tuple[str, bool, int]:
-    candidates = AUTOMATION_TASKS if phase == "automation" else ENGINEERING_TASKS
-    candidate = re.sub(r"\s+", " ", requested_task).strip()
-    configured = {item.casefold(): item for item in candidates}
+def initial_roadmap_phase(tasks: Sequence[hybrid_planner.TaskSpec]) -> str:
+    phases = []
+    for task in tasks:
+        if task.phase not in phases:
+            phases.append(task.phase)
+    if not phases:
+        raise RuntimeError("roadmap contains no tasks")
+    if "automation" in phases:
+        return "automation"
+    return phases[0]
 
-    if candidate and candidate.casefold() not in configured:
-        return candidate, False, 0
 
-    candidate = configured.get(candidate.casefold(), candidates[0])
+def planner_roadmap_path(state: OvernightState | None = None, explicit: Path | None = None) -> Path:
+    candidate = explicit
+    if candidate is None and state is not None and state.roadmap_path.strip():
+        candidate = Path(state.roadmap_path)
+    if candidate is None:
+        env_path = os.environ.get("PASI_ROADMAP_PATH", "").strip()
+        candidate = Path(env_path) if env_path else DEFAULT_ROADMAP_PATH
+    return candidate.expanduser().resolve()
+
+
+def planner_ai_ranker():
+    enabled = os.environ.get("PASI_PLANNER_AI_RANK", "").strip().casefold() in {"1", "true", "yes", "on"}
+    model = os.environ.get("PASI_PLANNER_MODEL", "").strip() or os.environ.get("OLLAMA_MODEL", "").strip()
+    if not enabled or not model:
+        return None
+    return lambda candidates: hybrid_planner.ollama_ranker(
+        candidates,
+        timeout_seconds=PLANNER_AI_TIMEOUT_SECONDS,
+        model=model,
+    )
+
+
+def planner_ai_decompose_enabled() -> bool:
+    return os.environ.get("PASI_PLANNER_AI_DECOMPOSE", "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def load_planner_tasks(state: OvernightState, phase: str | None = None) -> tuple[hybrid_planner.TaskSpec, ...]:
+    source = planner_roadmap_path(state)
+    tasks = hybrid_planner.load_roadmap_with_overlay(source, ROADMAP_OVERLAY_PATH)
+    if phase is None:
+        return tasks
+    return tuple(task for task in tasks if task.phase == phase)
+
+
+def task_id_for_prompt(tasks: Sequence[hybrid_planner.TaskSpec], prompt: str) -> str:
+    normalized = " ".join(prompt.split())
+    for task in tasks:
+        if " ".join(task.execution_text().split()) == normalized:
+            return task.id
+    return ""
+
+
+def select_planner_task(
+    state: OvernightState,
+    *,
+    phase: str | None = None,
+) -> hybrid_planner.PlannerDecision:
+    # Fresh runs persist an explicit roadmap path. Legacy state fixtures and
+    # resumed pre-planner runs intentionally keep their compatibility path.
+    if not state.roadmap_path.strip() and not os.environ.get("PASI_ROADMAP_PATH", "").strip():
+        return hybrid_planner.PlannerDecision(None, (), "legacy", "no explicit roadmap configured")
+    tasks = load_planner_tasks(state)
+    decision = hybrid_planner.select_task(
+        tasks,
+        load_task_ledger(),
+        phase=phase,
+        ai_ranker=planner_ai_ranker(),
+    )
+    selected = decision.selected
+    if selected is not None and selected.splittable and selected.estimated_size in {"large", "very_large"} and planner_ai_decompose_enabled():
+        try:
+            children = hybrid_planner.ai_decompose_with_ollama(
+                selected,
+                timeout_seconds=PLANNER_AI_TIMEOUT_SECONDS,
+            )
+            hybrid_planner.save_decomposition_overlay(
+                ROADMAP_OVERLAY_PATH,
+                parent=selected,
+                children=children,
+                roadmap_path=planner_roadmap_path(state),
+            )
+            log_event(
+                "planner_decomposed_task",
+                parent_id=selected.id,
+                child_ids=[child.id for child in children],
+                reason="eligible task exceeded configured planner size threshold",
+            )
+            tasks = load_planner_tasks(state)
+            decision = hybrid_planner.select_task(
+                tasks,
+                load_task_ledger(),
+                phase=phase,
+                ai_ranker=planner_ai_ranker(),
+            )
+        except (hybrid_planner.PlannerError, OSError, TimeoutError):
+            log_event(
+                "planner_decomposition_fallback",
+                task_id=selected.id,
+                reason="AI decomposition unavailable or rejected; retaining original eligible task",
+            )
+    log_event(
+        "planner_selection",
+        phase=phase or state.phase,
+        mode=decision.mode,
+        reason=decision.reason,
+        ai_used=decision.ai_used,
+        eligible_ids=list(decision.eligible_ids),
+        selected_id=decision.selected.id if decision.selected else "",
+    )
+    return decision
+
+
+def choose_run_start_task(
+    phase: str,
+    requested_task: str,
+    run_id: str,
+    roadmap_path: Path | None = None,
+) -> tuple[str, bool, int]:
+    if roadmap_path is None and not os.environ.get("PASI_ROADMAP_PATH", "").strip():
+        candidates = AUTOMATION_TASKS if phase == "automation" else ENGINEERING_TASKS
+        candidate = re.sub(r"\s+", " ", requested_task).strip()
+        configured = {item.casefold(): item for item in candidates}
+        if candidate and candidate.casefold() not in configured:
+            return candidate, False, 0
+        candidate = configured.get(candidate.casefold(), candidates[0])
+        history = load_roadmap_selection_history()
+        prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate)
+        guard_applied = prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
+        if guard_applied:
+            index = next(index for index, item in enumerate(candidates) if item.casefold() == candidate.casefold())
+            candidate = candidates[(index + 1) % len(candidates)]
+        updated = [
+            *history,
+            {
+                "phase": phase,
+                "task": candidate,
+                "run_id": run_id,
+                "timestamp": now_utc().isoformat(),
+            },
+        ]
+        save_roadmap_selection_history(updated)
+        return candidate, guard_applied, prior_repeats
+
+    source = roadmap_path.expanduser().resolve() if roadmap_path else planner_roadmap_path()
+    tasks = hybrid_planner.load_roadmap_with_overlay(source, ROADMAP_OVERLAY_PATH)
+    candidates = tuple(task for task in tasks if task.phase == phase)
+    candidate_text = re.sub(r"\s+", " ", requested_task).strip()
+    candidate = None
+    for task in candidates:
+        if candidate_text.casefold() in {task.id.casefold(), task.title.casefold(), task.execution_text().casefold()}:
+            candidate = task
+            break
+    if candidate is None and candidate_text:
+        return candidate_text, False, 0
+    if candidate is None:
+        decision = hybrid_planner.select_task(
+            tasks,
+            load_task_ledger(),
+            phase=phase,
+            ai_ranker=planner_ai_ranker(),
+        )
+        if decision.selected is None:
+            raise RuntimeError(f"roadmap has no eligible {phase} task")
+        candidate = decision.selected
+
     history = load_roadmap_selection_history()
-    prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate)
-    guard_applied = prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
-
+    prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate.execution_text())
+    # Explicit operator selection is authoritative; the anti-loop guard applies
+    # only when PASI is choosing an initial task automatically.
+    guard_applied = not candidate_text and prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
     if guard_applied:
-        index = next(index for index, item in enumerate(candidates) if item.casefold() == candidate.casefold())
-        candidate = candidates[(index + 1) % len(candidates)]
+        ledger = load_task_ledger()
+        eligible = hybrid_planner.eligible_tasks(candidates, ledger, phase=phase)
+        alternatives = [task for task in eligible if task.id != candidate.id]
+        if alternatives:
+            candidate = hybrid_planner.deterministic_rank(alternatives, candidates, ledger)[0]
+        else:
+            guard_applied = False
 
     updated = [
         *history,
         {
             "phase": phase,
-            "task": candidate,
+            "task": candidate.execution_text(),
             "run_id": run_id,
             "timestamp": now_utc().isoformat(),
         },
     ]
     save_roadmap_selection_history(updated)
-    return candidate, guard_applied, prior_repeats
+    return candidate.execution_text(), guard_applied, prior_repeats
 
 
 def acquire_lock() -> None:
@@ -645,15 +814,8 @@ def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
             candidate.relative_to(root)
         except ValueError as exc:
             raise RuntimeError(f"git apply resolved an unsafe path: {path_value}") from exc
-        from scripts import pasi_overnight_hardening as hardening
-        protected_paths = getattr(hardening, "PROTECTED_UNATTENDED_PATHS", PROTECTED_UNATTENDED_PATHS)
-        protected_prefixes = getattr(
-            hardening,
-            "PROTECTED_UNATTENDED_PREFIXES",
-            PROTECTED_UNATTENDED_PREFIXES,
-        )
-        if path_value in protected_paths or any(
-            path_value.startswith(prefix) for prefix in protected_prefixes
+        if path_value in PROTECTED_UNATTENDED_PATHS or any(
+            path_value.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES
         ):
             raise RuntimeError(
                 f"git apply resolved a protected unattended path: {path_value}"
@@ -1016,7 +1178,6 @@ def browser_auth_required() -> bool:
     return data.get("auth_required") is True or data.get("login_required") is True
 
 
-
 def fallback_router_available(state: OvernightState) -> bool:
     value = state.fallback_router_disabled_until.strip()
     if not value:
@@ -1181,6 +1342,7 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
     )
 
 
+
 def completion_effort_floor_reason(
     status: str,
     summary: str,
@@ -1203,7 +1365,6 @@ def completion_effort_floor_reason(
             f"minimum is {MIN_COMPLETION_EVIDENCE_CHARS} characters"
         )
     return ""
-
 
 
 def completed_task_keys() -> set[str]:
@@ -1229,21 +1390,13 @@ def no_change_completion_is_satisfied(
     )
 
 
-def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
-    """Return task-local continuation guidance.
-
-    The prompt compiler owns the durable prompt layout and full task context.
-    This helper remains for callers that need the continuation section directly.
-    """
-    return """TASK CONTINUATION:
-- Work continuously on CURRENT TASK until it is implemented, tested, diagnosed, and verified.
-- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it or make cosmetic duplicates; immediately work on the next incomplete roadmap item and return the required completion contract and a concrete next task.
-- Inspect the current repository state before editing; do not assume a prior attempt succeeded.
-- If the same failure repeats, change approach rather than repeating the failed path; use only the supplied PREVIOUS FAILURE EVIDENCE.
-- After verified completion, set PASI_RESULT_NEXT_TASK to one concrete high-value follow-up. The scheduler owns the full roadmap and will choose/validate the next task; do not reproduce the roadmap in this response.
-- If no concrete repository change remains, report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch. Do not invent work or cosmetic changes.
-- If a verified result shows another automation, computer-use, recovery, integration, or security capability is materially necessary, include exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit it.
-- Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it."""
+def continuation_directive(_state: OvernightState, _task: str | None = None) -> str:
+    """Compatibility helper kept for legacy callers; prompt construction is centralized."""
+    return (
+        "Work on this task until its acceptance criteria are met. "
+        "Inspect the relevant code, make the smallest correct change, verify it, "
+        "and repair any verification failure. Do not start another task."
+    )
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
     return prompt_compiler.compile_task_prompt(
@@ -1262,46 +1415,36 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
+    # The executor response is intentionally not authoritative about sequencing.
+    del suggested
+    decision = select_planner_task(state, phase=state.phase)
+    if decision.selected is not None:
+        state.current_task_id = decision.selected.id
+        return decision.selected.execution_text()
+
+    if state.roadmap_path.strip() or os.environ.get("PASI_ROADMAP_PATH", "").strip():
+        tasks = load_planner_tasks(state)
+        if hybrid_planner.roadmap_is_complete(tasks, load_task_ledger()):
+            state.stop_reason = "roadmap_complete"
+        else:
+            state.stop_reason = "roadmap_blocked_or_no_eligible_task"
+        state.current_task_id = ""
+        return ""
+
+    # Compatibility fallback for legacy/custom runs with no usable roadmap
+    # entry. This path is deterministic and ignores model-supplied next-task data.
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     completed = completed_task_keys()
-    validated_suggestion = valid_next_task(suggested, state.current_task, state.recent_tasks)
-    if validated_suggestion:
-        return validated_suggestion
-    normalized_suggestion = re.sub(r"\s+", " ", suggested).strip()
     current_key = task_key(state.current_task)
     configured = {task_key(item): (index, item) for index, item in enumerate(candidates)}
-    suggestion_key = task_key(normalized_suggestion) if normalized_suggestion else ""
     current_entry = configured.get(current_key)
-    suggestion_entry = configured.get(suggestion_key)
-
-    if suggestion_entry and suggestion_key not in completed and suggestion_key != current_key:
-        return suggestion_entry[1]
-
-    advance_from_key: str | None = None
-    if suggestion_entry and (suggestion_key == current_key or suggestion_key in completed):
-        advance_from_key = suggestion_key
-    elif not normalized_suggestion:
-        recent = {task_key(item) for item in state.recent_tasks[-12:]}
-        if current_key in completed or current_key in recent:
-            advance_from_key = current_key
-        elif current_entry and current_key not in completed:
-            return current_entry[1]
-    elif current_entry and current_key not in completed:
-        completed_indices = [
-            index for key, (index, _item) in configured.items() if key in completed
-        ]
-        later_completed = [index for index in completed_indices if index > current_entry[0]]
-        if later_completed:
-            advance_from_key = task_key(candidates[max(later_completed)])
-        else:
-            # An invented/non-roadmap suggestion cannot replace an unfinished task.
-            return current_entry[1]
-
-    start_index = configured[advance_from_key][0] + 1 if advance_from_key in configured else 0
+    start_index = current_entry[0] + 1 if current_entry and current_key in completed else 0
     ordered = list(candidates[start_index:]) + list(candidates[:start_index])
     for configured_task in ordered:
         if task_key(configured_task) not in completed:
+            state.current_task_id = ""
             return configured_task
+    state.current_task_id = ""
     return choose_unique(candidates, state)
 
 
@@ -1619,9 +1762,43 @@ def sleep_until_retry(state: OvernightState, seconds: float) -> bool:
     return not STOP and now_utc() < deadline
 
 
+def consume_runner_control(state: OvernightState) -> bool:
+    """Consume one authenticated, prevalidated local control request for the current task."""
+    try:
+        if not RUNNER_CONTROL_PATH.is_file() or RUNNER_CONTROL_PATH.stat().st_size > 16_000:
+            return False
+        payload = json.loads(RUNNER_CONTROL_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        try:
+            RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+        return False
+    action = str(payload.get("action", "")).strip().casefold()
+    requested_task_id = str(payload.get("task_id", "")).strip()
+    if action != "retry_current" or not requested_task_id or requested_task_id != state.current_task_id:
+        RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+        log_event("runner_control_rejected", action=action, requested_task_id=requested_task_id, current_task_id=state.current_task_id)
+        return False
+    state.current_attempt = 0
+    state.task_retry_cycle = 0
+    state.last_failure_signature = ""
+    state.same_failure_cycles = 0
+    state.last_result = "Control Center requested a fresh bounded retry cycle for the current task."
+    state.stop_reason = ""
+    RUNNER_CONTROL_PATH.unlink(missing_ok=True)
+    save_state(state)
+    log_event("runner_control_consumed", action=action, task_id=state.current_task_id, task_number=state.task_number)
+    return True
+
+
 def run(state: OvernightState, *, push: bool) -> None:
     failure = ""
-    while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
+    while not STOP and not state.stop_reason and now_utc() < datetime.fromisoformat(state.deadline_at):
+        consume_runner_control(state)
         if reconcile_committed_task(state):
             failure = ""
             continue
@@ -1633,7 +1810,10 @@ def run(state: OvernightState, *, push: bool) -> None:
                 save_state(state)
                 return
 
-        if state.phase == "automation" and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE:
+        if (
+            state.phase == "automation"
+            and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE
+        ):
             gate_evidence = automation_gate_evidence(state)
             log_event(
                 "automation_gate_evidence",
@@ -1647,9 +1827,19 @@ def run(state: OvernightState, *, push: bool) -> None:
                 save_state(state)
                 log_event("automation_gate", gate=state.automation_gates, action="proceed_to_engineering_os")
                 state.phase = "engineering_os"
-                state.current_task = ENGINEERING_TASKS[0]
+                engineering_decision = select_planner_task(state, phase="engineering_os")
+                if engineering_decision.selected is None:
+                    state.stop_reason = "roadmap has no eligible engineering task after automation gate"
+                    save_state(state)
+                    return
+                state.current_task = engineering_decision.selected.execution_text()
+                state.current_task_id = engineering_decision.selected.id
                 save_state(state)
                 continue
+            if not state.current_task:
+                state.stop_reason = "automation_gate_not_satisfied"
+                save_state(state)
+                return
 
         if state.task_retry_cycle == 0:
             state.task_number += 1
@@ -1791,6 +1981,13 @@ def run(state: OvernightState, *, push: bool) -> None:
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
+            task_already_completed = task_key(state.current_task) in completed_task_keys()
+            effort_floor_reason = completion_effort_floor_reason(
+                status,
+                summary,
+                values,
+                task_already_completed,
+            )
             log_event(
                 "task_response_evidence",
                 phase=state.phase,
@@ -1800,24 +1997,12 @@ def run(state: OvernightState, *, push: bool) -> None:
                 provider=provider_source,
                 status=status,
                 contract_ok=contract_ok,
-                effort_floor_reason=completion_effort_floor_reason(
-                    status,
-                    summary,
-                    values,
-                    task_key(state.current_task) in completed_task_keys(),
-                ),
+                effort_floor_reason=effort_floor_reason,
                 response_chars=len(response),
                 summary_chars=len(summary),
                 evidence_chars=len(values.get("evidence", "")),
                 patch_chars=len(patch),
                 next_task_chars=len(next_task),
-            )
-            task_already_completed = task_key(state.current_task) in completed_task_keys()
-            effort_floor_reason = completion_effort_floor_reason(
-                status,
-                summary,
-                values,
-                task_already_completed,
             )
             if effort_floor_reason:
                 failure = effort_floor_reason + ": " + (summary or values.get("evidence", "")).strip()
@@ -1840,9 +2025,11 @@ def run(state: OvernightState, *, push: bool) -> None:
                 next_task,
                 patch,
                 values,
-                task_already_completed,
+                task_key(state.current_task) in completed_task_keys(),
             ):
                 state.completed_tasks += 1
+                if state.phase == "automation":
+                    state.automation_tasks_since_gate += 1
                 evidence_text = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
                 record_task_ledger(
                     state.current_task,
@@ -1850,13 +2037,28 @@ def run(state: OvernightState, *, push: bool) -> None:
                     evidence=(f"provider={provider_source}\n" + evidence_text).strip(),
                     phase=state.phase,
                     automation_continue=values.get("automation_continue", "").lower() == "true",
+                    task_id=state.current_task_id,
                 )
                 state.last_result = evidence_text
-                state.next_task = choose_next_task(state, next_task)
                 state.recent_tasks.append(state.current_task)
+                if (
+                    state.phase == "automation"
+                    and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE
+                ):
+                    state.current_task = ""
+                    state.next_task = ""
+                    state.current_attempt = 0
+                    save_state(state)
+                    failure = ""
+                    finished = True
+                    break
+                state.next_task = choose_next_task(state, next_task)
                 state.current_task = state.next_task
                 state.next_task = ""
                 state.current_attempt = 0
+                if not state.current_task:
+                    save_state(state)
+                    return
                 state.task_retry_cycle = 0
                 state.last_failure_signature = ""
                 state.same_failure_cycles = 0
@@ -1913,13 +2115,28 @@ def run(state: OvernightState, *, push: bool) -> None:
                 evidence=(f"provider={provider_source}\n" + (summary or verification[-3000:])).strip(),
                 phase=state.phase,
                 automation_continue=values.get("automation_continue", "").lower() == "true",
+                task_id=state.current_task_id,
             )
             state.last_result = summary or verification[-3000:]
             state.next_task = next_task.strip()
             state.recent_tasks.append(state.current_task)
+            if (
+                state.phase == "automation"
+                and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE
+            ):
+                state.current_task = ""
+                state.next_task = ""
+                state.current_attempt = 0
+                save_state(state)
+                failure = ""
+                finished = True
+                break
             state.current_task = choose_next_task(state, state.next_task)
             state.next_task = ""
             state.current_attempt = 0
+            if not state.current_task:
+                save_state(state)
+                return
             state.task_retry_cycle = 0
             state.last_failure_signature = ""
             state.same_failure_cycles = 0
@@ -2025,6 +2242,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run PASI unattended with bounded recovery and provider fallback.")
     parser.add_argument("--hours", type=float, default=DEFAULT_HOURS)
     parser.add_argument("--task", default="")
+    parser.add_argument("--roadmap", type=Path, default=None)
     parser.add_argument("--worktree", type=Path, default=DEFAULT_WORKTREE)
     parser.add_argument("--branch", default=f"pasi/overnight-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
     parser.add_argument("--resume", action="store_true")
@@ -2045,14 +2263,22 @@ def main() -> int:
         saved = load_state() if args.resume else None
         if saved is not None and now_utc() < datetime.fromisoformat(saved.deadline_at):
             state = saved
+            if not state.roadmap_path.strip():
+                state.roadmap_path = str(planner_roadmap_path(explicit=args.roadmap))
             state.stop_reason = ""
             resume = True
             log_event("run_resumed", **state.to_dict())
         else:
             started = now_utc()
             run_id = f"overnight-{uuid.uuid4().hex}"
+            selected_roadmap = planner_roadmap_path(explicit=args.roadmap)
+            hybrid_planner.load_roadmap_with_overlay(selected_roadmap, ROADMAP_OVERLAY_PATH)
+            roadmap_tasks = hybrid_planner.load_roadmap_with_overlay(
+                selected_roadmap, ROADMAP_OVERLAY_PATH
+            )
+            initial_phase = initial_roadmap_phase(roadmap_tasks)
             selected_task, guard_applied, prior_repeats = choose_run_start_task(
-                "automation", args.task.strip(), run_id
+                initial_phase, args.task.strip(), run_id, selected_roadmap
             )
             state = OvernightState(
                 schema_version=2,
@@ -2061,9 +2287,14 @@ def main() -> int:
                 deadline_at=(started + timedelta(hours=args.hours)).isoformat(),
                 worktree=str(args.worktree.expanduser().resolve()),
                 branch=args.branch,
-                phase="automation",
+                phase=initial_phase,
                 current_task=selected_task,
                 requested_task=args.task.strip(),
+                roadmap_path=str(selected_roadmap),
+                current_task_id=task_id_for_prompt(
+                    hybrid_planner.load_roadmap_with_overlay(selected_roadmap, ROADMAP_OVERLAY_PATH),
+                    selected_task,
+                ),
             )
             resume = False
             save_state(state)
@@ -2114,7 +2345,6 @@ def main() -> int:
             except Exception:
                 pass
         release_lock()
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
