@@ -93,7 +93,7 @@ class BridgeState:
         ):
             return self._queue_cache
 
-        queue = self._load_queue()
+        queue = self.state_manager.load_queue()
         self._queue_cache = queue
         self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
         return queue
