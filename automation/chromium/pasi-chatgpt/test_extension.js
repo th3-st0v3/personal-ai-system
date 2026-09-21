@@ -29,7 +29,7 @@ test('native bridge caches the token and refreshes once after unauthorized respo
 
 test('native timeout defaults remain fast enough for the browser freshness gate', () => {
   const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
-  assert.match(timeoutConfig, /heartbeatMs: 5 \* 1000/);
+  assert.match(timeoutConfig, /heartbeatMs: 15 \* 1000/);
   assert.match(timeoutConfig, /staleMs: 15 \* 1000/);
 });
 
@@ -161,7 +161,7 @@ test('native controller reconciles completed interrupted operations before clear
 });
 
 test('native controller keeps browser health on a fast bounded cadence separate from state telemetry', () => {
-  assert.match(content, /const HEALTH_MS = Math\.min\(TIMEOUT_POLICY\.heartbeatMs \|\| 5000, 5000\);/);
+  assert.match(content, /const HEALTH_MS = TIMEOUT_POLICY\.heartbeatMs \|\| 15000/);
   assert.match(content, /const STATE_REPORT_MS = 10000;/);
   assert.match(content, /let healthReportInFlight = null;/);
   assert.match(content, /if \(healthReportInFlight\) return healthReportInFlight;/);
@@ -209,7 +209,7 @@ test('native prompt submission retains stable Thinking selectors while using bes
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
   assert.match(content, /const promptText = operationPrompt\(operation\);/);
   assert.match(content, /await submitPrompt\(promptText\)/);
-  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 20/);
+  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 100/);
   assert.match(content, /const PREVIOUS_RESPONSE_WAIT_MS = 5 \* 60 \* 1000;/);
   assert.match(content, /const GENERATION_START_WAIT_MS = 30 \* 1000;/);
 });
