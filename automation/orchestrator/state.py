@@ -333,7 +333,8 @@ class StateManager:
         self,
         retained_operation_ids: set[str],
     ) -> None:
-        self.terminal_responses_dir.mkdir(parents=True, exist_ok=True)
+        if not self.terminal_responses_dir.exists():
+            return
         retained_files = {
             self._terminal_response_filename(operation_id)
             for operation_id in retained_operation_ids
