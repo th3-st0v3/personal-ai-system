@@ -2,10 +2,10 @@
   'use strict';
 
   const DEFAULTS = Object.freeze({
-    heartbeatMs: 5 * 1000,
-    staleMs: 15 * 1000,
-    pollMs: 500,
-    domPollMs: 20,
+    heartbeatMs: 15 * 1000,
+    staleMs: 45 * 1000,
+    pollMs: 2000,
+    domPollMs: 100,
     menuMs: 5000,
     composerMs: 10000,
     sendMs: 5000,
@@ -17,7 +17,7 @@
     recoveryHardCeilingMs: 90 * 60 * 1000,
     recoveryProgressSampleMs: 250,
     recoveryProgressPollMs: 5000,
-    clickSettleMs: 20,
+    clickSettleMs: 250,
     thinkingVerifyMs: 3000,
     responseSettleMs: 10,
     submissionAckMs: 1000
