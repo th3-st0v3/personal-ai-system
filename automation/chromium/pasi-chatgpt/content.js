@@ -219,9 +219,11 @@
   }
 
   function visible(element) {
-    if (!element) return false;
+    if (!element || element.isConnected === false) return false;
+    if (element.hasAttribute?.('hidden') || element.getAttribute?.('aria-hidden') === 'true') return false;
+    if (element.getClientRects().length === 0) return false;
     const style = getComputedStyle(element);
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.getClientRects().length > 0;
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
   }
 
   function disabled(element) {

@@ -553,6 +553,15 @@ test('native response wait checks generation before failure-marker DOM scans', (
   assert.doesNotMatch(source, /if \(contextExhausted\(\)[\s\S]*if \(usageLimited\(\)/);
 });
 
+test('native visibility checks reject non-rendered elements before computed style', () => {
+  const start = content.indexOf('function visible(element)');
+  const end = content.indexOf('function disabled(element)', start);
+  const source = content.slice(start, end);
+  assert.match(source, /element\.getClientRects\(\)\.length === 0/);
+  assert.match(source, /element\.hasAttribute\?\('hidden'\)/);
+  assert.match(source, /getAttribute\?\('aria-hidden'\)/);
+});
+
 test('native generating detection uses one grouped selector', () => {
   const start = content.indexOf('function generating()');
   const end = content.indexOf('function chatUrl()', start);
