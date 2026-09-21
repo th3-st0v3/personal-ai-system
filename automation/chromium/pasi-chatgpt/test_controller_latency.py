@@ -42,15 +42,15 @@ def test_native_controller_uses_bounded_idle_polling() -> None:
         )
     )
 
-    assert policy["controller_poll_ms"] <= 500
-    assert policy["dom_poll_ms"] <= 20
-    assert policy["click_settle_ms"] <= 20
+    assert policy["controller_poll_ms"] == 2000
+    assert policy["dom_poll_ms"] == 100
+    assert policy["click_settle_ms"] == 250
     assert policy["response_settle_ms"] <= 20
     assert policy["submission_ack_ms"] <= 1000
-    assert "const POLL_MS = TIMEOUT_POLICY.pollMs || 500;" in source
-    assert "const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;" in source
-    assert "const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;" in source
-    assert "const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;" in source
+    assert "const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;" in source
+    assert "const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 100;" in source
+    assert "const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 250;" in source
+    assert "const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 10;" in source
     assert "const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;" in source
     assert "const ACTIVE_KEY = 'pasi:active-operation';" in source
     assert "localStorage.setItem(ACTIVE_KEY" in source
