@@ -23,6 +23,14 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn("PASI_SUPERVISOR_MAX_RESTARTS", self.source)
         self.assertIn("restart budget exhausted", self.source)
 
+    def test_supervisor_adopts_matching_live_engine_after_restart(self) -> None:
+        self.assertIn("runner_cmd_matches()", self.source)
+        self.assertIn("adopting already-running engine PID", self.source)
+        self.assertIn("monitoring adopted engine PID", self.source)
+        self.assertIn('[[ "$command_line" == *"pasi_extended_runtime_entrypoint.py"* ]]', self.source)
+        self.assertIn('[[ "$command_line" == *"--worktree $worktree"* ]]', self.source)
+        self.assertIn('[[ "$command_line" == *"--branch $branch"* ]]', self.source)
+
     def test_supervisor_has_bounded_backoff_and_terminal_stop_controls(self) -> None:
         self.assertIn("PASI_SUPERVISOR_BACKOFF_SECONDS", self.source)
         self.assertIn("PASI_SUPERVISOR_MAX_BACKOFF_SECONDS", self.source)
