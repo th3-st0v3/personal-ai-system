@@ -162,13 +162,32 @@ class TestHybridPlanner(unittest.TestCase):
     def test_decomposition_validation_rejects_scope_escape_and_external_dependency(self) -> None:
         parent = task(
             "parent",
+            depends_on=("foundation",),
             splittable=True,
             estimated_size="large",
             allowed_paths=("scripts/",),
         )
-        good = task("parent.one", decomposition_parent="parent", allowed_paths=("scripts/subdir/",))
-        good_two = task("parent.two", decomposition_parent="parent", allowed_paths=("scripts/",))
+        good = task(
+            "parent.one",
+            decomposition_parent="parent",
+            depends_on=("foundation",),
+            allowed_paths=("scripts/subdir/",),
+        )
+        good_two = task(
+            "parent.two",
+            decomposition_parent="parent",
+            depends_on=("foundation",),
+            allowed_paths=("scripts/",),
+        )
         planner.validate_decomposition(parent, (good, good_two))
+
+        missing_prerequisite = task(
+            "parent.missing",
+            decomposition_parent="parent",
+            allowed_paths=("scripts/",),
+        )
+        with self.assertRaisesRegex(planner.PlannerError, "prerequisites"):
+            planner.validate_decomposition(parent, (good, missing_prerequisite))
 
         bad_scope = task("parent.bad", decomposition_parent="parent", allowed_paths=("automation/",))
         with self.assertRaisesRegex(planner.PlannerError, "scope"):
@@ -210,6 +229,18 @@ class TestHybridPlanner(unittest.TestCase):
             self.assertEqual(by_id["other"].status, "decomposed")
             self.assertIn("parent.one", by_id)
             self.assertIn("other.two", by_id)
+
+    def test_remote_planner_endpoint_is_rejected_by_default(self) -> None:
+        with self.assertRaisesRegex(planner.PlannerError, "must be local"):
+            with mock.patch.object(planner, "_http_json") as http_json:
+                planner._ollama_call(
+                    system_prompt="rank",
+                    user_payload={"tasks": []},
+                    timeout_seconds=0.1,
+                    base_url="https://example.com",
+                    model="test-model",
+                )
+                http_json.assert_not_called()
 
     def test_ollama_ranker_validates_structured_response(self) -> None:
         candidates = (task("a"), task("b"))
