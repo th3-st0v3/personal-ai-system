@@ -135,6 +135,41 @@ new file mode 100644
         with self.assertRaisesRegex(ValueError, "protected unattended"):
             engine.validate_patch_paths(protected, False, Path.cwd())
 
+    def test_168h_runtime_control_paths_are_protected(self) -> None:
+        from scripts import pasi_overnight_hardening as hardening
+
+        expected = {
+            "scripts/check_all.sh",
+            "scripts/check_offline.sh",
+            "scripts/pasi_overnight_hardening.py",
+            "scripts/pasi_overnight_engine_v2.py",
+            "scripts/pasi_extended_runtime_entrypoint.py",
+            "scripts/start_pasi_168h.sh",
+            "scripts/pasi_168h_supervisor.sh",
+            "scripts/pasi_timeout_policy.py",
+            "scripts/pasi_chat_guard.py",
+            "scripts/pasi_provider_router.py",
+            "scripts/pasi_setup.py",
+            "scripts/pasi_promote.py",
+            "automation/chromium/pasi-chatgpt/manifest.json",
+            "automation/chromium/pasi-chatgpt/timeout-policy.json",
+        }
+
+        self.assertTrue(expected.issubset(hardening.PROTECTED_UNATTENDED_PATHS))
+        self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
+
+        for path in sorted(expected):
+            patch = (
+                f"diff --git a/{path} b/{path}\n"
+                f"--- a/{path}\n"
+                f"+++ b/{path}\n"
+                "@@ -1 +1 @@\n"
+                "-old\n"
+                "+new\n"
+            )
+            with self.assertRaisesRegex(ValueError, "protected unattended"):
+                engine.validate_patch_paths(patch, False, Path.cwd())
+
     def test_control_script_stays_inside_launcher_checkout(self) -> None:
         script = engine.control_script("pasi_chat_guard.py")
         self.assertEqual(script.parent.resolve(), engine.CONTROL_SCRIPTS_ROOT.resolve())
