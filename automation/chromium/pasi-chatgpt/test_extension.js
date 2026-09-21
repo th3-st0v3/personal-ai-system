@@ -137,6 +137,16 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
 });
 
+test('native controller keeps browser health on a fast bounded cadence separate from state telemetry', () => {
+  assert.match(content, /const HEALTH_MS = Math\.min\(TIMEOUT_POLICY\.heartbeatMs \|\| 2000, 2000\);/);
+  assert.match(content, /const STATE_REPORT_MS = 5000;/);
+  assert.match(content, /let healthReportInFlight = null;/);
+  assert.match(content, /if \(healthReportInFlight\) return healthReportInFlight;/);
+  assert.match(content, /await reportObservation\('chatgpt_health',[\s\S]*?, 2000\);/);
+  assert.match(content, /void reportObservation\('chatgpt_state',[\s\S]*conversation_signature/);
+  assert.match(content, /healthReportInFlight = null;/);
+});
+
 test('native controller starts heartbeat and polling timers before the initial poll can block startup', () => {
   const startIndex = content.indexOf('  async function start() {');
   const start = content.slice(startIndex, content.indexOf('\n  }', startIndex) + 4);
