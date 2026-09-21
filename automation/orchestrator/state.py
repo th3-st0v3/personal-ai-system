@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import asdict
@@ -31,7 +32,7 @@ class StateManager:
         self.execution_results_path = ai_dir / "execution-results.json"
         self.handoff_path = ai_dir / "handoff.json"
         self.queue_path = ai_dir / "queue.json"
-        self.terminal_responses_path = ai_dir / "terminal-responses.json"
+        self.terminal_responses_dir = ai_dir / "terminal-responses"
         self.lock_path = ai_dir / "lock.json"
 
     def write_json(self, path: Path, value: Any) -> None:
@@ -285,27 +286,65 @@ class StateManager:
         )
         return queue
 
-    def save_terminal_responses(
+    @staticmethod
+    def _terminal_response_filename(operation_id: str) -> str:
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            raise ValueError("operation_id must be a nonblank string")
+        digest = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()
+        return f"{digest}.json"
+
+    def _terminal_response_path(self, operation_id: str) -> Path:
+        return self.terminal_responses_dir / self._terminal_response_filename(operation_id)
+
+    def save_terminal_response(
         self,
-        responses: dict[str, str],
+        operation_id: str,
+        response_text: str,
     ) -> None:
+        if not isinstance(response_text, str):
+            raise ValueError("terminal response must be a string")
         self.write_json(
-            self.terminal_responses_path,
-            responses,
+            self._terminal_response_path(operation_id),
+            {
+                "operation_id": operation_id,
+                "response_text": response_text,
+            },
         )
 
-    def load_terminal_responses(
+    def load_terminal_response(
         self,
-    ) -> dict[str, str]:
-        value = self.read_json(self.terminal_responses_path, {})
-        if not isinstance(value, dict) or any(
-            not isinstance(key, str) or not isinstance(response, str)
-            for key, response in value.items()
+        operation_id: str,
+    ) -> str | None:
+        path = self._terminal_response_path(operation_id)
+        value = self.read_json(path, None)
+        if value is None:
+            return None
+        if (
+            not isinstance(value, dict)
+            or value.get("operation_id") != operation_id
+            or not isinstance(value.get("response_text"), str)
         ):
             raise StateCorruptionError(
-                f"Invalid state shape for {self.terminal_responses_path}: expected string response map"
+                f"Invalid state shape for {path}: expected terminal response record"
             )
-        return value
+        return value["response_text"]
+
+    def prune_terminal_responses(
+        self,
+        retained_operation_ids: set[str],
+    ) -> None:
+        self.terminal_responses_dir.mkdir(parents=True, exist_ok=True)
+        retained_files = {
+            self._terminal_response_filename(operation_id)
+            for operation_id in retained_operation_ids
+        }
+        for path in self.terminal_responses_dir.glob("*.json"):
+            if path.name in retained_files:
+                continue
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
     def load_queue(
         self,
