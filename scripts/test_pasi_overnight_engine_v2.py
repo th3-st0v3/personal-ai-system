@@ -185,6 +185,36 @@ new file mode 100644
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=False), "stopped")
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=True), "deadline_reached")
 
+    def test_completion_effort_floor_rejects_low_content_new_task(self) -> None:
+        values = {"evidence": "verified"}
+        self.assertIn(
+            "summary is too short",
+            engine.completion_effort_floor_reason("complete", "done", values, False),
+        )
+        self.assertIn(
+            "evidence is too short",
+            engine.completion_effort_floor_reason(
+                "complete",
+                "Implemented and verified the requested change.",
+                values,
+                False,
+            ),
+        )
+
+    def test_completion_effort_floor_allows_existing_no_change_task(self) -> None:
+        values = {"evidence": ""}
+        self.assertEqual(
+            engine.completion_effort_floor_reason("complete", "done", values, True),
+            "",
+        )
+
+    def test_completion_effort_floor_only_applies_to_complete_status(self) -> None:
+        values = {"evidence": ""}
+        self.assertEqual(
+            engine.completion_effort_floor_reason("needs_revision", "done", values, False),
+            "",
+        )
+
     def test_no_change_completion_requires_durable_task_evidence(self) -> None:
         values = {
             "repository_progress": "stopped",

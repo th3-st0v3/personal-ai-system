@@ -64,6 +64,8 @@ ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
+MIN_COMPLETION_SUMMARY_CHARS = 24
+MIN_COMPLETION_EVIDENCE_CHARS = 48
 CONTROL_SCRIPTS_ROOT = REPO_ROOT / "scripts"
 
 PATCH_BEGIN = "PASI_RESULT_PATCH_BEGIN"
@@ -1162,6 +1164,30 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
     )
 
 
+def completion_effort_floor_reason(
+    status: str,
+    summary: str,
+    values: Mapping[str, str],
+    task_already_completed: bool,
+) -> str:
+    """Reject low-content new-task completions while preserving true no-change completions."""
+    if status != "complete" or task_already_completed:
+        return ""
+    summary_text = summary.strip()
+    evidence_text = str(values.get("evidence", "")).strip()
+    if len(summary_text) < MIN_COMPLETION_SUMMARY_CHARS:
+        return (
+            "LOW_YIELD_COMPLETION: completion summary is too short; "
+            f"minimum is {MIN_COMPLETION_SUMMARY_CHARS} characters"
+        )
+    if len(evidence_text) < MIN_COMPLETION_EVIDENCE_CHARS:
+        return (
+            "LOW_YIELD_COMPLETION: completion evidence is too short; "
+            f"minimum is {MIN_COMPLETION_EVIDENCE_CHARS} characters"
+        )
+    return ""
+
+
 
 def completed_task_keys() -> set[str]:
     return {
@@ -1757,19 +1783,47 @@ def run(state: OvernightState, *, push: bool) -> None:
                 provider=provider_source,
                 status=status,
                 contract_ok=contract_ok,
+                effort_floor_reason=completion_effort_floor_reason(
+                    status,
+                    summary,
+                    values,
+                    task_key(state.current_task) in completed_task_keys(),
+                ),
                 response_chars=len(response),
                 summary_chars=len(summary),
                 evidence_chars=len(values.get("evidence", "")),
                 patch_chars=len(patch),
                 next_task_chars=len(next_task),
             )
+            task_already_completed = task_key(state.current_task) in completed_task_keys()
+            effort_floor_reason = completion_effort_floor_reason(
+                status,
+                summary,
+                values,
+                task_already_completed,
+            )
+            if effort_floor_reason:
+                failure = effort_floor_reason + ": " + (summary or values.get("evidence", "")).strip()
+                log_event(
+                    "low_yield_completion_rejected",
+                    phase=state.phase,
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    reason=effort_floor_reason,
+                    summary_chars=len(summary),
+                    evidence_chars=len(values.get("evidence", "")),
+                    response_chars=len(response),
+                )
+                attempt += 1
+                continue
             if contract_ok and no_change_completion_is_satisfied(
                 Path(state.worktree),
                 status,
                 next_task,
                 patch,
                 values,
-                task_key(state.current_task) in completed_task_keys(),
+                task_already_completed,
             ):
                 state.completed_tasks += 1
                 evidence_text = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
