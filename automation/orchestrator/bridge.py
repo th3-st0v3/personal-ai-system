@@ -98,7 +98,7 @@ def load_runner_state() -> dict[str, Any]:
         return {"available": False, "reason": "runner state invalid"}
     allowed = {
         "schema_version", "run_id", "started_at", "deadline_at", "worktree", "branch",
-        "phase", "current_task", "requested_task", "task_number", "completed_tasks",
+        "phase", "current_task", "current_task_id", "requested_task", "task_number", "completed_tasks",
         "failed_tasks", "current_attempt", "task_retry_cycle", "same_failure_cycles",
         "last_provider", "last_result", "next_task", "stop_reason", "recent_tasks",
     }
