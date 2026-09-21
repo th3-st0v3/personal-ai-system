@@ -1292,18 +1292,24 @@
     let failureReason = null;
 
     const response = await waitUntil(() => {
-      if (contextExhausted()) {
-        failureReason = 'CHAT_EXHAUSTED: conversation context is exhausted';
-        return null;
-      }
-      if (usageLimited()) {
-        failureReason = 'CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited';
-        return null;
-      }
-
+      // While generation is active, the stop control is the only state needed
+      // for this hot loop. Avoid a full failure-marker DOM scan on every mutation.
       if (generating()) {
         sawGeneration = true;
         generationEndedAt = 0;
+        return null;
+      }
+
+      const detected = detectorState();
+      if (detected.context_exhausted === true) {
+        failureReason = 'CHAT_EXHAUSTED: conversation context is exhausted';
+        return null;
+      }
+      if (
+        detected.context_exhausted !== true &&
+        detected.usage_limited === true
+      ) {
+        failureReason = 'CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited';
         return null;
       }
 

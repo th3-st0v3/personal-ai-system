@@ -530,6 +530,16 @@ test('native waitUntil coalesces mutation bursts without a fixed 10ms floor', ()
   assert.doesNotMatch(source, /now - lastCheck < 10/);
 });
 
+test('native response wait checks generation before failure-marker DOM scans', () => {
+  const start = content.indexOf('async function waitForResponse(');
+  const end = content.indexOf('  function rememberContextRecovery(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /if \(generating\(\)\) \{/);
+  assert.match(source, /const detected = detectorState\(\);/);
+  assert.ok(source.indexOf('if (generating())') < source.indexOf('const detected = detectorState()'));
+  assert.doesNotMatch(source, /if \(contextExhausted\(\)[\s\S]*if \(usageLimited\(\)/);
+});
+
 test('native generating detection uses one grouped selector', () => {
   const start = content.indexOf('function generating()');
   const end = content.indexOf('function chatUrl()', start);
