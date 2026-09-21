@@ -22,6 +22,8 @@ const BRIDGE_ROUTES = new Set([
   'GET /health',
   'GET /status',
   'GET /browser/observation',
+  'GET /browser/health',
+  'GET /browser/state',
   'GET /browser/response',
     'POST /browser/observation',
   'POST /queue',
