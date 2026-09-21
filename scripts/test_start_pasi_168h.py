@@ -29,6 +29,17 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
     def test_launcher_allows_supervisor_recovery_when_engine_outlives_supervisor(self) -> None:
         self.assertIn("is live without its supervisor; launching a supervisor to adopt the existing engine", self.source)
         self.assertIn('if [[ -f "$SUPERVISOR_PID_FILE" ]]; then', self.source)
+    def test_launcher_recovers_live_runner_identity_before_supervisor_adoption(self) -> None:
+        self.assertIn('STATE_FILE="$RUNTIME_DIR/state.json"', self.source)
+        self.assertIn("adopt_existing_runner=0", self.source)
+        self.assertIn('existing_runner_pid=""', self.source)
+        self.assertIn('runner_command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"', self.source)
+        self.assertIn('pasi_extended_runtime_entrypoint.py', self.source)
+        self.assertIn('state_values="$("$PYTHON" - "$STATE_FILE"', self.source)
+        self.assertIn('requested_branch="${requested_branch:-$state_branch}', self.source)
+        self.assertIn('configured_worktree="${configured_worktree:-$state_worktree}', self.source)
+        self.assertIn("refusing to risk a duplicate engine", self.source)
+        self.assertIn("Adopting existing PASI runner identity", self.source)
 
     def test_launcher_does_not_report_started_when_browser_preflight_fails(self) -> None:
         failure = self.source.index("exit 8")
