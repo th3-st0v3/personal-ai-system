@@ -1426,15 +1426,22 @@ def verify_and_commit(
             timer.result = "fail"
             timer.classification = classify_failure("gate", 1, str(exc))
             raise
-    # fast_local_gate/check_all already verified a non-empty changed-file set.
-    # Avoid a second filesystem scan before staging.
-    changed_files = ["validated-by-gate"]
+    if gate_mode == "fast":
+        gate_match = re.search(r"changed=(\d+) files$", output)
+        changed_file_count = int(gate_match.group(1)) if gate_match else 0
+        if changed_file_count <= 0:
+            raise RuntimeError("fast local gate passed without a reported changed-file count")
+    else:
+        code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
+        if code != 0 or not status:
+            raise RuntimeError("verification passed but no repository changes remain")
+        changed_file_count = len([line for line in status.splitlines() if line.strip()])
     log_event(
         "verify_finished",
         task=task,
         gate_mode=gate_mode,
         finished_at=now_utc().isoformat(),
-        changed_files=len(changed_files),
+        changed_files=changed_file_count,
     )
     commit = commit_and_push(worktree, branch, task, push)
     code, status = command(

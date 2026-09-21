@@ -903,10 +903,13 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_verify_and_commit_does_not_repeat_pre_commit_status_scan() -> None:
+def test_verify_and_commit_skips_duplicate_pre_commit_status_only_for_fast_gate() -> None:
     source = Path(__file__).resolve().parents[0] / "pasi_overnight_engine_v2.py"
     content = source.read_text(encoding="utf-8")
-    target = 'code, status = command(["git", "status", "--porcelain"], worktree, 30.0)'
-    assert target not in content
-    assert "fast_local_gate/check_all already verified a non-empty changed-file set." in content
+    fast_index = content.index('if gate_mode == "fast":')
+    status_index = content.index('code, status = command(["git", "status", "--porcelain"], worktree, 30.0)', fast_index)
+    else_index = content.index("else:", fast_index)
+    assert fast_index < status_index
+    assert else_index < status_index
+    assert 'changed_file_count = int(gate_match.group(1)) if gate_match else 0' in content
 
