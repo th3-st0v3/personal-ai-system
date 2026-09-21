@@ -357,6 +357,66 @@ def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None =
     hardening.validate_patch_paths(patch, allow_delete, worktree)
 
 
+def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
+    root = worktree.resolve()
+    fields: list[str] = []
+    for token in summary.split("\x00"):
+        if not token:
+            continue
+        if "\t" in token:
+            parts = token.split("\t")
+            if len(parts) != 3:
+                raise RuntimeError("git apply returned an unexpected numstat record")
+            fields.append(parts[2])
+        else:
+            fields.append(token)
+
+    for path_value in fields:
+        if not path_value or path_value == "/dev/null":
+            continue
+        candidate = (root / path_value).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise RuntimeError(f"git apply resolved an unsafe path: {path_value}") from exc
+        if path_value in PROTECTED_UNATTENDED_PATHS or any(
+            path_value.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES
+        ):
+            raise RuntimeError(
+                f"git apply resolved a protected unattended path: {path_value}"
+            )
+
+
+def apply_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
+    validate_patch_paths(patch, allow_delete, worktree)
+    code, summary = command(
+        ["git", "apply", "--numstat", "-z", "-"],
+        worktree,
+        60.0,
+        input_text=patch,
+    )
+    if code != 0:
+        raise RuntimeError(f"git apply path resolution failed:\n{summary}")
+    validate_git_resolved_paths(worktree, summary)
+    code, output = command(
+        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+        worktree,
+        60.0,
+        input_text=patch,
+    )
+    if code != 0:
+        raise RuntimeError(f"git apply --check failed:\n{output}")
+    code, output = command(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        worktree,
+        60.0,
+        input_text=patch,
+    )
+    if code != 0:
+        raise RuntimeError(f"git apply failed:\n{output}")
+    return output
+
+
 def control_script(name: str) -> Path:
     candidate = (CONTROL_SCRIPTS_ROOT / name).resolve()
     try:
