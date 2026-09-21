@@ -16,12 +16,16 @@ from .config import CONFIG, ensure_runtime_directories
 from .models import ChatOperation
 from .operation_lifecycle import InvalidOperationTransition, validate_transition
 from .state import TERMINAL_QUEUE_STATUSES, StateManager
+from scripts.pasi_timeout_policy import load_timeout_policy
 
 
 HOST = "127.0.0.1"
 PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 120_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
+TIMEOUT_POLICY = load_timeout_policy()
+CLAIM_LEASE_SECONDS = TIMEOUT_POLICY["bridge_claim_lease_seconds"]
+QUEUE_TTL_SECONDS = TIMEOUT_POLICY["queue_ttl_seconds"]
 RETRY_BUDGETS = {"controller": 3, "response": 2, "context": 1}
 MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
@@ -154,7 +158,27 @@ class BridgeState:
         operation_type: str,
         prompt: str,
         idempotency_key: str | None = None,
+        completion_markers: list[str] | None = None,
     ) -> ChatOperation:
+        if completion_markers is not None:
+            if (
+                not isinstance(completion_markers, list)
+                or not completion_markers
+                or len(completion_markers) > 4
+                or any(
+                    not isinstance(marker, str)
+                    or not marker.strip()
+                    or len(marker.strip()) > 120
+                    or "\n" in marker
+                    or "\r" in marker
+                    for marker in completion_markers
+                )
+            ):
+                raise ValueError("completion_markers must be 1-4 bounded single-line strings")
+            completion_markers = list(
+                dict.fromkeys(marker.strip() for marker in completion_markers)
+            )
+
         if idempotency_key is not None:
             if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS:
                 raise ValueError("idempotency_key must be a nonblank bounded string")
@@ -177,13 +201,63 @@ class BridgeState:
                 operation_type=operation_type,
                 prompt=prompt,
                 idempotency_key=idempotency_key,
+                completion_markers=completion_markers,
                 status="queued",
             )
             item = operation.to_dict()
+            now = time.time()
             item["retry_count"] = 0
+            item["retry_counts"] = {"controller": 0, "response": 0, "context": 0}
+            item["expires_at"] = now + QUEUE_TTL_SECONDS
+            item["updated_at"] = now
             queue.append(item)
             self._save_queue(queue)
             return operation
+
+    def _sweep_queue_locked(self, queue: list[dict[str, Any]]) -> None:
+        now = time.time()
+        changed = False
+        for item in queue:
+            status = str(item.get("status", ""))
+            expires_at = float(item.get("expires_at", 0) or 0)
+            if (
+                "expires_at" in item
+                and now >= expires_at
+                and status in {"queued", "claimed", "generating"}
+            ):
+                validate_transition(status, "failed")
+                item["status"] = "failed"
+                item["error"] = "operation queue TTL expired"
+                item["failure_reason"] = "queue_ttl_expired"
+                item["updated_at"] = now
+                changed = True
+                continue
+
+            claimed_at = float(item.get("claimed_at", 0) or 0)
+            if (
+                status in {"claimed", "generating"}
+                and claimed_at > 0
+                and now - claimed_at >= CLAIM_LEASE_SECONDS
+            ):
+                validate_transition(status, "queued")
+                item["status"] = "queued"
+                item.pop("claimed_at", None)
+                item["reclaimed_at"] = now
+                item["failure_reason"] = "claim_lease_expired"
+                item["updated_at"] = now
+                changed = True
+
+        if changed:
+            self._save_queue(queue)
+
+    @classmethod
+    def _mark_claimed(cls, item: dict[str, Any]) -> dict[str, Any]:
+        now = time.time()
+        validate_transition(str(item.get("status", "")), "claimed")
+        item["status"] = "claimed"
+        item["claimed_at"] = now
+        item["updated_at"] = now
+        return item
 
     def claim_operation(
         self,
@@ -191,6 +265,7 @@ class BridgeState:
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self._load_queue()
+            self._sweep_queue_locked(queue)
 
             for item in queue:
                 if item.get("operation_id") != operation_id:
@@ -198,29 +273,24 @@ class BridgeState:
                 if item.get("status") != "queued":
                     return None
 
-                validate_transition("queued", "claimed")
-                item["status"] = "claimed"
-                item["claimed_at"] = time.time()
+                claimed = self._mark_claimed(item)
                 self._save_queue(queue)
-                return dict(item)
+                return dict(claimed)
 
         return None
 
     def claim_next_operation(self) -> dict[str, Any] | None:
         with self.lock:
             queue = self._load_queue()
+            self._sweep_queue_locked(queue)
 
             for item in queue:
                 if item.get("status") != "queued":
                     continue
 
-                validate_transition("queued", "claimed")
-                item["status"] = "claimed"
-                item["claimed_at"] = time.time()
-
+                claimed = self._mark_claimed(item)
                 self._save_queue(queue)
-
-                return item
+                return dict(claimed)
 
         return None
 
@@ -519,6 +589,7 @@ class BridgeState:
     def get_status(self) -> dict[str, Any]:
         with self.lock:
             queue = self._load_queue()
+            self._sweep_queue_locked(queue)
 
             counts: dict[str, int] = {}
 
@@ -1250,6 +1321,26 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "prompt"
         )
 
+        completion_markers = payload.get("completion_markers")
+        if completion_markers is not None and (
+            not isinstance(completion_markers, list)
+            or not completion_markers
+            or len(completion_markers) > 4
+            or any(
+                not isinstance(marker, str)
+                or not marker.strip()
+                or len(marker.strip()) > 120
+                or "\n" in marker
+                or "\r" in marker
+                for marker in completion_markers
+            )
+        ):
+            self._send_json(
+                {"error": "completion_markers must be 1-4 bounded single-line strings."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
         idempotency_key = payload.get("idempotency_key")
         if idempotency_key is not None and (
             not isinstance(idempotency_key, str)
@@ -1300,6 +1391,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 operation_type=operation_type,
                 prompt=prompt,
                 idempotency_key=idempotency_key,
+                completion_markers=completion_markers,
             )
         )
 
