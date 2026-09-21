@@ -1,0 +1,142 @@
+name: pasi-development
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to test/start"
+        required: false
+        default: ""
+      mode:
+        description: "Development action"
+        required: true
+        type: choice
+        options:
+          - verify
+          - start-automation
+          - status
+          - stop
+        default: verify
+      roadmap:
+        description: "Repository-relative roadmap path"
+        required: false
+        default: "roadmaps/pasi-default.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pasi-development
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: ${{ inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve requested ref
+        id: ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          ref="${REQUESTED_REF:-${GITHUB_REF_NAME}}"
+          printf 'ref=%s
+' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+          npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
+
+      - name: Validate roadmap
+        env:
+          ROADMAP: ${{ inputs.roadmap }}
+        run: |
+          python - "$ROADMAP" <<'PY'
+          import sys
+          from pathlib import Path
+          from scripts.pasi_hybrid_planner import PlannerError, load_roadmap
+
+          root = Path.cwd().resolve()
+          candidate = (root / sys.argv[1]).resolve()
+          if root not in candidate.parents:
+              raise SystemExit("roadmap must remain inside the checked-out repository")
+          if not candidate.is_file():
+              raise SystemExit(f"roadmap not found: {candidate}")
+          try:
+              tasks = load_roadmap(candidate)
+          except PlannerError as exc:
+              raise SystemExit(f"invalid roadmap: {exc}") from exc
+          print(f"Roadmap valid: {candidate} ({len(tasks)} tasks)")
+          PY
+
+      - name: Run hybrid planner tests
+        run: python -m pytest -q scripts/test_pasi_hybrid_planner.py
+
+      - name: Run controller/frontend contract tests
+        run: |
+          node --test automation/chromium/pasi-chatgpt/test_extension.js             automation/chromium/pasi-chatgpt/test_recovery.js             automation/chromium/pasi-chatgpt/test_native_mutation.js             automation/chromium/pasi-chatgpt/test_dom_fixtures.js
+
+      - name: Run canonical validation
+        run: bash scripts/check_all.sh
+
+  desktop:
+    if: ${{ inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop' }}
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 15
+    steps:
+      - name: Resolve requested ref
+        id: ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          ref="${REQUESTED_REF:-${GITHUB_REF_NAME}}"
+          printf 'ref=%s
+' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 1
+
+      - name: Verify native desktop boundary
+        if: ${{ inputs.mode == 'start-automation' }}
+        run: python3 scripts/pasi_desktop_preflight.py
+
+      - name: Start PASI development automation
+        if: ${{ inputs.mode == 'start-automation' }}
+        env:
+          PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}
+          ROADMAP: ${{ inputs.roadmap }}
+        shell: bash
+        run: |
+          case "$ROADMAP" in
+            /*|../*|*/../*|*".."*) echo "roadmap must be repository-relative" >&2; exit 2 ;;
+          esac
+          test -f "$ROADMAP"
+          bash scripts/start_pasi_168h.sh --roadmap "$ROADMAP"
+
+      - name: Show PASI status
+        if: ${{ inputs.mode == 'status' || inputs.mode == 'start-automation' }}
+        run: bash scripts/status_pasi_overnight.sh
+
+      - name: Stop PASI development automation
+        if: ${{ inputs.mode == 'stop' }}
+        run: bash scripts/stop_pasi_overnight.sh
