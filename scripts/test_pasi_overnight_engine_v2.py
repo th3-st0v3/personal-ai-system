@@ -526,7 +526,26 @@ branch refs/heads/main
             current_task=failed,
             recent_tasks=[failed],
         )
-        self.assertEqual(engine.choose_next_task(state, ""), engine.AUTOMATION_TASKS[1])
+        selected = engine.hybrid_planner.TaskSpec(
+            id="automation.repair",
+            title="Automation repair",
+            objective="Repair the failed task using new evidence.",
+            acceptance_criteria=("The repair is verified.",),
+            verification=("Run the targeted test.",),
+            phase="automation",
+        )
+        with mock.patch.object(
+            engine,
+            "select_planner_task",
+            return_value=engine.hybrid_planner.PlannerDecision(
+                selected=selected,
+                eligible_ids=("automation.repair",),
+                mode="deterministic",
+                reason="planner selected the next eligible task",
+            ),
+        ):
+            result = engine.choose_next_task(state, "")
+        self.assertEqual(result, selected.execution_text())
 
     def test_provider_conditions_are_distinct_from_chat_completion_failures(self) -> None:
         self.assertEqual(engine.provider_condition(90, "CHAT_USAGE_LIMITED: provider limit"), "provider_usage_limit")
@@ -575,7 +594,24 @@ branch refs/heads/main
         try:
             engine.STOP = False
             with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
-                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                with mock.patch.object(
+                    engine,
+                    "select_planner_task",
+                    return_value=engine.hybrid_planner.PlannerDecision(
+                        selected=engine.hybrid_planner.TaskSpec(
+                            id="automation.after-provider-recovery",
+                            title="After provider recovery",
+                            objective="Proceed to the next verified task.",
+                            acceptance_criteria=("The task is verified.",),
+                            verification=("Run the targeted test.",),
+                            phase="automation",
+                        ),
+                        eligible_ids=("automation.after-provider-recovery",),
+                        mode="deterministic",
+                        reason="planner selected the next eligible task",
+                    ),
+                ):
+                    with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
                     with mock.patch.object(engine, "parse_response", return_value=parsed):
                         with mock.patch.object(engine, "completion_contract", return_value=True):
                             with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
