@@ -103,6 +103,19 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("latest_chat_url = valid_chat_url(response.chat_url)", content)
         self.assertIn("if latest_chat_url is None:", content)
 
+    def test_controller_liveness_accepts_health_observations_from_browser_health(self) -> None:
+        observation = {
+            "captured_at": "2026-09-21T05:00:00+00:00",
+            "data": {
+                "kind": "chatgpt_health",
+                "captured_at": "2026-09-21T05:00:00+00:00",
+                "native_controller": True,
+                "composer_present": True,
+            },
+        }
+        now = datetime(2026, 9, 21, 5, 0, 5, tzinfo=timezone.utc)
+        self.assertTrue(controller_observation_is_live(observation, now=now, max_age_seconds=15))
+
     def test_live_controller_observation_is_reused_for_chat_routing(self) -> None:
         source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
         content = source.read_text(encoding="utf-8")
