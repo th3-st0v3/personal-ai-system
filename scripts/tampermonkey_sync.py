@@ -9,7 +9,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from automation.legacy.controller_update import (
+from automation.orchestrator.controller_update import (
     evaluate_controller_update,
     read_last_synced_version,
     write_sync_state,
@@ -19,7 +19,7 @@ from automation.legacy.controller_update import (
 RUNTIME_DIR = REPOSITORY_ROOT / ".runtime" / "chatgpt"
 DEFAULT_REQUEST_PATH = RUNTIME_DIR / "controller-update-request.json"
 DEFAULT_STATE_PATH = RUNTIME_DIR / "controller-sync-state.json"
-DEFAULT_CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
+DEFAULT_CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
 
 
 def stage_from_response(response_text: str, controller_path: Path, request_path: Path, state_path: Path) -> int:

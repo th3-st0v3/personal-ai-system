@@ -64,6 +64,9 @@ jobs:
           bash -n scripts/run_m0_live_acceptance.sh
           bash -n scripts/run_m2_live_acceptance.sh
           python -m py_compile scripts/run_m1_live_acceptance.py
+          python -m py_compile scripts/pasi_desktop_preflight.py
+      - name: Test desktop preflight envelope handling
+        run: python -m pytest -q scripts/test_pasi_desktop_preflight.py
       - name: Validate extended runtime imports
         run: python -c 'import scripts.pasi_extended_runtime_entrypoint, scripts.pasi_weeklong_resilience; print("extended runtime import contract OK")'
       - name: Run canonical validation suite
@@ -72,8 +75,12 @@ jobs:
         run: |
           python -m pytest -q automation/orchestrator/test_bridge.py automation/computer_use/test_chatgpt.py scripts/test_pasi_chat.py
           node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js automation/chromium/pasi-chatgpt/test_native_mutation.js automation/chromium/pasi-chatgpt/test_dom_fixtures.js
+      - name: Run runtime telemetry contract tests
+        run: python -m pytest -q scripts/test_pasi_runtime_telemetry.py
       - name: Run minimized Chromium response-recovery acceptance test
         run: python scripts/e2e_chromium_response_recovery.py
+      - name: Run Chromium prompt-submission and chaining acceptance test
+        run: python scripts/e2e_chromium_prompt_submission.py
       - name: Run Tampermonkey controller contract tests
         run: node --test automation/legacy/tampermonkey/chatgpt-controller.test.js
       - name: Run Tampermonkey controller loader contract tests

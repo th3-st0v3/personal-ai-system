@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Final
 
 
-TERMINAL_OPERATION_STATUSES: Final[frozenset[str]] = frozenset({"completed", "failed", "cancelled"})
+TERMINAL_OPERATION_STATUSES: Final[frozenset[str]] = frozenset({"completed", "failed"})
 
 _ALLOWED_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
-    "queued": frozenset({"claimed", "failed", "cancelled"}),
-    "claimed": frozenset({"generating", "completed", "failed", "queued", "cancelled"}),
-    "generating": frozenset({"generating", "completed", "failed", "queued", "cancelled"}),
+    "queued": frozenset({"claimed", "failed"}),
+    "claimed": frozenset({"generating", "completed", "failed", "queued"}),
+    "generating": frozenset({"generating", "completed", "failed", "queued"}),
     "completed": frozenset(),
     "failed": frozenset(),
 }
@@ -31,5 +31,3 @@ def validate_transition(current: str, target: str) -> None:
 def validate_status(status: str) -> None:
     if status not in _ALLOWED_TRANSITIONS:
         raise InvalidOperationTransition(f"Unknown operation status: {status!r}")
-
-

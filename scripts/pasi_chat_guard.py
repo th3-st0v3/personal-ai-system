@@ -14,13 +14,12 @@ from urllib.request import Request, urlopen
 
 from automation.computer_use.capability_gateway import CapabilityGateway
 from automation.computer_use.local_access import LocalAccessBroker
-from scripts.pasi_timeout_policy import load_timeout_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_URL = "http://127.0.0.1:8765"
 POLL_SECONDS = 0.5
-TIMEOUT_POLICY = load_timeout_policy()
-DEFAULT_TIMEOUT = TIMEOUT_POLICY["python_wait_seconds"]
+HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS = 0.25
+DEFAULT_TIMEOUT = 60 * 60
 GUARD_EXIT_USAGE_LIMIT = 90
 GUARD_EXIT_AUTH_REQUIRED = 91
 GUARD_EXIT_CONTROLLER_OFFLINE = 92
@@ -28,6 +27,31 @@ MAX_COMPUTER_ROUNDS = 3
 MAX_COMPUTER_REQUESTS_PER_ROUND = 3
 MAX_COMPUTER_REQUEST_BYTES = 8_000
 
+_CONTEXT_LIMIT_PHRASES = (
+    "conversation has reached its limit",
+    "conversation is too long",
+    "context limit reached",
+    "start a new chat to continue",
+)
+_USAGE_LIMIT_PHRASES = (
+    "current usage limit",
+    "usage limit reached",
+    "free tier limit",
+    "message limit",
+    "daily limit",
+    "weekly limit",
+    "model usage limit",
+    "rate limit",
+    "too many requests",
+)
+_AUTH_PHRASES = (
+    "log in to continue",
+    "sign in to continue",
+    "verify you're human",
+    "security check",
+    "captcha",
+    "session has expired",
+)
 REQUEST_BEGIN = "PASI_COMPUTER_REQUEST_BEGIN"
 REQUEST_END = "PASI_COMPUTER_REQUEST_END"
 RESPONSE_MARKER = "=== CHATGPT RESPONSE ==="
@@ -53,6 +77,19 @@ def request_json(path: str, timeout: float = 3.0) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def observation_text(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    values: list[str] = []
+    for key in ("error", "message", "response_text", "text", "signals", "status", "reason"):
+        value = data.get(key)
+        if isinstance(value, str):
+            values.append(value)
+        elif isinstance(value, list):
+            values.extend(str(item) for item in value)
+    return " ".join(values).strip().lower()
+
+
 def classify_observation(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
@@ -61,17 +98,23 @@ def classify_observation(payload: dict[str, Any] | None) -> str | None:
     if not isinstance(data, dict):
         return None
 
-    # Terminal provider/security classifications must come from structured
-    # controller health fields only. Never scan response/message text: model
-    # output, sidebar titles, documentation, and prior error text can mention
-    # words such as "captcha" or "rate limit" without an actual live condition.
     kind = data.get("kind")
-    if kind != "chatgpt_health":
+    if kind == "chatgpt_health":
+        if data.get("provider_usage_limited") is True or data.get("usage_limited") is True or data.get("rate_limited") is True:
+            return "usage_limit"
+        if data.get("auth_required") is True or data.get("login_required") is True:
+            return "auth_required"
+        text = observation_text(data)
+        if any(phrase in text for phrase in _AUTH_PHRASES):
+            return "auth_required"
+        if any(phrase in text for phrase in _USAGE_LIMIT_PHRASES):
+            return "usage_limit"
         return None
-    if data.get("provider_usage_limited") is True or data.get("usage_limited") is True or data.get("rate_limited") is True:
-        return "usage_limit"
-    if data.get("auth_required") is True or data.get("login_required") is True:
-        return "auth_required"
+
+    if kind == "chatgpt_response":
+        text = observation_text(data)
+        if any(phrase in text for phrase in _CONTEXT_LIMIT_PHRASES):
+            return None
     return None
 
 
@@ -130,35 +173,55 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
     output: list[str] = []
     reader = threading.Thread(target=_reader, args=(process.stdout, output), daemon=True)
     reader.start()
-    started = time.monotonic()
-    classification: str | None = None
+    classification_lock = threading.Lock()
+    classification: list[str | None] = [None]
+    monitor_stop = threading.Event()
 
-    while process.poll() is None:
-        if time.monotonic() - started >= timeout:
-            cancel_active_operation("guard timeout before child termination")
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-            classification = "guard_timeout"
-            break
+    def monitor_browser_state() -> None:
+        while not monitor_stop.is_set():
+            if process.poll() is not None:
+                return
+            observed = classify_observation(
+                request_json(
+                    "/browser/observation",
+                    timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS,
+                )
+            )
+            if process.poll() is not None:
+                return
+            if observed in {"usage_limit", "auth_required"}:
+                with classification_lock:
+                    classification[0] = observed
+                if process.poll() is None:
+                    process.terminate()
+                return
+            monitor_stop.wait(bridge_poll_seconds)
 
-        classification = classify_observation(request_json("/browser/health"))
-        if classification in {"usage_limit", "auth_required"}:
+    monitor = threading.Thread(target=monitor_browser_state, daemon=True)
+    monitor.start()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        with classification_lock:
+            classification[0] = "guard_timeout"
+        cancel_active_operation("guard timeout before child termination")
+        if process.poll() is None:
             process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-            break
-        time.sleep(bridge_poll_seconds)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    finally:
+        monitor_stop.set()
+        # The monitor is daemonized and already re-checks process completion after
+        # every bounded health request. Do not make child completion wait on it.
 
     reader.join(timeout=2)
     combined = "".join(output)
-    return (process.returncode if process.returncode is not None else 1), classification, combined
+    with classification_lock:
+        final_classification = classification[0]
+    return (process.returncode if process.returncode is not None else 1), final_classification, combined
 
 
 def extract_response_text(output: str) -> str:
@@ -234,24 +297,26 @@ def build_followup_prompt(results: list[dict[str, Any]]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bound a PASI ChatGPT run, safely broker local computer evidence, and continue through provider obstacles.")
     parser.add_argument("task", nargs="+", help="Task arguments forwarded to scripts/pasi_chat.py")
+    parser.add_argument("--repo", type=Path, default=REPO_ROOT, help="Target repository for bounded local computer evidence")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto")
     args = parser.parse_args()
+    repo_root = args.repo.expanduser().resolve()
+    if not repo_root.is_dir():
+        raise ValueError(f"PASI target repository does not exist: {repo_root}")
 
     task = " ".join(args.task).strip() + computer_protocol_prompt()
     for round_number in range(MAX_COMPUTER_ROUNDS + 1):
         forwarded = [
             sys.executable,
-            "scripts/pasi_chat.py",
+            str(REPO_ROOT / "scripts" / "pasi_chat.py"),
             task,
             "--github",
             args.github,
             "--timeout",
             str(args.timeout),
-            "--completion-marker",
-            "PASI_RESULT_STATUS",
-            "--completion-marker",
-            "PASI_COMPUTER_REQUEST_END",
+            "--repo",
+            str(repo_root),
         ]
         code, classification, combined = run_child(forwarded, timeout=args.timeout + 15.0, bridge_poll_seconds=POLL_SECONDS)
         response = extract_response_text(combined)
@@ -269,7 +334,7 @@ def main() -> int:
             print("CHAT_GUARD_TIMEOUT: bounded ChatGPT task runtime elapsed without a terminal result.", file=sys.stderr)
             return GUARD_EXIT_CONTROLLER_OFFLINE
 
-        requests = execute_computer_requests(response, REPO_ROOT)
+        requests = execute_computer_requests(response, repo_root)
         if not requests or round_number >= MAX_COMPUTER_ROUNDS or code != 0:
             print(combined, end="")
             return code

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import os
 import re
 import signal
@@ -12,6 +11,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
@@ -19,25 +19,21 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from scripts.pasi_timeout_policy import load_timeout_policy
+from scripts import pasi_prompt_compiler as prompt_compiler
+from scripts.pasi_stage_events import StageTimer, classify_failure
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
+RUNTIME_DIR = Path(os.environ.get("PASI_RUNTIME_DIR", str(Path.home() / ".pasi" / "overnight"))).expanduser().resolve()
 STATE_PATH = RUNTIME_DIR / "state.json"
 EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
 ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
-CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
-DEFAULT_WORKTREE = Path.home() / ".pasi-worktrees" / "personal-ai-system-overnight"
-DEFAULT_HOURS = 10.0
-MIN_HOURS = 8.0
-MAX_HOURS = float("inf")
-BRIDGE_HEALTH = "http://127.0.0.1:8765/health"
+BRIDGE_QUEUE_PATH = REPO_ROOT / ".ai" / "queue.json"
+CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
 MAX_PATCH_BYTES = 250_000
 MAX_OUTPUT_CHARS = 20_000
-MAX_ATTEMPTS = 3
 PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_all.sh",
     "scripts/check_offline.sh",
@@ -50,16 +46,25 @@ PROTECTED_UNATTENDED_PREFIXES = (
     ".githooks/",
     "hooks/",
 )
-TIMEOUT_POLICY = load_timeout_policy()
-TASK_TIMEOUT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
-WATCHDOG_MAX_AGE_SECONDS = TIMEOUT_POLICY["stale_seconds"]
+DEFAULT_WORKTREE = Path.home() / ".pasi-worktrees" / "personal-ai-system-overnight"
+DEFAULT_HOURS = 10.0
+MIN_HOURS = 8.0
+MAX_HOURS = float("inf")
+MAX_ATTEMPTS = 3
+TASK_TIMEOUT_SECONDS = 900.0
+WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
 AUTOMATION_TASKS_PER_GATE = 2
 MAX_PROVIDER_LIMIT_PAUSES = 3
+PROVIDER_LIMIT_EXHAUSTED_COOLDOWN_SECONDS = 900.0
+AUTH_RECOVERY_WAIT_SECONDS = 300.0
+AUTH_RECOVERY_POLL_SECONDS = 5.0
+FALLBACK_ROUTER_COOLDOWN_SECONDS = 900.0
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
+CONTROL_SCRIPTS_ROOT = REPO_ROOT / "scripts"
 
 PATCH_BEGIN = "PASI_RESULT_PATCH_BEGIN"
 PATCH_END = "PASI_RESULT_PATCH_END"
@@ -74,8 +79,15 @@ MARKERS = {
     "backend": re.compile(r"^PASI_RESULT_BACKEND:\s*(.+)$", re.MULTILINE),
     "evidence": re.compile(r"^PASI_RESULT_EVIDENCE:\s*(.+)$", re.MULTILINE),
     "repository_progress": re.compile(r"^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$", re.MULTILINE),
-    "allow_delete": re.compile(r"^PASI_RESULT_ALLOW_DELETE:\s*(true|false)$", re.MULTILINE | re.IGNORECASE),
+    "allow_delete": re.compile(
+        r"^PASI_RESULT_ALLOW_DELETE:\s*(true|false)$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
 }
+AUTOMATION_CONTINUE_RE = re.compile(
+    r"^PASI_AUTOMATION_CONTINUE:\s*true$",
+    re.MULTILINE | re.IGNORECASE,
+)
 AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
@@ -108,13 +120,17 @@ class OvernightState:
     completed_tasks: int = 0
     failed_tasks: int = 0
     current_attempt: int = 0
+    task_retry_cycle: int = 0
+    last_failure_signature: str = ""
+    same_failure_cycles: int = 0
     automation_tasks_since_gate: int = 0
     automation_gates: int = 0
     provider_limit_pauses: int = 0
+    fallback_router_disabled_until: str = ""
+    last_provider: str = "chatgpt_browser"
     last_result: str = ""
     next_task: str = ""
     stop_reason: str = ""
-    last_provider: str = "chatgpt_browser"
     recent_tasks: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -132,13 +148,17 @@ class OvernightState:
             "completed_tasks": self.completed_tasks,
             "failed_tasks": self.failed_tasks,
             "current_attempt": self.current_attempt,
+            "task_retry_cycle": self.task_retry_cycle,
+            "last_failure_signature": self.last_failure_signature,
+            "same_failure_cycles": self.same_failure_cycles,
             "automation_tasks_since_gate": self.automation_tasks_since_gate,
             "automation_gates": self.automation_gates,
             "provider_limit_pauses": self.provider_limit_pauses,
+            "fallback_router_disabled_until": self.fallback_router_disabled_until,
+            "last_provider": self.last_provider,
             "last_result": self.last_result,
             "next_task": self.next_task,
             "stop_reason": self.stop_reason,
-            "last_provider": self.last_provider,
             "recent_tasks": self.recent_tasks[-12:],
         }
 
@@ -189,17 +209,22 @@ def load_state() -> OvernightState | None:
             completed_tasks=int(raw.get("completed_tasks", 0)),
             failed_tasks=int(raw.get("failed_tasks", 0)),
             current_attempt=int(raw.get("current_attempt", 0)),
+            task_retry_cycle=int(raw.get("task_retry_cycle", 0)),
+            last_failure_signature=str(raw.get("last_failure_signature", "")),
+            same_failure_cycles=int(raw.get("same_failure_cycles", 0)),
             automation_tasks_since_gate=int(raw.get("automation_tasks_since_gate", 0)),
             automation_gates=int(raw.get("automation_gates", 0)),
             provider_limit_pauses=int(raw.get("provider_limit_pauses", 0)),
+            fallback_router_disabled_until=str(raw.get("fallback_router_disabled_until", "")),
+            last_provider=str(raw.get("last_provider", "chatgpt_browser")),
             last_result=str(raw.get("last_result", "")),
             next_task=str(raw.get("next_task", "")),
             stop_reason=str(raw.get("stop_reason", "")),
-            last_provider=str(raw.get("last_provider", "chatgpt_browser")),
             recent_tasks=recent_tasks[-12:],
         )
     except (KeyError, TypeError, ValueError):
         return None
+
 
 
 def task_key(task: str) -> str:
@@ -222,10 +247,7 @@ def load_task_ledger() -> dict[str, dict[str, Any]]:
 
 def save_task_ledger(ledger: Mapping[str, Mapping[str, Any]]) -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": 1,
-        "tasks": {str(key): dict(value) for key, value in ledger.items()},
-    }
+    payload = {"schema_version": 1, "tasks": {str(key): dict(value) for key, value in ledger.items()}}
     temporary = TASK_LEDGER_PATH.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     temporary.replace(TASK_LEDGER_PATH)
@@ -244,8 +266,7 @@ def record_task_ledger(
     if not normalized:
         return
     ledger = load_task_ledger()
-    key = task_key(normalized)
-    ledger[key] = {
+    ledger[task_key(normalized)] = {
         "task": normalized,
         "status": status,
         "commit": commit or "",
@@ -255,14 +276,6 @@ def record_task_ledger(
         "updated_at": now_utc().isoformat(),
     }
     save_task_ledger(ledger)
-
-
-def completed_task_keys() -> set[str]:
-    return {
-        key
-        for key, value in load_task_ledger().items()
-        if str(value.get("status", "")).casefold() == "completed"
-    }
 
 
 def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[str]) -> str:
@@ -276,6 +289,197 @@ def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[st
     if task_key(value) in completed_task_keys():
         return ""
     return value
+
+
+
+
+def normalize_patch(patch: str) -> str:
+    normalized = patch.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return ""
+    lines = normalized.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line.startswith("diff --git "))
+    except StopIteration:
+        return normalized
+    lines = lines[start:]
+    for index, line in enumerate(lines):
+        if line.strip().startswith(chr(96) * 3):
+            lines = lines[:index]
+            break
+    return "\n".join(lines).strip() + "\n"
+
+
+
+
+def repository_worktree_is_clean(worktree: Path) -> bool:
+    code, status = command(["git", "status", "--porcelain", "--untracked-files=all"], worktree, 30.0)
+    return code == 0 and not status.strip()
+
+
+
+
+def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
+    """Run offline validation from an isolated filesystem/network view."""
+    if not shutil.which("bwrap"):
+        raise RuntimeError(
+            "bubblewrap is required for network/filesystem-isolated validation; "
+            "install the bubblewrap package before running PASI unattended"
+        )
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="pasi-validation-") as temp_dir:
+        sandbox_root = Path(temp_dir)
+        sandbox_repo = sandbox_root / "repo"
+        shutil.copytree(
+            worktree,
+            sandbox_repo,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(
+                ".git",
+                ".runtime",
+                "__pycache__",
+                "*.pyc",
+            ),
+        )
+
+        code, output = command(
+            ["git", "init", "-b", "pasi-validation"],
+            sandbox_repo,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"could not initialize validation sandbox repository: {output}")
+        code, output = command(
+            ["git", "add", "-A"],
+            sandbox_repo,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"could not stage validation sandbox snapshot: {output}")
+
+        venv_path = REPO_ROOT / ".venv"
+        path_value = "/usr/local/bin:/usr/bin:/bin"
+        venv_bind: list[str] = []
+        if venv_path.is_dir():
+            path_value = "/pasi-venv/bin:" + path_value
+            venv_bind = ["--ro-bind", str(venv_path), "/pasi-venv"]
+
+        env_values = {
+            "PATH": path_value,
+            "HOME": "/tmp/pasi-validation-home",
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+            "PYTHONPATH": "/workspace",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_ASKPASS": "/bin/false",
+            "CI": "1",
+        }
+        base = [
+            "env",
+            "-i",
+            *[f"{key}={value}" for key, value in env_values.items()],
+            "bash",
+            "scripts/check_all.sh",
+        ]
+        sandbox_command = [
+            "bwrap",
+            "--ro-bind", "/usr", "/usr",
+            "--ro-bind", "/bin", "/bin",
+            "--ro-bind", "/lib", "/lib",
+            "--ro-bind", "/lib64", "/lib64",
+            "--ro-bind", "/etc", "/etc",
+            "--dev", "/dev",
+            "--proc", "/proc",
+            "--tmpfs", "/tmp",
+            "--tmpfs", "/home",
+            "--tmpfs", "/root",
+            "--tmpfs", "/mnt",
+            "--tmpfs", "/media",
+            "--bind", str(sandbox_repo), "/workspace",
+            *venv_bind,
+            "--unshare-net",
+            "--chdir", "/workspace",
+            *base,
+        ]
+        code, output = command(sandbox_command, sandbox_repo, timeout)
+        if code == 0:
+            return output
+        raise RuntimeError(f"sandboxed canonical validation failed:\n{output}")
+
+
+
+
+def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
+    code, output = command(["git", "add", "-A"], worktree, 30.0)
+    if code != 0:
+        raise RuntimeError(f"git add failed: {output}")
+    code, output = command(["git", "diff", "--cached", "--quiet"], worktree, 30.0)
+    if code == 0:
+        raise RuntimeError("task completed without producing a commit")
+    message = re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:65] or "overnight PASI task"
+    commit_tag = f"task-{task_key(task)[:12]}"
+    code, output = command(["git", "commit", "-m", f"pasi: {commit_tag} {message}"], worktree, 120.0)
+    if code != 0:
+        raise RuntimeError(f"git commit failed: {output}")
+    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
+    if code != 0:
+        raise RuntimeError(f"could not read commit: {commit}")
+    if push:
+        code, output = command(["git", "push", "--set-upstream", "origin", branch], worktree, 180.0)
+        if code != 0:
+            raise RuntimeError(f"git push failed: {output}")
+    return commit
+
+
+
+
+def reconcile_committed_task(state: OvernightState) -> bool:
+    """Recover a commit acknowledged by Git but not yet written to the task ledger."""
+    normalized = re.sub(r"\s+", " ", state.current_task).strip()
+    if not normalized:
+        return False
+    key = task_key(normalized)
+    entry = load_task_ledger().get(key)
+    if isinstance(entry, dict) and str(entry.get("status", "")).casefold() == "completed":
+        return False
+    worktree = Path(state.worktree)
+    if not repository_worktree_is_clean(worktree):
+        return False
+    code, subject = command(["git", "log", "-1", "--format=%s"], worktree, 15.0)
+    if code != 0 or f"task-{key[:12]}" not in subject:
+        return False
+    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
+    if code != 0 or not commit.strip():
+        return False
+    record_task_ledger(
+        normalized,
+        "completed",
+        commit=commit.strip(),
+        evidence="Recovered completed task from an already-created tagged Git commit after restart.",
+        phase=state.phase,
+    )
+    state.completed_tasks += 1
+    if state.phase == "automation":
+        state.automation_tasks_since_gate += 1
+    state.recent_tasks.append(normalized)
+    state.current_attempt = 0
+    state.next_task = ""
+    state.current_task = choose_next_task(state, "")
+    save_state(state)
+    log_event(
+        "task_recovered_from_commit",
+        phase=state.phase,
+        task_number=state.task_number,
+        commit=commit.strip(),
+        recovered_task=normalized,
+        next_task=state.current_task,
+    )
+    return True
+
+
 
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
@@ -399,169 +603,12 @@ def release_lock() -> None:
         pass
 
 
-def validate_patch_paths(patch: str, allow_delete: bool) -> None:
-    if len(patch.encode("utf-8")) > MAX_PATCH_BYTES:
-        raise ValueError("model patch exceeds configured size bound")
-    if "new file mode 120000" in patch or "new file mode 160000" in patch:
-        raise ValueError("symlink and submodule additions are not allowed in unattended patches")
-    matches = re.findall(r"^diff --git a/(.+) b/(.+)$", patch, re.MULTILINE)
-    if not matches:
-        raise ValueError("model response did not contain a unified git diff")
-    for old_path, new_path in matches:
-        for path_value in (old_path, new_path):
-            if path_value == "/dev/null":
-                continue
-            normalized = path_value.replace("\\", "/")
-            parts = Path(normalized).parts
-            if normalized.startswith("/") or ".." in parts:
-                raise ValueError(f"unsafe patch path: {path_value}")
-            if any(part in {".git", ".env", ".env.local", ".env.production"} for part in parts):
-                raise ValueError(f"forbidden patch path: {path_value}")
-            if any(pattern.search(normalized) for pattern in (
-                re.compile(r"(^|/)(id_rsa|id_ed25519|authorized_keys)$", re.IGNORECASE),
-                re.compile(r"(^|/)(credentials|secrets?)(\.|/|$)", re.IGNORECASE),
-            )):
-                raise ValueError(f"forbidden credential/secret path: {path_value}")
-            if normalized in PROTECTED_UNATTENDED_PATHS or any(normalized.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES):
-                raise ValueError(f"protected unattended patch path requires human-approved branch: {path_value}")
-        if new_path == "/dev/null" and not allow_delete:
-            raise ValueError("file deletion requires PASI_RESULT_ALLOW_DELETE: true")
+def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None = None) -> None:
+    # Use the same worktree-aware patch policy as the weeklong hardening wrapper.
+    # The local import avoids the module's intentional legacy/hardening dependency cycle.
+    from scripts import pasi_overnight_hardening as hardening
 
-
-def normalize_patch(patch: str) -> str:
-    normalized = patch.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not normalized:
-        return ""
-    lines = normalized.splitlines()
-    try:
-        start = next(index for index, line in enumerate(lines) if line.startswith("diff --git "))
-    except StopIteration:
-        return normalized
-    lines = lines[start:]
-    for index, line in enumerate(lines):
-        if line.strip().startswith(chr(96) * 3):
-            lines = lines[:index]
-            break
-    return "\n".join(lines).strip() + "\n"
-
-
-def command(
-    command: list[str],
-    cwd: Path,
-    timeout: float,
-    *,
-    input: str | None = None,
-) -> tuple[int, str]:
-    try:
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            input=input,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return 1, str(exc)
-    output = ((result.stdout or "") + (result.stderr or "")).strip()
-    return result.returncode, output[-20_000:]
-
-
-def repository_worktree_is_clean(worktree: Path) -> bool:
-    code, status = command(["git", "status", "--porcelain", "--untracked-files=all"], worktree, 30.0)
-    return code == 0 and not status.strip()
-
-
-def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
-    """Run offline validation from an isolated filesystem/network view."""
-    if not shutil.which("bwrap"):
-        raise RuntimeError(
-            "bubblewrap is required for network/filesystem-isolated validation; "
-            "install the bubblewrap package before running PASI unattended"
-        )
-
-    import tempfile
-
-    with tempfile.TemporaryDirectory(prefix="pasi-validation-") as temp_dir:
-        sandbox_root = Path(temp_dir)
-        sandbox_repo = sandbox_root / "repo"
-        shutil.copytree(
-            worktree,
-            sandbox_repo,
-            symlinks=True,
-            ignore=shutil.ignore_patterns(
-                ".git",
-                ".runtime",
-                "__pycache__",
-                "*.pyc",
-            ),
-        )
-
-        code, output = command(
-            ["git", "init", "-b", "pasi-validation"],
-            sandbox_repo,
-            30.0,
-        )
-        if code != 0:
-            raise RuntimeError(f"could not initialize validation sandbox repository: {output}")
-        code, output = command(
-            ["git", "add", "-A"],
-            sandbox_repo,
-            30.0,
-        )
-        if code != 0:
-            raise RuntimeError(f"could not stage validation sandbox snapshot: {output}")
-
-        venv_path = REPO_ROOT / ".venv"
-        path_value = "/usr/local/bin:/usr/bin:/bin"
-        venv_bind: list[str] = []
-        if venv_path.is_dir():
-            path_value = "/pasi-venv/bin:" + path_value
-            venv_bind = ["--ro-bind", str(venv_path), "/pasi-venv"]
-
-        env_values = {
-            "PATH": path_value,
-            "HOME": "/tmp/pasi-validation-home",
-            "LANG": os.environ.get("LANG", "C.UTF-8"),
-            "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
-            "PYTHONPATH": "/workspace",
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_ASKPASS": "/bin/false",
-            "CI": "1",
-        }
-        base = [
-            "env",
-            "-i",
-            *[f"{key}={value}" for key, value in env_values.items()],
-            "bash",
-            "scripts/check_all.sh",
-        ]
-        sandbox_command = [
-            "bwrap",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/bin", "/bin",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/lib64", "/lib64",
-            "--ro-bind", "/etc", "/etc",
-            "--dev", "/dev",
-            "--proc", "/proc",
-            "--tmpfs", "/tmp",
-            "--tmpfs", "/home",
-            "--tmpfs", "/root",
-            "--tmpfs", "/mnt",
-            "--tmpfs", "/media",
-            "--bind", str(sandbox_repo), "/workspace",
-            *venv_bind,
-            "--unshare-net",
-            "--chdir", "/workspace",
-            *base,
-        ]
-        code, output = command(sandbox_command, sandbox_repo, timeout)
-        if code == 0:
-            return output
-        raise RuntimeError(f"sandboxed canonical validation failed:\n{output}")
+    hardening.validate_patch_paths(patch, allow_delete, worktree)
 
 
 def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
@@ -576,9 +623,6 @@ def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
                 raise RuntimeError("git apply returned an unexpected numstat record")
             fields.append(parts[2])
         else:
-            # --numstat -z emits a second NUL-delimited pathname for rename
-            # records. Treat it as another resolved path rather than rejecting
-            # a legitimate rename outright.
             fields.append(token)
 
     for path_value in fields:
@@ -589,61 +633,174 @@ def validate_git_resolved_paths(worktree: Path, summary: str) -> None:
             candidate.relative_to(root)
         except ValueError as exc:
             raise RuntimeError(f"git apply resolved an unsafe path: {path_value}") from exc
-        if path_value in PROTECTED_UNATTENDED_PATHS or any(path_value.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES):
-            raise RuntimeError(f"git apply resolved a protected unattended path: {path_value}")
+        if path_value in PROTECTED_UNATTENDED_PATHS or any(
+            path_value.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES
+        ):
+            raise RuntimeError(
+                f"git apply resolved a protected unattended path: {path_value}"
+            )
 
 
 def apply_patch(worktree: Path, patch: str, allow_delete: bool) -> str:
-    validate_patch_paths(patch, allow_delete)
-    code, summary = command(["git", "apply", "--numstat", "-z", "-"], worktree, 60.0, input=patch)
+    validate_patch_paths(patch, allow_delete, worktree)
+    code, summary = command(
+        ["git", "apply", "--numstat", "-z", "-"],
+        worktree,
+        60.0,
+        input_text=patch,
+    )
     if code != 0:
         raise RuntimeError(f"git apply path resolution failed:\n{summary}")
     validate_git_resolved_paths(worktree, summary)
-    code, output = command(["git", "apply", "--check", "--whitespace=nowarn", "-"], worktree, 60.0, input=patch)
+    code, output = command(
+        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+        worktree,
+        60.0,
+        input_text=patch,
+    )
     if code != 0:
         raise RuntimeError(f"git apply --check failed:\n{output}")
-    code, output = command(["git", "apply", "--whitespace=nowarn", "-"], worktree, 60.0, input=patch)
+    code, output = command(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        worktree,
+        60.0,
+        input_text=patch,
+    )
     if code != 0:
         raise RuntimeError(f"git apply failed:\n{output}")
     return output
 
 
-def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
-    code, output = command(["git", "add", "-A"], worktree, 30.0)
-    if code != 0:
-        raise RuntimeError(f"git add failed: {output}")
-    code, output = command(["git", "diff", "--cached", "--quiet"], worktree, 30.0)
-    if code == 0:
-        raise RuntimeError("task completed without producing a commit")
-    message = re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:65] or "overnight PASI task"
-    commit_tag = f"task-{task_key(task)[:12]}"
-    code, output = command(["git", "commit", "-m", f"pasi: {commit_tag} {message}"], worktree, 120.0)
-    if code != 0:
-        raise RuntimeError(f"git commit failed: {output}")
-    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
-    if code != 0:
-        raise RuntimeError(f"could not read commit: {commit}")
-    if push:
-        code, output = command(["git", "push", "--set-upstream", "origin", branch], worktree, 180.0)
-        if code != 0:
-            raise RuntimeError(f"git push failed: {output}")
-    return commit
+def control_script(name: str) -> Path:
+    candidate = (CONTROL_SCRIPTS_ROOT / name).resolve()
+    try:
+        candidate.relative_to(CONTROL_SCRIPTS_ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(f"control script escapes launcher root: {name}") from exc
+    if not candidate.is_file():
+        raise FileNotFoundError(f"control script is missing from launcher checkout: {candidate}")
+    return candidate
 
 
-def no_change_completion_is_satisfied(
-    worktree: Path,
-    status: str,
-    next_task: str,
-    patch: str,
-    values: dict[str, str],
-) -> bool:
-    return (
-        completion_contract(status, values)
-        and not patch
-        and values.get("repository_progress", "").lower() == "stopped"
-        and bool(next_task.strip())
-        and repository_worktree_is_clean(worktree)
+def queue_file_bytes() -> int | None:
+    try:
+        return BRIDGE_QUEUE_PATH.stat().st_size
+    except OSError:
+        return None
+
+
+def extract_operation_id(output: str) -> str | None:
+    match = re.search(
+        r"(?:Prompt operation|Retry prompt operation|Resuming persisted ChatGPT operation|GitHub fallback prompt operation):\s*([A-Za-z0-9._:-]+)",
+        output or "",
     )
+    return match.group(1) if match else None
+
+
+def bridge_operation(operation_id: str) -> dict[str, Any] | None:
+    token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not token:
+        try:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+    request = urllib.request.Request(
+        f"{BRIDGE_URL}/operation?operation_id={urllib.parse.quote(operation_id, safe='')}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3.0) as response:
+            payload = json.loads(response.read(2_000_000).decode("utf-8"))
+    except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    operation = payload.get("operation") if isinstance(payload, dict) else None
+    return dict(operation) if isinstance(operation, dict) else None
+
+
+def embedded_operation_metrics(output: str) -> dict[str, Any] | None:
+    match = re.search(r"^PASI_OPERATION_METRICS: (.+)$", output, re.MULTILINE)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return dict(payload) if isinstance(payload, dict) else None
+
+
+def emit_operation_metrics(task: str, attempt: int, output: str) -> None:
+    operation_id = extract_operation_id(output)
+    if not operation_id:
+        return
+    log_event(
+        "prompt_queued",
+        task_id=task_key(task),
+        attempt=attempt,
+        operation_id=operation_id,
+        queue_file_bytes=queue_file_bytes(),
+    )
+    operation = embedded_operation_metrics(output) or bridge_operation(operation_id)
+    if not operation:
+        return
+    timing = operation.get("timing")
+    if isinstance(timing, dict):
+        log_event(
+            "browser_timing",
+            task_id=task_key(task),
+            attempt=attempt,
+            operation_id=operation_id,
+            **timing,
+        )
+    response_text = operation.get("response_text")
+    if isinstance(response_text, str):
+        log_event(
+            "response_received",
+            task_id=task_key(task),
+            attempt=attempt,
+            operation_id=operation_id,
+            chars=len(response_text),
+        )
+    events = operation.get("recovery_events")
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            duration = event.get("recovery_duration_ms")
+            if isinstance(duration, (int, float)) and not isinstance(duration, bool):
+                log_event(
+                    "recovery_finished",
+                    task_id=task_key(task),
+                    attempt=attempt,
+                    operation_id=operation_id,
+                    reason=str(event.get("recovery_reason") or event.get("reason") or "unknown"),
+                    duration_ms=duration,
+                    outcome=str(event.get("outcome") or ""),
+                )
+
+
+def command(
+    command: list[str],
+    cwd: Path,
+    timeout: float,
+    *,
+    input_text: str | None = None,
+) -> tuple[int, str]:
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, str(exc)
+    output = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, output[-20_000:]
+
 
 def healthy(url: str) -> bool:
     try:
@@ -663,26 +820,52 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
         if healthy(f"{BRIDGE_URL}/health"):
             return children
         time.sleep(0.5)
-    raise RuntimeError("local PASI bridge did not become healthy")
+    raise RuntimeError("local PASI bridge service did not become healthy")
 
 
 def worktree_start_ref() -> str:
     configured = os.environ.get("PASI_OVERNIGHT_BASE_REF", "").strip()
-    return configured or "HEAD"
+    return configured or "origin/main"
 
 
-def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
+def find_worktree_for_branch(branch: str) -> Path | None:
+    code, output = command(["git", "worktree", "list", "--porcelain"], REPO_ROOT, 30.0)
+    if code != 0:
+        return None
+    path_value: str | None = None
+    branch_value: str | None = None
+    for raw_line in output.splitlines() + [""]:
+        line = raw_line.strip()
+        if line.startswith("worktree "):
+            path_value = line[len("worktree "):].strip()
+        elif line.startswith("branch refs/heads/"):
+            branch_value = line[len("branch refs/heads/"):].strip()
+        elif not line:
+            if branch_value == branch and path_value:
+                return Path(path_value).expanduser().resolve()
+            path_value = None
+            branch_value = None
+    return None
+
+
+def ensure_worktree(path: Path, branch: str, *, resume: bool) -> Path:
+    start_ref = worktree_start_ref()
+    path = path.expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
-        code, output = command(
-            ["git", "worktree", "add", "-B", branch, str(path), worktree_start_ref()],
-            REPO_ROOT,
-            60.0,
-        )
-        if code != 0:
-            raise RuntimeError(f"could not create overnight worktree: {output}")
-        log_event("worktree_created", branch=branch, base_ref=worktree_start_ref(), path=str(path))
-        return
+        existing = find_worktree_for_branch(branch)
+        if existing is not None:
+            log_event("worktree_reused_by_branch", requested_path=str(path), worktree=str(existing), branch=branch)
+            path = existing
+        else:
+            code, output = command(
+                ["git", "worktree", "add", "-B", branch, str(path), start_ref],
+                REPO_ROOT,
+                60.0,
+            )
+            if code != 0:
+                raise RuntimeError(f"could not create overnight worktree from {start_ref}: {output}")
+            return path
     code, output = command(["git", "status", "--porcelain"], path, 15.0)
     if code != 0:
         raise RuntimeError(f"could not inspect overnight worktree: {output}")
@@ -698,9 +881,9 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     if code != 0:
         raise RuntimeError(f"could not select overnight branch: {output}")
 
-    code, counts = command(["git", "rev-list", "--left-right", "--count", f"{branch}...origin/main"], path, 30.0)
+    code, counts = command(["git", "rev-list", "--left-right", "--count", f"{branch}...{start_ref}"], path, 30.0)
     if code != 0:
-        raise RuntimeError(f"could not compare overnight branch with origin/main: {counts}")
+        raise RuntimeError(f"could not compare overnight branch with {start_ref}: {counts}")
     parts = counts.split()
     if len(parts) != 2:
         raise RuntimeError(f"could not parse overnight branch ancestry: {counts}")
@@ -709,12 +892,13 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
     except ValueError as exc:
         raise RuntimeError(f"could not parse overnight branch ancestry: {counts}") from exc
     if behind > 0 and ahead == 0:
-        merge_code, merge_output = command(["git", "merge", "--ff-only", "origin/main"], path, 60.0)
+        merge_code, merge_output = command(["git", "merge", "--ff-only", start_ref], path, 60.0)
         if merge_code != 0:
-            raise RuntimeError(f"could not fast-forward overnight branch to origin/main: {merge_output}")
+            raise RuntimeError(f"could not fast-forward overnight branch to {start_ref}: {merge_output}")
         log_event("resume_branch_fast_forwarded", branch=branch, commits=behind)
     elif behind > 0 and ahead > 0:
         log_event("resume_branch_diverged", branch=branch, ahead=ahead, behind=behind)
+    return path
 
 
 def browser_observation() -> dict[str, Any] | None:
@@ -725,7 +909,7 @@ def browser_observation() -> dict[str, Any] | None:
         except OSError:
             return None
     request = urllib.request.Request(
-        f"{BRIDGE_URL}/browser/health",
+        f"{BRIDGE_URL}/browser/observation",
         headers={"Authorization": f"Bearer {token}"},
         method="GET",
     )
@@ -749,16 +933,14 @@ def _observation_time(observation: dict[str, Any]) -> datetime | None:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
-def expected_controller_version() -> str | None:
+def expected_controller_version(source_path: Path | None = None) -> str | None:
+    controller_path = source_path or CONTROLLER_SOURCE_PATH
     try:
-        source = CONTROLLER_SOURCE_PATH.read_text(encoding="utf-8")
+        text = controller_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    match = re.search(r"""\bconst\s+CONTROLLER_VERSION\s*=\s*['"]([^'"]+)['"]""", source)
-    if not match:
-        return None
-    version = match.group(1).strip()
-    return version or None
+    match = re.search(r"\bCONTROLLER_VERSION\s*=\s*['\"]([^'\"]+)['\"]", text)
+    return match.group(1).strip() if match and match.group(1).strip() else None
 
 
 def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
@@ -767,12 +949,7 @@ def controller_observation_is_compatible(observation: dict[str, Any]) -> bool:
         return False
     expected = expected_controller_version()
     actual = data.get("controller_version")
-    native_controller = data.get("native_controller")
-    return (
-        isinstance(expected, str)
-        and expected == actual
-        and native_controller is True
-    )
+    return isinstance(expected, str) and expected == actual
 
 
 def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECONDS) -> bool:
@@ -797,8 +974,8 @@ def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECOND
 def sanitize_failure_evidence(code: int, output: str) -> str:
     condition = provider_condition(code, output)
     bounded = re.sub(r"\s+", " ", str(output or "")).strip()
-    # Do not feed raw provider/browser output back into the next model prompt.
     return f"failure_class={condition or 'task_error'}; exit_code={code}; detail={bounded[:800]}"
+
 
 def provider_condition(code: int, output: str) -> str | None:
     upper = output.upper()
@@ -809,6 +986,40 @@ def provider_condition(code: int, output: str) -> str | None:
     if code == 92 or "CHAT_GUARD_TIMEOUT:" in upper or "BROWSER CONTROLLER IS NOT REPORTING" in upper:
         return "runtime_guard"
     return None
+
+def browser_auth_required() -> bool:
+    observation = browser_observation()
+    if not observation:
+        return False
+    data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
+    if not isinstance(data, dict):
+        return False
+    return data.get("auth_required") is True or data.get("login_required") is True
+
+
+
+def fallback_router_available(state: OvernightState) -> bool:
+    value = state.fallback_router_disabled_until.strip()
+    if not value:
+        return True
+    try:
+        deadline = datetime.fromisoformat(value)
+    except ValueError:
+        return True
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return now_utc() >= deadline
+
+
+def disable_fallback_router(state: OvernightState, reason: str) -> None:
+    state.fallback_router_disabled_until = (now_utc() + timedelta(seconds=FALLBACK_ROUTER_COOLDOWN_SECONDS)).isoformat()
+    save_state(state)
+    log_event(
+        "fallback_router_cooldown_started",
+        until=state.fallback_router_disabled_until,
+        cooldown_seconds=FALLBACK_ROUTER_COOLDOWN_SECONDS,
+        reason=reason[-1000:],
+    )
 
 
 def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool:
@@ -826,12 +1037,13 @@ def automation_gate_is_satisfied(evidence: Mapping[str, object]) -> bool:
 
 def automation_gate_evidence(state: OvernightState) -> dict[str, str]:
     ledger = load_task_ledger()
-    automation_entries = [
-        value for value in ledger.values()
-        if isinstance(value, dict) and value.get("phase") == "automation" and value.get("status") == "completed"
+    entries = [
+        value
+        for value in ledger.values()
+        if value.get("phase") == "automation" and value.get("status") == "completed"
     ]
-    automation_entries.sort(key=lambda value: str(value.get("updated_at", "")))
-    recent = automation_entries[-AUTOMATION_TASKS_PER_GATE:]
+    entries.sort(key=lambda value: str(value.get("updated_at", "")))
+    recent = entries[-AUTOMATION_TASKS_PER_GATE:]
     if len(recent) < AUTOMATION_TASKS_PER_GATE:
         return {
             "automation_gate": "continue_automation",
@@ -853,7 +1065,7 @@ def automation_gate_evidence(state: OvernightState) -> dict[str, str]:
     return {
         "automation_gate": "proceed_engineering",
         "automation_opportunity": "none",
-        "automation_evidence": "Recent automation tasks have verified evidence recorded in the durable task ledger.",
+        "automation_evidence": "Recent automation task evidence is complete and no task explicitly requested additional automation work.",
     }
 
 
@@ -871,42 +1083,31 @@ def choose_unique(candidates: Sequence[str], state: OvernightState) -> str:
 def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, str]:
     state.last_provider = "chatgpt_browser"
     prompt = build_prompt(task, state, failure)
+    log_event(
+        "prompt_compiled",
+        pattern_version=prompt_compiler.PROMPT_PATTERN_VERSION,
+        prompt_hash=prompt_compiler.prompt_hash(prompt),
+        prompt_chars=len(prompt),
+        task_key=task_key(task),
+        task_number=state.task_number,
+        attempt=state.current_attempt,
+    )
     code, output = command(
-        [sys.executable, "scripts/pasi_chat_guard.py", prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS)],
-        Path(state.worktree),
+        [sys.executable, str(control_script("pasi_chat_guard.py")), prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS), "--repo", state.worktree],
+        REPO_ROOT,
         TASK_TIMEOUT_SECONDS + 45.0,
     )
     condition = provider_condition(code, output)
     if condition is None:
         return code, output
-    if condition != "auth_required":
-        # Runtime-guard/browser failures must not be converted into provider
-        # fallback. The runner owns bounded standby/recovery for that class.
-        return code, sanitize_failure_evidence(code, output)
-    if os.environ.get("PASI_PRIMARY_CHATGPT_ONLY", "").strip().casefold() in {"1", "true", "yes"}:
-        return code, sanitize_failure_evidence(code, output)
+    if condition == "auth_required":
+        # Authentication/security challenges remain a human-control boundary.
+        # The run loop waits for interactive recovery before considering fallback.
+        return code, output
+    # Runtime-guard and provider-limit failures stay on the primary path. They
+    # are infrastructure recovery conditions, not authorization to switch providers.
+    return code, sanitize_failure_evidence(code, output)
 
-    fallback = command(
-        [sys.executable, "scripts/pasi_provider_router.py", "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
-        Path(state.worktree),
-        225.0,
-    )
-    if fallback[0] != 0 or not fallback[1].strip():
-        return code, sanitize_failure_evidence(code, output) + " | fallback=" + sanitize_failure_evidence(fallback[0], fallback[1])
-
-    raw_fallback = fallback[1].strip()
-    lines = raw_fallback.splitlines()
-    marker = lines[0].strip() if lines else ""
-    if not marker.startswith("PASI_FALLBACK_PROVIDER:"):
-        return code, "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
-    provider = marker.split(":", 1)[1].strip()
-    if not provider or len(provider) > 80:
-        return code, "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
-    response = "\n".join(lines[1:]).lstrip()
-    if not response.strip():
-        return code, "failure_class=fallback_empty_response; provider router returned no response body"
-    state.last_provider = f"fallback:{provider}"
-    return 0, response
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
@@ -944,6 +1145,7 @@ def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, s
     return status, summary, next_task, patch, allow_delete, values
 
 
+
 def completion_contract(status: str, values: dict[str, str]) -> bool:
     return (
         status == "complete"
@@ -956,74 +1158,60 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
     )
 
 
+
+def completed_task_keys() -> set[str]:
+    return {
+        key
+        for key, value in load_task_ledger().items()
+        if str(value.get("status", "")).casefold() == "completed"
+    }
+
+
+def no_change_completion_is_satisfied(
+    worktree: Path,
+    status: str,
+    next_task: str,
+    patch: str,
+    values: dict[str, str],
+    task_already_completed: bool,
+) -> bool:
+    return (
+        completion_contract(status, values) and repository_worktree_is_clean(worktree)
+        and bool(values.get("evidence", "").strip())
+        and task_already_completed
+    )
+
+
 def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
-    candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
-    roadmap = "\n".join(f"- {item}" for item in candidates)
-    recent = "\n".join(f"- {item}" for item in state.recent_tasks[-12:]) or "- none recorded"
-    return f"""TASK CONTINUATION:
-- Inspect the current repository state and recent commits before deciding whether the CURRENT TASK is still incomplete.
-- Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.
-- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it, do not make cosmetic duplicate changes, and do not ask the human what to do next; immediately work on the next incomplete roadmap item below.
-- IF the CURRENT TASK is not yet satisfied, THEN continue it.
-- If the same failure repeats, change approach instead of repeating the failed path; use PREVIOUS FAILURE EVIDENCE to guide the different approach.
-- A response-repair prompt repairs the response contract; it does not restart an implementation that is already verified.
-- After a verified completion, set PASI_RESULT_NEXT_TASK to the next incomplete, high-value item rather than repeating CURRENT TASK; immediately continue to the next incomplete roadmap task.
-- IF the CURRENT TASK is already satisfied and another implementation pass would make no repository changes, THEN report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch and immediately advance to PASI_RESULT_NEXT_TASK; never invent a cosmetic patch just to keep the task alive.
-- IF the CURRENT TASK still has a concrete repository change to make, THEN report PASI_RESULT_REPOSITORY_PROGRESS: changed and provide the required patch.
-- If the verified evidence shows another automation, computer-use, recovery, integration, or security capability is materially necessary to satisfy the objective, include exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit that line.
-- do not invent work or cosmetic changes; report stopped only when the task is satisfied and no concrete repository change remains.
-- Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it.
-ROADMAP PHASE: {state.phase}
-ROADMAP:
-{roadmap}
-RECENT TASKS:
-{recent}"""
+    """Return task-local continuation guidance.
+
+    The prompt compiler owns the durable prompt layout and full task context.
+    This helper remains for callers that need the continuation section directly.
+    """
+    return """TASK CONTINUATION:
+- Work continuously on CURRENT TASK until it is implemented, tested, diagnosed, and verified.
+- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it or make cosmetic duplicates; immediately work on the next incomplete roadmap item and return the required completion contract and a concrete next task.
+- Inspect the current repository state before editing; do not assume a prior attempt succeeded.
+- If the same failure repeats, change approach rather than repeating the failed path; use only the supplied PREVIOUS FAILURE EVIDENCE.
+- After verified completion, set PASI_RESULT_NEXT_TASK to one concrete high-value follow-up. The scheduler owns the full roadmap and will choose/validate the next task; do not reproduce the roadmap in this response.
+- If no concrete repository change remains, report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch. Do not invent work or cosmetic changes.
+- If a verified result shows another automation, computer-use, recovery, integration, or security capability is materially necessary, include exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit it.
+- Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it."""
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
-    previous = f"\nPREVIOUS FAILURE EVIDENCE:\n{failure[-12_000:]}\n" if failure else ""
-    return f"""You are the implementation engineer inside an unattended PASI overnight coding run.
-
-CURRENT TASK:
-{task}
-
-RUN CONTEXT:
-- Run: {state.run_id}
-- Task: {state.task_number}
-- Attempt: {state.current_attempt}/{MAX_ATTEMPTS}
-- Branch: {state.branch}
-- Worktree: isolated and controlled by PASI
-- Canonical public repository: https://github.com/th3-st0v3/personal-ai-system
-- Thinking is required for every ChatGPT task.
-- Public GitHub repository is the default context source.
-- Local Ollama/OpenCode are permitted fallback evidence/model sources when ChatGPT is unavailable. OpenRouter/Perplexity remote APIs receive repository context only when PASI_ALLOW_REMOTE_CODE=1 is explicitly set.
-
-{continuation_directive(state, task)}
-
-AUTOMATION OBJECTIVE:
-Keep progressing without getting trapped by a dead ChatGPT tab, transient provider limit, stale controller, repeated failed approach, or unavailable optional provider. Stand by and retry boundedly when recovery is possible; change strategy when the same failure repeats.
-
-COMPLETION CONTRACT:
-Do not mark complete until the stated requirement is implemented and reproducible evidence supports it. Never claim files changed or tests passed without evidence.
-
-OUTPUT — return each marker exactly once:
-PASI_RESULT_STATUS: complete|needs_revision|blocked
-PASI_RESULT_SUMMARY: one concise sentence
-PASI_RESULT_NEXT_TASK: one concrete high-value next task
-PASI_RESULT_REQUIREMENTS: complete
-PASI_RESULT_LIMITATIONS: handled|none|not_applicable
-PASI_RESULT_RESEARCH: performed|not_applicable
-PASI_RESULT_UX: verified|not_applicable
-PASI_RESULT_BACKEND: verified|not_applicable
-PASI_RESULT_EVIDENCE: concise tests/verification evidence
-PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped
-PASI_RESULT_ALLOW_DELETE: true|false
-PASI_AUTOMATION_CONTINUE: true   # optional; include only when another automation capability is materially necessary
-PASI_RESULT_PATCH_BEGIN
-<one unified git diff>
-PASI_RESULT_PATCH_END
-
-The patch must apply with git apply, modify only repository files, and contain no symlink or submodule additions. Do not use shell commands as the change mechanism.
-{previous}"""
+    return prompt_compiler.compile_task_prompt(
+        task,
+        run_id=state.run_id,
+        task_number=state.task_number,
+        attempt=state.current_attempt,
+        max_attempts=MAX_ATTEMPTS,
+        branch=state.branch,
+        worktree=state.worktree,
+        phase=state.phase,
+        recent_tasks=state.recent_tasks,
+        roadmap_tasks=AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS,
+        previous_failure=failure,
+    )
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
@@ -1070,19 +1258,233 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
     return choose_unique(candidates, state)
 
 
-def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_delete: bool, *, push: bool, promote: bool = True) -> tuple[str, str]:
-    output = apply_patch(worktree, patch, allow_delete)
-    validation_output = run_validation_sandbox(worktree)
-    code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
-    if code != 0 or not status:
-        raise RuntimeError("verification passed but no repository changes remain")
-    output = output + ("\n" if output else "") + validation_output
+
+def fast_local_gate(worktree: Path) -> str:
+    """Run a bounded changed-file gate for long-running unattended mode."""
+    code, output = command(["git", "diff", "--check"], worktree, 60.0)
+    if code != 0:
+        raise RuntimeError(f"fast local gate diff check failed:\n{output}")
+
+    code, output = command(["git", "diff", "--name-only"], worktree, 30.0)
+    if code != 0:
+        raise RuntimeError(f"fast local gate could not enumerate changed files:\n{output}")
+
+    changed = [line.strip() for line in output.splitlines() if line.strip()]
+    if not changed:
+        raise RuntimeError("fast local gate found no changed files after patch application")
+
+    existing = [path for path in changed if (worktree / path).is_file()]
+    python_files = [path for path in existing if path.endswith(".py")]
+    javascript_files = [path for path in existing if path.endswith(".js")]
+    shell_files = [path for path in existing if path.endswith(".sh")]
+    json_files = [path for path in existing if path.endswith(".json")]
+
+    checks: list[str] = []
+
+    if python_files:
+        code, output = command([sys.executable, "-m", "py_compile", *python_files], worktree, 120.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate Python syntax failed:\n{output}")
+        checks.append(f"py_compile:{len(python_files)}")
+        code, output = command(["npx", "--yes", "pyright@1.1.411", *python_files], worktree, 180.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate pyright failed:\n{output}")
+        checks.append(f"pyright:{len(python_files)}")
+
+    for path in javascript_files:
+        code, output = command(["node", "--check", path], worktree, 30.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate JavaScript syntax failed for {path}:\n{output}")
+    if javascript_files:
+        checks.append(f"node_check:{len(javascript_files)}")
+
+    for path in shell_files:
+        code, output = command(["bash", "-n", path], worktree, 30.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate shell syntax failed for {path}:\n{output}")
+    if shell_files:
+        checks.append(f"bash_check:{len(shell_files)}")
+
+    for path in json_files:
+        code, output = command(
+            [sys.executable, "-c", "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))", path],
+            worktree,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"fast local gate JSON validation failed for {path}:\n{output}")
+    if json_files:
+        checks.append(f"json_check:{len(json_files)}")
+
+    python_tests: set[str] = {
+        path for path in existing
+        if path.endswith(".py") and (
+            Path(path).name.startswith("test_")
+            or "/test_" in path
+        )
+    }
+    node_tests: set[str] = {
+        path for path in existing
+        if path.endswith(".test.js")
+    }
+
+    if any(path.startswith("automation/chromium/pasi-chatgpt/") for path in changed):
+        node_tests.update({
+            "automation/chromium/pasi-chatgpt/test_extension.js",
+            "automation/chromium/pasi-chatgpt/test_recovery.js",
+        })
+        python_tests.add("automation/chromium/pasi-chatgpt/test_controller_latency.py")
+
+    if any(path.startswith("automation/orchestrator/bridge.py") or path.startswith("automation/orchestrator/test_bridge") for path in changed):
+        python_tests.update({
+            "automation/orchestrator/test_bridge.py",
+            "automation/orchestrator/test_bridge_edge_cases.py",
+        })
+
+    if any(path.startswith("automation/orchestrator/state.py") or path.startswith("automation/orchestrator/test_state") for path in changed):
+        python_tests.update({
+            "automation/orchestrator/test_state.py",
+            "automation/orchestrator/test_state_corruption_regression.py",
+        })
+
+    if any(path.startswith("scripts/pasi_overnight_engine_v2.py") or path.startswith("scripts/test_pasi_overnight_engine_v2.py") for path in changed):
+        python_tests.add("scripts/test_pasi_overnight_engine_v2.py")
+
+    if any(path.startswith("scripts/pasi_chat.py") or path.startswith("scripts/test_pasi_chat") for path in changed):
+        python_tests.update({
+            "scripts/test_pasi_chat.py",
+            "scripts/test_pasi_chat_routing.py",
+            "scripts/test_pasi_chat_guard.py",
+        })
+
+    python_tests = {path for path in python_tests if (worktree / path).is_file()}
+    node_tests = {path for path in node_tests if (worktree / path).is_file()}
+
+    if python_tests:
+        code, output = command(
+            [sys.executable, "-m", "pytest", "-q", *sorted(python_tests)],
+            worktree,
+            300.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"fast local gate targeted pytest failed:\n{output}")
+        checks.append(f"pytest:{len(python_tests)}")
+
+    if node_tests:
+        code, output = command(["node", "--test", *sorted(node_tests)], worktree, 180.0)
+        if code != 0:
+            raise RuntimeError(f"fast local gate targeted Node tests failed:\n{output}")
+        checks.append(f"node_tests:{len(node_tests)}")
+
+    return "FAST LOCAL GATE PASSED: " + ", ".join(checks) + f"; changed={len(changed)} files"
+
+
+def verify_and_commit(
+    worktree: Path,
+    branch: str,
+    task: str,
+    patch: str,
+    allow_delete: bool,
+    *,
+    push: bool,
+    task_number: int | None = None,
+    attempt: int | None = None,
+    promote: bool = True,
+) -> tuple[str, str]:
+    validate_patch_paths(patch, allow_delete, worktree)
+    gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower() or "full"
+    verify_started_at = now_utc().isoformat()
+    log_event(
+        "verify_started",
+        task=task,
+        gate_mode=gate_mode,
+        started_at=verify_started_at,
+    )
+    with StageTimer(
+        log_event,
+        "gate",
+        tier=0,
+        task_id=task_key(task),
+        task_number=task_number,
+        attempt=attempt,
+        gate="git_apply_check",
+    ) as timer:
+        code, output = command(
+            ["git", "apply", "--check", "--whitespace=nowarn"],
+            worktree,
+            60.0,
+            input_text=patch,
+        )
+        if code != 0:
+            timer.result = "fail"
+            timer.classification = classify_failure("git_apply_check", code, output)
+            raise RuntimeError(f"git apply --check failed:\n{output}")
+    code, output = command(
+        ["git", "apply", "--whitespace=nowarn"],
+        worktree,
+        60.0,
+        input_text=patch,
+    )
+    if code != 0:
+        raise RuntimeError(f"git apply failed:\n{output}")
+    gate_name = "fast_local" if gate_mode == "fast" else "check_all"
+    with StageTimer(
+        log_event,
+        "gate",
+        tier=1,
+        task_id=task_key(task),
+        task_number=task_number,
+        attempt=attempt,
+        gate=gate_name,
+    ) as timer:
+        try:
+            if gate_mode == "fast":
+                output = fast_local_gate(worktree)
+                log_event("fast_local_gate_passed")
+            elif gate_mode in {"", "full"}:
+                code, output = command(["bash", "scripts/check_all.sh"], worktree, 900.0)
+                if code != 0:
+                    raise RuntimeError(f"canonical validation failed:\n{output}")
+            else:
+                raise RuntimeError(
+                    f"unsupported PASI_LOCAL_GATE_MODE={gate_mode!r}; expected fast or full"
+                )
+        except Exception as exc:
+            timer.result = "fail"
+            timer.classification = classify_failure("gate", 1, str(exc))
+            raise
+    if gate_mode == "fast":
+        gate_match = re.search(r"changed=(\d+) files$", output)
+        changed_file_count = int(gate_match.group(1)) if gate_match else 0
+        if changed_file_count <= 0:
+            raise RuntimeError("fast local gate passed without a reported changed-file count")
+    else:
+        code, status = command(["git", "status", "--porcelain"], worktree, 30.0)
+        if code != 0 or not status:
+            raise RuntimeError("verification passed but no repository changes remain")
+        changed_file_count = len([line for line in status.splitlines() if line.strip()])
+    log_event(
+        "verify_finished",
+        task=task,
+        gate_mode=gate_mode,
+        finished_at=now_utc().isoformat(),
+        changed_files=changed_file_count,
+    )
     commit = commit_and_push(worktree, branch, task, push)
+    code, status = command(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        worktree,
+        30.0,
+    )
+    if code != 0:
+        raise RuntimeError(f"post-commit hygiene check failed: {status}")
+    if status.strip():
+        raise RuntimeError(f"post-commit hygiene check found uncommitted files:\n{status}")
     if push and promote:
         promotion = command(
             [
                 sys.executable,
-                "scripts/pasi_promote.py",
+                str(control_script("pasi_promote.py")),
                 "--commit",
                 commit,
                 "--branch",
@@ -1091,7 +1493,7 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
                 task,
                 "--json",
             ],
-            worktree,
+            REPO_ROOT,
             90.0,
         )
         if promotion[0] == 0:
@@ -1101,32 +1503,58 @@ def verify_and_commit(worktree: Path, branch: str, task: str, patch: str, allow_
             output = output + "\n\n[PASI PROMOTION DEFERRED]\n" + promotion[1][-4000:]
     return commit, output
 
-def standby_until_ready(state: OvernightState) -> bool:
+
+def standby_until_ready(
+    state: OvernightState,
+    *,
+    wait_for_auth: bool = False,
+    max_wait_seconds: float | None = None,
+) -> bool:
     logged = False
-    while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
+    auth_logged = False
+    run_deadline = datetime.fromisoformat(state.deadline_at)
+    wait_deadline = run_deadline
+    if max_wait_seconds is not None:
+        if max_wait_seconds <= 0:
+            raise ValueError("max_wait_seconds must be positive")
+        wait_deadline = min(run_deadline, now_utc() + timedelta(seconds=max_wait_seconds))
+    while not STOP and now_utc() < wait_deadline:
         try:
             ensure_services()
         except Exception as exc:
-            log_event("service_recovery_failed", error=str(exc)[-4000:])
+            log_event("service_recovery_failed", error=str(exc)[-4_000:])
 
-        observation = browser_observation()
-        if observation:
-            data = observation.get("data") if isinstance(observation.get("data"), dict) else observation
-            if isinstance(data, dict) and bool(data.get("auth_required")):
+        if browser_auth_required():
+            if not wait_for_auth:
                 log_event("standby_auth_required")
                 return False
+            if not auth_logged:
+                log_event(
+                    "auth_recovery_wait_started",
+                    reason="interactive ChatGPT authentication/security challenge detected; preserving the active conversation while waiting for human-visible recovery",
+                    max_wait_seconds=max_wait_seconds,
+                )
+                auth_logged = True
+            remaining = (wait_deadline - now_utc()).total_seconds()
+            time.sleep(min(AUTH_RECOVERY_POLL_SECONDS, max(0.5, remaining)))
+            continue
 
         if runtime_watchdog_is_live():
-            if logged:
+            if logged or auth_logged:
                 log_event("standby_recovered")
             return True
 
         if not logged:
-            log_event("standby_started", reason="browser controller/extension heartbeat is stale; waiting for browser recovery while keeping local services healthy")
+            log_event(
+                "standby_started",
+                reason="browser controller/extension heartbeat is stale; waiting for browser recovery while keeping local services healthy",
+            )
             logged = True
 
-        remaining = (datetime.fromisoformat(state.deadline_at) - now_utc()).total_seconds()
+        remaining = (wait_deadline - now_utc()).total_seconds()
         time.sleep(min(STANDBY_SECONDS, max(1.0, remaining)))
+    if auth_logged and browser_auth_required() and not STOP and now_utc() < run_deadline:
+        log_event("auth_recovery_wait_expired", max_wait_seconds=max_wait_seconds)
     return False
 
 
@@ -1160,6 +1588,12 @@ def run(state: OvernightState, *, push: bool) -> None:
 
         if state.phase == "automation" and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE:
             gate_evidence = automation_gate_evidence(state)
+            log_event(
+                "automation_gate_evidence",
+                gate=gate_evidence["automation_gate"],
+                opportunity=gate_evidence["automation_opportunity"],
+                evidence=gate_evidence["automation_evidence"][-1000:],
+            )
             if automation_gate_is_satisfied(gate_evidence):
                 state.automation_gates += 1
                 state.automation_tasks_since_gate = 0
@@ -1170,58 +1604,187 @@ def run(state: OvernightState, *, push: bool) -> None:
                 save_state(state)
                 continue
 
-        state.task_number += 1
-        state.current_attempt = 0
-        save_state(state)
+        if state.task_retry_cycle == 0:
+            state.task_number += 1
         finished = False
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        attempt = 1
+        while attempt <= MAX_ATTEMPTS:
             if STOP or now_utc() >= datetime.fromisoformat(state.deadline_at):
                 return
             state.current_attempt = attempt
-            provider_source = "chatgpt_browser"
             save_state(state)
             log_event("task_attempt_started", phase=state.phase, task_number=state.task_number, attempt=attempt, task=state.current_task)
+            log_event(
+                "prompt_dispatch_started",
+                task_id=task_key(state.current_task),
+                task_number=state.task_number,
+                attempt=attempt,
+                mode=state.phase,
+                queue_file_bytes=queue_file_bytes(),
+            )
             code, response = invoke_chat(state.current_task, state, failure)
             provider_source = state.last_provider
+            emit_operation_metrics(state.current_task, attempt, response)
             condition = provider_condition(code, response)
             if condition == "auth_required":
-                failure = sanitize_failure_evidence(code, response) or "failure_class=auth_required"
-                continue
+                log_event("auth_recovery_required", reason="ChatGPT authentication challenge", task_number=state.task_number)
+                recovered = standby_until_ready(
+                    state,
+                    wait_for_auth=True,
+                    max_wait_seconds=AUTH_RECOVERY_WAIT_SECONDS,
+                )
+                if recovered:
+                    failure = ""
+                    log_event("auth_recovery_resumed", task_number=state.task_number)
+                    continue
+                if STOP or now_utc() >= datetime.fromisoformat(state.deadline_at):
+                    return
+                log_event(
+                    "fallback_provider_route",
+                    reason="ChatGPT authentication challenge persisted beyond bounded human-recovery wait",
+                    task_number=state.task_number,
+                )
+                fallback = command(
+                    [
+                        sys.executable,
+                        str(control_script("pasi_provider_router.py")),
+                        "--task",
+                        build_prompt(state.current_task, state, response),
+                        "--repo",
+                        state.worktree,
+                        "--timeout",
+                        "180",
+                    ],
+                    Path(state.worktree),
+                    225.0,
+                )
+                if fallback[0] == 0 and fallback[1].strip():
+                    raw_fallback = fallback[1].strip()
+                    lines = raw_fallback.splitlines()
+                    marker = lines[0].strip() if lines else ""
+                    if not marker.startswith("PASI_FALLBACK_PROVIDER:"):
+                        failure = "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
+                        attempt += 1
+                        continue
+                    provider = marker.split(":", 1)[1].strip()
+                    if not provider or len(provider) > 80:
+                        failure = "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
+                        attempt += 1
+                        continue
+                    response = "\n".join(lines[1:]).lstrip()
+                    if not response.strip():
+                        failure = "failure_class=fallback_empty_response; provider router returned no response body"
+                        attempt += 1
+                        continue
+                    state.last_provider = f"fallback:{provider}"
+                    state.fallback_router_disabled_until = ""
+                    save_state(state)
+                    code = 0
+                else:
+                    fallback_output = fallback[1]
+                    disable_fallback_router(
+                        state,
+                        fallback_output or "fallback router returned no usable response",
+                    )
+                    failure = sanitize_failure_evidence(code, response) + "\n\n[PASI FALLBACK ROUTER]\n" + fallback_output
+                    attempt += 1
+                    continue
             elif condition in {"provider_usage_limit", "runtime_guard"}:
                 if condition == "provider_usage_limit":
                     state.provider_limit_pauses += 1
                     if state.provider_limit_pauses > MAX_PROVIDER_LIMIT_PAUSES:
-                        failure = sanitize_failure_evidence(code, response) or "failure_class=provider_usage_limit"
-                        log_event("provider_pause_budget_exhausted", task_number=state.task_number, count=state.provider_limit_pauses)
-                        break
+                        failure = response[-12_000:] or "provider usage limit persisted across bounded pauses"
+                        log_event(
+                            "provider_pause_budget_exhausted",
+                            task_number=state.task_number,
+                            count=state.provider_limit_pauses,
+                            action="cooldown_and_retry_same_task",
+                            cooldown_seconds=PROVIDER_LIMIT_EXHAUSTED_COOLDOWN_SECONDS,
+                        )
+                        state.provider_limit_pauses = 0
+                        save_state(state)
+                        if not sleep_until_retry(
+                            state,
+                            PROVIDER_LIMIT_EXHAUSTED_COOLDOWN_SECONDS,
+                        ):
+                            return
+                        continue
+                log_event(
+                    "failure_classified",
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    stage="provider",
+                    classification="infra",
+                    condition=condition,
+                )
                 log_event("provider_pause", condition=condition, count=state.provider_limit_pauses)
                 if not sleep_until_retry(state, 30.0 if condition == "runtime_guard" else 300.0):
                     return
-                failure = sanitize_failure_evidence(code, response)
+                failure = response[-12_000:]
                 continue
 
             if code != 0:
-                failure = sanitize_failure_evidence(code, response)
+                classification = classify_failure("chat", code, response)
+                log_event(
+                    "failure_classified",
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    stage="chat",
+                    classification=classification,
+                )
+                if classification == "infra":
+                    failure = "INFRASTRUCTURE FAILURE (NOT EVALUATED): resend the same patch; do not modify it.\n" + (response[-12_000:] or "ChatGPT/controller infrastructure failed.")
+                elif classification == "not_evaluated":
+                    failure = "RESULT NOT EVALUATED: evidence is ambiguous or infrastructure-related; do not invent a code repair.\n" + (response[-12_000:] or "No reliable evaluation evidence was produced.")
+                else:
+                    failure = response[-12_000:] or "ChatGPT returned a code/protocol failure."
+                attempt += 1
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
+            log_event(
+                "task_response_evidence",
+                phase=state.phase,
+                task_id=task_key(state.current_task),
+                task_number=state.task_number,
+                attempt=attempt,
+                provider=provider_source,
+                status=status,
+                contract_ok=contract_ok,
+                response_chars=len(response),
+                summary_chars=len(summary),
+                evidence_chars=len(values.get("evidence", "")),
+                patch_chars=len(patch),
+                next_task_chars=len(next_task),
+            )
             if contract_ok and no_change_completion_is_satisfied(
-                Path(state.worktree), status, next_task, patch, values
+                Path(state.worktree),
+                status,
+                next_task,
+                patch,
+                values,
+                task_key(state.current_task) in completed_task_keys(),
             ):
                 state.completed_tasks += 1
+                evidence_text = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
                 record_task_ledger(
                     state.current_task,
                     "completed",
-                    evidence=(f"provider={provider_source}\n" + values.get("evidence", "")).strip(),
+                    evidence=(f"provider={provider_source}\n" + evidence_text).strip(),
                     phase=state.phase,
                     automation_continue=values.get("automation_continue", "").lower() == "true",
                 )
-                state.last_result = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
+                state.last_result = evidence_text
                 state.next_task = choose_next_task(state, next_task)
                 state.recent_tasks.append(state.current_task)
                 state.current_task = state.next_task
                 state.next_task = ""
                 state.current_attempt = 0
+                state.task_retry_cycle = 0
+                state.last_failure_signature = ""
+                state.same_failure_cycles = 0
                 save_state(state)
                 log_event(
                     "task_completed_no_change",
@@ -1234,7 +1797,8 @@ def run(state: OvernightState, *, push: bool) -> None:
                 finished = True
                 break
             if not contract_ok or not patch:
-                failure = f"failure_class=contract_error; summary={re.sub(r'\s+', ' ', summary).strip()[:800]}" if summary else "failure_class=contract_error; provider returned no usable completion contract"
+                failure = summary or response[-12_000:] or "provider returned no usable completion contract"
+                attempt += 1
                 continue
             try:
                 commit, verification = verify_and_commit(
@@ -1244,98 +1808,82 @@ def run(state: OvernightState, *, push: bool) -> None:
                     patch,
                     allow_delete,
                     push=push,
+                    task_number=state.task_number,
+                    attempt=attempt,
                     promote=provider_source == "chatgpt_browser",
                 )
             except Exception as exc:
-                failure = sanitize_failure_evidence(1, str(exc))
-                log_event("verification_failed", task_number=state.task_number, attempt=attempt, error=failure[-6000:])
+                failure = str(exc)
+                classification = classify_failure("verification", 1, failure)
+                log_event(
+                    "failure_classified",
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    stage="verification",
+                    classification=classification,
+                )
+                log_event("verification_failed", task_number=state.task_number, attempt=attempt, error=failure[-6000:], classification=classification)
                 command(["git", "reset", "--hard", "HEAD"], Path(state.worktree), 60.0)
                 command(["git", "clean", "-fd"], Path(state.worktree), 60.0)
+                attempt += 1
                 continue
             state.completed_tasks += 1
+            if state.phase == "automation":
+                state.automation_tasks_since_gate += 1
             record_task_ledger(
                 state.current_task,
                 "completed",
                 commit=commit,
-                evidence=(f"provider={provider_source}\n" + summary + "\n" + verification).strip(),
+                evidence=(f"provider={provider_source}\n" + (summary or verification[-3000:])).strip(),
                 phase=state.phase,
                 automation_continue=values.get("automation_continue", "").lower() == "true",
             )
-            if state.phase == "automation":
-                state.automation_tasks_since_gate += 1
             state.last_result = summary or verification[-3000:]
             state.next_task = next_task.strip()
             state.recent_tasks.append(state.current_task)
             state.current_task = choose_next_task(state, state.next_task)
             state.next_task = ""
             state.current_attempt = 0
+            state.task_retry_cycle = 0
+            state.last_failure_signature = ""
+            state.same_failure_cycles = 0
             save_state(state)
-            log_event(
-                "task_completed",
-                phase=state.phase,
-                task_number=state.task_number,
-                commit=commit,
-                provider=provider_source,
-                promotion="enabled" if provider_source == "chatgpt_browser" else "disabled",
-                summary=summary[-2000:],
-            )
+            log_event("task_completed", phase=state.phase, task_number=state.task_number, commit=commit, summary=summary[-2000:])
             failure = ""
             finished = True
             break
         if not finished:
             failed_task = state.current_task
             state.failed_tasks += 1
-            state.last_result = failure or "bounded retry budget exhausted"
-            state.recent_tasks.append(failed_task)
+            state.last_result = failure or "bounded retry cycle exhausted"
+            normalized_failure = re.sub(r"\s+", " ", state.last_result).strip()
+            failure_signature = hashlib.sha256(normalized_failure[:12000].encode("utf-8")).hexdigest()
+            if failure_signature == state.last_failure_signature:
+                state.same_failure_cycles += 1
+            else:
+                state.same_failure_cycles = 1
+            state.last_failure_signature = failure_signature
+            state.task_retry_cycle += 1
             state.recent_tasks = state.recent_tasks[-12:]
-            state.current_task = choose_next_task(state, "")
+            state.current_attempt = 0
             save_state(state)
-            log_event("task_failed", phase=state.phase, task_number=state.task_number, failed_task=failed_task, next_task=state.current_task, error=state.last_result[-6000:])
-            failure = state.last_result
-
-
-def reconcile_committed_task(state: OvernightState) -> bool:
-    """Recover a commit acknowledged by Git but not yet written to the task ledger."""
-    normalized = re.sub(r"\s+", " ", state.current_task).strip()
-    if not normalized:
-        return False
-    key = task_key(normalized)
-    entry = load_task_ledger().get(key)
-    if isinstance(entry, dict) and str(entry.get("status", "")).casefold() == "completed":
-        return False
-    worktree = Path(state.worktree)
-    if not repository_worktree_is_clean(worktree):
-        return False
-    code, subject = command(["git", "log", "-1", "--format=%s"], worktree, 15.0)
-    if code != 0 or f"task-{key[:12]}" not in subject:
-        return False
-    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
-    if code != 0 or not commit.strip():
-        return False
-    record_task_ledger(
-        normalized,
-        "completed",
-        commit=commit.strip(),
-        evidence="Recovered completed task from an already-created tagged Git commit after restart.",
-        phase=state.phase,
-    )
-    state.completed_tasks += 1
-    if state.phase == "automation":
-        state.automation_tasks_since_gate += 1
-    state.recent_tasks.append(normalized)
-    state.current_attempt = 0
-    state.next_task = ""
-    state.current_task = choose_next_task(state, "")
-    save_state(state)
-    log_event(
-        "task_recovered_from_commit",
-        phase=state.phase,
-        task_number=state.task_number,
-        commit=commit.strip(),
-        recovered_task=normalized,
-        next_task=state.current_task,
-    )
-    return True
+            log_event(
+                "task_retry_cycle_exhausted",
+                phase=state.phase,
+                task_number=state.task_number,
+                failed_task=failed_task,
+                retry_cycle=state.task_retry_cycle,
+                same_failure_cycles=state.same_failure_cycles,
+                error=state.last_result[-6000:],
+                action="retain_current_task",
+            )
+            failure = (
+                f"RETRY CYCLE {state.task_retry_cycle} EXHAUSTED FOR CURRENT TASK. "
+                "Do not advance to another task. Re-inspect the repository, use the failure evidence, "
+                "and change the implementation strategy before another bounded retry cycle.\n"
+                + state.last_result
+            )
 
 
 def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
@@ -1363,8 +1911,8 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--no-push", action="store_true")
     args = parser.parse_args()
-    if not math.isfinite(args.hours) or args.hours < MIN_HOURS:
-        parser.error(f"--hours must be a finite value >= {MIN_HOURS:g}")
+    if not MIN_HOURS <= args.hours <= MAX_HOURS:
+        parser.error(f"--hours must be between {MIN_HOURS:g} and {MAX_HOURS:g}")
 
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
@@ -1374,10 +1922,7 @@ def main() -> int:
     try:
         code, output = command(["git", "fetch", "origin", "main"], REPO_ROOT, 120.0)
         if code != 0:
-            # The unattended runner may start from an already-verified feature
-            # branch while offline. Remote refresh is useful but is not a startup
-            # prerequisite; local HEAD remains the authoritative worktree base.
-            log_event("git_fetch_deferred", remote="origin/main", error=sanitize_failure_evidence(code, output))
+            raise RuntimeError(f"git fetch origin main failed: {output}")
         saved = load_state() if args.resume else None
         if saved is not None and now_utc() < datetime.fromisoformat(saved.deadline_at):
             state = saved
@@ -1414,7 +1959,11 @@ def main() -> int:
                     reason="same roadmap selection recurred across consecutive runs",
                 )
 
-        ensure_worktree(Path(state.worktree), state.branch, resume=resume)
+        actual_worktree = ensure_worktree(Path(state.worktree), state.branch, resume=resume)
+        actual_worktree_text = str(actual_worktree)
+        if state.worktree != actual_worktree_text:
+            state.worktree = actual_worktree_text
+            save_state(state)
         children = ensure_services()
         run(state, push=not args.no_push)
         if not state.stop_reason:

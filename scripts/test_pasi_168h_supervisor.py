@@ -23,6 +23,14 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn("PASI_SUPERVISOR_MAX_RESTARTS", self.source)
         self.assertIn("restart budget exhausted", self.source)
 
+    def test_supervisor_adopts_matching_live_engine_after_restart(self) -> None:
+        self.assertIn("runner_cmd_matches()", self.source)
+        self.assertIn("adopting already-running engine PID", self.source)
+        self.assertIn("monitoring adopted engine PID", self.source)
+        self.assertIn('[[ "$command_line" == *"pasi_extended_runtime_entrypoint.py"* ]]', self.source)
+        self.assertIn('[[ "$command_line" == *"--worktree $worktree"* ]]', self.source)
+        self.assertIn('[[ "$command_line" == *"--branch $branch"* ]]', self.source)
+
     def test_supervisor_has_bounded_backoff_and_terminal_stop_controls(self) -> None:
         self.assertIn("PASI_SUPERVISOR_BACKOFF_SECONDS", self.source)
         self.assertIn("PASI_SUPERVISOR_MAX_BACKOFF_SECONDS", self.source)
@@ -31,12 +39,9 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn("state_deadline_reached", self.source)
         self.assertIn("state_is_terminal", self.source)
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_chromium_e2e_uses_process_group_cleanup(self) -> None:
         source = (ROOT / "scripts" / "e2e_chromium_response_recovery.py").read_text(encoding="utf-8")
         self.assertIn("start_new_session=True", source)
         self.assertIn("os.killpg(chrome_process.pid, signal.SIGTERM)", source)
         self.assertIn("signal.SIGKILL", source)
+

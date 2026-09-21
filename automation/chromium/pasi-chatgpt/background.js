@@ -8,6 +8,15 @@ let STALE_MS = 45 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
+let controllerClaimTail = Promise.resolve();
+let cachedBridgeToken = null;
+let bridgeTokenPromise = null;
+
+function serializeControllerClaim(task) {
+  const next = controllerClaimTail.then(task, task);
+  controllerClaimTail = next.catch(() => undefined);
+  return next;
+}
 
 const BRIDGE_ROUTES = new Set([
   'GET /health',
@@ -16,24 +25,35 @@ const BRIDGE_ROUTES = new Set([
   'GET /browser/health',
   'GET /browser/state',
   'GET /browser/response',
-  'POST /next-operation',
-  'POST /browser/observation',
+    'POST /browser/observation',
   'POST /queue',
   'POST /chat/claim',
   'POST /chat/heartbeat',
   'POST /chat/finished',
   'POST /chat/failed',
-  'POST /chat/cancel'
+  'POST /chat/cancel',
+  'GET /next-operation'
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
-async function bridgeToken() {
-  try {
-    const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
-    return response.ok ? (await response.text()).trim() : '';
-  } catch (_) {
-    return '';
-  }
+async function bridgeToken(forceRefresh = false) {
+  if (!forceRefresh && cachedBridgeToken) return cachedBridgeToken;
+  if (bridgeTokenPromise) return bridgeTokenPromise;
+
+  bridgeTokenPromise = (async () => {
+    try {
+      const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
+      if (!response.ok) return '';
+      const token = (await response.text()).trim();
+      if (token) cachedBridgeToken = token;
+      return token;
+    } catch (_) {
+      return '';
+    } finally {
+      bridgeTokenPromise = null;
+    }
+  })();
+  return bridgeTokenPromise;
 }
 
 function allowedBridgeRequest(method, path) {
@@ -52,19 +72,25 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const token = await bridgeToken();
-    const headers = {
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    const response = await fetch(`${BRIDGE}${path}`, {
+    const request = (token) => fetch(`${BRIDGE}${path}`, {
       method: normalizedMethod,
-      headers: Object.keys(headers).length ? headers : undefined,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
       credentials: 'omit',
       cache: 'no-store'
     });
+
+    let token = await bridgeToken();
+    let response = await request(token);
+    if (response.status === 401) {
+      cachedBridgeToken = null;
+      token = await bridgeToken(true);
+      if (token) response = await request(token);
+    }
     return { ok: response.ok, status: response.status, text: await response.text() };
   } catch (error) {
     const message = String(error?.message || error).slice(0, 300);
@@ -92,7 +118,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, leader: false });
       return undefined;
     }
-    chrome.storage.local.get(CONTROLLER_LEASE_KEY).then((stored) => {
+    serializeControllerClaim(async () => {
+      const stored = await chrome.storage.local.get(CONTROLLER_LEASE_KEY);
       const current = stored?.[CONTROLLER_LEASE_KEY];
       const now = Date.now();
       const owned = current && current.tabId === tabId && now - Number(current.renewedAt || 0) < CONTROLLER_LEASE_MS;
@@ -101,9 +128,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, leader: false });
         return;
       }
-      return chrome.storage.local.set({
+      await chrome.storage.local.set({
         [CONTROLLER_LEASE_KEY]: { tabId, renewedAt: now }
-      }).then(() => sendResponse({ ok: true, leader: true }));
+      });
+      sendResponse({ ok: true, leader: true });
     }).catch(() => sendResponse({ ok: false, leader: false }));
     return true;
   }
@@ -128,7 +156,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return undefined;
   }
 
-  bridgeFetch(path, method, body, 10000).then(sendResponse);
+  const requestedTimeout = Number(message.timeout);
+  const timeoutMs = Number.isFinite(requestedTimeout)
+    ? Math.min(Math.max(requestedTimeout, 250), 10000)
+    : 10000;
+  bridgeFetch(path, method, body, timeoutMs).then(sendResponse);
   return true;
 });
 function observationAge(observation) {
@@ -144,6 +176,20 @@ function healthData(payload) {
   if (!observation || typeof observation !== 'object') return null;
   const data = observation.data && typeof observation.data === 'object' ? observation.data : observation;
   return { observation, data };
+}
+
+function sameChatConversationUrl(candidate, target) {
+  try {
+    const left = new URL(String(candidate || ''));
+    const right = new URL(String(target || ''));
+    const allowedOrigins = new Set(['https://chatgpt.com', 'https://www.chatgpt.com']);
+    return allowedOrigins.has(left.origin)
+      && allowedOrigins.has(right.origin)
+      && left.pathname === right.pathname
+      && left.pathname.startsWith('/c/');
+  } catch (_) {
+    return false;
+  }
 }
 
 async function refreshBudget(tabId) {
@@ -176,21 +222,35 @@ async function reloadBoundedTab(tab) {
 
 async function inspect() {
   const status = await bridgeJson('/status');
-  const payload = await bridgeJson('/browser/health');
+  const payload = await bridgeJson('/browser/observation');
   if (!status || !payload) return;
   const health = healthData(payload);
   if (!health) return;
   if (health.data.auth_required === true) return;
-  if (status.queue_size <= 0 && !String(health.data.active_operation_id || '').trim()) return;
-  if (observationAge(health.observation) <= STALE_MS) return;
+  if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
+  const activeOperation = typeof health.data.active_operation_id === 'string' && Boolean(health.data.active_operation_id.trim());
+  const connectionFailure = health.data.connection_failure === true;
+  const observationStale = observationAge(health.observation) > STALE_MS;
+  if (!connectionFailure && !observationStale) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
-  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url.trim() : '';
-  if (!targetChatUrl) return;
-  const matchingTab = tabs.find((tab) => tab.url === targetChatUrl);
-  // If the exact conversation tab is gone, recreate only the verified target
-  // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
+  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
+  const matchingTab = targetChatUrl
+    ? tabs.find((tab) => sameChatConversationUrl(tab.url, targetChatUrl))
+    : null;
+  if (matchingTab && observationStale) {
+    // A service-worker alarm can outlive a throttled/frozen content-script timer.
+    // Wake the exact verified tab first; the content script immediately publishes
+    // a fresh health observation without adding a polling loop to the hot path.
+    try {
+      await chrome.tabs.sendMessage(matchingTab.id, { type: 'pasi-health-ping' });
+    } catch (_) {}
+  }
+
   if (!matchingTab) {
+    // Missing-tab recreation is intentionally restricted to an active operation.
+    // Idle stale state must never create a new ChatGPT tab on its own.
+    if (!activeOperation) return;
     if (await createCooldown(targetChatUrl)) return;
     await markCreateAttempt(targetChatUrl);
     try {
@@ -202,23 +262,43 @@ async function inspect() {
     return;
   }
   await chrome.storage.local.remove(`create:${targetChatUrl}`);
-  await reloadBoundedTab(matchingTab);
+  // Only actively reload when the observation itself is stale. A connection
+  // failure on an otherwise fresh idle page is just a wake-up signal.
+  if (observationStale) await reloadBoundedTab(matchingTab);
 }
 
 async function applyTimeoutPolicy() {
   try {
-    const policy = await globalThis.PASI_TIMEOUT_POLICY?.load?.();
-    if (policy?.staleMs) STALE_MS = policy.staleMs;
+    const response = await fetch(chrome.runtime.getURL('timeout-policy.json'), { cache: 'no-store' });
+    if (!response.ok) return;
+    const policy = await response.json();
+    const staleSeconds = Number(policy?.stale_seconds);
+    if (Number.isFinite(staleSeconds) && staleSeconds > 0) {
+      STALE_MS = staleSeconds * 1000;
+    }
+  } catch (_) {}
+}
+
+async function ensureWatchdogAlarm() {
+  await applyTimeoutPolicy();
+  try {
+    const alarm = await chrome.alarms.get(ALARM);
+    const period = Number(alarm?.periodInMinutes);
+    if (!alarm || !Number.isFinite(period) || Math.abs(period - 0.5) > 0.001) {
+      await chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+    }
   } catch (_) {}
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
+  void ensureWatchdogAlarm();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
+  void ensureWatchdogAlarm();
 });
+
+void ensureWatchdogAlarm();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) inspect();

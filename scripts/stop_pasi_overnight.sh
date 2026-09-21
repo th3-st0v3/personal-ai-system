@@ -3,10 +3,11 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-PID_FILE="$REPO_ROOT/.runtime/overnight/runner.pid"
-SUPERVISOR_PID_FILE="$REPO_ROOT/.runtime/overnight/supervisor.pid"
-START_PID_FILE="$REPO_ROOT/.runtime/overnight/start.pid"
-BRIDGE_PID_FILE="$REPO_ROOT/.runtime/overnight/bridge.pid"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
+PID_FILE="$RUNTIME_DIR/runner.pid"
+SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
+START_PID_FILE="$RUNTIME_DIR/start.pid"
+BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 
 launcher_pid=""
 if [[ -f "$START_PID_FILE" ]]; then

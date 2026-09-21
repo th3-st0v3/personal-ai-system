@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 PID_FILE="$RUNTIME_DIR/runner.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
 EVENT_LOG="$RUNTIME_DIR/events.jsonl"
@@ -41,7 +41,8 @@ fi
 printf '\n--- SERVICES ---\n'
 for endpoint in \
     'bridge|http://127.0.0.1:8765/health' \
-    'browser-health|http://127.0.0.1:8765/browser/health'; do
+    'controller-distribution|http://127.0.0.1:8766/health' \
+    'browser-observation|http://127.0.0.1:8765/browser/observation'; do
     name="${endpoint%%|*}"
     url="${endpoint#*|}"
     if curl -fsS --max-time 5 "$url" >/tmp/pasi-weekly-check.$$ 2>/dev/null; then
@@ -53,6 +54,17 @@ for endpoint in \
     fi
     rm -f /tmp/pasi-weekly-check.$$
 done
+
+printf '\n--- RUNTIME EFFICIENCY ---\n'
+if [[ -f "$EVENT_LOG" ]]; then
+    if [[ -x "$PYTHON" ]]; then
+        "$PYTHON" "$REPO_ROOT/scripts/pasi_runtime_telemetry.py" "$EVENT_LOG" || printf 'Runtime telemetry analysis failed; raw event log remains available.\n'
+    else
+        printf 'PASI virtualenv unavailable for runtime efficiency analysis\n'
+    fi
+else
+    printf 'Event log: missing\n'
+fi
 
 printf '\n--- EVENT FRESHNESS ---\n'
 if [[ -f "$EVENT_LOG" ]]; then
@@ -92,6 +104,6 @@ fi
 
 printf '\nManual monitoring:\n'
 printf '  bash scripts/status_pasi_overnight.sh\n'
-printf '  tail -f .runtime/overnight/runner.log\n'
+printf '  tail -f %s/runner.log\n' "$RUNTIME_DIR"
 printf '\nStop safely with:\n'
 printf '  bash scripts/stop_pasi_overnight.sh\n'

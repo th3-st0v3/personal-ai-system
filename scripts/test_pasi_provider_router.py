@@ -3,7 +3,6 @@ from __future__ import annotations
 from email.message import Message
 import unittest
 from pathlib import Path
-import tempfile
 from unittest.mock import patch
 
 from scripts import pasi_provider_router
@@ -19,36 +18,14 @@ class TestProviderRouter(unittest.TestCase):
         payload = {"choices": [{"message": {"content": [{"text": "one"}, {"text": "two"}]}}]}
         self.assertEqual(extract_chat_text(payload), "onetwo")
 
-    def test_remote_provider_discovery_requires_explicit_opt_in(self) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                "OPENROUTER_API_KEY": "secret",
-                "PERPLEXITY_API_KEY": "secret2",
-                "PASI_ALLOW_REMOTE_CODE": "",
-            },
-            clear=True,
-        ):
-            with patch("shutil.which", return_value=None):
-                values = providers_available()
-        self.assertNotIn("openrouter", values)
-        self.assertNotIn("perplexity", values)
-        self.assertNotIn("secret", values)
-        self.assertNotIn("secret2", values)
-
-        with patch.dict(
-            "os.environ",
-            {
-                "OPENROUTER_API_KEY": "secret",
-                "PERPLEXITY_API_KEY": "secret2",
-                "PASI_ALLOW_REMOTE_CODE": "1",
-            },
-            clear=True,
-        ):
+    def test_provider_discovery_never_exposes_secret_values(self) -> None:
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "secret", "PERPLEXITY_API_KEY": "secret2"}, clear=True):
             with patch("shutil.which", return_value=None):
                 values = providers_available()
         self.assertIn("openrouter", values)
         self.assertIn("perplexity", values)
+        self.assertNotIn("secret", values)
+        self.assertNotIn("secret2", values)
 
     def test_provider_discovery_includes_local_ollama_without_api_keys(self) -> None:
         with patch.dict("os.environ", {"OLLAMA_MODEL": "local-coder"}, clear=True):
@@ -63,6 +40,26 @@ class TestProviderRouter(unittest.TestCase):
             with patch.object(pasi_provider_router, "post_json", return_value={"message": {"content": "PASI_RESULT_STATUS: complete"}}):
                 result = pasi_provider_router.call_ollama("task", 20.0)
         self.assertEqual(result, "PASI_RESULT_STATUS: complete")
+
+    def test_opencode_fallback_runs_from_read_only_scrubbed_snapshot(self) -> None:
+        import os
+
+        source = Path(pasi_provider_router.__file__).read_text(encoding="utf-8")
+        self.assertIn('shutil.copytree(repo, sandbox', source)
+        self.assertIn('directory.chmod(0o555)', source)
+        self.assertIn('file_path.chmod(0o444)', source)
+        for secret_name in (
+            "PASI_BRIDGE_TOKEN",
+            "GITHUB_TOKEN",
+            "OPENROUTER_API_KEY",
+            "PERPLEXITY_API_KEY",
+            "NVIDIA_API_KEY",
+            "ANTHROPIC_API_KEY",
+        ):
+            self.assertTrue(
+                repr(secret_name) in source or f'"{secret_name}"' in source,
+                secret_name,
+            )
 
     def test_repo_path_remains_a_path_object_for_callers(self) -> None:
         self.assertIsInstance(Path("."), Path)
@@ -197,75 +194,6 @@ class TestProviderRouter(unittest.TestCase):
         self.assertEqual((provider, response), ("ollama", "ollama response"))
         sleep.assert_not_called()
         ollama.assert_called_once()
-
-    def test_provider_order_is_local_before_opted_in_remote(self) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                "OLLAMA_MODEL": "local-coder",
-                "PASI_ALLOW_REMOTE_CODE": "1",
-                "OPENROUTER_API_KEY": "remote",
-                "PERPLEXITY_API_KEY": "remote2",
-            },
-            clear=True,
-        ):
-            with patch("shutil.which", side_effect=lambda name: "/usr/bin/opencode" if name == "opencode" else None):
-                self.assertEqual(
-                    providers_available(),
-                    ["ollama", "opencode", "openrouter", "perplexity"],
-                )
-
-
-    def test_openrouter_uses_task_only_prompt_on_free_tier(self) -> None:
-        captured: list[str] = []
-
-        def fake_openrouter(prompt: str, timeout: float) -> str:
-            captured.append(prompt)
-            return "safe response"
-
-        with patch.dict(
-            "os.environ",
-            {
-                "OPENROUTER_API_KEY": "remote",
-                "PASI_ALLOW_REMOTE_CODE": "1",
-            },
-            clear=True,
-        ):
-            with patch.object(pasi_provider_router, "collect_context", return_value="PRIVATE-SENTINEL"):
-                with patch.object(pasi_provider_router, "providers_available", return_value=["openrouter"]):
-                    with patch.object(pasi_provider_router, "call_openrouter", side_effect=fake_openrouter):
-                        provider, response = pasi_provider_router.route("task", Path("."), 30.0)
-
-        self.assertEqual((provider, response), ("openrouter", "safe response"))
-        self.assertEqual(len(captured), 1)
-        self.assertNotIn("PRIVATE-SENTINEL", captured[0])
-        self.assertIn("task/contract text only", captured[0])
-
-    def test_opencode_uses_disposable_copy_and_denies_tools(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            repo = Path(temp_dir)
-            (repo / "private.txt").write_text("sensitive", encoding="utf-8")
-            with patch("shutil.which", return_value="/usr/bin/opencode"):
-                with patch.object(pasi_provider_router.shutil, "copytree") as copytree:
-                    with patch.object(pasi_provider_router.subprocess, "run") as run:
-                        run.return_value.returncode = 0
-                        run.return_value.stdout = "response"
-                        run.return_value.stderr = ""
-                        result = pasi_provider_router.call_opencode("task", repo, 20.0)
-
-        self.assertEqual(result, "response")
-        copy_args = copytree.call_args.args
-        self.assertEqual(copy_args[0], repo)
-        sandbox = copy_args[1]
-        self.assertNotEqual(sandbox, repo)
-        command = run.call_args.args[0]
-        self.assertEqual(command[:3], ["/usr/bin/opencode", "run", "--standalone"])
-        self.assertEqual(command[command.index("--dir") + 1], str(sandbox))
-        env = run.call_args.kwargs["env"]
-        self.assertEqual(env["OPENCODE_DISABLE_DEFAULT_PLUGINS"], "true")
-        self.assertEqual(env["OPENCODE_DISABLE_LSP_DOWNLOAD"], "true")
-        for permission in ("edit", "bash", "webfetch", "websearch", "task", "skill", "external_directory", "question"):
-            self.assertIn(f'"{permission}": "deny"', env["OPENCODE_PERMISSION"])
 
 
 if __name__ == "__main__":

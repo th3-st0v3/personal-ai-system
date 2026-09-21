@@ -6,7 +6,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 PYTHON="$REPO_ROOT/.venv/bin/python"
-RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 STOP_FILE="$RUNTIME_DIR/supervisor.stop"
@@ -117,6 +117,32 @@ log_supervisor() {
     printf '[PASI supervisor] %s\n' "$*" >&2
 }
 
+runner_cmd_matches() {
+    local pid="$1"
+    local command_line
+    command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    [[ "$command_line" == *"pasi_extended_runtime_entrypoint.py"* ]] &&
+        [[ "$command_line" == *"--hours 168"* ]] &&
+        [[ "$command_line" == *"--worktree $worktree"* ]] &&
+        [[ "$command_line" == *"--branch $branch"* ]]
+}
+
+adopted_runner_pid=""
+if [[ -f "$RUNNER_PID_FILE" ]]; then
+    candidate="$(cat "$RUNNER_PID_FILE" 2>/dev/null || true)"
+    if [[ "$candidate" =~ ^[0-9]+$ ]] && kill -0 "$candidate" 2>/dev/null; then
+        if runner_cmd_matches "$candidate"; then
+            adopted_runner_pid="$candidate"
+            log_supervisor "adopting already-running engine PID $candidate after supervisor restart"
+        else
+            log_supervisor "runner PID $candidate is live but does not match the requested worktree/branch; refusing to supervise it"
+            exit 3
+        fi
+    else
+        rm -f "$RUNNER_PID_FILE"
+    fi
+fi
+
 restart_count=0
 backoff="$BASE_BACKOFF_SECONDS"
 resume=0
@@ -126,24 +152,38 @@ while true; do
         exit 0
     fi
 
-    cmd=(
-        "$PYTHON"
-        "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py"
-        --hours "$hours"
-        --worktree "$worktree"
-        --branch "$branch"
-    )
-    if (( resume == 1 )); then
-        cmd+=(--resume)
-    fi
-    cmd+=( "${passthrough[@]}" )
-
     started_at="$(date +%s)"
-    log_supervisor "starting engine (resume=$resume, restart_count=$restart_count)"
-    set +e
-    "${cmd[@]}"
-    code=$?
-    set -e
+    if [[ -n "$adopted_runner_pid" ]]; then
+        log_supervisor "monitoring adopted engine PID $adopted_runner_pid"
+        set +e
+        while kill -0 "$adopted_runner_pid" 2>/dev/null; do
+            if [[ -f "$STOP_FILE" ]] || state_deadline_reached || state_is_terminal; then
+                exit 0
+            fi
+            sleep 5
+        done
+        code=0
+        set -e
+        adopted_runner_pid=""
+    else
+        cmd=(
+            "$PYTHON"
+            "$REPO_ROOT/scripts/pasi_extended_runtime_entrypoint.py"
+            --hours "$hours"
+            --worktree "$worktree"
+            --branch "$branch"
+        )
+        if (( resume == 1 )); then
+            cmd+=(--resume)
+        fi
+        cmd+=( "${passthrough[@]}" )
+
+        log_supervisor "starting engine (resume=$resume, restart_count=$restart_count)"
+        set +e
+        "${cmd[@]}"
+        code=$?
+        set -e
+    fi
     finished_at="$(date +%s)"
     runtime_seconds=$((finished_at - started_at))
 

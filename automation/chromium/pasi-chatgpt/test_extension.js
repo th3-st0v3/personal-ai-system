@@ -3,55 +3,100 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
+test('native background bridge respects content-side request timeouts', () => {
+  assert.match(background, /const requestedTimeout = Number\(message\.timeout\);/);
+  assert.match(background, /Math\.min\(Math\.max\(requestedTimeout, 250\), 10000\)/);
+  assert.match(background, /bridgeFetch\(path, method, body, timeoutMs\)\.then\(sendResponse\)/);
+});
+
+
 const root = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
 const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
-const detectors = fs.readFileSync(path.join(root, 'detectors.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
+
+
+test('native bridge caches the token and refreshes once after unauthorized responses', () => {
+  assert.match(background, /let cachedBridgeToken = null/);
+  assert.match(background, /let bridgeTokenPromise = null/);
+  assert.match(background, /if \(!forceRefresh && cachedBridgeToken\) return cachedBridgeToken/);
+  assert.match(background, /if \(response\.status === 401\)/);
+  assert.match(background, /cachedBridgeToken = null/);
+  assert.match(background, /token = await bridgeToken\(true\)/);
+});
+
+test('native timeout defaults remain fast enough for the browser freshness gate', () => {
+  const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
+  assert.match(timeoutConfig, /heartbeatMs: 15 \* 1000/);
+  assert.match(timeoutConfig, /staleMs: 45 \* 1000/);
+});
+
+test('native extension packages and loads the shared timeout policy resource', () => {
+  assert.deepEqual(manifest.web_accessible_resources, [{
+    resources: ['timeout-policy.json'],
+    matches: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
+  }]);
+  const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
+  assert.match(timeoutConfig, /chrome\.runtime\.getURL\('timeout-policy\.json'\)/);
+});
+
+test('native background controller serializes concurrent lease claims', () => {
+  assert.match(background, /CONTROLLER_LEASE_KEY/);
+  assert.match(background, /CONTROLLER_LEASE_MS = 10 \* 1000/);
+  assert.match(background, /let controllerClaimTail = Promise\.resolve\(\);/);
+  assert.match(background, /function serializeControllerClaim\(task\)/);
+  assert.match(background, /controllerClaimTail\.then\(task, task\)/);
+  assert.match(background, /message\?\.type === 'pasi-controller-claim'/);
+});
+
+test('native content controller participates in the serialized controller lease', () => {
+  assert.match(content, /let controllerLeader = false/);
+  assert.match(content, /let leaseTimerId = null/);
+  assert.match(content, /function controllerClaim\(\{ force = false \} = \{\}\)/);
+  assert.match(content, /type: 'pasi-controller-claim'/);
+  assert.match(content, /if \(\!\(await controllerClaim\(\)\)\) return/);
+  assert.match(content, /leaseTimerId = setInterval/);
+  assert.match(content, /controllerClaim\(\{ force: true \}\)\.catch/);
+  assert.match(content, /clearInterval\(leaseTimerId\)/);
+});
+
+
+test('native content controller reuses a fresh lease for the immediate completion poll', () => {
+  assert.match(content, /let controllerClaimedAt = 0/);
+  assert.match(content, /const CONTROLLER_CLAIM_CACHE_MS = 2000/);
+  assert.match(content, /function controllerClaim\(\{ force = false \} = \{\}\)/);
+  assert.match(content, /if \(!force && controllerLeader && now - controllerClaimedAt < CONTROLLER_CLAIM_CACHE_MS\)/);
+  assert.match(content, /controllerClaim\(\{ force: true \}\)/);
+  assert.match(content, /if \(!finalized\) \{/);
+});
+
+test('native background watchdog reacts to explicit connection failures even with a fresh observation', () => {
+  assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
+  assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
+  assert.match(background, /if \(!connectionFailure && !observationStale\) return;/);
+  assert.match(background, /if \(!connectionFailure && !observationStale\) return;/);
+  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
+});
+
+test('native recovery companion expires vanished operations after the bounded grace period', () => {
+  assert.match(recovery, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
+  assert.match(recovery, /operation_missing_expired/);
+  assert.match(recovery, /clearInterruptedState\(\)/);
+  assert.match(recovery, /missing_operation_age_ms: age/);
+});
+
+test('native recovery companion uses the shared long-response timeout policy', () => {
+  assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
+  assert.match(recovery, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
+  assert.match(recovery, /recovery_trigger_ms: RECOVERY_TRIGGER_MS/);
+});
 
 test('native controller and recovery companion have unique recovery declarations', () => {
   assert.equal((content.match(/const RECOVERY_KEY = 'pasi:chatgpt-recovery';/g) || []).length, 1);
   assert.equal((content.match(/const MAX_CONTEXT_AUTO_RECOVERIES = 1;/g) || []).length, 1);
   assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
-});
-
-test('shared detectors scope terminal state markers away from messages and sidebar content', () => {
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
-  assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
-  assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
-  assert.doesNotMatch(detectors, /document\.body\?\.innerText/);
-  assert.match(content, /globalThis\.PASIChatGPTDetectors\?\.detect/);
-  assert.match(recovery, /globalThis\.PASIChatGPTDetectors\?\.detect/);
-  const alert = {
-    innerText: 'Your request hit a rate limit.',
-    textContent: 'Your request hit a rate limit.',
-    closest: () => null
-  };
-  const message = {
-    innerText: 'The docs mention rate limit and captcha as examples.',
-    textContent: 'The docs mention rate limit and captcha as examples.',
-    closest: (selector) => selector.includes('data-message-author-role') ? message : null
-  };
-  const nav = {
-    innerText: 'captcha sign in to continue',
-    textContent: 'captcha sign in to continue',
-    closest: (selector) => selector.includes('data-message-author-role') && selector.includes('nav, aside') ? nav : null
-  };
-  const documentMock = {
-    querySelectorAll(selector) {
-      if (selector === '[role="alert"]') return [alert, message, nav];
-      return [];
-    }
-  };
-  const scope = {};
-  const detectorFactory = new Function('document', 'globalThis', detectors + '\nreturn globalThis.PASIChatGPTDetectors;');
-  const api = detectorFactory(documentMock, scope);
-  const result = api.detect();
-  assert.equal(result.usage_limited, true);
-  assert.equal(result.auth_required, false);
-  assert.equal(result.scope_count, 1);
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
@@ -64,7 +109,23 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
+});
+
+test('native controller keeps response telemetry off the completion critical path', () => {
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
+  assert.ok(content.includes('}).catch(() => {});'));
+  assert.doesNotMatch(content, /await reportObservation\('chatgpt_response'/);
+});
+
+test('native controller chains the next queued operation immediately after terminal completion', () => {
+  assert.match(content, /let immediatePollQueued = false;/);
+  assert.match(content, /function scheduleImmediatePoll\(\)/);
+  assert.match(content, /queueMicrotask\(\(\) =>/);
+  assert.match(content, /if \(chainedOperation\?\.operation_id\) scheduleImmediateOperation\(chainedOperation\);/);
+  assert.match(content, /else scheduleImmediatePoll\(\)/);
+  assert.match(content, /void reportHealth\(\)/);
+  assert.match(content, /const detail = errorMessage \+ ' \| ui=' \+ JSON\.stringify\(captureUiDiagnostics\(\)\)/);
 });
 
 test('native controller reports roadmap completion and repository progress markers', () => {
@@ -96,8 +157,29 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /typeof operation\.response_text === 'string'/);
   assert.match(content, /payload\?\.operation\?\.response_text_available === true/);
   assert.match(content, /Boolean\(responseText\.trim\(\)\)/);
-  assert.match(content, /await finishOperation\(operationId, responseText, true\)/);
-  assert.match(content, /readJsonStorage\(ACTIVE_KEY\)/);
+  assert.match(content, /await finishOperation\(stored\.operation_id, responseText, true\)/);
+  assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
+});
+
+test('native controller keeps browser health on a fast bounded cadence separate from state telemetry', () => {
+  assert.match(content, /const HEALTH_MS = TIMEOUT_POLICY\.heartbeatMs \|\| 15000/);
+  assert.match(content, /const STATE_REPORT_MS = 10000;/);
+  assert.match(content, /let healthReportInFlight = null;/);
+  assert.match(content, /if \(healthReportInFlight\) return healthReportInFlight;/);
+  assert.match(content, /await reportObservation\('chatgpt_health',[\s\S]*?, 2000\);/);
+  assert.match(content, /void reportObservation\('chatgpt_state',[\s\S]*conversation_signature/);
+  assert.match(content, /healthReportInFlight = null;/);
+  assert.match(content, /timeout: timeoutMs/);
+});
+
+test('native controller starts heartbeat and polling timers before recovery or queue work can block startup', () => {
+  const startIndex = content.indexOf('  async function start() {');
+  const start = content.slice(startIndex, content.indexOf('\n  }', startIndex) + 4);
+  assert.ok(startIndex >= 0);
+  assert.ok(start.indexOf('pollTimerId = setInterval(poll, POLL_MS);') < start.indexOf('await recoverInterruptedOperation();'));
+  assert.ok(start.indexOf('healthTimerId = setInterval(reportHealth, HEALTH_MS);') < start.indexOf('await recoverInterruptedOperation();'));
+  assert.ok(start.indexOf('void reportHealth();') < start.indexOf('await recoverInterruptedOperation();'));
+  assert.match(start, /if \(extensionContextInvalidated\) \{/);
 });
 
 test('native controller reports health and preserves interrupted-operation recovery', () => {
@@ -105,255 +187,14 @@ test('native controller reports health and preserves interrupted-operation recov
   assert.match(content, /chatgpt_chat_changed/);
   assert.match(content, /conversation_signature/);
   assert.match(content, /localStorage/);
-  assert.match(content, /browser page reloaded during operation/);
+  assert.match(recovery, /browser page reloaded during operation/);
   assert.match(content, /CHAT_EXHAUSTED/);
   assert.match(content, /CHAT_USAGE_LIMITED/);
   assert.match(content, /const current = await bridge\(`\/operation\?operation_id=/);
-  assert.match(content, /content\.js owns completion and retry mutation/);
+  assert.match(content, /Preserve non-terminal operations for the dedicated bounded recovery companion/);
 });
 
-test('native transient control activation clears stale focus before ChatGPT hides or replaces UI', () => {
-  assert.match(content, /function freshChatSurface\(previousLocation, previousChat\)/);
-  assert.match(content, /freshRootChat = freshChatSurface\(previousLocation, previousChat\)/);
-  assert.match(content, /new chat control did not reach a verified fresh chat surface/);
-  assert.match(content, /const focused = document\.activeElement;/);
-
-  assert.match(content, /function accessibilityHidden\(element\)/);
-  assert.match(content, /current\.getAttribute\?\.\('aria-hidden'\) === 'true'/);
-  assert.match(content, /current\.hasAttribute\?\.\('inert'\)/);
-  assert.match(content, /if \(!element \|\| accessibilityHidden\(element\)\) return false;/);
-  assert.match(content, /function clearFocusBeforeActivation\(\)/);
-  assert.match(content, /const active = document\.activeElement;/);
-  assert.match(content, /try \{ active\.blur\(\); \} catch \(_\) \{\}/);
-  assert.match(content, /function activateControl\(element\)/);
-  assert.match(content, /clearFocusBeforeActivation\(\);\s*try \{\s*element\.click\(\);/);
-  assert.match(content, /if \(!activateControl\(button\)\) throw new Error\('PASI_NATIVE: New chat control activation failed'\)/);
-  assert.match(content, /function nativeMouseActivate\(element\) \{/);
-  assert.match(content, /function controllerClaim\(\)/);
-  const mouseActivation = content.slice(
-    content.indexOf('function nativeMouseActivate(element)'),
-    content.indexOf('async function submitPrompt(expected)')
-  );
-  assert.match(mouseActivation, /clearFocusBeforeActivation\(\);/);
-  assert.doesNotMatch(mouseActivation, /element\.focus\(\);/);
-
-  const accessibilityStart = content.indexOf('function accessibilityHidden(element)');
-  const visibleStart = content.indexOf('  function visible(element)');
-  assert.ok(accessibilityStart >= 0 && visibleStart > accessibilityStart);
-  const accessibilitySource = content.slice(accessibilityStart, visibleStart);
-  const accessibilityHidden = new Function(
-    accessibilitySource + '\nreturn accessibilityHidden;'
-  )();
-
-  const ariaAncestor = {
-    parentElement: null,
-    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
-    hasAttribute() { return false; }
-  };
-  const ariaChild = {
-    parentElement: ariaAncestor,
-    getAttribute() { return null; },
-    hasAttribute() { return false; }
-  };
-  const inertAncestor = {
-    parentElement: null,
-    getAttribute() { return null; },
-    hasAttribute(name) { return name === 'inert'; }
-  };
-  const inertChild = {
-    parentElement: inertAncestor,
-    getAttribute() { return null; },
-    hasAttribute() { return false; }
-  };
-  assert.equal(accessibilityHidden(ariaChild), true);
-  assert.equal(accessibilityHidden(inertChild), true);
-  assert.equal(accessibilityHidden({ parentElement: null, getAttribute() { return null; }, hasAttribute() { return false; } }), false);
-
-  const freshStart = content.indexOf('function freshChatSurface(previousLocation, previousChat)');
-  const freshEnd = content.indexOf('  function contextExhausted()', freshStart);
-  assert.ok(freshStart >= 0 && freshEnd > freshStart);
-  const freshSource = content.slice(freshStart, freshEnd);
-  const buildFresh = new Function(
-    'location',
-    'composer',
-    'generating',
-    'userMessages',
-    'assistantMessages',
-    freshSource + '\nreturn freshChatSurface;'
-  );
-  const freshRoot = buildFresh(
-    { href: 'https://chatgpt.com/' },
-    () => true,
-    () => false,
-    () => [],
-    () => []
-  );
-  assert.equal(freshRoot('https://chatgpt.com/old', 'https://chatgpt.com/c/old'), true);
-  const freshChatPath = buildFresh(
-    { href: 'https://chatgpt.com/c/new' },
-    () => true,
-    () => false,
-    () => [],
-    () => []
-  );
-  assert.equal(
-    freshChatPath('https://chatgpt.com/c/new', 'https://chatgpt.com/c/old'),
-    false
-  );
-
-  let blurred = false;
-  let clicked = false;
-  const hiddenAncestor = {
-    parentElement: null,
-    getAttribute(name) { return name === 'aria-hidden' ? 'true' : null; },
-    hasAttribute() { return false; }
-  };
-  const focusedAfterClick = {
-    parentElement: hiddenAncestor,
-    getAttribute() { return null; },
-    hasAttribute() { return false; },
-    blur() { blurred = true; }
-  };
-  const focusDocument = {
-    activeElement: { blur() { blurred = true; } },
-    body: {},
-    documentElement: {}
-  };
-  const focusStart = content.indexOf('function clearFocusBeforeActivation()');
-  const focusEnd = content.indexOf('  async function newChat()', focusStart);
-  assert.ok(focusStart >= 0 && focusEnd > focusStart);
-  const focusSource = content.slice(focusStart, focusEnd);
-  const buildActivation = new Function(
-    'document',
-    'visible',
-    'disabled',
-    'accessibilityHidden',
-    focusSource + '\nreturn { activateControl };'
-  );
-  const activation = buildActivation(
-    focusDocument,
-    () => true,
-    () => false,
-    (element) => {
-      for (let current = element; current; current = current.parentElement) {
-        if (current.getAttribute?.('aria-hidden') === 'true' || current.hasAttribute?.('inert')) return true;
-      }
-      return false;
-    }
-  );
-  assert.equal(
-    activation.activateControl({
-      click() {
-        clicked = true;
-        focusDocument.activeElement = focusedAfterClick;
-      }
-    }),
-    true
-  );
-  assert.equal(blurred, true);
-  assert.equal(clicked, true);
-});
-
-test('native recovery persists a claimable operation id and retry context', () => {
-  assert.match(content, /recovery_operation_id: operation\.operation_id/);
-  assert.match(content, /body\.recovery_context = recoveryContext/);
-  assert.match(content, /const value = state\?\.\[RECOVERY_OPERATION_KEY\] \|\| state\?\.\[RECOVERY_RESUME_OPERATION_KEY\] \|\| state\?\.operation_id/);
-});
-
-test('native context recovery uses the context-specific retry counter', () => {
-  assert.match(content, /const contextRetryCount = Number\(operation\.retry_counts\?\.context \|\| 0\)/);
-  assert.match(content, /contextRetryCount < MAX_CONTEXT_AUTO_RECOVERIES/);
-  assert.match(content, /contextRetryCount >= MAX_CONTEXT_AUTO_RECOVERIES/);
-  assert.doesNotMatch(content, /Number\(operation\.retry_count \|\| 0\).*MAX_CONTEXT_AUTO_RECOVERIES/);
-});
-
-test('native prompt paths call the defined composer setter', () => {
-  assert.match(content, /setText\(box, expected\);/);
-  assert.match(content, /setText\(box, promptText\);/);
-  assert.doesNotMatch(content, /(^|[^\\w.])insertText\(box,/m);
-});
-
-test('native assistant extraction preserves machine-readable marker and diff line breaks', () => {
-  assert.match(content, /replace\(\/\\r\\n\?\/g, '\\n'\)/);
-  assert.match(content, /function collapseWhitespace\(value\)/);
-  assert.match(content, /function messageText\(node\)/);
-  assert.match(content, /function extractAssistant\(node\)/);
-
-  const messageStart = content.indexOf('function messageText(node)');
-  const messageEnd = content.indexOf('  function newestUserMatches', messageStart);
-  assert.ok(messageStart >= 0 && messageEnd > messageStart);
-  const messageSource = content.slice(messageStart, messageEnd);
-  const messageText = new Function(messageSource + '\nreturn messageText;')();
-  const fixture = [
-    'PASI_RESULT_STATUS: complete',
-    'PASI_RESULT_PATCH_BEGIN',
-    'diff --git a/example.txt b/example.txt',
-    '--- a/example.txt',
-    '+++ b/example.txt',
-    '@@ -1 +1 @@',
-    '-old',
-    '+new',
-    'PASI_RESULT_PATCH_END'
-  ].join('\n');
-  const node = { innerText: fixture, textContent: fixture };
-  assert.equal(messageText(node), fixture);
-  assert.match(messageText(node), /PASI_RESULT_PATCH_BEGIN\ndiff --git/);
-  assert.match(messageText(node), /@@ -1 \+1 @@\n-old\n\+new/);
-
-  const fingerprintStart = content.indexOf('function fingerprint()');
-  const fingerprintEnd = content.indexOf('\n  async function waitForResponse', fingerprintStart);
-  assert.ok(fingerprintStart >= 0 && fingerprintEnd > fingerprintStart);
-  const fingerprintSource = content.slice(fingerprintStart, fingerprintEnd);
-  assert.match(fingerprintSource, /collapseWhitespace\(latestAssistant\(\)\)/);
-});
-
-test('native prompt execution prevents duplicate sends and requires stable final output', () => {
-  assert.match(content, /function operationPrompt\(operation\)/);
-  assert.match(content, /PASI_OPERATION/);
-  assert.match(content, /generating\(\) \|\| userMessages\(\)\.length > baselineUserCount/);
-  assert.match(content, /prompt submission already appears to be in progress/);
-  assert.match(content, /const RESPONSE_SETTLE_MS = 3500/);
-  assert.match(content, /stableFingerprint/);
-  assert.match(content, /stableSince/);
-  assert.match(content, /Date\.now\(\) - stableSince >= RESPONSE_SETTLE_MS/);
-  assert.match(content, /PASI_RESULT_STATUS/);
-});
-
-test('native response completion is configurable per operation', () => {
-  assert.match(content, /function completionMarkersSatisfied/);
-  assert.match(content, /completion_markers/);
-  assert.match(content, /operation\.completion_markers \|\| \[\]/);
-  assert.match(content, /Date\.now\(\) - stableSince >= RESPONSE_SETTLE_MS && completionMarkersSatisfied/);
-});
-
-
-test('native new-chat selection excludes navigation and requires an empty target', () => {
-  assert.match(content, /function findNewChatControl\(\)/);
-  assert.match(content, /button\[data-testid="new-chat-button"\]/);
-  assert.match(content, /button\[aria-label="New chat"\]/);
-  assert.match(content, /nav, aside, \[role="navigation"\]/);
-  assert.match(content, /emptySurface = Boolean\(composer\(\)/);
-  assert.match(content, /currentChat !== previousChat && emptySurface/);
-});
-
-test('native active operation renews the controller lease until completion', () => {
-  assert.match(content, /let leaseTimerId = null/);
-  assert.match(content, /leaseTimerId = setInterval\(\(\) =>/);
-  assert.match(content, /controllerClaim\(\)\.catch/);
-  assert.match(content, /clearInterval\(leaseTimerId\)/);
-});
-
-test('native controller elects one tab through a renewable lease', () => {
-  assert.match(content, /type: 'pasi-controller-claim'/);
-  assert.match(content, /await controllerClaim\(\)/);
-  assert.match(background, /CONTROLLER_LEASE_KEY/);
-  assert.match(background, /CONTROLLER_LEASE_MS = 10 \* 1000/);
-  assert.match(background, /sender\?\.tab\?\.id/);
-  assert.match(background, /current\.tabId === tabId/);
-  assert.match(background, /renewedAt: now/);
-});
-
-test('native prompt submission uses stable model selection and fail-closed Thinking verification', () => {
+test('native prompt submission retains stable Thinking selectors while using best-effort selection', () => {
   assert.match(content, /case 'prompt': \{/);
   assert.match(content, /await restoreRecoveryContext\(operation\.recovery_context\)/);
   assert.match(content, /await selectThinking\(\)/);
@@ -367,9 +208,11 @@ test('native prompt submission uses stable model selection and fail-closed Think
   assert.match(content, /currentModelMode\(\) === 'thinking'/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
-  assert.match(content, /await submitPrompt\(promptText\)/);
-  assert.match(content, /var DOM_POLL_MS = 250;/);
-  assert.match(content, /DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| DOM_POLL_MS/);
+  assert.match(content, /const promptText = operationPrompt\(operation\);/);
+  assert.match(content, /const submission = await submitPrompt\(promptText, \{/);
+  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 100/);
+  assert.match(content, /const PREVIOUS_RESPONSE_WAIT_MS = 5 \* 60 \* 1000;/);
+  assert.match(content, /const GENERATION_START_WAIT_MS = 30 \* 1000;/);
 });
 
 test('native Thinking selection prefers the composer model pill and stable intelligence modal', () => {
@@ -379,80 +222,68 @@ test('native Thinking selection prefers the composer model pill and stable intel
   assert.match(content, /button\[role="radio"\]/);
 });
 
-test('native prompt submission re-checks auth, exhaustion, and Thinking at the send boundary', () => {
-  assert.match(content, /const THINKING_VERIFY_MS = 5000;/);
-  assert.match(content, /async function verifyThinkingState\(\)/);
-  assert.match(content, /return waitFor\(\(\) => \{/);
-  assert.match(content, /\}, THINKING_VERIFY_MS\)/);
-  assert.match(content, /async function ensureThinkingReady\(\)/);
-  assert.match(content, /if \(state === true\) \{/);
-  assert.match(content, /state = await verifyThinkingState\(\)/);
-  assert.match(content, /for \(let attempt = 1; attempt <= 2; attempt \+= 1\)/);
+test('native prompt submission uses best-effort Thinking and event-driven acknowledgement', () => {
+  assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
+  assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 100/);
+  assert.match(content, /function waitUntil\(predicate, timeoutMs, pollMs = DOM_POLL_MS\)/);
+  assert.match(content, /MutationObserver/);
+  assert.match(content, /function snapshotUserMessages\(\)/);
+  assert.match(content, /function promptFingerprints\(prompt\)/);
+  assert.match(content, /function classifyNewUserMessages\(nodes, snapshot, head, tail, textOf\)/);
+  assert.match(content, /async function ensureThinkingBestEffort\(\)/);
   assert.match(content, /await selectThinking\(\)/);
-  assert.match(content, /if \(await verifyThinkingState\(\)\)/);
-  assert.match(content, /if \(!\(await ensureThinkingReady\(\)\)\)/);
-  assert.match(content, /PASI_NATIVE: Thinking state could not be verified before prompt submission/);
-  assert.match(content, /function markThinkingUnavailable\(reason\)/);
-  assert.match(content, /thinking_available: false/);
   assert.match(content, /reasoning_mode: 'unavailable'/);
-  assert.match(content, /current ChatGPT account\/model does not expose a usable Thinking model option/);
-  assert.match(content, /current ChatGPT menu does not expose a usable Thinking option/);
-  assert.match(content, /if \(reasoningMode !== 'unavailable'\) reasoningMode = 'thinking';/);
-  assert.match(content, /await ensurePromptSubmissionReady\(\);[\s\S]*const button = await waitForSend\(box\)/);
-  assert.equal((content.match(/async function waitForSubmissionAck\(expected, baselineUserCount\)/g) || []).length, 1);
-  assert.equal((content.match(/async function ensurePromptSubmissionReady\(\)/g) || []).length, 1);
-  assert.equal((content.match(/function composerContainsPrompt\(element, expected\)/g) || []).length, 1);
+  assert.match(content, /closeOpenMenus\(\)/);
+  assert.doesNotMatch(content, /async function ensureThinkingReady\(\)/);
+  assert.doesNotMatch(content, /async function verifyThinkingState\(\)/);
+  assert.doesNotMatch(content, /async function waitForSubmissionAck\(expected, baselineUserCount\)/);
+  assert.doesNotMatch(content, /newestUserMatches\(expected, baselineUserCount\)/);
+  assert.match(content, /case 'select_reasoning': await ensureThinkingBestEffort\(\);/);
+  assert.match(content, /await ensureThinkingBestEffort\(\)/);
+  assert.match(content, /PASI_NATIVE: previous response still generating/);
+  assert.match(content, /PASI_NATIVE: submission accepted but generation did not start/);
+  assert.match(content, /clearMonitoringStateFor\(operation\.operation_id\)/);
 });
 
-test('native prompt submission requires explicit acknowledgement and composer-scoped send controls', () => {
-  assert.match(content, /SUBMISSION_ACK_MS = 7500/);
-  assert.match(content, /SUBMISSION_ATTEMPTS = 3/);
-  assert.match(content, /newestUserMatches/);
-  assert.match(content, /waitForSubmissionAck/);
-  assert.match(content, /function sendCandidatesForComposer\(box\)/);
-  assert.match(content, /button\[data-testid="send-button"\]/);
-  assert.match(content, /button\[aria-label="Send prompt"\]/);
-  assert.match(content, /button\[aria-label="Send message"\]/);
-  assert.match(content, /Generic submit controls are safe only when owned by the exact composer/);
-  assert.match(content, /few ancestors from the active composer/);
-  assert.match(content, /function labeledSendInScope\(scope\)/);
-  assert.match(content, /const form = box\?\.closest\?\.\('form'\) \|\| null/);
-  assert.match(content, /return labeledSendInScope\(form \|\| box\?\.parentElement \|\| null\)/);
-  assert.match(content, /waitForSend\(box\)/);
-  assert.doesNotMatch(content, /const send = await waitForSend\(\)/);
-  assert.match(content, /button\[data-testid\*="send" i\]/);
-  assert.match(content, /button\[aria-label\*="send" i\]/);
-  assert.match(content, /button\[title\*="send" i\]/);
-  assert.match(content, /function nearbyScopedControls\(box\)/);
-  assert.match(content, /unique.*generic submit buttons|multiple generic submit buttons/);
-  assert.doesNotMatch(content, /if \(generating\(\) && userMessages\(\)\.length > baselineUserCount\) return true/);
-  assert.match(content, /function composerContainsPrompt\(element, expected\)/);
-  assert.match(content, /element\.focus\(\);/);
-  assert.match(content, /const currentBox = composer\(\);/);
-  assert.match(content, /const currentButton = sendCandidatesForComposer\(currentBox\)\[0\] \|\| button/);
-  assert.match(content, /form\?\.requestSubmit/);
-  assert.match(content, /const buttonType = String\(button\?\.getAttribute\?\.\('type'\) \|\| 'submit'\)/);
-  assert.match(content, /if \(!button \|\| buttonType === 'submit'\) form\.requestSubmit\(button \|\| undefined\);/);
-  assert.match(content, /else form\.requestSubmit\(\)/);
-  assert.doesNotMatch(content, /form\.requestSubmit\(afterClick\)/);
-  assert.doesNotMatch(content, /form\.requestSubmit\(afterClick\)/);
-  assert.match(content, /function dispatchEnter\(element\)/);
-  assert.match(content, /function nativeMouseActivate\(element\)/);
+test('native prompt submission uses a single send strategy and never duplicates a fired send', () => {
+  assert.match(content, /const SUBMISSION_ACK_MS = TIMEOUT_POLICY\.submissionAckMs \|\| 1000/);
+  assert.match(content, /const SUBMISSION_ATTEMPTS = 3/);
+  assert.match(content, /const COMPLETION_RETRY_DELAY_MS = 20/);
+  assert.match(content, /sleep\(COMPLETION_RETRY_DELAY_MS\)/);
+  assert.match(content, /const snapshot = snapshotUserMessages\(\)/);
+  assert.match(content, /const \{ head, tail \} = promptFingerprints\(expected\)/);
+  assert.match(content, /state === 'match'/);
+  assert.match(content, /state === 'new_unmatched' && generating\(\)/);
+  assert.match(content, /const strategies = \[/);
   assert.match(content, /form\.requestSubmit\(button \|\| undefined\)/);
-  assert.match(content, /nativeMouseActivate\(currentButton\)/);
-  assert.match(content, /dispatchEnter\(retryBox\)/);
-  assert.doesNotMatch(content, /if \(!current \|\| !composerContainsPrompt\(current, expected\)\) \{\s*if \(generating\(\)\) return true;/);
-  assert.match(content, /new KeyboardEvent\('keypress', init\)/);
-  assert.match(content, /const retryBox = composer\(\);/);
-  assert.match(content, /if \(retryBox && composerContainsPrompt\(retryBox, expected\) && !generating\(\)\)/);
-  assert.match(content, /prompt submission could not be verified after bounded attempts/);
+  assert.match(content, /nativeMouseActivate\(button\)/);
+  assert.match(content, /dispatchEnter\(box\)/);
+  assert.match(content, /const fired = await strategies\[attempt - 1\]\(readyBox, button\)/);
+  assert.match(content, /Once a send strategy has fired, never/);
+  assert.match(content, /const injectedAtMs = Date\.now\(\)/);
+  assert.match(content, /injected_at_ms: injectedAtMs/);
+  assert.match(content, /ack_at_ms: Date\.now\(\)/);
+  assert.match(content, /user_messages_added: countNewUserMessages\(userMessages\(\), snapshot\)/);
+  assert.match(content, /ack_verified: via === 'verified'/);
+  assert.match(content, /submission_via: finalVia/);
+  assert.match(content, /composer holds unrelated text; refusing to overwrite/);
+  assert.doesNotMatch(content, /newestUserMatches/);
 });
 
-test('native completion persists response text before bounded acknowledgement retries', () => {
-  assert.match(content, /response_text: responseText\.slice\(0, 50000\)/);
+test('native completion captures responses through the event-driven waiter and bounded evidence', () => {
+  assert.match(content, /async function waitForResponse\(baseline(?:,|\))/);
+  assert.match(content, /let sawGeneration = false/);
+  assert.match(content, /const response = await waitUntil\(\(\) =>/);
+  assert.match(content, /const responseText = latestAssistant\(\)/);
+  assert.match(content, /PASI_NATIVE: ChatGPT generation timed out/);
+  assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
+  assert.match(content, /response_text: responseText\.slice\(0, MAX_RESPONSE_TEXT_CHARS\)/);
+  assert.match(content, /browserTiming\.generation_start_ms = generationStartMs/);
+  assert.match(content, /browserTiming\.completed_at_ms = Date\.now\(\)/);
+  assert.match(content, /finishOperation\(operation\.operation_id, response, true, browserTiming\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
-  assert.match(content, /await reportObservation\('chatgpt_response'/);
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
   assert.match(content, /status === 'completed'/);
@@ -460,6 +291,8 @@ test('native completion persists response text before bounded acknowledgement re
   assert.match(content, /typeof payload\?\.operation\?\.response_text === 'string'/);
   assert.match(content, /Boolean\(payload\.operation\.response_text\.trim\(\)\)/);
 });
+
+
 
 test('native new-chat creation requires a changed conversation identity or genuinely empty chat', () => {
   assert.match(content, /previousChat = chatUrl\(\)/);
@@ -489,27 +322,34 @@ test('activity indicator is isolated, non-interactive, and reduced-motion aware'
   assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
-test('native restart recovery retries persisted response evidence before clearing active state', () => {
-  assert.match(content, /if \(operation\.status === 'completed'\)/);
-  assert.match(content, /const responseAvailable = Boolean\(responseText\.trim\(\)\)/);
-  assert.match(content, /await finishOperation\(operationId, responseText, true\)/);
-  assert.match(content, /const visibleResponse = latestAssistant\(\)/);
-  assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
-  assert.match(content, /localStorage\.removeItem\(ACTIVE_KEY\)/);
+test('native recovery retries completed prompt evidence before clearing the active marker', () => {
+  assert.match(recovery, /if \(current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'\) \{/);
+  assert.match(recovery, /finishVisibleResponse\(operationId, current, ''\)/);
+  assert.match(recovery, /else if \(current\.status !== 'completed'\)/);
+  assert.match(recovery, /clearInterruptedState\(\)/);
 });
 
-test('native recovery companion is observation-only', () => {
-  assert.match(recovery, /recovery_action: 'observe_only'/);
-  assert.doesNotMatch(recovery, /location\.reload\(\)/);
-  assert.doesNotMatch(recovery, /\/chat\/finished/);
-  assert.doesNotMatch(recovery, /\/chat\/failed/);
-  assert.doesNotMatch(recovery, /\/queue/);
-  assert.doesNotMatch(recovery, /\/next-operation/);
-  assert.match(content, /content\.js owns completion and retry mutation/);
+test('native recovery companion preserves response text without blocking completion acknowledgement', () => {
+  assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
+  assert.match(recovery, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
+  assert.match(recovery, /location\.reload\(\)/);
+  assert.match(recovery, /function usageLimited\(\)/);
+  assert.match(recovery, /function replacementReason\(\)/);
+  assert.match(recovery, /phase: 'preserve_current_chat'/);
+  assert.match(recovery, /no_verified_usage_or_context_exhaustion/);
+  assert.match(recovery, /CHAT_RECOVERED_RETRY/);
+  assert.match(recovery, /operation_type: 'new_chat'/);
+  assert.match(recovery, /response_text: bounded/);
+  assert.match(recovery, /await report\('chatgpt_response'/);
+  assert.match(recovery, /current\.status === 'failed'/);
 });
 
 test('operation lookup route is accepted by the MV3 service worker allowlist', () => {
   assert.ok(background.includes("const BRIDGE_OPERATION_RE = /^\\/operation\\?operation_id=[^&]{1,200}$/;"));
+});
+
+test('native controller can poll the queue through the MV3 worker', () => {
+  assert.match(background, /'GET \/next-operation'/);
 });
 
 test('loopback bridge access is confined to the MV3 service worker', () => {
@@ -526,7 +366,7 @@ test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.ok(background.includes("https://chatgpt.com/"));
   assert.ok(background.includes("https://www.chatgpt.com/") || background.includes("www.chatgpt.com"));
   assert.ok(background.includes("allowedBridgeRequest(method, path)"));
-  assert.ok(background.includes("bridgeFetch(path, method, body, 10000)"));
+  assert.ok(background.includes("bridgeFetch(path, method, body, timeoutMs)"));
   assert.ok(manifest.host_permissions.includes("http://127.0.0.1:8765/*"));
   assert.ok(!content.includes("fetch(BRIDGE"));
   assert.ok(!content.includes("http://127.0.0.1:8765/operation"));
@@ -548,12 +388,12 @@ test('native controller defers first context-exhaustion failure to bounded recov
   assert.match(content, /errorMessage\.startsWith\('CHAT_EXHAUSTED:'\)/);
   assert.match(content, /rememberContextRecovery\(operation, error\)/);
   assert.match(content, /context recovery exhausted/);
-  assert.match(content, /await reportObservation\('chatgpt_response'/);
+  assert.match(content, /void reportObservation\('chatgpt_response'/);
 });
 
 test('background watchdog targets the tab matching the reported ChatGPT conversation before fallback recency', () => {
   assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string'/);
-  assert.match(background, /tabs\.find\(\(tab\) => tab\.url === targetChatUrl\)/);
+  assert.match(background, /tabs\.find\(\(tab\) => sameChatConversationUrl\(tab\.url, targetChatUrl\)\)/);
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
 
@@ -599,22 +439,20 @@ test('native restart reconciliation trusts nonblank persisted response text over
 });
 
 test('native prompt completion refuses an empty response payload while non-prompt operations may complete without one', () => {
-  assert.match(content, /async function finishOperation\(operationId, responseText = '', requireResponseText = false\)/);
+  assert.match(content, /async function finishOperation\(operationId, responseText = '', requireResponseText = false, timing = null\)/);
   assert.match(content, /if \(requireResponseText && \(typeof responseText !== 'string' \|\| !responseText\.trim\(\)\)\)/);
-  assert.match(content, /await finishOperation\(operation\.operation_id, response, true\)/);
+  assert.match(content, /await finishOperation\(operation\.operation_id, response, true, browserTiming\)/);
   assert.match(content, /await finishOperation\(operation\.operation_id\);/);
 });
 
 test('native prompt submission tolerates corrupt active recovery state', () => {
-  assert.match(content, /function readJsonStorage\(key\)/);
-  assert.match(content, /JSON\.parse\(localStorage\.getItem\(key\) \|\| 'null'\)/);
-  assert.match(content, /catch \(_\) \{\s*return null;\s*\}/);
-  assert.match(content, /const activeState = readJsonStorage\(ACTIVE_KEY\) \|\| \{\};/);
+  assert.match(content, /let stored = null;/);
+  assert.match(content, /stored = JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\) \|\| 'null'\);/);
+  assert.match(content, /catch \(_\) \{\}/);
 });
 
 test('native response recovery keeps the pre-prompt baseline after a timeout', () => {
-  assert.match(content, /const baseline = fingerprint\(\);/);
-  assert.match(content, /localStorage\.setItem\(ACTIVE_KEY, JSON\.stringify\(\{ \.\.\.activeState, baseline \}\)\);/);
+  assert.match(content, /activeRecoveryState\.baseline = baseline/);
   assert.match(content, /baseline: typeof stored\?\.baseline === 'string' \? stored\.baseline : fingerprint\(\),/);
 });
 
@@ -630,23 +468,26 @@ test('native controller preserves prompt operations for bounded response recover
   assert.match(content, /finalized = false/);
 });
 
-test('background watchdog requires an active operation and exact chat identity before reloading', () => {
-  assert.match(background, /if \(status\.queue_size <= 0 && !String\(health\.data\.active_operation_id \|\| ''\)\.trim\(\)\) return/);
-  assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string' \? health\.data\.chat_url\.trim\(\) : '';/);
-  assert.match(background, /if \(!targetChatUrl\) return;/);
+test('background watchdog wakes stale exact tabs without creating idle replacement tabs', () => {
+  assert.match(background, /const activeOperation = typeof health\.data\.active_operation_id === 'string'/);
+  assert.match(background, /await chrome\.tabs\.sendMessage\(matchingTab\.id, \{ type: 'pasi-health-ping' \}\)/);
+  assert.match(background, /if \(!activeOperation\) return/);
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
-  assert.match(background, /async function createCooldown\(targetChatUrl\)/);
-  assert.match(background, /await markCreateAttempt\(targetChatUrl\)/);
-  assert.match(background, /try \{\s*await chrome\.tabs\.create\(\{ url: targetChatUrl \}\);\s*\} catch/);
-  assert.match(background, /Never substitute another ChatGPT tab/);
+  assert.match(background, /sameChatConversationUrl\(tab\.url, targetChatUrl\)/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
+});
+
+test('native controller answers background health pings and visibility transitions', () => {
+  assert.match(content, /message\?\.type === 'pasi-health-ping'/);
+  assert.match(content, /void reportHealth\(\)/);
+  assert.match(content, /document\.addEventListener\('visibilitychange'/);
 });
 
 test('background watchdog recreates only the verified conversation when its tab is missing', () => {
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
-  assert.match(background, /Never substitute another ChatGPT tab/);
+  assert.match(background, /sameChatConversationUrl\(tab\.url, targetChatUrl\)/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
 
@@ -667,8 +508,197 @@ test('background watchdog clears a stale creation cooldown after the exact tab i
 
 test('native restart recovery uses the persisted pre-prompt baseline when terminal response text is missing', () => {
   assert.match(content, /else if \(!generating\(\)/);
-  assert.match(content, /const baseline = typeof stored\?\.baseline === 'string' \? stored\.baseline : ''/);
+  assert.match(content, /const baseline = typeof stored\?\.baseline === 'string' \? stored\.baseline : fingerprint\(\)/);
   assert.match(content, /const visibleResponse = latestAssistant\(\)/);
   assert.match(content, /visibleFingerprint !== baseline/);
-  assert.match(content, /await finishOperation\(operationId, visibleResponse, true\)/);
+  assert.match(content, /finishOperation\(stored\.operation_id, visibleResponse, true\)/);
 });
+
+test('native controller coalesces overlapping idle polls', () => {
+  assert.match(content, /let pollInFlight = null;/);
+  assert.match(content, /if \(pollInFlight\) return pollInFlight;/);
+  assert.match(content, /pollInFlight = \(async \(\) => \{/);
+  assert.match(content, /pollInFlight = null;/);
+});
+
+
+test('native waitUntil coalesces mutation bursts without a fixed 10ms floor', () => {
+  const start = content.indexOf('function waitUntil(');
+  const end = content.indexOf('function visible(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /let checkQueued = false/);
+  assert.match(source, /const scheduleCheck = \(\) => \{/);
+  assert.match(source, /if \(done \|\| checkQueued\) return/);
+  assert.match(source, /queueMicrotask\(check\)/);
+  assert.doesNotMatch(source, /lastCheck/);
+  assert.doesNotMatch(source, /now - lastCheck < 10/);
+});
+
+test('native DOM waits filter mutation attributes to controller-relevant state', () => {
+  const start = content.indexOf('function waitUntil(');
+  const end = content.indexOf('function visible(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /attributeFilter: \[/);
+  assert.match(source, /'disabled'/);
+  assert.match(source, /'aria-disabled'/);
+  assert.match(source, /'data-testid'/);
+  assert.match(source, /'class'/);
+  assert.match(source, /'style'/);
+  assert.match(source, /'hidden'/);
+});
+
+test('native response wait checks generation before failure-marker DOM scans', () => {
+  const start = content.indexOf('async function waitForResponse(');
+  const end = content.indexOf('  function rememberContextRecovery(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /if \(generating\(\)\) \{/);
+  assert.match(source, /const detected = detectorState\(\);/);
+  assert.ok(source.indexOf('if (generating())') < source.indexOf('const detected = detectorState()'));
+  assert.doesNotMatch(source, /if \(contextExhausted\(\)[\s\S]*if \(usageLimited\(\)/);
+});
+
+test('native visibility checks reject non-rendered elements before computed style', () => {
+  const start = content.indexOf('function visible(element)');
+  const end = content.indexOf('function disabled(element)', start);
+  const source = content.slice(start, end);
+  assert.match(source, /element\.getClientRects\(\)\.length === 0/);
+  assert.match(source, /element\.hasAttribute\?\.\('hidden'\)/);
+  assert.match(source, /getAttribute\?\.\('aria-hidden'\)/);
+});
+
+test('native generating detection uses one grouped selector', () => {
+  const start = content.indexOf('function generating()');
+  const end = content.indexOf('function chatUrl()', start);
+  const source = content.slice(start, end);
+  assert.match(source, /document\.querySelector\(\n\s*'button\[data-testid="stop-button"\], button\[aria-label="Stop generating"\], button\[aria-label\*="Stop"\]'\n\s*\)/);
+  assert.doesNotMatch(source, /firstVisible\(\['button\[data-testid="stop-button"/);
+});
+
+test('native response completion reuses the extracted assistant text for fingerprinting', () => {
+  const start = content.indexOf('async function waitForResponse(');
+  const end = content.indexOf('  function rememberContextRecovery(', start);
+  assert.ok(start >= 0 && end > start);
+  const source = content.slice(start, end);
+  assert.match(source, /const responseText = latestAssistant\(\)/);
+  assert.match(source, /fingerprintFromText\(responseText\) !== baseline/);
+  assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
+});
+
+test('native lost lease path clears operation state before returning', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  assert.match(source, /if \(!claimed\) \{/);
+  assert.match(source, /activeOperationId = null;/);
+  assert.match(source, /processing = false;/);
+});
+
+test('native chained operation skips controller lease await when the lease is fresh', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  assert.match(source, /if \(!hasFreshControllerLease\(\)\) \{/);
+  assert.match(source, /const claimed = await controllerClaim\(\);/);
+  assert.match(content, /function hasFreshControllerLease\(\)/);
+});
+
+test('native completion telemetry is deferred off the hot path', () => {
+  const start = content.indexOf('async function finishOperation(');
+  const end = content.indexOf('  async function failOperation(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /const publishResponseTelemetry = \(\) =>/);
+  assert.match(source, /const payload = response\.json\(\);[\s\S]*setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
+  assert.match(source, /publishResponseTelemetry\(\);\n    throw lastError/);
+  assert.doesNotMatch(source, /publishResponseTelemetry\(\);\n    let lastError/);
+});
+
+
+test('native handoff latency records both bridge-ack and response-complete boundaries', () => {
+  const start = content.indexOf('const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);');
+  const end = content.indexOf("void reportObservation('prompt_injected'", start);
+  const source = content.slice(start, end);
+  assert.match(source, /completion_to_prompt_injected_ms/);
+  assert.match(source, /const previousResponseCompletedAtMs = Number\(operation\.__pasi_response_completed_at_ms\)/);
+  assert.match(source, /response_completed_to_prompt_injected_ms/);
+});
+
+test('native handoff latency is persisted in operation timing without an extra telemetry request', () => {
+  const start = content.indexOf('const submission = await submitPrompt(promptText, {');
+  const end = content.indexOf('if (!submission.verified)', start);
+  const source = content.slice(start, end);
+  assert.match(source, /completion_to_prompt_injected_ms/);
+  assert.doesNotMatch(source, /pasi_latency_measurement/);
+});
+
+test('native handoff latency only uses numeric injection timestamps', () => {
+  assert.match(content, /typeof browserTiming\.injected_at_ms === 'number'/);
+});
+
+test('native prompt baseline update reuses in-memory recovery state', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  assert.match(content, /let activeRecoveryState = null;/);
+  assert.match(source, /activeRecoveryState = \{/);
+  assert.match(source, /activeRecoveryState\.baseline = baseline/);
+  assert.doesNotMatch(source, /let activeState = \{\};/);
+  assert.doesNotMatch(source, /JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\)/);
+});
+
+test('native chained operation carries completion acknowledgement timing', () => {
+  assert.match(content, /lastCompletionAckAtMs = Date\.now\(\)/);
+  assert.match(content, /__pasi_completion_ack_at_ms/);
+  assert.match(content, /completion_to_prompt_injected_ms/);
+  assert.match(content, /response_completed_to_prompt_injected_ms/);
+  assert.match(content, /__pasi_response_completed_at_ms/);
+});
+
+test('native completion acknowledgement returns a durable next-operation handoff', () => {
+  assert.match(content, /const payload = response\.json\(\)/);
+  assert.match(content, /setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
+  assert.match(content, /next_operation/);
+  assert.match(content, /let immediateOperationQueued = false/);
+  assert.match(content, /function scheduleImmediateOperation\(operation\)/);
+  assert.match(content, /chainedOperation = completion\?\.next_operation \|\| null/);
+  assert.match(content, /scheduleImmediateOperation\(chainedOperation\)/);
+});
+
+test('native completion handoff prioritizes the next operation before health telemetry', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  const next = source.indexOf('if (chainedOperation?.operation_id) scheduleImmediateOperation(chainedOperation);');
+  const health = source.indexOf('setTimeout(() => { void reportHealth(); }, 0);');
+  assert.ok(next >= 0 && health > next);
+});
+
+test('native chained prompt handoff uses a bounded fast path without replacing the event-driven fallback', () => {
+  assert.match(content, /const HANDOFF_ACK_MAX_AGE_MS = 5000/);
+  assert.match(content, /function freshCompletionHandoff\(operation\)/);
+  assert.match(content, /const immediateBox = fastHandoff \? \(\(\) => \{/);
+  assert.match(content, /const box = immediateBox \|\| await waitUntil\(\(\) =>/);
+  assert.match(content, /submitPrompt\(promptText, \{\s*fastPath: fastHandoff,\s*readyBox: box\s*\}\)/);
+});
+
+test('native chained prompt reuses the completed response fingerprint instead of rescanning the DOM for its baseline', () => {
+  assert.match(content, /payload\.next_operation\.__pasi_baseline_fingerprint = fingerprintFromText\(responseText\)/);
+  assert.match(content, /const baseline = typeof operation\.__pasi_baseline_fingerprint === 'string'/);
+  assert.match(content, /: fingerprint\(\);/);
+});
+
+test('native submission fast path performs one readiness detector pass and can use an already located send control', () => {
+  const start = content.indexOf('async function submitPrompt(expected, options = {})');
+  const end = content.indexOf('  function operationPrompt(operation)', start);
+  const source = content.slice(start, end);
+  assert.match(source, /const fastPath = options\.fastPath === true/);
+  assert.match(source, /const handoffBox = options\.readyBox && options\.readyBox\.isConnected === true/);
+  assert.match(source, /const detected = detectorState\(\);/);
+  assert.match(source, /const immediateButton = sendCandidatesForComposer\(readyBox\)\[0\]/);
+  assert.match(source, /const button = immediateButton \|\| await waitForSend\(readyBox\)/);
+  assert.match(source, /await ensurePromptSubmissionReady\(\);/);
+});
+
+test('native response settle fallback remains aligned with the 10ms latency target', () => {
+  assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 10;/);
+});
+

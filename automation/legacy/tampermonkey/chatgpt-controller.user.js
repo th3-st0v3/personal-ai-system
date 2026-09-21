@@ -20,6 +20,7 @@
     var SEND_TIMEOUT_MS = 10000;
     var SUBMISSION_ACK_MS = 2500;
     var SUBMISSION_ATTEMPTS = 3;
+    var COMPLETION_RETRY_DELAY_MS = 20;
     var RETRY_DELAY_MS = 100;
     var CLICK_SETTLE_MS = 250;
     var RESPONSE_SETTLE_MS = 200;
@@ -459,7 +460,7 @@
     }
 
     async function reportFinished(operationId, responseText) {
-        var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()) };
+        var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()), ack_only: true };
         if (typeof responseText === 'string') {
             body.response_text = responseText.slice(0, 50000);
             var progress = completionProgress(responseText);
@@ -483,7 +484,7 @@
                     if (payload && payload.operation && payload.operation.status === 'completed' && payload.operation.response_text_available === true && typeof payload.operation.response_text === 'string' && Boolean(payload.operation.response_text.trim())) return;
                 }
             } catch (_) {}
-            if (attempt < 3) await sleep(150);
+            if (attempt < 3) await sleep(COMPLETION_RETRY_DELAY_MS);
         }
         throw lastError || new Error('Bridge completion failed.');
     }

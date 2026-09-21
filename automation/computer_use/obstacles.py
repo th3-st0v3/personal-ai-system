@@ -7,8 +7,6 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-
-from .state_paths import resolve_state_root
 from typing import Any, Mapping
 
 MAX_DETAIL_CHARS = 4_000
@@ -65,15 +63,13 @@ def _redact(value: Any) -> Any:
 @dataclass
 class ObstacleLedger:
     repo_root: Path
-    state_root: Path | None = None
     runtime_dir: Path = field(init=False)
     log_path: Path = field(init=False)
     list_path: Path = field(init=False)
 
     def __post_init__(self) -> None:
         self.repo_root = self.repo_root.expanduser().resolve()
-        self.state_root = resolve_state_root(self.repo_root, self.state_root)
-        self.runtime_dir = self.state_root / "automation"
+        self.runtime_dir = self.repo_root / ".runtime" / "automation"
         self.log_path = self.runtime_dir / "obstacles.jsonl"
         self.list_path = self.runtime_dir / "action-list.md"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)

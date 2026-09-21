@@ -1,8 +1,8 @@
 # PASI Overnight Automation
 
-PASI can run a bounded unattended engineering loop for **8-12 hours**. The launcher now defaults to **12 hours**. The duration is a scheduler ceiling: useful progress still depends on the machine remaining powered, browser/controller availability, provider availability, and the ability to find verified work.
+PASI can run a bounded unattended engineering loop for **168 hours (7 days)**. The canonical long-run launcher is fixed to a 168-hour window. The duration is a scheduler ceiling: useful progress still depends on the machine remaining powered, browser/controller availability, provider availability, and the ability to find verified work.
 
-The runner uses an isolated Git worktree, persistent state, bounded retries, a bubblewrap filesystem/network sandbox for canonical validation, deterministic repository validation, and a dedicated Git branch. It does not write directly to `main`.
+The runner uses an isolated Git worktree, persistent state, bounded retries, deterministic repository validation, and a dedicated Git branch. It does not write directly to `main`.
 
 ## Routing policy
 
@@ -21,7 +21,7 @@ Thinking stays enabled when the GitHub app is used.
 
 The native Chromium controller is the preferred path. During the transition, the existing PASI ChatGPT Controller Loader in Tampermonkey can remain enabled as a fallback. Keep the legacy direct controller disabled when the loader/native controller is installed.
 
-The native Chromium controller talks only to the PASI bridge on `127.0.0.1:8765`. The bridge exposes bounded queue, health, state, response, cancellation, and observation endpoints; the browser controller does not grant PASI arbitrary OS access.
+The controller-distribution service runs on `127.0.0.1:8766`; the ChatGPT bridge runs on `127.0.0.1:8765`. The browser controller reports bounded health/state/response observations. It does not grant PASI arbitrary OS access.
 
 The controller update mechanism is evidence-gated. A model response cannot directly install a controller update; it can only request one through the validated PASI controller-update signal.
 
@@ -89,24 +89,14 @@ The scheduler never treats “approval is required” as a reason to sit idle. W
 
 ## One-command overnight run
 
-The detached launcher defaults to 12 hours:
+The canonical detached launcher is the 168-hour runner:
 
 ```bash
 cd ~/workspace/personal-ai-system
-bash scripts/start_pasi_overnight.sh
+bash scripts/start_pasi_168h.sh
 ```
 
-Choose another duration inside the supported range when needed:
-
-```bash
-PASI_OVERNIGHT_HOURS=8 bash scripts/start_pasi_overnight.sh
-```
-
-or:
-
-```bash
-PASI_OVERNIGHT_HOURS=12 bash scripts/start_pasi_overnight.sh
-```
+For shorter supported runs, `scripts/start_pasi_overnight.sh` remains the configurable launcher.
 
 The launcher prints the runner log, persistent state file, and action-list paths. Structured events are stored in `.runtime/overnight/events.jsonl`.
 
@@ -119,13 +109,13 @@ cd ~/workspace/personal-ai-system
 git checkout main
 git pull --ff-only
 source .venv/bin/activate
-# Legacy Tampermonkey distribution is no longer required for native runs.
+python scripts/pasi_controller_server.py
 ```
 
 In another WSL terminal:
 
 ```bash
-curl -fsS http://127.0.0.1:8765/health
+curl -fsS http://127.0.0.1:8766/health
 curl -fsS http://127.0.0.1:8765/health
 ```
 
@@ -164,13 +154,27 @@ The most useful unattended diagnostics are:
 .runtime/automation/action-list.md
 ```
 
+### Runtime efficiency and task-churn review
+
+The overnight event log can be summarized without exposing runtime state to GitHub:
+
+```bash
+python scripts/pasi_runtime_telemetry.py \
+  .runtime/overnight/events.jsonl \
+  --output .runtime/overnight/runtime-efficiency-report.md
+```
+
+The report tracks task attempts/completions, repeated task numbers, short-response streaks, recovery/provider-limit/auth events, compiled prompt size, and response-to-next-dispatch latency. A short response is an **attention signal**, not proof that a task was incorrect; task completion evidence remains authoritative.
+
+The primary latency measurement is the time from a completed response event to the next prompt dispatch event. It does not claim to measure the final authenticated DOM send latency, which still requires the real desktop browser flow.
+
 ## Resume after interruption
 
 Successful task commits already made to the dedicated overnight branch remain intact. Resume with:
 
 ```bash
 cd ~/workspace/personal-ai-system
-bash scripts/start_pasi_168h.sh --resume
+bash scripts/pasi_overnight.py --resume
 ```
 
 Interrupted uncommitted task changes in the dedicated overnight worktree are cleaned before resume. Runtime state is schema-validated so stale incompatible state cannot silently alter the safety model.
@@ -179,7 +183,7 @@ Interrupted uncommitted task changes in the dedicated overnight worktree are cle
 
 A task is not accepted from model prose alone. The response must provide the PASI completion markers and a unified patch. PASI then checks patch paths, forbids symlink/submodule additions, applies the patch, runs `scripts/check_all.sh`, confirms that changes remain, and commits the verified result to the dedicated branch.
 
-A task that fails deterministic verification receives bounded repair attempts. When those attempts are exhausted, PASI records the failure and advances to a different task/recovery path instead of repeating forever.
+A task that fails deterministic verification receives a bounded retry cycle. When that cycle is exhausted, PASI records the failure, retains the same current task, carries the failure evidence into the next cycle, and changes approach rather than silently advancing past incomplete work.
 
 ## Safety boundary
 

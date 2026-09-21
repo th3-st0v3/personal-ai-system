@@ -3,10 +3,11 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 PID_FILE="$RUNTIME_DIR/runner.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
+SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
 
 if [[ -f "$PID_FILE" ]]; then
@@ -18,6 +19,17 @@ if [[ -f "$PID_FILE" ]]; then
     fi
 else
     printf 'Runner: INACTIVE\n'
+fi
+
+if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+    supervisor_pid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)"
+    if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
+        printf 'Supervisor: ACTIVE (PID %s)\n' "$supervisor_pid"
+    else
+        printf 'Supervisor: INACTIVE (stale PID file)\n'
+    fi
+else
+    printf 'Supervisor: INACTIVE\n'
 fi
 
 if [[ -f "$START_PID_FILE" ]]; then
@@ -39,7 +51,7 @@ fi
 if [[ -f "$STATE_FILE" ]]; then
     printf '\nState:\n'
     if command -v jq >/dev/null 2>&1; then
-        jq '{schema_version, phase, run_id, started_at, deadline_at, branch, current_task, task_number, completed_tasks, failed_tasks, current_attempt, automation_tasks_since_gate, automation_gates, provider_limit_pauses, stop_reason, last_result, next_task}' "$STATE_FILE"
+        jq '{schema_version, phase, run_id, started_at, deadline_at, branch, current_task, task_number, completed_tasks, failed_tasks, current_attempt, task_retry_cycle, same_failure_cycles, automation_tasks_since_gate, automation_gates, provider_limit_pauses, stop_reason, last_result, next_task}' "$STATE_FILE"
     else
         cat "$STATE_FILE"
     fi
@@ -47,8 +59,7 @@ fi
 
 printf '\nManaged services:\n'
 for spec in \
-    "PASI bridge|$BRIDGE_PID_FILE|pasi_log_router.py" \
-    ; do
+    "PASI bridge|$BRIDGE_PID_FILE|pasi_log_router.py"; do
     name="$(printf '%s' "$spec" | cut -d'|' -f1)"
     pid_file="$(printf '%s' "$spec" | cut -d'|' -f2)"
     expected="$(printf '%s' "$spec" | cut -d'|' -f3)"
@@ -70,18 +81,16 @@ for spec in \
 done
 
 printf '\nServices:\n'
-curl -fsS http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
+curl -fsS --max-time 3 http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
 printf '\n'
-if command -v curl >/dev/null 2>&1; then
-    token=""
-    if [[ -n "${PASI_BRIDGE_TOKEN:-}" ]]; then
-        token="$PASI_BRIDGE_TOKEN"
-    elif [[ -r "$HOME/.pasi/bridge-token" ]]; then
-        token="$(cat "$HOME/.pasi/bridge-token")"
-    fi
-    if [[ -n "$token" ]]; then
-        curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8765/browser/health 2>/dev/null || printf 'browser health: unavailable\n'
-    else
-        printf 'browser health: bridge token unavailable\n'
-    fi
+token=""
+if [[ -n "${PASI_BRIDGE_TOKEN:-}" ]]; then
+    token="$PASI_BRIDGE_TOKEN"
+elif [[ -r "$HOME/.pasi/bridge-token" ]]; then
+    token="$(cat "$HOME/.pasi/bridge-token" 2>/dev/null || true)"
+fi
+if [[ -n "$token" ]]; then
+    curl -fsS --max-time 3 -H "Authorization: Bearer $token" http://127.0.0.1:8765/browser/health 2>/dev/null || printf 'browser health: unavailable\n'
+else
+    printf 'browser health: bridge token unavailable\n'
 fi

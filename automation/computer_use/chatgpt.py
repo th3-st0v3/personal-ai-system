@@ -5,20 +5,15 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
+from pathlib import Path
 
 from .adapters import AIAdapter
 from .contracts import AIResponse
 from .completion import completion_from_operation
-from scripts.pasi_timeout_policy import load_timeout_policy
-
-
-TIMEOUT_POLICY = load_timeout_policy()
-CHATGPT_WAIT_SECONDS = TIMEOUT_POLICY["python_wait_seconds"]
 
 
 class ChatGPTAdapterError(RuntimeError):
@@ -52,13 +47,13 @@ class UrllibBridgeTransport:
 
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         body = None
-        headers: dict[str, str] = {}
         token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
         if not token:
             try:
                 token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
             except OSError:
                 token = ""
+        headers: dict[str, str] = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         if payload is not None:
@@ -88,6 +83,8 @@ COMPLETED_RESPONSE_RECHECK_ATTEMPTS = 8
 BROWSER_RESPONSE_RECHECK_ATTEMPTS = 4
 BROWSER_RESPONSE_RECHECK_INTERVAL_SECONDS = 0.25
 OPERATION_READ_RETRY_ATTEMPTS = 4
+OPERATION_WAIT_CHUNK_SECONDS = 5.0
+OPERATION_READ_RETRY_BACKOFF_SECONDS = 0.02
 
 
 @dataclass
@@ -97,9 +94,10 @@ class ChatGPTAdapter(AIAdapter):
     transport: BridgeTransport
     session_id: str
     poll_interval_seconds: float = 0.25
-    max_wait_seconds: float = CHATGPT_WAIT_SECONDS
+    max_wait_seconds: float = 3600.0
     current_operation_id: str | None = None
     last_chat_url: str | None = None
+    last_operation: dict[str, Any] | None = None
 
     provider: str = "chatgpt"
 
@@ -159,16 +157,22 @@ class ChatGPTAdapter(AIAdapter):
             raise ValueError("prompt is required")
         if completion_markers is not None:
             completion_markers = list(dict.fromkeys(
-                marker.strip() for marker in completion_markers
+                marker.strip()
+                for marker in completion_markers
                 if isinstance(marker, str) and marker.strip()
             ))
             if (
                 not completion_markers
                 or len(completion_markers) > 4
-                or any(len(marker) > 120 or "\n" in marker or "\r" in marker for marker in completion_markers)
+                or any(
+                    len(marker) > 120 or "\n" in marker or "\r" in marker
+                    for marker in completion_markers
+                )
             ):
                 raise ValueError("completion_markers must contain 1-4 bounded single-line strings")
-        idempotency_key = hashlib.sha256(f"{self.session_id}\0{prompt.strip()}".encode("utf-8")).hexdigest()
+        idempotency_key = hashlib.sha256(
+            f"{self.session_id}\0{prompt.strip()}".encode("utf-8")
+        ).hexdigest()
         operation_id = self._operation_id(
             self._queue(
                 "prompt",
@@ -185,17 +189,6 @@ class ChatGPTAdapter(AIAdapter):
             raise ChatGPTAdapterError("no active ChatGPT operation")
         return self.wait_for_completion(self.current_operation_id)
 
-    def cancel_operation(self, operation_id: str, reason: str = "cancelled by runner timeout") -> bool:
-        if not operation_id.strip():
-            raise ValueError("operation_id is required")
-        payload = self.transport.request(
-            "POST",
-            "/chat/cancel",
-            {"operation_id": operation_id, "reason": reason},
-        )
-        operation = payload.get("operation")
-        return isinstance(operation, Mapping) and operation.get("status") == "cancelled"
-
     def read_operation(self, operation_id: str) -> AIResponse:
         if not operation_id.strip():
             raise ValueError("operation_id is required")
@@ -203,6 +196,7 @@ class ChatGPTAdapter(AIAdapter):
         operation = payload.get("operation")
         if not isinstance(operation, Mapping):
             raise ChatGPTAdapterError("bridge response did not contain an operation")
+        self.last_operation = dict(operation)
         return self._response_from_operation(operation)
 
     def read_browser_observation(self) -> Mapping[str, Any] | None:
@@ -214,6 +208,17 @@ class ChatGPTAdapter(AIAdapter):
         payload = self.transport.request("GET", "/browser/state")
         observation = payload.get("observation")
         return observation if isinstance(observation, Mapping) else None
+
+    def cancel_operation(self, operation_id: str, reason: str = "cancelled by runner timeout") -> bool:
+        if not operation_id.strip():
+            raise ValueError("operation_id is required")
+        payload = self.transport.request(
+            "POST",
+            "/chat/cancel",
+            {"operation_id": operation_id, "reason": reason},
+        )
+        operation = payload.get("operation")
+        return isinstance(operation, Mapping) and operation.get("status") == "cancelled"
 
     def read_browser_response_observation(self) -> Mapping[str, Any] | None:
         """Read the durable response record instead of the latest transient state."""
@@ -234,14 +239,31 @@ class ChatGPTAdapter(AIAdapter):
         started = time.monotonic()
         read_failures = 0
         while True:
+            remaining = limit - (time.monotonic() - started)
+            if remaining <= 0:
+                try:
+                    self.cancel_operation(operation_id, "ChatGPT adapter wait timeout")
+                except ChatGPTAdapterError:
+                    pass
+                return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
+            wait_seconds = min(OPERATION_WAIT_CHUNK_SECONDS, remaining)
+            wait_ms = max(1, int(wait_seconds * 1000))
             try:
-                response = self.read_operation(operation_id)
+                payload = self.transport.request(
+                    "GET",
+                    f"/operation?operation_id={quote(operation_id, safe='')}&wait_ms={wait_ms}",
+                )
+                operation = payload.get("operation")
+                if not isinstance(operation, Mapping):
+                    raise ChatGPTAdapterError("bridge response did not contain an operation")
+                self.last_operation = dict(operation)
+                response = self._response_from_operation(operation)
                 read_failures = 0
             except ChatGPTAdapterError:
                 read_failures += 1
                 if read_failures >= OPERATION_READ_RETRY_ATTEMPTS or time.monotonic() - started >= limit:
                     raise
-                time.sleep(min(self.poll_interval_seconds, 0.25))
+                time.sleep(min(self.poll_interval_seconds, OPERATION_READ_RETRY_BACKOFF_SECONDS))
                 continue
             if response.completion in {"complete", "error", "interrupted"}:
                 if response.completion == "complete" and recover_response_text and not response.response_available:
@@ -252,14 +274,7 @@ class ChatGPTAdapter(AIAdapter):
                     self.cancel_operation(operation_id, "ChatGPT adapter wait timeout")
                 except ChatGPTAdapterError:
                     pass
-                return AIResponse(
-                    response_id=f"{operation_id}:timeout",
-                    session_id=self.session_id,
-                    provider=self.provider,
-                    operation_id=operation_id,
-                    text="",
-                    completion="timeout",
-                )
+                return AIResponse(response_id=f"{operation_id}:timeout", session_id=self.session_id, provider=self.provider, operation_id=operation_id, text="", completion="timeout")
             time.sleep(self.poll_interval_seconds)
 
     def _recheck_completed_response(self, operation_id: str, response: AIResponse) -> AIResponse:
@@ -305,7 +320,8 @@ class ChatGPTAdapter(AIAdapter):
         completion, text, response_available = completion_from_operation(operation)
         chat_url = _optional_string(operation.get("chat_url"))
         error = _optional_string(operation.get("error"))
-        chat_exhausted = bool(error and error.startswith("CHAT_EXHAUSTED:"))
+        retry_class = _optional_string(operation.get("retry_class"))
+        chat_exhausted = retry_class == "context" or bool(error and error.startswith("CHAT_EXHAUSTED:")) or bool(error and error.startswith("PASI_NATIVE: context recovery exhausted:"))
         completion_ack_lost = bool(error and error.startswith("PASI_NATIVE: bridge completion failed"))
         should_check_observation = operation.get("operation_type") == "prompt" and not response_available and (completion == "complete" or completion_ack_lost)
 

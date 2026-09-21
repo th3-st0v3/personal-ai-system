@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -17,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 from automation.computer_use.setup_requirements import MARKDOWN_RELATIVE_PATH, RUNTIME_RELATIVE_PATH
 CATALOG_PATH = REPO_ROOT / "config" / "automation" / "setup_catalog.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
+BROWSER_HEALTH_URL = BRIDGE_URL + "/browser/health"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -29,8 +31,14 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _runtime_observation() -> dict[str, Any] | None:
     try:
-        headers = {"Authorization": f"Bearer {(os.environ.get("PASI_BRIDGE_TOKEN", "") or (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8")).strip()}"}
-        request = urllib.request.Request(f"{BRIDGE_URL}/browser/health", headers=headers, method="GET")
+        token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+        if not token:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        request = urllib.request.Request(
+            f"{BRIDGE_URL}/browser/observation",
+            headers={"Authorization": f"Bearer {token}"},
+            method="GET",
+        )
         with urllib.request.urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read(1_000_000).decode("utf-8"))
     except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
@@ -39,9 +47,31 @@ def _runtime_observation() -> dict[str, Any] | None:
     return observation if isinstance(observation, dict) else None
 
 
-def _health(url: str) -> dict[str, Any] | None:
+
+
+BROWSER_OBSERVATION_MAX_AGE_SECONDS = 30.0
+
+
+def _observation_age_seconds(observation: dict[str, Any] | None) -> float | None:
+    if not isinstance(observation, dict):
+        return None
+    captured_at = observation.get("captured_at")
+    if not isinstance(captured_at, str):
+        return None
     try:
-        with urllib.request.urlopen(url, timeout=3.0) as response:
+        captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        if captured.tzinfo is None:
+            captured = captured.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - captured).total_seconds()
+
+
+def _health(url: str, token: str | None = None) -> dict[str, Any] | None:
+    try:
+        headers = {"Authorization": f"Bearer {token}"} if isinstance(token, str) and token.strip() else {}
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read(100_000).decode("utf-8"))
     except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
         return None
@@ -82,8 +112,21 @@ def build_report() -> dict[str, Any]:
     python_path = REPO_ROOT / ".venv" / "bin" / "python"
     observation = _runtime_observation()
     bridge_health = _health(BRIDGE_URL + "/health")
+    browser_health_token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not browser_health_token:
+        try:
+            browser_health_token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            browser_health_token = ""
+    browser_health = _health(BROWSER_HEALTH_URL, token=browser_health_token)
+    observation_age_seconds = _observation_age_seconds(observation)
+    observation_fresh = (
+        observation_age_seconds is not None
+        and observation_age_seconds >= -5.0
+        and observation_age_seconds <= BROWSER_OBSERVATION_MAX_AGE_SECONDS
+    )
     runtime_data: dict[str, Any] = {}
-    if observation is not None:
+    if observation is not None and observation_fresh:
         observed_data = observation.get("data")
         if isinstance(observed_data, dict):
             runtime_data = observed_data
@@ -97,11 +140,13 @@ def build_report() -> dict[str, Any]:
             },
             "git": {"present": shutil.which("git") is not None},
             "node": {"present": shutil.which("node") is not None},
-            "bubblewrap": {"present": shutil.which("bwrap") is not None},
         },
         "runtime": {
             "bridge_health": bridge_health or {"status": "unavailable"},
-            "browser_health": observation or {"status": "unavailable"},
+            "browser_health": browser_health or {"status": "unavailable"},
+            "browser_observation": observation or {"status": "unavailable"},
+            "browser_observation_age_seconds": observation_age_seconds,
+            "browser_observation_fresh": observation_fresh,
             "chatgpt_login_required": runtime_data.get("auth_required") is True,
             "chatgpt_usage_limited": runtime_data.get("provider_usage_limited") is True,
             "chatgpt_context_exhausted": runtime_data.get("conversation_context_exhausted") is True,
@@ -147,10 +192,34 @@ def print_report(report: dict[str, Any]) -> None:
     print()
     print("Runtime")
     bridge = report["runtime"]["bridge_health"].get("status", "unavailable")
-    browser = report["runtime"]["browser_health"].get("status", "unavailable")
+    browser_payload = report["runtime"]["browser_health"]
+    browser_observation = (
+        browser_payload.get("observation")
+        if isinstance(browser_payload, dict)
+        else None
+    )
+    browser_data = (
+        browser_observation.get("data")
+        if isinstance(browser_observation, dict)
+        and isinstance(browser_observation.get("data"), dict)
+        else None
+    )
+    browser_valid = (
+        isinstance(browser_data, dict)
+        and browser_data.get("native_controller") is True
+        and browser_data.get("kind") in {"chatgpt_health", "chatgpt_state"}
+    )
+    browser_fresh = report["runtime"].get("browser_observation_fresh") is True
+    browser = "ok" if browser_valid and browser_fresh else ("stale" if browser_valid else "unavailable")
     print(f"  Bridge: {bridge}")
-    print(f"  Browser health: {browser}")
-    if report["runtime"]["chatgpt_login_required"]:
+    print(f"  Native Chromium: {browser}")
+    if browser == "stale":
+        age = report["runtime"].get("browser_observation_age_seconds")
+        age_text = f"{float(age):.1f}s" if isinstance(age, (int, float)) else "unknown age"
+        print(f"  Browser observation: STALE ({age_text}); current browser state is not freshly verified.")
+    if not browser_fresh:
+        print("  ChatGPT: current browser state is not freshly verified.")
+    elif report["runtime"]["chatgpt_login_required"]:
         print("  ChatGPT: ACTION REQUIRED — authenticate / complete the interactive security check in the browser.")
     elif report["runtime"]["chatgpt_usage_limited"]:
         print("  ChatGPT: provider/account usage limit detected; PASI will use configured fallbacks when possible.")
@@ -178,13 +247,7 @@ def main() -> int:
 
     mandatory = report["local_prerequisites"]["venv_python"]
     git = report["local_prerequisites"]["git"]
-    bubblewrap = report["local_prerequisites"]["bubblewrap"]
-    if args.check and (
-        not mandatory.get("present")
-        or not mandatory.get("executable")
-        or not git.get("present")
-        or not bubblewrap.get("present")
-    ):
+    if args.check and (not mandatory.get("present") or not mandatory.get("executable") or not git.get("present")):
         return 2
     return 0
 

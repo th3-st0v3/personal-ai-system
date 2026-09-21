@@ -9,7 +9,7 @@ from scripts import pasi_overnight_hardening as hardening
 
 
 def test_obstacle_ledger_keeps_recent_pending_actions_after_compaction(tmp_path: Path) -> None:
-    ledger = ObstacleLedger(tmp_path, tmp_path.parent / (tmp_path.name + "-operator-state"))
+    ledger = ObstacleLedger(tmp_path)
     ledger.log_path.parent.mkdir(parents=True, exist_ok=True)
     with ledger.log_path.open("w", encoding="utf-8") as handle:
         for index in range(12_000):
@@ -45,10 +45,11 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     calls: list[list[str]] = []
 
     class FakeProcess:
-        pass
+        pid = 12345
 
-    def fake_popen(command: list[str], cwd: Path) -> FakeProcess:
+    def fake_popen(command: list[str], cwd: Path, **kwargs: object) -> FakeProcess:
         assert cwd == supervisor.REPO_ROOT
+        assert kwargs.get("stdin") is hardening.subprocess.DEVNULL
         calls.append(command)
         return FakeProcess()
 
@@ -56,11 +57,12 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     monkeypatch.setattr(supervisor, "healthy", lambda _url: False)
     monkeypatch.setattr(supervisor, "log_event", lambda *_args, **_kwargs: None)
 
-    ledger = ObstacleLedger(tmp_path, tmp_path.parent / (tmp_path.name + "-operator-state"))
+    ledger = ObstacleLedger(tmp_path)
     children = hardening.nonblocking_ensure_services(ledger=ledger)
 
     assert len(children) == 1
-    assert calls == [
-        [sys.executable, "-m", "automation.orchestrator.bridge"],
-    ]
+    assert calls[0][0] == sys.executable
+    assert calls[0][1].endswith("scripts/pasi_log_router.py")
+    assert "--" in calls[0]
+    assert calls[0][-3:] == [sys.executable, "-m", "automation.orchestrator.bridge"]
     assert ledger.pending() == []

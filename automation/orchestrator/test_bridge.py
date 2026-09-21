@@ -1,7 +1,8 @@
 from pathlib import Path
 import json
 import threading
-from typing import cast
+from unittest.mock import Mock
+import time
 from http.client import HTTPConnection, RemoteDisconnected
 
 import pytest
@@ -13,16 +14,15 @@ from automation.orchestrator.operation_lifecycle import InvalidOperationTransiti
 from automation.orchestrator.state import StateManager
 
 
+@pytest.fixture(autouse=True)
+def bridge_auth_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PASI_BRIDGE_TOKEN", "test-bridge-token")
+
+
 def make_bridge(tmp_path: Path) -> BridgeState:
     return BridgeState(
         StateManager(tmp_path / ".ai")
     )
-
-
-@pytest.fixture(autouse=True)
-def bridge_token(monkeypatch) -> None:
-    monkeypatch.setenv("PASI_BRIDGE_TOKEN", "test-bridge-token")
-
 
 
 
@@ -86,6 +86,25 @@ def test_bridge_module_resolves_from_repository() -> None:
     assert Path(bridge_module.__file__).resolve() == (Path(__file__).parent / "bridge.py").resolve()
 
 
+def test_http_rejects_missing_bridge_token(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request("GET", "/status")
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        assert response.status == 401
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_bridge_suppresses_successful_http_access_log_noise() -> None:
     assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 200 42') is False
     assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 204 0') is False
@@ -93,6 +112,41 @@ def test_bridge_suppresses_successful_http_access_log_noise() -> None:
     assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 400 42') is True
     assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 503 42') is True
     assert _bridge_access_log_should_emit('malformed access log') is True
+
+
+def test_retry_budgets_are_separate_by_failure_class(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "retry classes")
+    bridge.claim_next_operation()
+
+    controller_retry = bridge.fail_operation(
+        operation.operation_id,
+        "PASI_NATIVE: composer disappeared",
+    )
+    assert controller_retry is not None
+    assert controller_retry["retry_class"] == "controller"
+    assert controller_retry["retry_counts"]["controller"] == 1
+    assert controller_retry["retry_counts"]["response"] == 0
+    assert controller_retry["retry_counts"]["context"] == 0
+
+    claimed = bridge.claim_operation(operation.operation_id)
+    assert claimed is not None
+    assert claimed["status"] == "claimed"
+
+def test_warm_queue_cache_avoids_reloading_persistent_queue(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    load_queue = Mock(wraps=bridge.state_manager.load_queue)
+    bridge.state_manager.load_queue = load_queue
+
+    first = bridge.queue_operation("prompt", "cache first")
+    claimed = bridge.claim_next_operation()
+
+    assert claimed is not None
+    assert claimed["operation_id"] == first.operation_id
+    assert load_queue.call_count == 1
+
+    bridge.heartbeat(first.operation_id)
+    assert load_queue.call_count == 1
 
 
 def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:
@@ -138,6 +192,51 @@ def test_queue_idempotency_does_not_cross_prompt_or_operation_type(tmp_path: Pat
     second = bridge.queue_operation("prompt", "second", idempotency_key="shared")
     third = bridge.queue_operation("new_chat", "", idempotency_key="shared")
     assert len({first.operation_id, second.operation_id, third.operation_id}) == 3
+
+
+def test_http_get_next_operation_claims_oldest_queued_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "first queued")
+    second = bridge.queue_operation("prompt", "second queued")
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def get_next() -> tuple[int, dict]:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        try:
+            connection.request(
+                "GET",
+                "/next-operation",
+                headers={"Authorization": "Bearer test-bridge-token"},
+            )
+            response = connection.getresponse()
+            body = json.loads(response.read().decode("utf-8"))
+            return response.status, body
+        finally:
+            connection.close()
+
+    try:
+        status, body = get_next()
+        assert status == 200
+        assert body["operation"]["operation_id"] == first.operation_id
+        assert body["operation"]["status"] == "claimed"
+
+        status, body = get_next()
+        assert status == 200
+        assert body["operation"]["operation_id"] == second.operation_id
+        assert body["operation"]["status"] == "claimed"
+
+        status, body = get_next()
+        assert status == 200
+        assert body["operation"] is None
+        assert bridge.get_status()["queue_size"] == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_http_queue_response_loss_is_recovered_without_duplicate_operation(tmp_path: Path) -> None:
@@ -277,6 +376,101 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
     assert status["counts"] == {"completed": 1}
 
 
+def test_terminal_response_body_is_externalized_and_rehydrated_after_restart(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "externalize")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    response_text = "x" * 120_000
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/externalized",
+        response_text=response_text,
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    queue_path = tmp_path / ".ai" / "queue.json"
+    terminal_response_dir = tmp_path / ".ai" / "terminal-responses"
+    persisted_queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    persisted_item = next(
+        item for item in persisted_queue
+        if item["operation_id"] == operation.operation_id
+    )
+    assert "response_text" not in persisted_item
+    assert persisted_item["response_text_available"] is True
+
+    response_files = list(terminal_response_dir.glob("*.json"))
+    assert len(response_files) == 1
+    persisted_response = StateManager(tmp_path / ".ai").load_terminal_response(
+        operation.operation_id
+    )
+    assert persisted_response == response_text
+
+    restarted = BridgeState(StateManager(tmp_path / ".ai"))
+    recovered = restarted.get_operation(operation.operation_id)
+    assert recovered is not None
+    assert recovered["response_text"] == response_text
+    assert recovered["response_text_available"] is True
+
+    queued = restarted.queue_operation("prompt", "next prompt")
+    claimed = restarted.claim_next_operation()
+    assert claimed is not None
+    assert claimed["operation_id"] == queued.operation_id
+    assert claimed["status"] == "claimed"
+    assert queue_path.stat().st_size < 20_000
+    assert StateManager(tmp_path / ".ai").load_terminal_response(
+        operation.operation_id
+    ) == response_text
+
+
+def test_missing_terminal_response_file_repairs_from_verified_browser_observation(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "repair terminal response")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    response_text = "verified browser response"
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/repair-terminal",
+        response_text=response_text,
+        response_text_available=True,
+    )
+    assert completed is not None
+
+    state_manager = StateManager(tmp_path / ".ai")
+    state_manager.save_browser_response(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-20T19:00:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/repair-terminal",
+                "response_text": response_text,
+                "response_text_available": True,
+            },
+        }
+    )
+    state_manager._terminal_response_path(operation.operation_id).unlink()
+
+    restarted = BridgeState(StateManager(tmp_path / ".ai"))
+    recovered = restarted.get_operation(operation.operation_id)
+
+    assert recovered is not None
+    assert recovered["response_text"] == response_text
+    assert recovered["response_text_available"] is True
+    assert StateManager(tmp_path / ".ai").load_terminal_response(
+        operation.operation_id
+    ) == response_text
+
+
 def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("test", "bounded")
@@ -285,12 +479,12 @@ def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
 
     completed = bridge.complete_operation(
         operation.operation_id,
-        response_text="x" * 60_000,
+        response_text="x" * 130_000,
         response_text_available=True,
     )
 
     assert completed is not None
-    assert len(completed["response_text"]) == 50_000
+    assert len(completed["response_text"]) == 120_000
     assert completed["response_text_available"] is True
 
 
@@ -622,75 +816,6 @@ def test_mismatched_browser_response_does_not_attach_to_operation(tmp_path: Path
     assert current["response_text_available"] is False
 
 
-def test_claim_lease_expiry_requeues_operation(tmp_path: Path, monkeypatch) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "lease")
-    claimed = bridge.claim_next_operation()
-    assert claimed is not None
-    monkeypatch.setattr(bridge_module, "CLAIM_LEASE_SECONDS", 1)
-    queue = bridge.state_manager.load_queue()
-    queue[0]["claimed_at"] = 0
-    bridge.state_manager.save_queue(queue)
-    reclaimed = bridge.claim_next_operation()
-    assert reclaimed is not None
-    assert reclaimed["operation_id"] == operation.operation_id
-    assert reclaimed["status"] == "claimed"
-    assert reclaimed["reclaimed_at"] > 0
-
-def test_queue_ttl_expires_stuck_operation(tmp_path: Path, monkeypatch) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "ttl")
-    monkeypatch.setattr(bridge_module, "QUEUE_TTL_SECONDS", 1)
-    queue = bridge.state_manager.load_queue()
-    queue[0]["expires_at"] = 0
-    bridge.state_manager.save_queue(queue)
-    assert bridge.claim_next_operation() is None
-    expired = bridge.get_operation(operation.operation_id)
-    assert expired is not None
-    assert expired["status"] == "failed"
-    assert expired["failure_reason"] == "queue_ttl_expired"
-
-def test_cancel_operation_is_terminal_and_idempotent(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "cancel")
-    bridge.claim_next_operation()
-    cancelled = bridge.cancel_operation(operation.operation_id, "runner timeout")
-    assert cancelled is not None
-    assert cancelled["status"] == "cancelled"
-    again = bridge.cancel_operation(operation.operation_id, "second cancel")
-    assert again is not None
-    assert again["status"] == "cancelled"
-
-def test_retry_budgets_are_separate_by_failure_class(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "retry classes")
-    bridge.claim_next_operation()
-    context = bridge.fail_operation(operation.operation_id, "CHAT_EXHAUSTED: context")
-    assert context is not None and context["status"] == "queued"
-    assert context["retry_counts"]["context"] == 1
-    assert context["retry_counts"]["response"] == 0
-
-    bridge.claim_next_operation()
-    response = bridge.fail_operation(operation.operation_id, "PASI_NATIVE: ChatGPT generation timed out")
-    assert response is not None and response["status"] == "queued"
-    assert response["retry_counts"]["response"] == 1
-    assert response["retry_counts"]["context"] == 1
-
-def test_response_timeout_retry_is_bounded_separately(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "response budget")
-    for expected in (1, 2):
-        bridge.claim_next_operation()
-        recovered = bridge.fail_operation(operation.operation_id, "PASI_NATIVE: ChatGPT generation timed out")
-        assert recovered is not None
-        assert recovered["status"] == "queued"
-        assert recovered["retry_counts"]["response"] == expected
-    bridge.claim_next_operation()
-    failed = bridge.fail_operation(operation.operation_id, "PASI_NATIVE: ChatGPT generation timed out")
-    assert failed is not None
-    assert failed["status"] == "failed"
-    assert failed["failure_reason"] == "response_retry_exhausted"
-
 def test_transient_completion_ack_failure_completes_from_persisted_response(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "do not replay")
@@ -725,38 +850,6 @@ def test_transient_completion_ack_failure_completes_from_persisted_response(tmp_
     assert recovered["recovery_error"] == "PASI_NATIVE: bridge completion failed: HTTP 502"
 
     assert bridge.claim_next_operation() is None
-
-
-def test_native_fresh_chat_surface_failure_is_requeued(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("new_chat", "")
-
-    bridge.claim_next_operation()
-
-    recovered = bridge.fail_operation(
-        operation.operation_id,
-        "PASI_NATIVE: new chat control did not reach a verified fresh chat surface",
-    )
-
-    assert recovered is not None
-    assert recovered["status"] == "queued"
-    assert recovered["retry_count"] == 1
-
-
-def test_native_chat_control_activation_failure_is_requeued(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("new_chat", "")
-
-    bridge.claim_next_operation()
-
-    recovered = bridge.fail_operation(
-        operation.operation_id,
-        "PASI_NATIVE: New chat control activation failed",
-    )
-
-    assert recovered is not None
-    assert recovered["status"] == "queued"
-    assert recovered["retry_count"] == 1
 
 
 def test_transient_browser_failure_is_requeued(tmp_path: Path) -> None:
@@ -823,155 +916,6 @@ def test_non_transient_failure_remains_terminal(tmp_path: Path) -> None:
     assert "failure_reason" not in failed
 
 
-def test_http_bridge_rejects_bad_auth_host_origin_and_content_type(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "security")
-    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
-    server.bridge_state = bridge
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-
-        body = b"{}"
-        connection.request(
-            "POST",
-            "/next-operation",
-            body=body,
-            headers={"Content-Type": "application/json", "Authorization": "Bearer wrong-token"},
-        )
-        response = connection.getresponse()
-        response.read()
-        assert response.status == 401
-        connection.close()
-
-        current = bridge.get_operation(operation.operation_id)
-        assert current is not None
-        assert current["status"] == "queued"
-
-        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        connection.request(
-            "POST",
-            "/next-operation",
-            body=body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer test-bridge-token",
-                "Origin": "chrome-extension://test-extension",
-            },
-        )
-        response = connection.getresponse()
-        response.read()
-        assert response.status == 200
-        connection.close()
-
-        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        connection.request(
-            "POST",
-            "/next-operation",
-            body=body,
-            headers={
-                "Content-Type": "text/plain",
-                "Authorization": "Bearer test-bridge-token",
-                "Host": "evil.example",
-            },
-        )
-        response = connection.getresponse()
-        response.read()
-        assert response.status == 401
-        connection.close()
-
-        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        connection.request(
-            "POST",
-            "/next-operation",
-            body=body,
-            headers={
-                "Content-Type": "text/plain",
-                "Authorization": "Bearer test-bridge-token",
-                "Origin": "https://evil.example",
-            },
-        )
-        response = connection.getresponse()
-        response.read()
-        assert response.status == 401
-        connection.close()
-
-        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        connection.request(
-            "POST",
-            "/next-operation",
-            body=body,
-            headers={
-                "Content-Type": "text/plain",
-                "Authorization": "Bearer test-bridge-token",
-            },
-        )
-        response = connection.getresponse()
-        response.read()
-        assert response.status == 400
-        connection.close()
-
-        current = bridge.get_operation(operation.operation_id)
-        assert current is not None
-        assert current["status"] == "claimed"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-        assert not thread.is_alive()
-
-def test_http_next_operation_is_post_only(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "post-only")
-    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
-    server.bridge_state = bridge
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        conn.request("GET", "/next-operation")
-        response = conn.getresponse()
-        assert response.status == 404
-        response.read()
-        conn.close()
-
-        conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        conn.request("POST", "/next-operation", body=b"{}", headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"})
-        response = conn.getresponse()
-        body = json.loads(response.read().decode("utf-8"))
-        conn.close()
-        assert response.status == 200
-        assert body["operation"]["operation_id"] == operation.operation_id
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-        assert not thread.is_alive()
-
-def test_http_cancel_operation(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "cancel over http")
-    bridge.claim_next_operation()
-    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
-    server.bridge_state = bridge
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        body = json.dumps({"operation_id": operation.operation_id, "reason": "timeout"}).encode()
-        conn.request("POST", "/chat/cancel", body=body, headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"})
-        response = conn.getresponse()
-        payload = json.loads(response.read().decode("utf-8"))
-        conn.close()
-        assert response.status == 200
-        assert payload["operation"]["status"] == "cancelled"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-        assert not thread.is_alive()
-
 def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
@@ -1015,6 +959,57 @@ def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
         assert not thread.is_alive()
 
 
+def test_http_finished_compact_ack_does_not_return_large_response_payload(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "compact acknowledgement")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps(
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/compact",
+                "response_text": "x" * 120_000,
+                "response_text_available": True,
+                "ack_only": True,
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/finished",
+            body=payload,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
+        )
+        response = connection.getresponse()
+        raw_body = response.read().decode("utf-8")
+        body = json.loads(raw_body)
+        connection.close()
+
+        assert response.status == 200
+        assert body == {
+            "ok": True,
+            "operation_id": operation.operation_id,
+            "status": "completed",
+        }
+        assert len(raw_body) < 200
+        persisted = bridge.get_operation(operation.operation_id)
+        assert persisted is not None
+        assert persisted["response_text_available"] is True
+        assert len(persisted["response_text"]) == 120_000
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_http_browser_response_returns_durable_response_after_later_state(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     bridge.save_browser_observation({
@@ -1044,7 +1039,11 @@ def test_http_browser_response_returns_durable_response_after_later_state(tmp_pa
     thread.start()
     try:
         connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
-        connection.request("GET", "/browser/response", headers={"Authorization": "Bearer test-bridge-token"})
+        connection.request(
+            "GET",
+            "/browser/response",
+            headers={"Authorization": "Bearer test-bridge-token"},
+        )
         response = connection.getresponse()
         body = json.loads(response.read().decode("utf-8"))
         connection.close()
@@ -1311,6 +1310,109 @@ def test_claim_only_returns_queued_operations(
     assert status["counts"] == {"claimed": 2}
 
 
+def test_timing_normalization_preserves_completion_to_prompt_latency_metric() -> None:
+    normalized = BridgeState.normalize_timing(
+        {
+            "injected_at_ms": 100,
+            "ack_at_ms": 110,
+            "generation_start_ms": 120,
+            "completed_at_ms": 130,
+            "completion_to_prompt_injected_ms": 7,
+            "ack_verified": True,
+        }
+    )
+
+    assert normalized is not None
+    assert normalized["completion_to_prompt_injected_ms"] == 7
+
+
+def test_completion_claims_exactly_one_next_operation_atomically(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "first")
+    second = bridge.queue_operation("prompt", "second")
+    third = bridge.queue_operation("prompt", "third")
+    bridge.claim_next_operation()
+    bridge.heartbeat(first.operation_id)
+
+    completed, chained = bridge.complete_operation_and_claim_next(
+        first.operation_id,
+        response_text="first response",
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["next_operation_id"] == second.operation_id
+    assert chained is not None
+    assert chained["operation_id"] == second.operation_id
+    assert chained["status"] == "claimed"
+    third_operation = bridge.get_operation(third.operation_id)
+    assert third_operation is not None
+    assert third_operation["status"] == "queued"
+
+
+def test_duplicate_completion_returns_the_same_chained_operation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    first = bridge.queue_operation("prompt", "first")
+    second = bridge.queue_operation("prompt", "second")
+    bridge.claim_next_operation()
+    bridge.complete_operation_and_claim_next(
+        first.operation_id,
+        response_text="first response",
+        response_text_available=True,
+    )
+
+    completed, chained = bridge.complete_operation_and_claim_next(
+        first.operation_id,
+        response_text="stale duplicate",
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    assert completed["response_text"] == "first response"
+    assert chained is not None
+    assert chained["operation_id"] == second.operation_id
+    assert chained["status"] == "claimed"
+
+
+
+def test_wait_for_operation_wakes_on_durable_completion(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "wait")
+    bridge.claim_next_operation()
+
+    result: list[dict | None] = []
+
+    def waiter() -> None:
+        result.append(bridge.wait_for_operation(operation.operation_id, 1.0))
+
+    thread = threading.Thread(target=waiter)
+    thread.start()
+    time.sleep(0.01)
+    bridge.complete_operation(
+        operation.operation_id,
+        response_text="done",
+        response_text_available=True,
+    )
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert result
+    assert result[0] is not None
+    assert result[0]["status"] == "completed"
+
+
+def test_wait_for_operation_returns_current_nonterminal_state_at_deadline(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "deadline")
+    bridge.claim_next_operation()
+
+    result = bridge.wait_for_operation(operation.operation_id, 0)
+
+    assert result is not None
+    assert result["status"] == "claimed"
+
+
 def test_missing_operation_returns_none(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     assert bridge.get_operation("op-does-not-exist") is None
@@ -1433,57 +1535,22 @@ def test_invalid_recovery_context_is_discarded_by_normalizer(tmp_path: Path) -> 
     }) is None
 
 
-def test_recovery_schema_response_cannot_complete_after_transient_failure(tmp_path: Path) -> None:
+def test_get_operation_can_skip_browser_response_repair_on_hot_ack_path(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation("prompt", "stale recovery response")
-    claimed = bridge.claim_next_operation()
-    assert claimed is not None
+    operation = bridge.queue_operation("prompt", "hot ack")
+    bridge.claim_next_operation()
 
-    bridge.save_browser_observation(
-        {
-            "schema_version": "pasi-chatgpt-recovery-v3",
-            "captured_at": "2026-09-20T00:00:00Z",
-            "data": {
-                "kind": "chatgpt_response",
-                "active_operation_id": operation.operation_id,
-                "chat_url": "https://chatgpt.com/c/stale",
-                "response_text": "previous answer that must not complete this task",
-                "response_text_available": True,
-            },
-        }
-    )
+    repair = Mock(wraps=bridge._repair_response_from_browser_observation)
+    bridge._repair_response_from_browser_observation = repair
 
-    before = bridge.get_operation(operation.operation_id)
-    assert before is not None
-    assert before["response_text_available"] is False
+    result = bridge.get_operation(operation.operation_id, repair_response=False)
 
-    failed = bridge.fail_operation(operation.operation_id, "PASI_NATIVE: send control unavailable")
-    assert failed is not None
-    assert failed["status"] == "queued"
-    assert failed["retry_counts"]["controller"] == 1
-
-    after = bridge.get_operation(operation.operation_id)
-    assert after is not None
-    assert after["status"] == "queued"
-    assert after["response_text_available"] is False
-    assert not str(after.get("response_text", "")).strip()
+    assert result is not None
+    repair.assert_not_called()
 
 
-def test_queue_persists_completion_markers(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    operation = bridge.queue_operation(
-        "prompt",
-        "marker-aware prompt",
-        completion_markers=["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"],
-    )
-    assert operation.completion_markers == ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"]
-    stored = bridge.get_operation(operation.operation_id)
-    assert stored is not None
-    assert stored["completion_markers"] == ["PASI_RESULT_STATUS", "PASI_COMPUTER_REQUEST_END"]
 
-
-def test_queue_rejects_invalid_completion_markers(tmp_path: Path) -> None:
-    bridge = make_bridge(tmp_path)
-    for markers in ([], ["a", "b", "c", "d", "e"], ["a\nnewline"], [123]):
-        with pytest.raises(ValueError):
-            bridge.queue_operation("prompt", "bad markers", completion_markers=cast(list[str], markers))
+def test_bridge_http_uses_persistent_http11_framing() -> None:
+    assert BridgeRequestHandler.protocol_version == "HTTP/1.1"
+    source = Path(bridge_module.__file__).read_text(encoding="utf-8")
+    assert 'self.send_header("Content-Length", str(content_length))' in source

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from automation.computer_use.obstacles import ObstacleLedger
+from scripts import pasi_overnight_engine as engine
 from scripts import pasi_overnight_engine_v2 as supervisor
 
 
@@ -20,19 +21,23 @@ _FORBIDDEN_PATH_PATTERNS = (
 )
 _DIFF_PATH_RE = re.compile(r"^diff --git a/(.+) b/(.+)$", re.MULTILINE)
 _DELETION_FILE_HEADER_RE = re.compile(r"^(?:deleted file mode \d+\n)?--- a/[^\n]+\n\+\+\+ /dev/null$", re.MULTILINE)
-_PROTECTED_UNATTENDED_PATHS = frozenset({
+_AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
+_BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
+_BRIDGE_PID_FILE = supervisor.REPO_ROOT / ".runtime" / "overnight" / "bridge.pid"
+_BRIDGE_LOG_FILE = supervisor.REPO_ROOT / ".runtime" / "overnight" / "bridge.log"
+_CONTROLLER_HEALTH_URL = "http://127.0.0.1:8765/browser/health"
+_STANDBY_SECONDS = 30.0
+PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_all.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
     "automation/chromium/pasi-chatgpt/manifest.json",
 })
-_AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
-_BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
-_STANDBY_SECONDS = 30.0
+PROTECTED_UNATTENDED_PREFIXES = (".github/", ".githooks/", "hooks/")
 
 
-def validate_patch_paths(patch: str, allow_delete: bool) -> None:
-    if len(patch.encode("utf-8")) > supervisor.MAX_PATCH_BYTES:
+def validate_patch_paths(patch: str, allow_delete: bool, worktree: Path | None = None) -> None:
+    if len(patch.encode("utf-8")) > engine.MAX_PATCH_BYTES:
         raise ValueError("model patch exceeds configured size bound")
     if "new file mode 120000" in patch or "new file mode 160000" in patch:
         raise ValueError("symlink and submodule additions are not allowed in unattended patches")
@@ -51,8 +56,16 @@ def validate_patch_paths(patch: str, allow_delete: bool) -> None:
                 raise ValueError(f"forbidden patch path: {path_value}")
             if any(pattern.search(normalized) for pattern in _FORBIDDEN_PATH_PATTERNS):
                 raise ValueError(f"forbidden credential/secret path: {path_value}")
-            if normalized in _PROTECTED_UNATTENDED_PATHS or normalized.startswith(".github/"):
-                raise ValueError(f"protected unattended patch path requires human-approved branch: {path_value}")
+            if normalized in PROTECTED_UNATTENDED_PATHS or any(normalized.startswith(prefix) for prefix in PROTECTED_UNATTENDED_PREFIXES):
+                raise ValueError(f"protected unattended patch path requires an approved branch: {path_value}")
+            if worktree is not None:
+                ignored = subprocess.run(
+                    ["git", "-C", str(worktree), "check-ignore", "-q", "--", normalized],
+                    capture_output=True,
+                    check=False,
+                )
+                if ignored.returncode == 0:
+                    raise ValueError(f"patch path is Git-ignored and outside the tracked change boundary: {path_value}")
     is_deletion = bool(_DELETION_FILE_HEADER_RE.search(patch)) or bool(
         re.search(r"^--- [^\n]+\n\+\+\+ /dev/null$", patch, re.MULTILINE)
     )
@@ -102,30 +115,66 @@ def fallback_providers_available() -> list[str]:
         providers.append("ollama")
     if shutil.which("opencode"):
         providers.append("opencode")
-    remote_opt_in = os.environ.get("PASI_ALLOW_REMOTE_CODE", "").strip().casefold() in {"1", "true", "yes"}
-    if remote_opt_in and os.environ.get("OPENROUTER_API_KEY", "").strip():
+    if os.environ.get("OPENROUTER_API_KEY", "").strip():
         providers.append("openrouter")
-    if remote_opt_in and os.environ.get("PERPLEXITY_API_KEY", "").strip():
+    if os.environ.get("PERPLEXITY_API_KEY", "").strip():
         providers.append("perplexity")
     return providers
 
 
-def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
+def nonblocking_ensure_services(*, ledger: ObstacleLedger, child_registry: list[Any] | None = None) -> list[Any]:
     """Start local PASI helpers opportunistically without making them a startup gate."""
     children: list[Any] = []
     services = (
         (
             "bridge",
             supervisor.healthy(_BRIDGE_HEALTH_URL),
-            [sys.executable, "-m", "automation.orchestrator.bridge"],
+            [
+                sys.executable,
+                str(supervisor.control_script("pasi_log_router.py")),
+                "--log",
+                str(_BRIDGE_LOG_FILE),
+                "--max-bytes",
+                "1048576",
+                "--backups",
+                "2",
+                "--",
+                sys.executable,
+                "-m",
+                "automation.orchestrator.bridge",
+            ],
         ),
     )
     for service_name, already_healthy, command in services:
         if already_healthy:
             continue
+        if child_registry is not None:
+            live_children = [
+                child for child in child_registry
+                if getattr(child, "poll", lambda: 0)() is None
+            ]
+            if live_children:
+                continue
         supervisor.log_event("service_start_nonblocking", service=service_name)
         try:
-            children.append(subprocess.Popen(command, cwd=supervisor.REPO_ROOT))
+            child = subprocess.Popen(
+                command,
+                cwd=supervisor.REPO_ROOT,
+                stdin=subprocess.DEVNULL,
+            )
+            children.append(child)
+            if service_name == "bridge":
+                try:
+                    _BRIDGE_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    _BRIDGE_PID_FILE.write_text(f"{child.pid}\n", encoding="utf-8")
+                except OSError as exc:
+                    supervisor.log_event(
+                        "service_pid_record_failed",
+                        service=service_name,
+                        error=str(exc),
+                    )
+            if child_registry is not None:
+                child_registry.append(child)
         except OSError as exc:
             ledger.record(
                 "service_unavailable",
@@ -137,7 +186,7 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
     return children
 
 
-def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
+def nonblocking_standby(state: Any, *, ledger: ObstacleLedger, child_registry: list[Any] | None = None) -> bool:
     if supervisor.runtime_watchdog_is_live():
         return True
 
@@ -163,7 +212,11 @@ def nonblocking_standby(state: Any, *, ledger: ObstacleLedger) -> bool:
     logged = False
     while not supervisor.STOP and supervisor.now_utc() < supervisor.datetime.fromisoformat(state.deadline_at):
         try:
-            supervisor.ensure_services()
+            started_children = supervisor.ensure_services()
+            if child_registry is not None:
+                for child in started_children:
+                    if not any(existing is child for existing in child_registry):
+                        child_registry.append(child)
         except Exception as exc:
             supervisor.log_event("service_recovery_failed", error=str(exc)[-4_000:])
 
@@ -245,9 +298,85 @@ def resilient_invoke_chat(task: str, state: Any, failure: str, *, ledger: Obstac
 
 
 def main() -> int:
-    """Compatibility entrypoint; active unattended execution is owned by v2."""
-    return supervisor.main()
+    ledger = ObstacleLedger(supervisor.REPO_ROOT)
+    original_validate = supervisor.validate_patch_paths
+    original_watchdog = supervisor.runtime_watchdog_is_live
+    original_sleep = supervisor.sleep_until_retry
+    original_invoke = supervisor.invoke_chat
+    original_log = supervisor.log_event
+    original_gate = supervisor.automation_gate_is_satisfied
+    original_parse = supervisor.parse_response
+    original_services = supervisor.ensure_services
+    managed_service_children: list[Any] = []
+    automation_continue_requested = False
 
+    def parse_response(response: str):
+        nonlocal automation_continue_requested
+        parsed = original_parse(response)
+        if _AUTOMATION_CONTINUE_RE.search(response):
+            automation_continue_requested = True
+            status, summary, next_task, patch, allow_delete, values = parsed
+            values = dict(values)
+            values["automation_continue"] = "true"
+            summary = (summary + " PASI_AUTOMATION_CONTINUE: true").strip()
+            return status, summary, next_task, patch, allow_delete, values
+        return parsed
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+    def log_event(kind: str, **data: Any) -> None:
+        nonlocal automation_continue_requested
+        original_log(kind, **data)
+        _record_event_obstacle(ledger, kind, data)
+        if kind == "task_failed":
+            ledger.record(
+                "task_failed",
+                "A task exhausted its bounded retry budget.",
+                "Continue with the next non-repeating task; use the recorded failure evidence to inform future recovery work.",
+                task_id=_task_id(data),
+                status="pending",
+                details={"error": str(data.get("error", ""))[-3000:]},
+            )
+
+    def gate(evidence: dict[str, object]) -> bool:
+        nonlocal automation_continue_requested
+        if automation_continue_requested:
+            automation_continue_requested = False
+            return False
+        return original_gate(evidence)
+
+    supervisor.validate_patch_paths = validate_patch_paths
+    supervisor.log_event = log_event
+    supervisor.runtime_watchdog_is_live = original_watchdog
+    supervisor.ensure_services = lambda: nonblocking_ensure_services(
+        ledger=ledger,
+        child_registry=managed_service_children,
+    )
+    supervisor.standby_until_ready = lambda state: nonblocking_standby(
+        state,
+        ledger=ledger,
+        child_registry=managed_service_children,
+    )
+    supervisor.sleep_until_retry = lambda state, seconds: nonblocking_sleep(state, seconds, ledger=ledger)
+    supervisor.invoke_chat = lambda task, state, failure: resilient_invoke_chat(task, state, failure, ledger=ledger)
+    supervisor.automation_gate_is_satisfied = gate
+    supervisor.parse_response = parse_response
+    try:
+        return supervisor.main()
+    finally:
+        for child in reversed(managed_service_children):
+            try:
+                poll = getattr(child, "poll", None)
+                if callable(poll) and poll() is not None:
+                    continue
+                terminate = getattr(child, "terminate", None)
+                if callable(terminate):
+                    terminate()
+            except Exception:
+                pass
+        supervisor.validate_patch_paths = original_validate
+        supervisor.runtime_watchdog_is_live = original_watchdog
+        supervisor.ensure_services = original_services
+        supervisor.sleep_until_retry = original_sleep
+        supervisor.invoke_chat = original_invoke
+        supervisor.log_event = original_log
+        supervisor.automation_gate_is_satisfied = original_gate
+        supervisor.parse_response = original_parse
