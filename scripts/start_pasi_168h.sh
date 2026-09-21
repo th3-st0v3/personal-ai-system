@@ -58,20 +58,18 @@ if [[ ! -f "$ROADMAP_PATH" ]]; then
     exit 3
 fi
 "$PYTHON" - "$ROADMAP_PATH" <<'PY'
-import json
 import sys
 from pathlib import Path
 
+from scripts.pasi_hybrid_planner import PlannerError, load_roadmap
+
 path = Path(sys.argv[1])
 try:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-except (OSError, json.JSONDecodeError) as exc:
-    print(f"error: roadmap is not valid JSON: {exc}", file=sys.stderr)
+    tasks = load_roadmap(path)
+except PlannerError as exc:
+    print(f"error: invalid PASI roadmap: {exc}", file=sys.stderr)
     raise SystemExit(1)
-if not isinstance(payload, (list, dict)):
-    print("error: roadmap must be a JSON object or task list", file=sys.stderr)
-    raise SystemExit(1)
-print(f"Roadmap: {path}")
+print(f"Roadmap: {path} ({len(tasks)} tasks; dependency graph valid)")
 PY
 
 TOKEN_FILE="$HOME/.pasi/bridge-token"
