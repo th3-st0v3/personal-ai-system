@@ -88,6 +88,47 @@ class OvernightHardeningTests(unittest.TestCase):
             self.assertIn("scripts/pasi_provider_router.py", command)
             self.assertNotIn("scripts/pasi_chat_guard.py", command)
 
+    def test_nonblocking_service_restart_is_retained_for_shutdown(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger = ObstacleLedger(root)
+
+            class Child:
+                def __init__(self) -> None:
+                    self.terminated = False
+                def poll(self) -> None:
+                    return None
+                def terminate(self) -> None:
+                    self.terminated = True
+
+            child = Child()
+            registry: list[object] = []
+            with patch.object(supervisor, "healthy", return_value=False), patch.object(
+                hardening.subprocess, "Popen", return_value=child
+            ):
+                started = hardening.nonblocking_ensure_services(ledger=ledger, child_registry=registry)
+
+            self.assertEqual(started, [child])
+            self.assertEqual(registry, [child])
+
+    def test_nonblocking_service_restart_does_not_spawn_duplicate_while_child_is_live(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger = ObstacleLedger(root)
+
+            class Child:
+                def poll(self) -> None:
+                    return None
+
+            registry: list[object] = [Child()]
+            with patch.object(supervisor, "healthy", return_value=False), patch.object(
+                hardening.subprocess, "Popen"
+            ) as popen:
+                started = hardening.nonblocking_ensure_services(ledger=ledger, child_registry=registry)
+
+            self.assertEqual(started, [])
+            popen.assert_not_called()
+
     def test_nonblocking_service_recovery_is_native_bridge_only(self) -> None:
         import inspect
 
