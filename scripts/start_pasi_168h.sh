@@ -389,7 +389,7 @@ printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
 
 log_file="$RUNTIME_DIR/runner.log"
 # The 168-hour supervisor owns restart/recovery of the extended runtime. Its engine handoff target is scripts/pasi_extended_runtime_entrypoint.py.
-nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "$@" < /dev/null > /dev/null 2>&1 &
+nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "$@" < /dev/null > /dev/null 2>&1 &
 pid=$!
 
 runner_start_deadline=$((SECONDS + 15))
