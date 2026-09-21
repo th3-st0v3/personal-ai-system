@@ -9,6 +9,13 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_guard_waits_for_child_exit_without_polling_for_process_completion(self) -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        self.assertIn("process.wait(timeout=timeout)", source)
+        self.assertIn("monitor_browser_state", source)
+        self.assertIn("monitor_stop.wait(bridge_poll_seconds)", source)
+        self.assertNotIn("time.sleep(bridge_poll_seconds)", source)
+
     def test_guard_timeout_cancels_active_bridge_operation(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn("def cancel_active_operation(reason: str)", source)

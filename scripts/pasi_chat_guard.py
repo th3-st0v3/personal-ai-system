@@ -172,35 +172,47 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
     output: list[str] = []
     reader = threading.Thread(target=_reader, args=(process.stdout, output), daemon=True)
     reader.start()
-    started = time.monotonic()
-    classification: str | None = None
+    classification_lock = threading.Lock()
+    classification: list[str | None] = [None]
+    monitor_stop = threading.Event()
 
-    while process.poll() is None:
-        if time.monotonic() - started >= timeout:
-            cancel_active_operation("guard timeout before child termination")
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-            classification = "guard_timeout"
-            break
+    def monitor_browser_state() -> None:
+        while not monitor_stop.is_set():
+            if process.poll() is not None:
+                return
+            observed = classify_observation(request_json("/browser/observation"))
+            if observed in {"usage_limit", "auth_required"}:
+                with classification_lock:
+                    classification[0] = observed
+                if process.poll() is None:
+                    process.terminate()
+                return
+            monitor_stop.wait(bridge_poll_seconds)
 
-        classification = classify_observation(request_json("/browser/observation"))
-        if classification in {"usage_limit", "auth_required"}:
+    monitor = threading.Thread(target=monitor_browser_state, daemon=True)
+    monitor.start()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        with classification_lock:
+            classification[0] = "guard_timeout"
+        cancel_active_operation("guard timeout before child termination")
+        if process.poll() is None:
             process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-            break
-        time.sleep(bridge_poll_seconds)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    finally:
+        monitor_stop.set()
+        monitor.join(timeout=max(1.0, bridge_poll_seconds * 2))
 
     reader.join(timeout=2)
     combined = "".join(output)
-    return (process.returncode if process.returncode is not None else 1), classification, combined
+    with classification_lock:
+        final_classification = classification[0]
+    return (process.returncode if process.returncode is not None else 1), final_classification, combined
 
 
 def extract_response_text(output: str) -> str:
