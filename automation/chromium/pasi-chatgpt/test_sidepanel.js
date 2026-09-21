@@ -56,6 +56,11 @@ test('side panel keeps drag/drop as a preference while rejecting dependency-viol
   assert.match(script, /Hybrid Planner remains authoritative/);
 });
 
+test('side panel bounds raw roadmap storage before persisting local state', () => {
+  assert.match(script, /MAX_RAW_ROADMAP_CHARS = 500000/);
+  assert.match(script, /raw\.length > MAX_RAW_ROADMAP_CHARS/);
+});
+
 test('side panel stores raw roadmap input locally and does not pretend cloud dissection is already connected', () => {
   assert.match(script, /pasi:control-center/);
   assert.match(script, /state\.rawRoadmap = raw/);
