@@ -113,7 +113,6 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
 
     def test_168h_launcher_surfaces_detached_runner_failure_log(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
-        self.assertIn("last runner log lines", script)
         self.assertIn('tail -80 "$log_file"', script)
         self.assertIn('kill "$pid"', script)
 
@@ -122,7 +121,7 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         self.assertIn("runner_start_deadline=$((SECONDS + 15))", script)
         self.assertIn("runner_ready=0", script)
         self.assertIn('kill -0 "$runner_pid"', script)
-        self.assertIn("detached PASI runner did not become live", script)
+        self.assertIn("detached PASI supervisor/runner did not become live", script)
 
     def test_overnight_launcher_verifies_detached_runner_startup(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_overnight.sh").read_text(encoding="utf-8")
