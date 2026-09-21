@@ -623,7 +623,7 @@ test('native handoff latency records both bridge-ack and response-complete bound
 });
 
 test('native handoff latency is persisted in operation timing without an extra telemetry request', () => {
-  const start = content.indexOf('const submission = await submitPrompt(promptText);');
+  const start = content.indexOf('const submission = await submitPrompt(promptText, {');
   const end = content.indexOf('if (!submission.verified)', start);
   const source = content.slice(start, end);
   assert.match(source, /completion_to_prompt_injected_ms/);
@@ -649,7 +649,8 @@ test('native chained operation carries completion acknowledgement timing', () =>
   assert.match(content, /lastCompletionAckAtMs = Date\.now\(\)/);
   assert.match(content, /__pasi_completion_ack_at_ms/);
   assert.match(content, /completion_to_prompt_injected_ms/);
-  assert.match(content, /pasi_latency_measurement/);
+  assert.match(content, /response_completed_to_prompt_injected_ms/);
+  assert.match(content, /__pasi_response_completed_at_ms/);
 });
 
 test('native completion acknowledgement returns a durable next-operation handoff', () => {
