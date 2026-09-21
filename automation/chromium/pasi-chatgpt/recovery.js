@@ -8,6 +8,7 @@
   const RECOVERY_PROGRESS = globalThis.PASI_RECOVERY_PROGRESS;
   const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
   const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY.generationMs || 60 * 60 * 1000;
+  const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY.recoveryTriggerMs || GENERATION_TIMEOUT_MS;
   const RECOVERY_GRACE_MS = TIMEOUT_POLICY.recoveryGraceMs || 10 * 60 * 1000;
   const RECOVERY_STALL_MS = TIMEOUT_POLICY.recoveryStallMs || 8 * 60 * 1000;
   const RECOVERY_HARD_CEILING_MS = TIMEOUT_POLICY.recoveryHardCeilingMs || 90 * 60 * 1000;
@@ -661,6 +662,7 @@
         idle_ms: decision.idleMs,
         recovery_started_at_ms: recoveryStartedAtMs,
         generation_timeout_ms: GENERATION_TIMEOUT_MS,
+        recovery_trigger_ms: RECOVERY_TRIGGER_MS,
         hard_ceiling_ms: RECOVERY_HARD_CEILING_MS
       });
       progressOperationId = null;
