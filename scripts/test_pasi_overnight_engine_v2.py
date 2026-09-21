@@ -612,14 +612,14 @@ branch refs/heads/main
                     ),
                 ):
                     with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
-                    with mock.patch.object(engine, "parse_response", return_value=parsed):
-                        with mock.patch.object(engine, "completion_contract", return_value=True):
-                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
-                                with mock.patch.object(engine, "record_task_ledger"):
-                                    with mock.patch.object(engine, "save_state"):
-                                        with mock.patch.object(engine, "sleep_until_retry", return_value=True):
-                                            with mock.patch.object(engine, "log_event"):
-                                                engine.run(state, push=False)
+                        with mock.patch.object(engine, "parse_response", return_value=parsed):
+                            with mock.patch.object(engine, "completion_contract", return_value=True):
+                                with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                    with mock.patch.object(engine, "record_task_ledger"):
+                                        with mock.patch.object(engine, "save_state"):
+                                            with mock.patch.object(engine, "sleep_until_retry", return_value=True):
+                                                with mock.patch.object(engine, "log_event"):
+                                                    engine.run(state, push=False)
         finally:
             engine.STOP = original_stop
 
