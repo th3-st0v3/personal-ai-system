@@ -948,11 +948,18 @@
   }
 
   function latestAssistant() {
-    const nodes = assistants();
-    return nodes.length ? extractAssistant(nodes[nodes.length - 1]) : '';
+    const nodes = document.querySelectorAll('[data-message-author-role="assistant"]');
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      if (visible(nodes[index])) return extractAssistant(nodes[index]);
+    }
+    return '';
   }
 
-  function fingerprint() { return collapseWhitespace(latestAssistant()).slice(-4000); }
+  function fingerprintFromText(value) {
+    return collapseWhitespace(value).slice(-4000);
+  }
+
+  function fingerprint() { return fingerprintFromText(latestAssistant()); }
 
   function nearbyScopedControls(box) {
     const controls = [];
@@ -1294,7 +1301,7 @@
         const responseText = latestAssistant();
         return (
           responseText &&
-          fingerprint() !== baseline &&
+          fingerprintFromText(responseText) !== baseline &&
           completionMarkersSatisfied(responseText, completionMarkers)
         ) ? responseText : null;
       }
