@@ -90,6 +90,7 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "payload?.operation?.status === 'completed'" in native
     assert "payload?.operation?.response_text_available === true" in native
     assert "Boolean(payload.operation.response_text.trim())" in native
+    assert "ack_only: true" in native
 
 
 def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_context_polling() -> None:
