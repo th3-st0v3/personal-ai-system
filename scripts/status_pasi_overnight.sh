@@ -7,6 +7,7 @@ RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
 PID_FILE="$RUNTIME_DIR/runner.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
+SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
 
 if [[ -f "$PID_FILE" ]]; then
@@ -18,6 +19,17 @@ if [[ -f "$PID_FILE" ]]; then
     fi
 else
     printf 'Runner: INACTIVE\n'
+fi
+
+if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+    supervisor_pid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)"
+    if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
+        printf 'Supervisor: ACTIVE (PID %s)\n' "$supervisor_pid"
+    else
+        printf 'Supervisor: INACTIVE (stale PID file)\n'
+    fi
+else
+    printf 'Supervisor: INACTIVE\n'
 fi
 
 if [[ -f "$START_PID_FILE" ]]; then
@@ -46,7 +58,6 @@ if [[ -f "$STATE_FILE" ]]; then
 fi
 
 printf '\nManaged services:\n'
-printf '\nManaged services:\n'
 for spec in \
     "PASI bridge|$BRIDGE_PID_FILE|pasi_log_router.py"; do
     name="$(printf '%s' "$spec" | cut -d'|' -f1)"
@@ -72,6 +83,14 @@ done
 printf '\nServices:\n'
 curl -fsS http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
 printf '\n'
-if command -v curl >/dev/null 2>&1; then
-    curl -fsS http://127.0.0.1:8765/browser/observation 2>/dev/null || printf 'browser observation: unavailable\n'
+token=""
+if [[ -n "${PASI_BRIDGE_TOKEN:-}" ]]; then
+    token="$PASI_BRIDGE_TOKEN"
+elif [[ -r "$HOME/.pasi/bridge-token" ]]; then
+    token="$(cat "$HOME/.pasi/bridge-token" 2>/dev/null || true)"
+fi
+if [[ -n "$token" ]]; then
+    curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8765/browser/health 2>/dev/null || printf 'browser health: unavailable\n'
+else
+    printf 'browser health: bridge token unavailable\n'
 fi
