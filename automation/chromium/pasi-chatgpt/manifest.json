@@ -5,13 +5,20 @@
   "description": "Native Chromium controller and watchdog for Personal AI System ChatGPT automation.",
   "permissions": [
     "alarms",
-    "storage"
+    "storage",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://www.chatgpt.com/*",
     "http://127.0.0.1:8765/*"
   ],
+  "action": {
+    "default_title": "Open PASI Control Center"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "background": {
     "service_worker": "background.js"
   },
