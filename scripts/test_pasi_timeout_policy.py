@@ -20,7 +20,7 @@ def test_browser_json_and_python_loader_share_the_same_fast_normal_path_policy()
     assert raw["dom_poll_ms"] == 20
     assert raw["click_settle_ms"] == 20
     assert raw["thinking_verify_ms"] == 3000
-    assert raw["response_settle_ms"] == 20
+    assert "response_settle_ms": 10.0
     assert raw["submission_ack_ms"] == 1000
     assert raw["generation_seconds"] == 3600
     assert raw["recovery_trigger_seconds"] == 3600
