@@ -36,6 +36,9 @@ class ExtendedRuntimeTests(unittest.TestCase):
             else:
                 runtime.supervisor.MAX_HOURS = original_supervisor
 
+    def test_roadmap_argument_is_detected_in_passthrough(self) -> None:
+        self.assertTrue(runtime.roadmap_argument_present(["--roadmap", "/tmp/roadmap.json"]))
+        self.assertFalse(runtime.roadmap_argument_present(["--hours", "168"]))
     def test_task_source_precedence_matches_documented_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
