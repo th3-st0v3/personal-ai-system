@@ -49,6 +49,7 @@
   let immediatePollQueued = false;
   let immediateOperationQueued = false;
   let lastCompletionAckAtMs = 0;
+  let activeRecoveryState = null;
 
   function scheduleImmediateOperation(operation) {
     if (immediateOperationQueued || extensionContextInvalidated || !operation?.operation_id) return;
@@ -1521,7 +1522,7 @@
         controllerClaimedAt = 0;
       });
     }, 3000);
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify({
+    activeRecoveryState = {
       operation_id: operation.operation_id,
       operation_type: operation.operation_type,
       started_at: new Date().toISOString(),
@@ -1529,7 +1530,8 @@
       reasoning_mode: reasoningMode,
       github_attached: githubAttached,
       github_repository: githubRepository
-    }));
+    };
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeRecoveryState));
     let finalized = false;
     let chainedOperation = null;
     try {
@@ -1549,11 +1551,19 @@
           }, PREVIOUS_RESPONSE_WAIT_MS, DOM_POLL_MS);
           if (!box) throw new Error(generating() ? 'PASI_NATIVE: previous response still generating' : 'PASI_NATIVE: composer unavailable');
           const baseline = fingerprint();
-          let activeState = {};
-          try {
-            activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
-          } catch (_) {}
-          localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
+          if (!activeRecoveryState || activeRecoveryState.operation_id !== operation.operation_id) {
+            activeRecoveryState = {
+              operation_id: operation.operation_id,
+              operation_type: operation.operation_type,
+              started_at: new Date().toISOString(),
+              chat_url: chatUrl(),
+              reasoning_mode: reasoningMode,
+              github_attached: githubAttached,
+              github_repository: githubRepository
+            };
+          }
+          activeRecoveryState.baseline = baseline;
+          localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeRecoveryState));
           const promptText = operationPrompt(operation);
           const submission = await submitPrompt(promptText);
           const browserTiming = { ...(submission.timing || {}) };
@@ -1631,9 +1641,11 @@
         );
 
       if (contextRecoveryEligible) {
+        activeRecoveryState = null;
         rememberContextRecovery(operation, error);
         finalized = false;
       } else if (responseRecoveryEligible) {
+        activeRecoveryState = null;
         rememberResponseRecovery(operation, error);
         finalized = false;
       } else {
@@ -1660,6 +1672,7 @@
       processing = false;
       if (finalized) {
         localStorage.removeItem(ACTIVE_KEY);
+        activeRecoveryState = null;
         if (recoveryResumeOperationId() === operation.operation_id) {
           localStorage.removeItem(RECOVERY_KEY);
         }

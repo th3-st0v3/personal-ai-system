@@ -603,6 +603,17 @@ test('native handoff latency only uses numeric injection timestamps', () => {
   assert.match(content, /typeof browserTiming\.injected_at_ms === 'number'/);
 });
 
+test('native prompt baseline update reuses in-memory recovery state', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  assert.match(source, /let activeRecoveryState = null;/);
+  assert.match(source, /activeRecoveryState = \{/);
+  assert.match(source, /activeRecoveryState\.baseline = baseline/);
+  assert.doesNotMatch(source, /let activeState = \{\};/);
+  assert.doesNotMatch(source, /JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\)/);
+});
+
 test('native chained operation carries completion acknowledgement timing', () => {
   assert.match(content, /lastCompletionAckAtMs = Date\.now\(\)/);
   assert.match(content, /__pasi_completion_ack_at_ms/);
