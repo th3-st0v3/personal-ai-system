@@ -13,6 +13,24 @@ export PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}"
 export PASI_RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 export PASI_ROADMAP_PATH="${PASI_ROADMAP_PATH:-$REPO_ROOT/roadmaps/pasi-default.json}"
 
+# The launcher owns --roadmap so it can validate the exact selected file before
+# the detached supervisor starts. All other arguments pass through unchanged.
+launcher_args=()
+while (( $# )); do
+    case "$1" in
+        --roadmap)
+            [[ $# -ge 2 ]] || { printf 'error: --roadmap requires a path\n' >&2; exit 2; }
+            PASI_ROADMAP_PATH="$2"
+            shift 2
+            ;;
+        *)
+            launcher_args+=( "$1" )
+            shift
+            ;;
+    esac
+done
+export PASI_ROADMAP_PATH
+
 PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 LOCK_FILE="$RUNTIME_DIR/start.lock"
@@ -412,7 +430,7 @@ printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
 
 log_file="$RUNTIME_DIR/runner.log"
 # The 168-hour supervisor owns restart/recovery of the extended runtime. Its engine handoff target is scripts/pasi_extended_runtime_entrypoint.py.
-nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "$@" --roadmap "$ROADMAP_PATH" < /dev/null > /dev/null 2>&1 &
+nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "${launcher_args[@]}" < /dev/null > /dev/null 2>&1 &
 pid=$!
 
 runner_start_deadline=$((SECONDS + 15))
