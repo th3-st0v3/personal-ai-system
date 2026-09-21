@@ -14,6 +14,7 @@
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
   const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;
   const SUBMISSION_ATTEMPTS = 3;
+  const COMPLETION_RETRY_DELAY_MS = 20;
   const TIMEOUTS = {
     menu: TIMEOUT_POLICY.menuMs || 8000,
     composer: TIMEOUT_POLICY.composerMs || 15000,
@@ -1307,7 +1308,7 @@
         ) return;
       } catch (_) {}
 
-      if (attempt < 3) await sleep(150);
+      if (attempt < 3) await sleep(COMPLETION_RETRY_DELAY_MS);
     }
     throw lastError || new Error('PASI_NATIVE: bridge completion failed');
   }
