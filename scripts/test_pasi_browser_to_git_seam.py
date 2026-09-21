@@ -15,7 +15,7 @@ CONTENT_JS = ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 def extract_via_native_message_text(fixture: str) -> str:
     source = CONTENT_JS.read_text(encoding="utf-8")
     start = source.index("function messageText(node)")
-    end = source.index("  function newestUserMatches", start)
+    end = source.index("  function snapshotUserMessages", start)
     function_source = source[start:end]
     script = textwrap.dedent(
         """
