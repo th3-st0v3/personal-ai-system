@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import urllib.error
@@ -242,11 +243,17 @@ def load_roadmap(path: Path) -> tuple[TaskSpec, ...]:
     return validate_roadmap(tasks)
 
 
+def roadmap_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def load_roadmap_with_overlay(
     source_path: Path,
     overlay_path: Path | None = None,
 ) -> tuple[TaskSpec, ...]:
+    source_path = source_path.expanduser().resolve()
     tasks = list(load_roadmap(source_path))
+    source_digest = roadmap_sha256(source_path)
     if overlay_path is None or not overlay_path.is_file():
         return tuple(tasks)
     try:
@@ -255,6 +262,8 @@ def load_roadmap_with_overlay(
         raise PlannerError(f"invalid roadmap decomposition overlay: {overlay_path}") from exc
     if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != SCHEMA_VERSION:
         raise PlannerError("invalid roadmap decomposition overlay schema")
+    if raw.get("roadmap_sha256") != source_digest:
+        return tuple(tasks)
     decompositions = raw.get("decompositions", {})
     generated = raw.get("generated_tasks", [])
     if not isinstance(decompositions, dict) or not isinstance(generated, list):
@@ -303,8 +312,11 @@ def save_decomposition_overlay(
     *,
     parent: TaskSpec,
     children: Sequence[TaskSpec],
+    roadmap_path: Path,
 ) -> None:
     children = validate_decomposition(parent, children)
+    source_path = roadmap_path.expanduser().resolve()
+    source_digest = roadmap_sha256(source_path)
     decompositions: dict[str, dict[str, Any]] = {}
     generated: dict[str, dict[str, Any]] = {}
     if path.is_file():
@@ -336,6 +348,7 @@ def save_decomposition_overlay(
         generated[child.id] = child.to_dict()
     payload = {
         "schema_version": SCHEMA_VERSION,
+        "roadmap_sha256": source_digest,
         "decompositions": decompositions,
         "generated_tasks": list(generated.values()),
     }
