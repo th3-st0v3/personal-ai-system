@@ -66,7 +66,7 @@ test('native content controller participates in the serialized controller lease'
 test('native content controller reuses a fresh lease for the immediate completion poll', () => {
   assert.match(content, /let controllerClaimedAt = 0/);
   assert.match(content, /const CONTROLLER_CLAIM_CACHE_MS = 2000/);
-  assert.match(content, /function controllerClaim\\(\\{ force = false \\} = \\{\\}\\)/);
+  assert.match(content, /function controllerClaim\(\{ force = false \} = \{\}\)/);
   assert.match(content, /if \\(!force && controllerLeader && now - controllerClaimedAt < CONTROLLER_CLAIM_CACHE_MS\\)/);
   assert.match(content, /controllerClaim\\(\\{ force: true \\}\\)/);
   assert.match(content, /if \\(!finalized\\) \\{/);
@@ -122,7 +122,8 @@ test('native controller chains the next queued operation immediately after termi
   assert.match(content, /let immediatePollQueued = false;/);
   assert.match(content, /function scheduleImmediatePoll\(\)/);
   assert.match(content, /queueMicrotask\(\(\) =>/);
-  assert.match(content, /if \(finalized\) scheduleImmediatePoll\(\)/);
+  assert.match(content, /if \(chainedOperation\?\.operation_id\) scheduleImmediateOperation\(chainedOperation\);/);
+  assert.match(content, /else scheduleImmediatePoll\(\)/);
   assert.match(content, /void reportHealth\(\)/);
   assert.match(content, /const detail = errorMessage \+ ' \| ui=' \+ JSON\.stringify\(captureUiDiagnostics\(\)\)/);
 });
@@ -365,7 +366,7 @@ test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.ok(background.includes("https://chatgpt.com/"));
   assert.ok(background.includes("https://www.chatgpt.com/") || background.includes("www.chatgpt.com"));
   assert.ok(background.includes("allowedBridgeRequest(method, path)"));
-  assert.ok(background.includes("bridgeFetch(path, method, body, 10000)"));
+  assert.ok(background.includes("bridgeFetch(path, method, body, timeoutMs)"));
   assert.ok(manifest.host_permissions.includes("http://127.0.0.1:8765/*"));
   assert.ok(!content.includes("fetch(BRIDGE"));
   assert.ok(!content.includes("http://127.0.0.1:8765/operation"));
@@ -445,14 +446,13 @@ test('native prompt completion refuses an empty response payload while non-promp
 });
 
 test('native prompt submission tolerates corrupt active recovery state', () => {
-  assert.match(content, /let activeState = \{\};/);
-  assert.match(content, /try \{\s*activeState = JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\) \|\| '\{\}'\);/);
+  assert.match(content, /let stored = null;/);
+  assert.match(content, /stored = JSON\.parse\(localStorage\.getItem\(ACTIVE_KEY\) \|\| 'null'\);/);
   assert.match(content, /catch \(_\) \{\}/);
 });
 
 test('native response recovery keeps the pre-prompt baseline after a timeout', () => {
-  assert.match(content, /const baseline = fingerprint\(\);/);
-  assert.match(content, /localStorage\.setItem\(ACTIVE_KEY, JSON\.stringify\(\{ \.\.\.activeState, baseline \}\)\);/);
+  assert.match(content, /activeRecoveryState\.baseline = baseline/);
   assert.match(content, /baseline: typeof stored\?\.baseline === 'string' \? stored\.baseline : fingerprint\(\),/);
 });
 
