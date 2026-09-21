@@ -40,7 +40,7 @@ To reconcile allowlisted dependencies and the optional local model:
 python3 scripts/reconcile_runner_capabilities.py --apply --apply-optional --json
 ```
 
-The same operation is exposed by the `pasi-runner-capabilities` GitHub workflow. It writes an atomic capability report at `~/.pasi/runner/capabilities.json` and uploads sanitized evidence.
+The same operation is exposed by the `pasi-runner-capabilities` GitHub workflow. It writes an atomic capability report at `~/.pasi/runner/capabilities.json` and uploads sanitized evidence. The runner state/control files follow `PASI_RUNTIME_DIR` when set; the default runtime directory is `~/.pasi/overnight`.
 
 ## Automation operation
 
