@@ -208,7 +208,7 @@ test('native prompt submission retains stable Thinking selectors while using bes
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the control/);
   assert.match(content, /Thinking state is ambiguous; refusing to toggle the menu control/);
   assert.match(content, /const promptText = operationPrompt\(operation\);/);
-  assert.match(content, /await submitPrompt\(promptText\)/);
+  assert.match(content, /const submission = await submitPrompt\(promptText, \{/);
   assert.match(content, /const DOM_POLL_MS = TIMEOUT_POLICY\.domPollMs \|\| 100/);
   assert.match(content, /const PREVIOUS_RESPONSE_WAIT_MS = 5 \* 60 \* 1000;/);
   assert.match(content, /const GENERATION_START_WAIT_MS = 30 \* 1000;/);
