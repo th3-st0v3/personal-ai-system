@@ -736,6 +736,10 @@ def ai_decompose_with_ollama(
         if not isinstance(item, dict):
             raise PlannerError("planner AI returned an invalid child task")
         child = task_from_mapping(item, default_phase=task.phase)
+        if child.decomposition_parent and child.decomposition_parent != task.id:
+            raise PlannerError(
+                f"decomposition child {child.id} identified a conflicting parent"
+            )
         inherited_dependencies = tuple(dict.fromkeys((*task.depends_on, *child.depends_on)))
         inherited_scope = child.allowed_paths or task.allowed_paths
         child = TaskSpec(
@@ -751,7 +755,7 @@ def ai_decompose_with_ollama(
             estimated_size=child.estimated_size,
             phase=child.phase,
             status=child.status,
-            decomposition_parent=child.decomposition_parent,
+            decomposition_parent=task.id,
             decomposed_children=child.decomposed_children,
         )
         children.append(child)
