@@ -612,6 +612,16 @@ test('native completion telemetry is deferred off the hot path', () => {
   assert.doesNotMatch(source, /publishResponseTelemetry\(\);\n    let lastError/);
 });
 
+
+test('native handoff latency records both bridge-ack and response-complete boundaries', () => {
+  const start = content.indexOf('const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);');
+  const end = content.indexOf("void reportObservation('prompt_injected'", start);
+  const source = content.slice(start, end);
+  assert.match(source, /completion_to_prompt_injected_ms/);
+  assert.match(source, /const previousResponseCompletedAtMs = Number\(operation\.__pasi_response_completed_at_ms\)/);
+  assert.match(source, /response_completed_to_prompt_injected_ms/);
+});
+
 test('native handoff latency is persisted in operation timing without an extra telemetry request', () => {
   const start = content.indexOf('const submission = await submitPrompt(promptText);');
   const end = content.indexOf('if (!submission.verified)', start);
