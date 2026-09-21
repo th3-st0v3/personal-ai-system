@@ -18,6 +18,8 @@ def task(
     splittable: bool = False,
     estimated_size: str = "medium",
     allowed_paths: tuple[str, ...] = ("scripts/",),
+    decomposition_parent: str = "",
+    decomposed_children: tuple[str, ...] = (),
 ) -> planner.TaskSpec:
     return planner.TaskSpec(
         id=task_id,
@@ -31,6 +33,8 @@ def task(
         status=status,
         splittable=splittable,
         estimated_size=estimated_size,
+        decomposition_parent=decomposition_parent,
+        decomposed_children=decomposed_children,
     )
 
 
@@ -80,15 +84,26 @@ class TestHybridPlanner(unittest.TestCase):
         eligible = planner.eligible_tasks(tasks, ledger)
         self.assertEqual([item.id for item in eligible], ["child"])
 
-    def test_decomposed_parent_satisfies_child_dependency(self) -> None:
+    def test_decomposed_parent_is_not_satisfied_until_all_children_complete(self) -> None:
         tasks = (
-            task("parent", status="decomposed", splittable=True, estimated_size="large"),
-            task("child", depends_on=("parent",)),
+            task(
+                "parent",
+                status="decomposed",
+                splittable=True,
+                estimated_size="large",
+                decomposed_children=("parent.one", "parent.two"),
+            ),
+            task("parent.one", decomposition_parent="parent"),
+            task("parent.two", decomposition_parent="parent"),
+            task("after", depends_on=("parent",)),
         )
         ledger = {
             "parent": {"task_id": "parent", "task": "parent", "status": "decomposed"},
+            "parent.one": {"task_id": "parent.one", "task": "one", "status": "completed"},
         }
-        self.assertEqual([item.id for item in planner.eligible_tasks(tasks, ledger)], ["child"])
+        self.assertNotIn("after", [item.id for item in planner.eligible_tasks(tasks, ledger)])
+        ledger["parent.two"] = {"task_id": "parent.two", "task": "two", "status": "completed"}
+        self.assertIn("after", [item.id for item in planner.eligible_tasks(tasks, ledger)])
 
     def test_deterministic_rank_uses_priority_then_unblock_count_then_id(self) -> None:
         tasks = (
@@ -151,28 +166,28 @@ class TestHybridPlanner(unittest.TestCase):
             estimated_size="large",
             allowed_paths=("scripts/",),
         )
-        good = task("parent.one", depends_on=("parent",), allowed_paths=("scripts/subdir/",))
-        good_two = task("parent.two", depends_on=("parent",), allowed_paths=("scripts/",))
+        good = task("parent.one", decomposition_parent="parent", allowed_paths=("scripts/subdir/",))
+        good_two = task("parent.two", decomposition_parent="parent", allowed_paths=("scripts/",))
         planner.validate_decomposition(parent, (good, good_two))
 
-        bad_scope = task("parent.bad", depends_on=("parent",), allowed_paths=("automation/",))
+        bad_scope = task("parent.bad", decomposition_parent="parent", allowed_paths=("automation/",))
         with self.assertRaisesRegex(planner.PlannerError, "scope"):
             planner.validate_decomposition(parent, (good, bad_scope))
 
-        bad_dependency = task("parent.bad2", depends_on=("parent", "outside"))
+        bad_dependency = task("parent.bad2", decomposition_parent="parent", depends_on=("outside",))
         with self.assertRaisesRegex(planner.PlannerError, "external dependency"):
             planner.validate_decomposition(parent, (good, bad_dependency))
 
     def test_decomposition_overlay_round_trips_without_erasing_previous_entries(self) -> None:
         parent = task("parent", splittable=True, estimated_size="large")
         children = (
-            task("parent.one", depends_on=("parent",)),
-            task("parent.two", depends_on=("parent",)),
+            task("parent.one", decomposition_parent="parent"),
+            task("parent.two", decomposition_parent="parent"),
         )
         other_parent = task("other", splittable=True, estimated_size="large")
         other_children = (
-            task("other.one", depends_on=("other",)),
-            task("other.two", depends_on=("other",)),
+            task("other.one", decomposition_parent="other"),
+            task("other.two", decomposition_parent="other"),
         )
         with tempfile.TemporaryDirectory() as directory:
             overlay = Path(directory) / "overlay.json"
