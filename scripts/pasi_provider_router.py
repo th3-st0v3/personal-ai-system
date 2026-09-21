@@ -212,10 +212,18 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
         not in {
             "PASI_BRIDGE_TOKEN",
             "GITHUB_TOKEN",
+            "GH_TOKEN",
             "OPENROUTER_API_KEY",
             "PERPLEXITY_API_KEY",
             "NVIDIA_API_KEY",
+            "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+            "GEMINI_API_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "SSH_AUTH_SOCK",
         }
     }
     ignored = shutil.ignore_patterns(".git", ".runtime", ".venv", "__pycache__", "*.pyc")
