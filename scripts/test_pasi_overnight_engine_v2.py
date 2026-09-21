@@ -482,13 +482,13 @@ branch refs/heads/main
                     ),
                 ):
                     with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
-                    with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
-                        with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
-                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
-                                with mock.patch.object(engine, "record_task_ledger"):
-                                    with mock.patch.object(engine, "save_state"):
-                                        with mock.patch.object(engine, "log_event"):
-                                            engine.run(state, push=False)
+                        with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
+                            with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
+                                with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                    with mock.patch.object(engine, "record_task_ledger"):
+                                        with mock.patch.object(engine, "save_state"):
+                                            with mock.patch.object(engine, "log_event"):
+                                                engine.run(state, push=False)
         finally:
             engine.STOP = original_stop
 
@@ -503,7 +503,13 @@ branch refs/heads/main
         )
         self.assertEqual(state.failed_tasks, 1)
         self.assertEqual(state.completed_tasks, 1)
-        self.assertEqual(state.current_task, engine.AUTOMATION_TASKS[2])
+        self.assertEqual(
+            state.current_task,
+            "TITLE: After retry\nOBJECTIVE: Proceed to the next verified task.\n"
+            "ACCEPTANCE CRITERIA:\n- The task is verified.\n"
+            "VERIFICATION:\n- Run the targeted test.",
+        )
+        self.assertEqual(state.current_task_id, "automation.after-retry")
         self.assertEqual(state.task_retry_cycle, 0)
 
     def test_failed_task_is_excluded_before_next_selection(self) -> None:
