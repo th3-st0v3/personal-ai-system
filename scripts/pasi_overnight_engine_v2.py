@@ -698,9 +698,14 @@ def choose_run_start_task(
     history = load_roadmap_selection_history()
     prior_repeats = consecutive_roadmap_selection_count(history, phase, candidate.execution_text())
     guard_applied = prior_repeats >= ROADMAP_CONSECUTIVE_RUN_LIMIT
-    if guard_applied and len(candidates) > 1:
-        ordered = [task for task in candidates if task.id != candidate.id]
-        candidate = ordered[0]
+    if guard_applied:
+        ledger = load_task_ledger()
+        eligible = hybrid_planner.eligible_tasks(candidates, ledger, phase=phase)
+        alternatives = [task for task in eligible if task.id != candidate.id]
+        if alternatives:
+            candidate = hybrid_planner.deterministic_rank(alternatives, candidates, ledger)[0]
+        else:
+            guard_applied = False
 
     updated = [
         *history,
@@ -1325,21 +1330,13 @@ def no_change_completion_is_satisfied(
     )
 
 
-def continuation_directive(state: OvernightState, _task: str | None = None) -> str:
-    """Return task-local continuation guidance.
-
-    The prompt compiler owns the durable prompt layout and full task context.
-    This helper remains for callers that need the continuation section directly.
-    """
-    return """TASK CONTINUATION:
-- Work continuously on CURRENT TASK until it is implemented, tested, diagnosed, and verified.
-- IF the CURRENT TASK is already satisfied by verified repository changes and evidence, THEN do not re-implement it or make cosmetic duplicates; immediately work on the next incomplete roadmap item and return the required completion contract and a concrete next task.
-- Inspect the current repository state before editing; do not assume a prior attempt succeeded.
-- If the same failure repeats, change approach rather than repeating the failed path; use only the supplied PREVIOUS FAILURE EVIDENCE.
-- After verified completion, set PASI_RESULT_NEXT_TASK to one concrete high-value follow-up. The scheduler owns the full roadmap and will choose/validate the next task; do not reproduce the roadmap in this response.
-- If no concrete repository change remains, report PASI_RESULT_REPOSITORY_PROGRESS: stopped with an empty patch. Do not invent work or cosmetic changes.
-- If a verified result shows another automation, computer-use, recovery, integration, or security capability is materially necessary, include exactly PASI_AUTOMATION_CONTINUE: true. Otherwise omit it.
-- Preserve all authentication, authorization, approval, path, network, and verification boundaries. Pause for human input only when an explicit approval boundary requires it."""
+def continuation_directive(_state: OvernightState, _task: str | None = None) -> str:
+    """Compatibility helper kept for legacy callers; prompt construction is centralized."""
+    return (
+        "Work on this task until its acceptance criteria are met. "
+        "Inspect the relevant code, make the smallest correct change, verify it, "
+        "and repair any verification failure. Do not start another task."
+    )
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
     return prompt_compiler.compile_task_prompt(
