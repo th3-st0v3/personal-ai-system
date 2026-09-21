@@ -1735,7 +1735,7 @@ def sleep_until_retry(state: OvernightState, seconds: float) -> bool:
 
 def run(state: OvernightState, *, push: bool) -> None:
     failure = ""
-    while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
+    while not STOP and not state.stop_reason and now_utc() < datetime.fromisoformat(state.deadline_at):
         if reconcile_committed_task(state):
             failure = ""
             continue
@@ -1953,6 +1953,9 @@ def run(state: OvernightState, *, push: bool) -> None:
                 state.current_task = state.next_task
                 state.next_task = ""
                 state.current_attempt = 0
+                if not state.current_task:
+                    save_state(state)
+                    return
                 state.task_retry_cycle = 0
                 state.last_failure_signature = ""
                 state.same_failure_cycles = 0
@@ -2017,6 +2020,9 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.current_task = choose_next_task(state, state.next_task)
             state.next_task = ""
             state.current_attempt = 0
+            if not state.current_task:
+                save_state(state)
+                return
             state.task_retry_cycle = 0
             state.last_failure_signature = ""
             state.same_failure_cycles = 0
