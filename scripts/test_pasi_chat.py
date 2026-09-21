@@ -104,7 +104,7 @@ class TestPasiChat(unittest.TestCase):
             "CURRENT TASK:\ninspect the bridge\n\n"
             "RESULT:\nPASI_RESULT_STATUS: complete\n"
         )
-        self.assertEqual(build_prompt(compiled, "ignored", {"summary": "ignored"}), compiled)
+        self.assertEqual(build_prompt(compiled, "ignored", {"summary": "ignored"}), compiled.rstrip())
 
 
     def test_post_response_reuses_terminal_ack_chat_url_without_browser_read(self) -> None:
