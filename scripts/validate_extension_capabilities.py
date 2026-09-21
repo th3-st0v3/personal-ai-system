@@ -65,7 +65,8 @@ def _host_pattern_matches(url: str, pattern: str) -> bool:
     expected = urlparse(normalized_pattern)
     if parsed.scheme != expected.scheme or parsed.netloc != expected.netloc:
         return False
-    return url.startswith(normalized_pattern)
+    base = normalized_pattern.rstrip("/")
+    return url == base or url.startswith(normalized_pattern)
 
 
 def _literal_urls(text: str) -> set[str]:
