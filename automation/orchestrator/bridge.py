@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from .config import CONFIG, ensure_runtime_directories
 from .models import ChatOperation
 from .operation_lifecycle import InvalidOperationTransition, validate_transition
-from .state import StateManager
+from .state import TERMINAL_QUEUE_STATUSES, StateManager
 
 
 HOST = "127.0.0.1"
@@ -75,6 +75,122 @@ class BridgeState:
     def __init__(self, state_manager: StateManager):
         self.state_manager = state_manager
         self.lock = threading.RLock()
+        self._queue_cache: list[dict[str, Any]] | None = None
+        self._queue_cache_mtime_ns: int | None = None
+        self._terminal_response_cache: dict[str, str] | None = None
+        self._terminal_response_cache_mtime_ns: int | None = None
+
+    @staticmethod
+    def _mtime_ns(path: Path) -> int | None:
+        try:
+            return path.stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
+
+    def _load_queue(self) -> list[dict[str, Any]]:
+        mtime_ns = self._mtime_ns(self.state_manager.queue_path)
+        if (
+            self._queue_cache is not None
+            and self._queue_cache_mtime_ns == mtime_ns
+        ):
+            return self._queue_cache
+
+        queue = self._load_queue()
+        self._queue_cache = queue
+        self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
+        return queue
+
+    def _load_terminal_responses(self) -> dict[str, str]:
+        mtime_ns = self._mtime_ns(self.state_manager.terminal_responses_path)
+        if (
+            self._terminal_response_cache is not None
+            and self._terminal_response_cache_mtime_ns == mtime_ns
+        ):
+            return self._terminal_response_cache
+
+        responses = self.state_manager.load_terminal_responses()
+        self._terminal_response_cache = responses
+        self._terminal_response_cache_mtime_ns = self._mtime_ns(
+            self.state_manager.terminal_responses_path
+        )
+        return responses
+
+    def _save_queue(self, queue: list[dict[str, Any]]) -> None:
+        terminal_responses = self._load_terminal_responses()
+        response_store_changed = False
+        persistent_queue: list[dict[str, Any]] = []
+
+        for item in queue:
+            persistent_item = dict(item)
+            if item.get("status") in TERMINAL_QUEUE_STATUSES:
+                operation_id = item.get("operation_id")
+                response_text = item.get("response_text")
+                if (
+                    isinstance(operation_id, str)
+                    and isinstance(response_text, str)
+                    and response_text.strip()
+                ):
+                    if terminal_responses.get(operation_id) != response_text:
+                        terminal_responses[operation_id] = response_text
+                        response_store_changed = True
+                persistent_item.pop("response_text", None)
+            persistent_queue.append(persistent_item)
+
+        if response_store_changed:
+            self.state_manager.save_terminal_responses(terminal_responses)
+            self._terminal_response_cache_mtime_ns = self._mtime_ns(
+                self.state_manager.terminal_responses_path
+            )
+
+        normalized_queue = self.state_manager.save_queue(persistent_queue)
+
+        # StateManager bounds retained terminal history. Keep the in-memory
+        # records aligned with the same retained operation IDs while preserving
+        # their full response bodies for low-latency reads.
+        retained_terminal_ids = {
+            item.get("operation_id")
+            for item in normalized_queue
+            if item.get("status") in TERMINAL_QUEUE_STATUSES
+            and isinstance(item.get("operation_id"), str)
+        }
+        queue[:] = [
+            item
+            for item in queue
+            if item.get("status") not in TERMINAL_QUEUE_STATUSES
+            or item.get("operation_id") in retained_terminal_ids
+        ]
+
+        stale_response_ids = [
+            operation_id
+            for operation_id in terminal_responses
+            if operation_id not in retained_terminal_ids
+        ]
+        if stale_response_ids:
+            for operation_id in stale_response_ids:
+                terminal_responses.pop(operation_id, None)
+            self.state_manager.save_terminal_responses(terminal_responses)
+            self._terminal_response_cache_mtime_ns = self._mtime_ns(
+                self.state_manager.terminal_responses_path
+            )
+
+        self._queue_cache = queue
+        self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
+
+    def _hydrate_terminal_response(self, item: dict[str, Any]) -> dict[str, Any]:
+        operation_id = item.get("operation_id")
+        if item.get("status") not in TERMINAL_QUEUE_STATUSES:
+            return item
+        if not isinstance(operation_id, str):
+            return item
+        response_text = item.get("response_text")
+        if isinstance(response_text, str) and response_text.strip():
+            return item
+        stored = self._load_terminal_responses().get(operation_id)
+        if isinstance(stored, str) and stored.strip():
+            item = dict(item)
+            item["response_text"] = stored
+            item["response_text_available"] = True
+        return item
 
     def queue_operation(
         self,
@@ -87,7 +203,7 @@ class BridgeState:
                 raise ValueError("idempotency_key must be a nonblank bounded string")
 
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             if idempotency_key is not None:
                 for item in queue:
                     if (
@@ -109,7 +225,7 @@ class BridgeState:
             item = operation.to_dict()
             item["retry_count"] = 0
             queue.append(item)
-            self.state_manager.save_queue(queue)
+            self._save_queue(queue)
             return operation
 
     def claim_operation(
@@ -117,7 +233,7 @@ class BridgeState:
         operation_id: str,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
 
             for item in queue:
                 if item.get("operation_id") != operation_id:
@@ -128,14 +244,14 @@ class BridgeState:
                 validate_transition("queued", "claimed")
                 item["status"] = "claimed"
                 item["claimed_at"] = time.time()
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
                 return dict(item)
 
         return None
 
     def claim_next_operation(self) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
 
             for item in queue:
                 if item.get("status") != "queued":
@@ -145,7 +261,7 @@ class BridgeState:
                 item["status"] = "claimed"
                 item["claimed_at"] = time.time()
 
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
 
                 return item
 
@@ -156,16 +272,16 @@ class BridgeState:
         operation_id: str,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
 
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
 
                 if self._repair_response_from_browser_observation(item):
-                    self.state_manager.save_queue(queue)
+                    self._save_queue(queue)
 
-                return dict(item)
+                return self._hydrate_terminal_response(dict(item))
 
         return None
 
@@ -215,12 +331,12 @@ class BridgeState:
         if normalized is None or not operation_id.strip():
             return None
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
                 item["timing"] = normalized
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
                 return dict(item)
         return None
 
@@ -242,7 +358,7 @@ class BridgeState:
         if isinstance(captured_at, str):
             event["captured_at"] = captured_at
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
@@ -251,7 +367,7 @@ class BridgeState:
                 if not events or events[-1] != event:
                     events.append(event)
                     item["recovery_events"] = events[-MAX_RECOVERY_EVENTS_PER_OPERATION:]
-                    self.state_manager.save_queue(queue)
+                    self._save_queue(queue)
                 return dict(item)
         return None
 
@@ -266,7 +382,7 @@ class BridgeState:
         if not bounded_response.strip():
             return None
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             for item in queue:
                 if item.get("operation_id") != operation_id or item.get("operation_type") != "prompt":
                     continue
@@ -279,7 +395,7 @@ class BridgeState:
                     item["chat_url"] = chat_url
                 item["response_source"] = "completion_ack"
                 item["response_observed_at"] = time.time()
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
                 return dict(item)
         return None
 
@@ -417,7 +533,7 @@ class BridgeState:
 
     def get_status(self) -> dict[str, Any]:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
 
             counts: dict[str, int] = {}
 
@@ -474,7 +590,7 @@ class BridgeState:
             return
         response_text_available = True
 
-        queue = self.state_manager.load_queue()
+        queue = self._load_queue()
         for item in queue:
             if item.get("operation_id") != operation_id:
                 continue
@@ -493,7 +609,7 @@ class BridgeState:
                 item["chat_url"] = chat_url
             item["response_source"] = "browser_observation"
             item["response_observed_at"] = observation.get("captured_at", time.time())
-            self.state_manager.save_queue(queue)
+            self._save_queue(queue)
             return
 
     def _repair_response_from_browser_observation(
@@ -552,7 +668,7 @@ class BridgeState:
         recovery_context: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
@@ -578,7 +694,7 @@ class BridgeState:
                     item["completion_recovery_reason"] = "browser_response_observation_after_transient_failure"
                     item["recovery_error"] = error[:MAX_ERROR_CHARS]
                     item["updated_at"] = time.time()
-                    self.state_manager.save_queue(queue)
+                    self._save_queue(queue)
                     return dict(item)
 
                 if count >= RETRY_BUDGETS[retry_class]:
@@ -592,7 +708,7 @@ class BridgeState:
                     )
                     item["retry_class"] = retry_class
                     item["updated_at"] = time.time()
-                    self.state_manager.save_queue(queue)
+                    self._save_queue(queue)
                     return dict(item)
 
                 retry_counts = dict(retry_counts)
@@ -608,7 +724,7 @@ class BridgeState:
                 item.pop("claimed_at", None)
                 item["requeued_at"] = time.time()
                 item["updated_at"] = time.time()
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
                 return dict(item)
         return None
 
@@ -669,7 +785,7 @@ class BridgeState:
         timing: object = None,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
 
             for item in queue:
                 if item.get("operation_id") != operation_id:
@@ -699,7 +815,7 @@ class BridgeState:
                         raise ValueError("invalid timing payload")
                     item["timing"] = normalized_timing
 
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
 
                 return item
 
