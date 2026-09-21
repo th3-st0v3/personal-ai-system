@@ -1,0 +1,245 @@
+from __future__ import annotations
+
+import argparse
+import json
+import statistics
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable, Mapping
+
+SHORT_RESPONSE_CHARS = 800
+LATENCY_ATTENTION_MS = 500.0
+
+@dataclass(frozen=True)
+class RuntimeReport:
+    events: int
+    malformed_lines: int
+    task_attempts: int
+    completed_tasks: int
+    failed_tasks: int
+    repeated_task_numbers: int
+    short_responses: int
+    short_response_streak_max: int
+    latency_samples: tuple[float, ...]
+    prompt_sizes: tuple[int, ...]
+    recovery_events: int
+    provider_limit_events: int
+    auth_events: int
+
+    @property
+    def completion_rate(self) -> float:
+        finished = self.completed_tasks + self.failed_tasks
+        return self.completed_tasks / finished if finished else 0.0
+
+    @property
+    def p50_latency_ms(self) -> float | None:
+        return _percentile(self.latency_samples, 0.50)
+
+    @property
+    def p95_latency_ms(self) -> float | None:
+        return _percentile(self.latency_samples, 0.95)
+
+    @property
+    def p99_latency_ms(self) -> float | None:
+        return _percentile(self.latency_samples, 0.99)
+
+def _timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+def _percentile(values: Iterable[float], fraction: float) -> float | None:
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return None
+    if len(ordered) == 1:
+        return ordered[0]
+    index = (len(ordered) - 1) * fraction
+    lower = int(index)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = index - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * weight
+
+def load_events(path: Path) -> tuple[list[dict[str, Any]], int]:
+    events: list[dict[str, Any]] = []
+    malformed = 0
+    if not path.is_file():
+        return events, 0
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                value = json.loads(stripped)
+            except json.JSONDecodeError:
+                malformed += 1
+                continue
+            if isinstance(value, dict) and isinstance(value.get("kind"), str):
+                events.append(value)
+            else:
+                malformed += 1
+    return events, malformed
+
+def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> RuntimeReport:
+    task_numbers: dict[str, set[int]] = defaultdict(set)
+    attempts = completions = failures = 0
+    short_responses = 0
+    short_streak = max_streak = 0
+    latency_samples: list[float] = []
+    prompt_sizes: list[int] = []
+    recovery_events = provider_limit_events = auth_events = 0
+    previous_dispatch: datetime | None = None
+
+    for event in events:
+        kind = event.get("kind")
+        task_id = str(event.get("task_id") or "").strip()
+        task_number = event.get("task_number")
+        if task_id and isinstance(task_number, int):
+            task_numbers[task_id].add(task_number)
+
+        if kind == "task_attempt_started":
+            attempts += 1
+        elif kind in {"task_completed", "task_completed_no_change"}:
+            completions += 1
+        elif kind == "task_failed":
+            failures += 1
+        elif kind == "response_received":
+            chars = event.get("chars")
+            if isinstance(chars, int) and chars >= 0:
+                if chars < SHORT_RESPONSE_CHARS:
+                    short_responses += 1
+                    short_streak += 1
+                    max_streak = max(max_streak, short_streak)
+                else:
+                    short_streak = 0
+            timestamp = _timestamp(event.get("timestamp"))
+            if timestamp is not None and previous_dispatch is not None:
+                latency_ms = (timestamp - previous_dispatch).total_seconds() * 1000
+                if latency_ms >= 0:
+                    latency_samples.append(latency_ms)
+                previous_dispatch = None
+        elif kind == "prompt_dispatch_started":
+            previous_dispatch = _timestamp(event.get("timestamp"))
+        elif kind == "prompt_compiled":
+            chars = event.get("prompt_chars")
+            if isinstance(chars, int) and chars >= 0:
+                prompt_sizes.append(chars)
+        elif kind == "recovery_finished":
+            recovery_events += 1
+        elif kind == "provider_pause":
+            provider_limit_events += 1
+        elif kind in {"auth_recovery_required", "auth_recovery_wait_started", "auth_recovery_resumed"}:
+            auth_events += 1
+
+    repeated_task_numbers = sum(max(0, len(numbers) - 1) for numbers in task_numbers.values())
+    return RuntimeReport(
+        events=len(events),
+        malformed_lines=malformed_lines,
+        task_attempts=attempts,
+        completed_tasks=completions,
+        failed_tasks=failures,
+        repeated_task_numbers=repeated_task_numbers,
+        short_responses=short_responses,
+        short_response_streak_max=max_streak,
+        latency_samples=tuple(latency_samples),
+        prompt_sizes=tuple(prompt_sizes),
+        recovery_events=recovery_events,
+        provider_limit_events=provider_limit_events,
+        auth_events=auth_events,
+    )
+
+def _fmt(value: float | int | None, suffix: str = "") -> str:
+    return "n/a" if value is None else f"{value:.1f}{suffix}" if isinstance(value, float) else f"{value}{suffix}"
+
+def render_markdown(report: RuntimeReport) -> str:
+    attention: list[str] = []
+    if report.repeated_task_numbers:
+        attention.append("repeated task numbers detected")
+    if report.short_response_streak_max >= 3:
+        attention.append("three or more short responses occurred consecutively")
+    if report.p95_latency_ms is not None and report.p95_latency_ms > LATENCY_ATTENTION_MS:
+        attention.append(f"p95 response-to-next-dispatch latency exceeds {LATENCY_ATTENTION_MS:.0f} ms")
+    if report.malformed_lines:
+        attention.append(f"{report.malformed_lines} malformed event lines were ignored")
+    status = "ATTENTION" if attention else "OBSERVE"
+
+    median_prompt = statistics.median(report.prompt_sizes) if report.prompt_sizes else None
+    lines = [
+        "# PASI Runtime Efficiency Report",
+        "",
+        f"**Status:** {status}",
+        "",
+        "This report measures runtime behavior from the PASI event log; it does not declare a short response incorrect by itself.",
+        "",
+        "## Task throughput",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Events | {report.events} |",
+        f"| Task attempts | {report.task_attempts} |",
+        f"| Completed tasks | {report.completed_tasks} |",
+        f"| Failed tasks | {report.failed_tasks} |",
+        f"| Completion rate | {report.completion_rate:.1%} |",
+        f"| Repeated task numbers | {report.repeated_task_numbers} |",
+        "",
+        "## Response quality signals",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Responses under {SHORT_RESPONSE_CHARS} chars | {report.short_responses} |",
+        f"| Longest short-response streak | {report.short_response_streak_max} |",
+        f"| Recovery events | {report.recovery_events} |",
+        f"| Provider-limit pauses | {report.provider_limit_events} |",
+        f"| Auth/re-auth events | {report.auth_events} |",
+        "",
+        "## Latency",
+        "",
+        "Latency here is response event to next prompt dispatch, not authenticated DOM send latency.",
+        "",
+        f"- Samples: {len(report.latency_samples)}",
+        f"- P50: {_fmt(report.p50_latency_ms, ' ms')}",
+        f"- P95: {_fmt(report.p95_latency_ms, ' ms')}",
+        f"- P99: {_fmt(report.p99_latency_ms, ' ms')}",
+        "",
+        "## Prompt economy",
+        "",
+        f"- Compiled prompts: {len(report.prompt_sizes)}",
+        f"- Median prompt size: {_fmt(median_prompt, ' chars')}",
+        f"- Maximum prompt size: {max(report.prompt_sizes) if report.prompt_sizes else 'n/a'} chars",
+        "",
+        "## Attention signals",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in attention)
+    if not attention:
+        lines.append("- No configured attention threshold was crossed.")
+    lines.extend([
+        "",
+        "Use these signals to decide whether the agent is completing work efficiently; do not equate response length alone with task correctness.",
+        "",
+    ])
+    return "\n".join(lines)
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Summarize PASI overnight runtime efficiency telemetry.")
+    parser.add_argument("events", type=Path)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    events, malformed = load_events(args.events)
+    report = render_markdown(analyze(events, malformed))
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(report, encoding="utf-8")
+    else:
+        print(report, end="")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
