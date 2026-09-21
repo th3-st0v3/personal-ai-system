@@ -355,7 +355,7 @@ class ChatGPTAdapterTests(unittest.TestCase):
         transport = ObservationFailingTransport([
             {"operation": {"operation_id": "op-new"}},
             {"operation": {"operation_id": "op-new", "status": "completed"}},
-        ], fail_path="/browser/observation")
+        ], fail_path="/browser/health")
         adapter = ChatGPTAdapter(transport, session_id="session-1", poll_interval_seconds=0.001, last_chat_url="https://chatgpt.com/c/old")
         self.assertEqual(adapter.new_session(), "op-new")
         self.assertIsNone(adapter.last_chat_url)
