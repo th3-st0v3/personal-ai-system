@@ -358,6 +358,55 @@ def test_operation_lifecycle(tmp_path: Path) -> None:
     assert status["counts"] == {"completed": 1}
 
 
+def test_terminal_response_body_is_externalized_and_rehydrated_after_restart(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "externalize")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    response_text = "x" * 120_000
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/externalized",
+        response_text=response_text,
+        response_text_available=True,
+    )
+
+    assert completed is not None
+    queue_path = tmp_path / ".ai" / "queue.json"
+    terminal_response_path = tmp_path / ".ai" / "terminal-responses.json"
+    persisted_queue = json.loads(queue_path.read_text(encoding="utf-8"))
+    persisted_item = next(
+        item for item in persisted_queue
+        if item["operation_id"] == operation.operation_id
+    )
+    assert "response_text" not in persisted_item
+    assert persisted_item["response_text_available"] is True
+
+    persisted_responses = json.loads(
+        terminal_response_path.read_text(encoding="utf-8")
+    )
+    assert persisted_responses[operation.operation_id] == response_text
+
+    restarted = BridgeState(StateManager(tmp_path / ".ai"))
+    recovered = restarted.get_operation(operation.operation_id)
+    assert recovered is not None
+    assert recovered["response_text"] == response_text
+    assert recovered["response_text_available"] is True
+
+    queued = restarted.queue_operation("prompt", "next prompt")
+    claimed = restarted.claim_next_operation()
+    assert claimed is not None
+    assert claimed["operation_id"] == queued.operation_id
+    assert claimed["status"] == "claimed"
+    assert queue_path.stat().st_size < 20_000
+    assert json.loads(
+        terminal_response_path.read_text(encoding="utf-8")
+    )[operation.operation_id] == response_text
+
+
 def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("test", "bounded")
