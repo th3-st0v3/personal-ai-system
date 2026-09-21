@@ -224,9 +224,6 @@ class TestHybridPlanner(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             overlay = Path(directory) / "overlay.json"
-            planner.save_decomposition_overlay(overlay, parent=parent, children=children)
-            planner.save_decomposition_overlay(overlay, parent=other_parent, children=other_children)
-
             roadmap = Path(directory) / "roadmap.json"
             roadmap.write_text(
                 json.dumps(
@@ -236,6 +233,18 @@ class TestHybridPlanner(unittest.TestCase):
                     }
                 ),
                 encoding="utf-8",
+            )
+            planner.save_decomposition_overlay(
+                overlay,
+                parent=parent,
+                children=children,
+                roadmap_path=roadmap,
+            )
+            planner.save_decomposition_overlay(
+                overlay,
+                parent=other_parent,
+                children=other_children,
+                roadmap_path=roadmap,
             )
             loaded = planner.load_roadmap_with_overlay(roadmap, overlay)
             by_id = {item.id: item for item in loaded}
