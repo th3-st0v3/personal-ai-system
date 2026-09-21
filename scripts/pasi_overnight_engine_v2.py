@@ -497,7 +497,8 @@ def reconcile_committed_task(state: OvernightState) -> bool:
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
     try:
-        raw = json.loads(ROADMAP_LOOP_GUARD_PATH.read_text(encoding="utf-8"))    except (OSError, json.JSONDecodeError):
+        raw = json.loads(ROADMAP_LOOP_GUARD_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
         return []
     if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != 1:
         return []
@@ -509,7 +510,8 @@ def load_roadmap_selection_history() -> list[dict[str, str]]:
         if not isinstance(item, dict):
             continue
         phase = item.get("phase")
-        task = item.get("task")        run_id = item.get("run_id")
+        task = item.get("task")
+        run_id = item.get("run_id")
         timestamp = item.get("timestamp")
         if not isinstance(phase, str) or not isinstance(task, str):
             continue
@@ -578,6 +580,10 @@ def planner_ai_ranker():
     )
 
 
+def planner_ai_decompose_enabled() -> bool:
+    return os.environ.get("PASI_PLANNER_AI_DECOMPOSE", "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
 def load_planner_tasks(state: OvernightState, phase: str | None = None) -> tuple[hybrid_planner.TaskSpec, ...]:
     source = planner_roadmap_path(state)
     tasks = hybrid_planner.load_roadmap_with_overlay(source, ROADMAP_OVERLAY_PATH)
@@ -592,10 +598,6 @@ def task_id_for_prompt(tasks: Sequence[hybrid_planner.TaskSpec], prompt: str) ->
         if " ".join(task.execution_text().split()) == normalized:
             return task.id
     return ""
-
-
-def planner_ai_decompose_enabled() -> bool:
-    return os.environ.get("PASI_PLANNER_AI_DECOMPOSE", "").strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def select_planner_task(
@@ -1031,7 +1033,8 @@ def browser_observation() -> dict[str, Any] | None:
     token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
     if not token:
         try:
-            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()        except OSError:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
             return None
     request = urllib.request.Request(
         f"{BRIDGE_URL}/browser/observation",
@@ -1350,8 +1353,8 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
         state.current_task_id = decision.selected.id
         return decision.selected.execution_text()
 
-    # Compatibility fallback for legacy/custom runs that do not have a usable
-    # roadmap entry. This path never consumes model-supplied next-task text.
+    # Compatibility fallback for legacy/custom runs with no usable roadmap
+    # entry. This path is deterministic and ignores model-supplied next-task data.
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
     completed = completed_task_keys()
     current_key = task_key(state.current_task)
@@ -1504,7 +1507,8 @@ def verify_and_commit(
     gate_mode = os.environ.get("PASI_LOCAL_GATE_MODE", "full").strip().lower() or "full"
     verify_started_at = now_utc().isoformat()
     log_event(
-        "verify_started",        task=task,
+        "verify_started",
+        task=task,
         gate_mode=gate_mode,
         started_at=verify_started_at,
     )
@@ -1601,7 +1605,8 @@ def verify_and_commit(
                 task,
                 "--json",
             ],
-            REPO_ROOT,            90.0,
+            REPO_ROOT,
+            90.0,
         )
         if promotion[0] == 0:
             output = output + "\n\n[PASI PROMOTION]\n" + promotion[1]
@@ -2003,7 +2008,8 @@ def run(state: OvernightState, *, push: bool) -> None:
 
 def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
     if deadline_reached:
-        return "deadline_reached"    if stop_requested:
+        return "deadline_reached"
+    if stop_requested:
         return "stopped"
     return "unexpected_early_exit"
 
