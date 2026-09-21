@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -72,6 +73,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Verify the real PASI desktop/browser boundary before a run.")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--max-age-seconds", type=float, default=DEFAULT_MAX_HEARTBEAT_AGE_SECONDS)
+    parser.add_argument("--wait-seconds", type=float, default=45.0)
+    parser.add_argument("--retry-interval-seconds", type=float, default=2.0)
     parser.add_argument("--require-visible", action="store_true")
     args = parser.parse_args()
 
@@ -83,15 +86,44 @@ def main() -> int:
     if health.get("status") != "ok":
         raise RuntimeError(f"bridge health failed: {health!r}")
 
-    payload = request_json(BROWSER_HEALTH_URL, token=token, timeout=5.0)
-    observation, data = extract_observation(payload)
+    expected = expected_controller_version(root)
+    deadline = time.monotonic() + max(0.0, args.wait_seconds)
+    observation: dict[str, Any]
+    data: dict[str, Any]
+    age = float("inf")
+    last_retry_reason = ""
+    while True:
+        payload = request_json(BROWSER_HEALTH_URL, token=token, timeout=5.0)
+        observation, data = extract_observation(payload)
+        try:
+            captured_at = capture_time(data, observation)
+            age = heartbeat_age_seconds(captured_at)
+            last_retry_reason = ""
+        except RuntimeError as exc:
+            last_retry_reason = str(exc)
+            age = float("inf")
 
-    kind = data.get("kind")
-    native = data.get("native_controller") is True
+        native = data.get("native_controller") is True
+        kind = data.get("kind")
+        actual = data.get("controller_version")
+        if (
+            kind == "chatgpt_health"
+            and native
+            and actual == expected
+            and -5 <= age <= args.max_age_seconds
+        ):
+            break
+        if time.monotonic() >= deadline:
+            if last_retry_reason:
+                raise RuntimeError(last_retry_reason)
+            raise RuntimeError(
+                f"browser heartbeat is stale or incompatible after {args.wait_seconds:.1f}s: "
+                f"age={age:.2f}s"
+            )
+        time.sleep(max(0.05, args.retry_interval_seconds))
+
     captured_at = capture_time(data, observation)
     age = heartbeat_age_seconds(captured_at)
-    expected = expected_controller_version(root)
-    actual = data.get("controller_version")
 
     checks = {
         "bridge_healthy": True,
