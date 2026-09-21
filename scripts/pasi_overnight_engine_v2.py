@@ -65,6 +65,29 @@ ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
 MAX_TASK_TEXT_CHARS = 4000
 CONTROL_SCRIPTS_ROOT = REPO_ROOT / "scripts"
+
+PATCH_BEGIN = "PASI_RESULT_PATCH_BEGIN"
+PATCH_END = "PASI_RESULT_PATCH_END"
+MARKERS = {
+    "status": re.compile(r"^PASI_RESULT_STATUS:\s*(.+)$", re.MULTILINE),
+    "summary": re.compile(r"^PASI_RESULT_SUMMARY:\s*(.+)$", re.MULTILINE),
+    "next_task": re.compile(r"^PASI_RESULT_NEXT_TASK:\s*(.+)$", re.MULTILINE),
+    "requirements": re.compile(r"^PASI_RESULT_REQUIREMENTS:\s*(.+)$", re.MULTILINE),
+    "limitations": re.compile(r"^PASI_RESULT_LIMITATIONS:\s*(.+)$", re.MULTILINE),
+    "research": re.compile(r"^PASI_RESULT_RESEARCH:\s*(.+)$", re.MULTILINE),
+    "ux": re.compile(r"^PASI_RESULT_UX:\s*(.+)$", re.MULTILINE),
+    "backend": re.compile(r"^PASI_RESULT_BACKEND:\s*(.+)$", re.MULTILINE),
+    "evidence": re.compile(r"^PASI_RESULT_EVIDENCE:\s*(.+)$", re.MULTILINE),
+    "repository_progress": re.compile(r"^PASI_RESULT_REPOSITORY_PROGRESS:\s*(.+)$", re.MULTILINE),
+    "allow_delete": re.compile(
+        r"^PASI_RESULT_ALLOW_DELETE:\s*(true|false)$",
+        re.MULTILINE | re.IGNORECASE,
+    ),
+}
+AUTOMATION_CONTINUE_RE = re.compile(
+    r"^PASI_AUTOMATION_CONTINUE:\s*true$",
+    re.MULTILINE | re.IGNORECASE,
+)
 AUTOMATION_CONTINUE_RE = re.compile(r"^PASI_AUTOMATION_CONTINUE:\s*true$", re.MULTILINE | re.IGNORECASE)
 
 AUTOMATION_TASKS = (
