@@ -190,6 +190,8 @@ test('native prompt submission uses best-effort Thinking and event-driven acknow
 test('native prompt submission uses a single send strategy and never duplicates a fired send', () => {
   assert.match(content, /const SUBMISSION_ACK_MS = TIMEOUT_POLICY\.submissionAckMs \|\| 1000/);
   assert.match(content, /const SUBMISSION_ATTEMPTS = 3/);
+  assert.match(content, /const COMPLETION_RETRY_DELAY_MS = 20/);
+  assert.match(content, /sleep\(COMPLETION_RETRY_DELAY_MS\)/);
   assert.match(content, /const snapshot = snapshotUserMessages\(\)/);
   assert.match(content, /const \{ head, tail \} = promptFingerprints\(expected\)/);
   assert.match(content, /state === 'match'/);
