@@ -4,7 +4,7 @@
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
   const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
-  const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
+  const HEALTH_MS = Math.min(TIMEOUT_POLICY.heartbeatMs || 2000, 2000);
   const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;
   const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;
   const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
@@ -39,6 +39,9 @@
   let leaseTimerId = null;
   let pollTimerId = null;
   let healthTimerId = null;
+  let healthReportInFlight = null;
+  let lastStateReportAt = 0;
+  const STATE_REPORT_MS = 5000;
   let immediatePollQueued = false;
 
   function scheduleImmediatePoll() {
@@ -531,9 +534,10 @@
     return Object.keys(context).length ? context : null;
   }
 
-  async function reportObservation(kind, data) {
+  async function reportObservation(kind, data, timeout = 10000) {
     try {
       await bridge('/browser/observation', {
+        timeout,
         method: 'POST',
         body: { observation: {
           schema_version: 'pasi-native-chromium-v2',
@@ -544,51 +548,68 @@
     } catch (_) {}
   }
 
-  async function reportHealth() {
-    const currentUrl = chatUrl();
-    if (currentUrl !== lastKnownChatUrl) {
-      if (lastKnownChatUrl !== null || currentUrl !== null) {
-        await reportObservation('chatgpt_chat_changed', {
-          previous_chat_url: lastKnownChatUrl,
-          new_chat_url: currentUrl,
+  function reportHealth() {
+    if (healthReportInFlight) return healthReportInFlight;
+    healthReportInFlight = (async () => {
+      const currentUrl = chatUrl();
+      if (currentUrl !== lastKnownChatUrl) {
+        if (lastKnownChatUrl !== null || currentUrl !== null) {
+          void reportObservation('chatgpt_chat_changed', {
+            previous_chat_url: lastKnownChatUrl,
+            new_chat_url: currentUrl,
+            active_operation_id: activeOperationId,
+            reason: processing ? 'during_operation' : 'navigation'
+          }, 2000);
+        }
+        if (!processing) {
+          githubAttached = false;
+          githubRepository = null;
+          reasoningMode = null;
+        }
+        lastKnownChatUrl = currentUrl;
+      }
+
+      const exhausted = contextExhausted();
+      const limited = usageLimited();
+      const thinking = thinkingEnabled();
+      const composerPresent = Boolean(composer());
+
+      // Health is the freshness signal used by the launcher/watchdog. Keep it
+      // lightweight and bounded so DOM/state telemetry cannot delay it.
+      await reportObservation('chatgpt_health', {
+        chat_url: currentUrl,
+        provider_usage_limited: limited,
+        auth_required: authRequired(),
+        conversation_context_exhausted: exhausted,
+        thinking_enabled: thinking,
+        thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
+        page_visible: document.visibilityState !== 'hidden',
+        composer_present: composerPresent,
+        native_controller: true,
+        active_operation_id: activeOperationId
+      }, 2000);
+
+      if (Date.now() - lastStateReportAt >= STATE_REPORT_MS) {
+        lastStateReportAt = Date.now();
+        // State telemetry includes a conversation fingerprint and is therefore
+        // intentionally decoupled from the fast health heartbeat.
+        void reportObservation('chatgpt_state', {
+          chat_url: currentUrl,
+          conversation_context_exhausted: exhausted,
+          chat_exhausted: exhausted,
+          provider_usage_limited: limited,
+          github_attached: githubAttached,
+          reasoning_mode: reasoningMode,
+          reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
+          conversation_signature: conversationSignature(),
           active_operation_id: activeOperationId,
-          reason: processing ? 'during_operation' : 'navigation'
+          native_controller: true
         });
       }
-      if (!processing) {
-        githubAttached = false;
-        githubRepository = null;
-        reasoningMode = null;
-      }
-      lastKnownChatUrl = currentUrl;
-    }
-
-    const exhausted = contextExhausted();
-    const limited = usageLimited();
-    await reportObservation('chatgpt_health', {
-      chat_url: currentUrl,
-      provider_usage_limited: limited,
-      auth_required: authRequired(),
-      conversation_context_exhausted: exhausted,
-      thinking_enabled: thinkingEnabled(),
-      thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinkingEnabled() === true ? 'available' : 'unknown'),
-      page_visible: document.visibilityState !== 'hidden',
-      composer_present: Boolean(composer()),
-      native_controller: true,
-      active_operation_id: activeOperationId
+    })().finally(() => {
+      healthReportInFlight = null;
     });
-    await reportObservation('chatgpt_state', {
-      chat_url: currentUrl,
-      conversation_context_exhausted: exhausted,
-      chat_exhausted: exhausted,
-      provider_usage_limited: limited,
-      github_attached: githubAttached,
-      reasoning_mode: reasoningMode,
-      reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinkingEnabled() === true ? 'available' : 'unknown'),
-      conversation_signature: conversationSignature(),
-      active_operation_id: activeOperationId,
-      native_controller: true
-    });
+    return healthReportInFlight;
   }
 
   async function waitFor(select, timeout) {
