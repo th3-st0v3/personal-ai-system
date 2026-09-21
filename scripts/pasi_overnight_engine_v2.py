@@ -1692,6 +1692,21 @@ def run(state: OvernightState, *, push: bool) -> None:
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
+            log_event(
+                "task_response_evidence",
+                phase=state.phase,
+                task_id=task_key(state.current_task),
+                task_number=state.task_number,
+                attempt=attempt,
+                provider=provider_source,
+                status=status,
+                contract_ok=contract_ok,
+                response_chars=len(response),
+                summary_chars=len(summary),
+                evidence_chars=len(values.get("evidence", "")),
+                patch_chars=len(patch),
+                next_task_chars=len(next_task),
+            )
             if contract_ok and no_change_completion_is_satisfied(
                 Path(state.worktree),
                 status,
