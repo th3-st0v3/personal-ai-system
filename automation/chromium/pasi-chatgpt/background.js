@@ -213,8 +213,8 @@ async function inspect() {
   const health = healthData(payload);
   if (!health) return;
   if (health.data.auth_required === true) return;
-  if (typeof health.data.active_operation_id !== 'string' || !health.data.active_operation_id.trim()) return;
   if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
+  const activeOperation = typeof health.data.active_operation_id === 'string' && Boolean(health.data.active_operation_id.trim());
   const connectionFailure = health.data.connection_failure === true;
   const observationStale = observationAge(health.observation) > STALE_MS;
   if (!connectionFailure && !observationStale) return;
@@ -224,9 +224,19 @@ async function inspect() {
   const matchingTab = targetChatUrl
     ? tabs.find((tab) => tab.url === targetChatUrl)
     : null;
-  // If the exact conversation tab is gone, recreate only the verified target
-  // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
+  if (matchingTab && observationStale) {
+    // A service-worker alarm can outlive a throttled/frozen content-script timer.
+    // Wake the exact verified tab first; the content script immediately publishes
+    // a fresh health observation without adding a polling loop to the hot path.
+    try {
+      await chrome.tabs.sendMessage(matchingTab.id, { type: 'pasi-health-ping' });
+    } catch (_) {}
+  }
+
   if (!matchingTab) {
+    // Missing-tab recreation is intentionally restricted to an active operation.
+    // Idle stale state must never create a new ChatGPT tab on its own.
+    if (!activeOperation) return;
     if (await createCooldown(targetChatUrl)) return;
     await markCreateAttempt(targetChatUrl);
     try {
@@ -238,7 +248,9 @@ async function inspect() {
     return;
   }
   await chrome.storage.local.remove(`create:${targetChatUrl}`);
-  await reloadBoundedTab(matchingTab);
+  // Only actively reload when the observation itself is stale. A connection
+  // failure on an otherwise fresh idle page is just a wake-up signal.
+  if (observationStale) await reloadBoundedTab(matchingTab);
 }
 
 async function applyTimeoutPolicy() {
