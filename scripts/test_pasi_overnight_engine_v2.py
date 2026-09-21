@@ -962,6 +962,97 @@ branch refs/heads/main
         self.assertNotIn("pasi_controller_server.py", source)
 
 
+    def test_168h_runtime_control_paths_are_protected(self) -> None:
+        from scripts import pasi_overnight_hardening as hardening
+
+        expected = {
+            "scripts/check_all.sh",
+            "scripts/check_offline.sh",
+            "scripts/pasi_overnight_hardening.py",
+            "scripts/pasi_overnight_engine_v2.py",
+            "scripts/pasi_extended_runtime_entrypoint.py",
+            "scripts/start_pasi_168h.sh",
+            "scripts/pasi_168h_supervisor.sh",
+            "scripts/pasi_timeout_policy.py",
+            "scripts/pasi_chat_guard.py",
+            "scripts/pasi_provider_router.py",
+            "scripts/pasi_setup.py",
+            "scripts/pasi_promote.py",
+            "automation/chromium/pasi-chatgpt/manifest.json",
+            "automation/chromium/pasi-chatgpt/timeout-policy.json",
+        }
+        self.assertTrue(expected.issubset(hardening.PROTECTED_UNATTENDED_PATHS))
+        self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
+        for path in sorted(expected):
+            patch = (
+                f"diff --git a/{path} b/{path}\\n"
+                f"--- a/{path}\\n"
+                f"+++ b/{path}\\n"
+                "@@ -1 +1 @@\\n"
+                "-old\\n"
+                "+new\\n"
+            )
+            with self.assertRaisesRegex(ValueError, "protected unattended"):
+                engine.validate_patch_paths(patch, False, Path.cwd())
+
+    def test_completion_effort_floor_rejects_low_content_new_task(self) -> None:
+        values = {"evidence": "verified"}
+        self.assertIn("summary is too short", engine.completion_effort_floor_reason("complete", "done", values, False))
+        self.assertIn(
+            "evidence is too short",
+            engine.completion_effort_floor_reason(
+                "complete", "Implemented and verified the requested change.", values, False
+            ),
+        )
+
+    def test_completion_effort_floor_allows_existing_no_change_task(self) -> None:
+        self.assertEqual(engine.completion_effort_floor_reason("complete", "done", {"evidence": ""}, True), "")
+
+    def test_completion_effort_floor_only_applies_to_complete_status(self) -> None:
+        self.assertEqual(engine.completion_effort_floor_reason("needs_revision", "done", {"evidence": ""}, False), "")
+
+    def test_handoff_summary_is_durable_and_bounded(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2, run_id="handoff-test", started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=168)).isoformat(), worktree="/tmp/pasi-worktree",
+            branch="pasi/handoff-test", phase="automation", current_task="current task",
+            requested_task="requested task", completed_tasks=4, failed_tasks=2, current_attempt=3,
+            task_retry_cycle=2, same_failure_cycles=2, last_failure_signature="failure-signature",
+            last_provider="chatgpt_browser", provider_limit_pauses=1,
+            fallback_router_disabled_until="2026-09-22T00:00:00+00:00", last_result="x" * 8000,
+            next_task="next task", recent_tasks=["one", "two", "three"],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "handoff.json"
+            with mock.patch.object(engine, "HANDOFF_PATH", path), mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)):
+                engine.write_handoff_summary(state, reason="deadline_reached")
+                payload = __import__("json").loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["run_id"], "handoff-test")
+        self.assertEqual(payload["stop_reason"], "deadline_reached")
+        self.assertEqual(payload["completed_tasks"], 4)
+        self.assertEqual(payload["failed_tasks"], 2)
+        self.assertEqual(len(payload["last_result"]), 6000)
+        self.assertEqual(payload["recent_tasks"], ["one", "two", "three"])
+
+    def test_finish_state_writes_handoff_summary_after_state(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2, run_id="finish-handoff-test", started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=168)).isoformat(), worktree="/tmp/pasi-worktree",
+            branch="pasi/finish-handoff-test", phase="automation", current_task="current task",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"; handoff_path = Path(temp_dir) / "handoff.json"
+            with mock.patch.object(engine, "STATE_PATH", state_path), mock.patch.object(engine, "HANDOFF_PATH", handoff_path), mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)), mock.patch.object(engine, "log_event"):
+                engine.finish_state(state, "stopped")
+                self.assertTrue(state_path.is_file()); self.assertTrue(handoff_path.is_file())
+                payload = __import__("json").loads(handoff_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["stop_reason"], "stopped")
+        self.assertEqual(payload["run_id"], "finish-handoff-test")
+
+
 if __name__ == "__main__":
     unittest.main()
 
