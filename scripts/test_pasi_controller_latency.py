@@ -47,10 +47,12 @@ def test_native_controller_uses_bounded_idle_polling() -> None:
     source = _read(NATIVE)
 
     assert 250 <= _number(source, "POLL_MS") <= 1000
-    assert _number(source, "DOM_POLL_MS") <= 100
-    assert _number(source, "CLICK_SETTLE_MS") <= 100
-    assert _number(source, "RESPONSE_SETTLE_MS") <= 100
+    assert _number(source, "DOM_POLL_MS") <= 20
+    assert _number(source, "CLICK_SETTLE_MS") <= 20
+    assert _number(source, "RESPONSE_SETTLE_MS") <= 20
     assert _number(source, "COMPLETION_RETRY_DELAY_MS") <= 20
+    assert "scheduleImmediateOperation(operation)" in source
+    assert "completion_to_prompt_injected_ms" in source
     assert "const ACTIVE_KEY = 'pasi:active-operation';" in source
     assert "localStorage.setItem(ACTIVE_KEY" in source
     assert "localStorage.removeItem(ACTIVE_KEY);" in source
