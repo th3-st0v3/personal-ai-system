@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 PID_FILE="$RUNTIME_DIR/runner.pid"
 STATE_FILE="$RUNTIME_DIR/state.json"
 EVENT_LOG="$RUNTIME_DIR/events.jsonl"

@@ -5,7 +5,7 @@ REPO_ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 PYTHON="$REPO_ROOT/.venv/bin/python"
-RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 EVIDENCE_DIR="$REPO_ROOT/.runtime/acceptance"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"

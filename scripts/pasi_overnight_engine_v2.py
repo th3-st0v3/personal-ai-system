@@ -23,7 +23,7 @@ from scripts import pasi_prompt_compiler as prompt_compiler
 from scripts.pasi_stage_events import StageTimer, classify_failure
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_DIR = REPO_ROOT / ".runtime" / "overnight"
+RUNTIME_DIR = Path(os.environ.get("PASI_RUNTIME_DIR", str(Path.home() / ".pasi" / "overnight"))).expanduser().resolve()
 STATE_PATH = RUNTIME_DIR / "state.json"
 EVENT_LOG = RUNTIME_DIR / "events.jsonl"
 PID_PATH = RUNTIME_DIR / "runner.pid"
@@ -828,18 +828,44 @@ def worktree_start_ref() -> str:
     return configured or "origin/main"
 
 
-def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
+def find_worktree_for_branch(branch: str) -> Path | None:
+    code, output = command(["git", "worktree", "list", "--porcelain"], REPO_ROOT, 30.0)
+    if code != 0:
+        return None
+    path_value: str | None = None
+    branch_value: str | None = None
+    for raw_line in output.splitlines() + [""]:
+        line = raw_line.strip()
+        if line.startswith("worktree "):
+            path_value = line[len("worktree "):].strip()
+        elif line.startswith("branch refs/heads/"):
+            branch_value = line[len("branch refs/heads/"):].strip()
+        elif not line:
+            if branch_value == branch and path_value:
+                return Path(path_value).expanduser().resolve()
+            path_value = None
+            branch_value = None
+    return None
+
+
+def ensure_worktree(path: Path, branch: str, *, resume: bool) -> Path:
     start_ref = worktree_start_ref()
+    path = path.expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
-        code, output = command(
-            ["git", "worktree", "add", "-B", branch, str(path), start_ref],
-            REPO_ROOT,
-            60.0,
-        )
-        if code != 0:
-            raise RuntimeError(f"could not create overnight worktree from {start_ref}: {output}")
-        return
+        existing = find_worktree_for_branch(branch)
+        if existing is not None:
+            log_event("worktree_reused_by_branch", requested_path=str(path), worktree=str(existing), branch=branch)
+            path = existing
+        else:
+            code, output = command(
+                ["git", "worktree", "add", "-B", branch, str(path), start_ref],
+                REPO_ROOT,
+                60.0,
+            )
+            if code != 0:
+                raise RuntimeError(f"could not create overnight worktree from {start_ref}: {output}")
+            return path
     code, output = command(["git", "status", "--porcelain"], path, 15.0)
     if code != 0:
         raise RuntimeError(f"could not inspect overnight worktree: {output}")
@@ -872,6 +898,7 @@ def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
         log_event("resume_branch_fast_forwarded", branch=branch, commits=behind)
     elif behind > 0 and ahead > 0:
         log_event("resume_branch_diverged", branch=branch, ahead=ahead, behind=behind)
+    return path
 
 
 def browser_observation() -> dict[str, Any] | None:
@@ -1932,7 +1959,11 @@ def main() -> int:
                     reason="same roadmap selection recurred across consecutive runs",
                 )
 
-        ensure_worktree(Path(state.worktree), state.branch, resume=resume)
+        actual_worktree = ensure_worktree(Path(state.worktree), state.branch, resume=resume)
+        actual_worktree_text = str(actual_worktree)
+        if state.worktree != actual_worktree_text:
+            state.worktree = actual_worktree_text
+            save_state(state)
         children = ensure_services()
         run(state, push=not args.no_push)
         if not state.stop_reason:

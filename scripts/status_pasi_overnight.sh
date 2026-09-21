@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 PID_FILE="$RUNTIME_DIR/runner.pid"
 START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
@@ -81,7 +81,7 @@ for spec in \
 done
 
 printf '\nServices:\n'
-curl -fsS http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
+curl -fsS --max-time 3 http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
 printf '\n'
 token=""
 if [[ -n "${PASI_BRIDGE_TOKEN:-}" ]]; then
@@ -90,7 +90,7 @@ elif [[ -r "$HOME/.pasi/bridge-token" ]]; then
     token="$(cat "$HOME/.pasi/bridge-token" 2>/dev/null || true)"
 fi
 if [[ -n "$token" ]]; then
-    curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8765/browser/health 2>/dev/null || printf 'browser health: unavailable\n'
+    curl -fsS --max-time 3 -H "Authorization: Bearer $token" http://127.0.0.1:8765/browser/health 2>/dev/null || printf 'browser health: unavailable\n'
 else
     printf 'browser health: bridge token unavailable\n'
 fi

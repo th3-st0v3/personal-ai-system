@@ -77,6 +77,10 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
     assert "session has expired" in detectors
     assert "CHAT_EXHAUSTED" in native
     assert "reportHealth" in native
+    assert "let STALE_MS = 45 * 1000;" in background
+    assert "chrome.runtime.getURL('timeout-policy.json')" in background
+    assert "chrome.alarms.get(ALARM)" in background
+    assert "void ensureWatchdogAlarm();" in background
     assert "aria-labelledby" in native
     assert "hasAttribute?.('disabled')" in native
     assert "github connection failed" in detectors

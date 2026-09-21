@@ -4,7 +4,7 @@ const BRIDGE = 'http://127.0.0.1:8765';
 const ALARM = 'pasi-watchdog';
 const MAX_REFRESHES = 3;
 const WINDOW_MS = 15 * 60 * 1000;
-let STALE_MS = 15 * 1000;
+let STALE_MS = 45 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
@@ -178,6 +178,20 @@ function healthData(payload) {
   return { observation, data };
 }
 
+function sameChatConversationUrl(candidate, target) {
+  try {
+    const left = new URL(String(candidate || ''));
+    const right = new URL(String(target || ''));
+    const allowedOrigins = new Set(['https://chatgpt.com', 'https://www.chatgpt.com']);
+    return allowedOrigins.has(left.origin)
+      && allowedOrigins.has(right.origin)
+      && left.pathname === right.pathname
+      && left.pathname.startsWith('/c/');
+  } catch (_) {
+    return false;
+  }
+}
+
 async function refreshBudget(tabId) {
   const key = `refresh:${tabId}`;
   const stored = (await chrome.storage.local.get(key))[key] || { startedAt: Date.now(), count: 0 };
@@ -222,7 +236,7 @@ async function inspect() {
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
   const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
   const matchingTab = targetChatUrl
-    ? tabs.find((tab) => tab.url === targetChatUrl)
+    ? tabs.find((tab) => sameChatConversationUrl(tab.url, targetChatUrl))
     : null;
   if (matchingTab && observationStale) {
     // A service-worker alarm can outlive a throttled/frozen content-script timer.
@@ -255,18 +269,36 @@ async function inspect() {
 
 async function applyTimeoutPolicy() {
   try {
-    const policy = await globalThis.PASI_TIMEOUT_POLICY?.load?.();
-    if (policy?.staleMs) STALE_MS = policy.staleMs;
+    const response = await fetch(chrome.runtime.getURL('timeout-policy.json'), { cache: 'no-store' });
+    if (!response.ok) return;
+    const policy = await response.json();
+    const staleSeconds = Number(policy?.stale_seconds);
+    if (Number.isFinite(staleSeconds) && staleSeconds > 0) {
+      STALE_MS = staleSeconds * 1000;
+    }
+  } catch (_) {}
+}
+
+async function ensureWatchdogAlarm() {
+  await applyTimeoutPolicy();
+  try {
+    const alarm = await chrome.alarms.get(ALARM);
+    const period = Number(alarm?.periodInMinutes);
+    if (!alarm || !Number.isFinite(period) || Math.abs(period - 0.5) > 0.001) {
+      await chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+    }
   } catch (_) {}
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
+  void ensureWatchdogAlarm();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  applyTimeoutPolicy().finally(() => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 }));
+  void ensureWatchdogAlarm();
 });
+
+void ensureWatchdogAlarm();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) inspect();

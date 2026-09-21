@@ -46,9 +46,9 @@ def test_tampermonkey_controller_uses_bounded_idle_polling_and_recovery_state() 
 def test_native_controller_uses_bounded_idle_polling() -> None:
     source = _read(NATIVE)
 
-    assert 250 <= _number(source, "POLL_MS") <= 1000
-    assert _number(source, "DOM_POLL_MS") <= 20
-    assert _number(source, "CLICK_SETTLE_MS") <= 20
+    assert _number(source, "POLL_MS") == 2000
+    assert _number(source, "DOM_POLL_MS") == 100
+    assert _number(source, "CLICK_SETTLE_MS") == 250
     assert _number(source, "RESPONSE_SETTLE_MS") <= 20
     assert _number(source, "COMPLETION_RETRY_DELAY_MS") <= 20
     assert "scheduleImmediateOperation(operation)" in source

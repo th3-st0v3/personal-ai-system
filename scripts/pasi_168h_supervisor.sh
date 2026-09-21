@@ -6,7 +6,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 PYTHON="$REPO_ROOT/.venv/bin/python"
-RUNTIME_DIR="$REPO_ROOT/.runtime/overnight"
+RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 STOP_FILE="$RUNTIME_DIR/supervisor.stop"
