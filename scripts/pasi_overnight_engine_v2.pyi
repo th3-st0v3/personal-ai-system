@@ -44,6 +44,7 @@ class OvernightState:
     stop_reason: str
     recent_tasks: list[str]
     fallback_router_disabled_until: str
+    last_provider: str
 
     def __init__(
         self,
@@ -69,6 +70,7 @@ class OvernightState:
         stop_reason: str = ...,
         recent_tasks: list[str] = ...,
         fallback_router_disabled_until: str = ...,
+        last_provider: str = ...,
     ) -> None: ...
 
     def to_dict(self) -> dict[str, Any]: ...
