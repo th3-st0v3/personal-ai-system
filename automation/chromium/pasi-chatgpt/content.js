@@ -185,6 +185,26 @@
             subtree: true,
             childList: true,
             attributes: true,
+            attributeFilter: [
+              'aria-checked',
+              'aria-current',
+              'aria-disabled',
+              'aria-haspopup',
+              'aria-labelledby',
+              'aria-pressed',
+              'aria-selected',
+              'class',
+              'data-active',
+              'data-checked',
+              'data-selected',
+              'data-state',
+              'data-testid',
+              'disabled',
+              'hidden',
+              'role',
+              'style',
+              'title'
+            ],
             characterData: true
           });
         } catch (_) {

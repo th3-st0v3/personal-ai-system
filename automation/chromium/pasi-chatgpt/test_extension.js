@@ -530,6 +530,19 @@ test('native waitUntil coalesces mutation bursts without a fixed 10ms floor', ()
   assert.doesNotMatch(source, /now - lastCheck < 10/);
 });
 
+test('native DOM waits filter mutation attributes to controller-relevant state', () => {
+  const start = content.indexOf('function waitUntil(');
+  const end = content.indexOf('function visible(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /attributeFilter: \[/);
+  assert.match(source, /'disabled'/);
+  assert.match(source, /'aria-disabled'/);
+  assert.match(source, /'data-testid'/);
+  assert.match(source, /'class'/);
+  assert.match(source, /'style'/);
+  assert.match(source, /'hidden'/);
+});
+
 test('native response wait checks generation before failure-marker DOM scans', () => {
   const start = content.indexOf('async function waitForResponse(');
   const end = content.indexOf('  function rememberContextRecovery(', start);
