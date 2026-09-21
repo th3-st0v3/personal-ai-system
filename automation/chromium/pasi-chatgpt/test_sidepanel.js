@@ -25,7 +25,7 @@ test('background opens the side panel from the extension action and keeps contro
   assert.match(background, /chrome\.sidePanel\.setPanelBehavior\(\{ openPanelOnActionClick: true \}\)/);
   assert.match(background, /pasi-control-center-bridge-request/);
   assert.match(background, /new Set\(\['\/status', '\/browser\/observation'\]\)/);
-  assert.match(background, /chrome-extension:\\/\\/\\$\\{chrome\.runtime\.id\\}/);
+  assert.match(background, /chrome-extension:\/\/\$\{chrome\.runtime\.id\}/);
 });
 
 test('side panel shell is self-contained and does not load remote assets', () => {
