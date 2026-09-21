@@ -3,10 +3,10 @@
 
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
-  const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
-  const HEALTH_MS = Math.min(TIMEOUT_POLICY.heartbeatMs || 5000, 5000);
-  const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;
-  const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;
+  const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;
+  const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
+  const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 100;
+  const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 250;
   const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
   const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;
   const PREVIOUS_RESPONSE_WAIT_MS = 5 * 60 * 1000;
