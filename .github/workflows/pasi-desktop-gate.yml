@@ -1,0 +1,63 @@
+name: pasi-desktop-gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to validate"
+        required: true
+        default: "main"
+      mode:
+        description: "Desktop action"
+        required: true
+        type: choice
+        options:
+          - preflight
+          - launch-168h
+        default: preflight
+  repository_dispatch:
+    types:
+      - pasi-desktop-gate
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pasi-desktop-gate
+  cancel-in-progress: false
+
+jobs:
+  desktop:
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 10
+    steps:
+      - name: Resolve requested ref
+        id: ref
+        shell: bash
+        env:
+          DISPATCH_REF: ${{ github.event.client_payload.ref || '' }}
+          INPUT_REF: ${{ inputs.ref || '' }}
+        run: |
+          ref="${INPUT_REF:-${DISPATCH_REF:-${GITHUB_REF_NAME}}}"
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 1
+
+      - name: Verify desktop boundary
+        run: |
+          python3 scripts/pasi_desktop_preflight.py --require-visible
+
+      - name: Launch 168-hour runner
+        if: ${{ (inputs.mode == 'launch-168h') || (github.event.client_payload.mode == 'launch-168h') }}
+        env:
+          PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}
+        run: |
+          bash scripts/start_pasi_168h.sh
+
+      - name: Record launch mode
+        if: ${{ (inputs.mode == 'launch-168h') || (github.event.client_payload.mode == 'launch-168h') }}
+        run: |
+          bash scripts/status_pasi_overnight.sh
