@@ -77,6 +77,7 @@ class TestPasiLogRouter(unittest.TestCase):
             root = Path(directory)
             log = root / "service.log"
             grandchild_pid_file = root / "grandchild.pid"
+            grandchild_ready = root / "grandchild.ready"
             terminated_marker = root / "grandchild.terminated"
 
             grandchild_code = """
@@ -86,6 +87,7 @@ import sys
 import time
 
 marker = pathlib.Path(sys.argv[1])
+ready = pathlib.Path(sys.argv[2])
 
 def handle_term(_signum, _frame):
     marker.write_text("terminated", encoding="utf-8")
@@ -93,6 +95,7 @@ def handle_term(_signum, _frame):
 
 signal.signal(signal.SIGTERM, handle_term)
 signal.signal(signal.SIGINT, handle_term)
+ready.write_text("ready", encoding="utf-8")
 while True:
     time.sleep(60)
 """.strip()
@@ -101,20 +104,28 @@ import pathlib
 import signal
 import subprocess
 import sys
+import time
 
 pid_file = pathlib.Path(sys.argv[1])
 marker = sys.argv[2]
+ready = pathlib.Path(sys.argv[3])
 grandchild = subprocess.Popen(
     [
         sys.executable,
         "-c",
-        sys.argv[3],
+        sys.argv[4],
         marker,
+        str(ready),
     ],
     stdin=subprocess.DEVNULL,
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,
 )
+deadline = time.monotonic() + 5.0
+while time.monotonic() < deadline and not ready.exists():
+    time.sleep(0.01)
+if not ready.exists():
+    raise SystemExit("grandchild did not become signal-ready")
 pid_file.write_text(str(grandchild.pid), encoding="utf-8")
 signal.pause()
 """.strip()
@@ -131,6 +142,7 @@ signal.pause()
                     child_code,
                     str(grandchild_pid_file),
                     str(terminated_marker),
+                    str(grandchild_ready),
                     grandchild_code,
                 ],
                 stdin=subprocess.DEVNULL,
@@ -144,7 +156,7 @@ signal.pause()
                     time.sleep(0.05)
                 self.assertTrue(
                     grandchild_pid_file.exists(),
-                    "managed child did not publish its descendant PID",
+                    "managed child did not publish its signal-ready descendant PID",
                 )
 
                 os.kill(router.pid, signal.SIGTERM)
