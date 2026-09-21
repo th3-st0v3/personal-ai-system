@@ -137,6 +137,15 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
 });
 
+test('native controller starts heartbeat and polling timers before the initial poll can block startup', () => {
+  const startIndex = content.indexOf('  async function start() {');
+  const start = content.slice(startIndex, content.indexOf('\n  }', startIndex) + 4);
+  assert.ok(startIndex >= 0);
+  assert.ok(start.indexOf('pollTimerId = setInterval(poll, POLL_MS);') < start.indexOf('await poll();'));
+  assert.ok(start.indexOf('healthTimerId = setInterval(reportHealth, HEALTH_MS);') < start.indexOf('await poll();'));
+  assert.match(start, /if \(extensionContextInvalidated\) \{/);
+});
+
 test('native controller reports health and preserves interrupted-operation recovery', () => {
   assert.match(content, /chatgpt_health/);
   assert.match(content, /chatgpt_chat_changed/);
