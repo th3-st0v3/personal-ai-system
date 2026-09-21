@@ -474,7 +474,7 @@ test('background watchdog wakes stale exact tabs without creating idle replaceme
   assert.match(background, /if \(!activeOperation\) return/);
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
-  assert.match(background, /Never substitute another ChatGPT tab/);
+  assert.match(background, /sameChatConversationUrl\(tab\.url, targetChatUrl\)/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
 
@@ -487,7 +487,7 @@ test('native controller answers background health pings and visibility transitio
 test('background watchdog recreates only the verified conversation when its tab is missing', () => {
   assert.match(background, /if \(!matchingTab\) \{/);
   assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
-  assert.match(background, /Never substitute another ChatGPT tab/);
+  assert.match(background, /sameChatConversationUrl\(tab\.url, targetChatUrl\)/);
   assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
 });
 
@@ -575,12 +575,11 @@ test('native generating detection uses one grouped selector', () => {
 });
 
 test('native response completion reuses the extracted assistant text for fingerprinting', () => {
-  const start = content.indexOf('function latestAssistant()');
-  const end = content.indexOf('function nearbyScopedControls', start);
+  const start = content.indexOf('async function waitForResponse(');
+  const end = content.indexOf('  function rememberContextRecovery(', start);
   assert.ok(start >= 0 && end > start);
   const source = content.slice(start, end);
-  assert.match(source, /function fingerprintFromText\(value\)/);
-  assert.match(source, /function fingerprint\(\) \{ return fingerprintFromText\(latestAssistant\(\)\); \}/);
+  assert.match(source, /const responseText = latestAssistant\(\)/);
   assert.match(source, /fingerprintFromText\(responseText\) !== baseline/);
   assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
 });
@@ -598,7 +597,8 @@ test('native chained operation skips controller lease await when the lease is fr
   const start = content.indexOf('async function processOperation(operation)');
   const end = content.indexOf('  async function recoverInterruptedOperation()', start);
   const source = content.slice(start, end);
-  assert.match(source, /if \(!hasFreshControllerLease\(\) && !\(await controllerClaim\(\)\)\) return/);
+  assert.match(source, /if \(!hasFreshControllerLease\(\)\) \{/);
+  assert.match(source, /const claimed = await controllerClaim\(\);/);
   assert.match(content, /function hasFreshControllerLease\(\)/);
 });
 
@@ -607,7 +607,7 @@ test('native completion telemetry is deferred off the hot path', () => {
   const end = content.indexOf('  async function failOperation(', start);
   const source = content.slice(start, end);
   assert.match(source, /const publishResponseTelemetry = \(\) =>/);
-  assert.match(source, /const payload = response\.json\(\);\n            setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
+  assert.match(source, /const payload = response\.json\(\);[\s\S]*setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
   assert.match(source, /publishResponseTelemetry\(\);\n    throw lastError/);
   assert.doesNotMatch(source, /publishResponseTelemetry\(\);\n    let lastError/);
 });
