@@ -1,6 +1,6 @@
 # PASI Feature Inventory Reconciliation
 
-This document reconciles the current PASI feature inventory against the repository's implemented architecture. Items are classified as **implemented**, **implemented with a safer architectural form**, **deferred**, or **not adopted**. The inventory is treated as design input, not as an instruction to add technically unsafe or redundant mechanisms.
+This document reconciles the current PASI feature inventory against the repository's implemented architecture. Items are classified as **implemented**, **implemented with a safer architectural form**, **deferred**, **operator-owned**, or **not adopted**. The inventory is treated as design input, not as an instruction to add technically unsafe or redundant mechanisms.
 
 ## Implemented
 
@@ -10,6 +10,7 @@ This document reconciles the current PASI feature inventory against the reposito
 - **Durable evidence/task ledger** — completed work and execution evidence are persisted and reused for continuation/recovery decisions.
 - **Completion effort floor** — PR #245 rejects thin new-task completion claims instead of allowing low-content answers to advance the scheduler.
 - **Protected unattended runtime boundary** — PR #246 expands the protected patch surface around the complete 168-hour execution chain.
+- **168-hour safety gate** — the supported unattended launcher is bounded to a 168-hour execution window; completion/interruption state is persisted rather than silently extending the same run.
 - **Durable 168-hour handoff** — PR #248 persists a bounded handoff artifact at normal finish, interruption, and top-level failure.
 - **Browser observation normalization** — PR #247 keeps downstream ChatGPT state handling compatible with both supported observation kinds.
 - **Native Chromium controller** — the native extension is the preferred controller path; the Tampermonkey controller remains an alternate compatibility path rather than a second simultaneously active controller.
@@ -17,6 +18,8 @@ This document reconciles the current PASI feature inventory against the reposito
 - **Blast-radius/impact audit** — the repository already has an observational PR impact workflow that reports commits, files, line changes, scopes, directory footprint, and largest file deltas.
 - **Runtime efficiency report** — existing telemetry reports repeated task numbers, short-response streaks, evidence thickness, recovery events, prompt sizes, and response-to-next-dispatch latency.
 - **Provider fallback boundary** — the repository already has a bounded provider router and local-provider fallback path; provider output remains subject to the same completion and verification contracts.
+- **Adversarial modification audit** — the repository has an isolated self-modification audit workflow and a protected unattended patch boundary for controller/runtime/workflow changes.
+- **Manifest capability validation** — PR #249 adds an explicit native-extension capability contract that checks Chrome API use, permission coverage, host coverage, and the Python↔localhost bridge boundary without broadening permissions.
 - **WSL resource boundary** — the current development environment uses the documented 3 GiB WSL / 0 swap / 2 CPU constraint as an operator-level resource boundary.
 
 ## Implemented with a safer architectural form
@@ -31,6 +34,7 @@ This document reconciles the current PASI feature inventory against the reposito
 - **Ghost dissection retry** — planner/dissection failures are bounded and validated by the backend contract; a UI retry affordance is not treated as the source of truth.
 - **Panic/force skip** — the system prefers bounded recovery, retry, and durable task retention. There is no unrestricted UI path that can silently bypass verification or dependency rules.
 - **Hardware profile toggle** — the Control Center stores a local preference, but hardware profiles do not override the enforced WSL/runtime safety boundary.
+- **AST modification shield** — protected runtime/controller paths are denied to unattended patches before application. A future AST-level semantic detector can add another review layer, but duplicating the same path guard is not necessary for the current M0/M1/M2 gate.
 
 ## Deferred
 
@@ -44,6 +48,16 @@ These are useful future work, but they should follow live M0/M1/M2 acceptance ra
 - **Visual telemetry barometer** — the side panel foundation can consume stronger host/RAM/latency telemetry once an authenticated bridge contract exists for those fields.
 - **Dissection progress UI** — the current side panel can display roadmap/task state, but authoritative multi-pass cloud dissection progress should not be fabricated before a stable dissection service exists.
 - **Speculative branching and large in-memory vector caches** — intentionally postponed until higher-memory profiles are real, measured, and justified by a demonstrated workload.
+
+## Operator-owned
+
+These settings are real environment controls rather than native extension capabilities and should be configured deliberately outside the unattended code path.
+
+- **Opera GX RAM limiter** — browser memory limiting belongs to the browser/desktop environment; the repository should observe resource pressure rather than assume it can enforce the setting.
+- **Opera GX CPU limiter** — same boundary as RAM limiting; do not grant the extension host-level resource-control privileges.
+- **Battery-saver/background-throttling policy** — browser power-saving behavior is an operator/browser setting and should be verified separately before a long run.
+- **Inactive-tab snoozing/suspension** — tab lifecycle policy must preserve the authoritative ChatGPT automation tab; aggressive suspension is not a correctness prerequisite.
+- **Process recycling** — already used at the application boundary through short-lived validation/helper subprocesses rather than by destroying the persistent scheduler.
 
 ## Not adopted
 
@@ -64,4 +78,4 @@ The repository should now optimize for a small number of hard acceptance gates r
 
 ## CI note
 
-The current open PRs have repeatedly produced GitHub Actions jobs that terminate before executing workflow steps and without retrievable runner logs. That is an execution/infrastructure gate, not evidence that the PR code itself is incorrect. Those PRs should remain unmerged until an executable green CI result exists.
+The current open PRs have repeatedly produced GitHub Actions jobs that terminate before executing workflow steps and without retrievable runner logs. GitHub's public status page currently reports Actions as operational and shows no incident for September 21, 2026. citeturn789702search0 That leaves the repository's pre-step failures as an unresolved CI execution gate rather than evidence that the code has passed. Those PRs should remain unmerged until an executable green CI result exists.
