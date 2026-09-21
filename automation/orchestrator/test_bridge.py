@@ -1330,7 +1330,9 @@ def test_completion_claims_exactly_one_next_operation_atomically(tmp_path: Path)
     assert chained is not None
     assert chained["operation_id"] == second.operation_id
     assert chained["status"] == "claimed"
-    assert bridge.get_operation(third.operation_id)["status"] == "queued"
+    third_operation = bridge.get_operation(third.operation_id)
+    assert third_operation is not None
+    assert third_operation["status"] == "queued"
 
 
 def test_duplicate_completion_returns_the_same_chained_operation(tmp_path: Path) -> None:
