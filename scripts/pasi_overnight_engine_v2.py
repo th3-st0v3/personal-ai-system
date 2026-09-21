@@ -6,6 +6,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -18,7 +19,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from scripts import pasi_overnight_engine as legacy
 from scripts import pasi_prompt_compiler as prompt_compiler
 from scripts.pasi_stage_events import StageTimer, classify_failure
 
@@ -46,11 +46,11 @@ PROTECTED_UNATTENDED_PREFIXES = (
     ".githooks/",
     "hooks/",
 )
-DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
-DEFAULT_HOURS = legacy.DEFAULT_HOURS
-MIN_HOURS = legacy.MIN_HOURS
-MAX_HOURS = legacy.MAX_HOURS
-MAX_ATTEMPTS = legacy.MAX_ATTEMPTS
+DEFAULT_WORKTREE = Path.home() / ".pasi-worktrees" / "personal-ai-system-overnight"
+DEFAULT_HOURS = 10.0
+MIN_HOURS = 8.0
+MAX_HOURS = float("inf")
+MAX_ATTEMPTS = 3
 TASK_TIMEOUT_SECONDS = 900.0
 WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
@@ -244,6 +244,210 @@ def record_task_ledger(
         "updated_at": now_utc().isoformat(),
     }
     save_task_ledger(ledger)
+
+
+def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[str]) -> str:
+    value = re.sub(r"\s+", " ", candidate).strip()
+    if not value or len(value) > MAX_TASK_TEXT_CHARS or any(ord(char) < 32 for char in value):
+        return ""
+    lowered = value.casefold()
+    recent = {item.casefold().strip() for item in recent_tasks}
+    if lowered == current_task.casefold().strip() or lowered in recent:
+        return ""
+    if task_key(value) in completed_task_keys():
+        return ""
+    return value
+
+
+
+
+def normalize_patch(patch: str) -> str:
+    normalized = patch.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return ""
+    lines = normalized.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line.startswith("diff --git "))
+    except StopIteration:
+        return normalized
+    lines = lines[start:]
+    for index, line in enumerate(lines):
+        if line.strip().startswith(chr(96) * 3):
+            lines = lines[:index]
+            break
+    return "\n".join(lines).strip() + "\n"
+
+
+
+
+def repository_worktree_is_clean(worktree: Path) -> bool:
+    code, status = command(["git", "status", "--porcelain", "--untracked-files=all"], worktree, 30.0)
+    return code == 0 and not status.strip()
+
+
+
+
+def run_validation_sandbox(worktree: Path, timeout: float = 900.0) -> str:
+    """Run offline validation from an isolated filesystem/network view."""
+    if not shutil.which("bwrap"):
+        raise RuntimeError(
+            "bubblewrap is required for network/filesystem-isolated validation; "
+            "install the bubblewrap package before running PASI unattended"
+        )
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="pasi-validation-") as temp_dir:
+        sandbox_root = Path(temp_dir)
+        sandbox_repo = sandbox_root / "repo"
+        shutil.copytree(
+            worktree,
+            sandbox_repo,
+            symlinks=True,
+            ignore=shutil.ignore_patterns(
+                ".git",
+                ".runtime",
+                "__pycache__",
+                "*.pyc",
+            ),
+        )
+
+        code, output = command(
+            ["git", "init", "-b", "pasi-validation"],
+            sandbox_repo,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"could not initialize validation sandbox repository: {output}")
+        code, output = command(
+            ["git", "add", "-A"],
+            sandbox_repo,
+            30.0,
+        )
+        if code != 0:
+            raise RuntimeError(f"could not stage validation sandbox snapshot: {output}")
+
+        venv_path = REPO_ROOT / ".venv"
+        path_value = "/usr/local/bin:/usr/bin:/bin"
+        venv_bind: list[str] = []
+        if venv_path.is_dir():
+            path_value = "/pasi-venv/bin:" + path_value
+            venv_bind = ["--ro-bind", str(venv_path), "/pasi-venv"]
+
+        env_values = {
+            "PATH": path_value,
+            "HOME": "/tmp/pasi-validation-home",
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+            "PYTHONPATH": "/workspace",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_ASKPASS": "/bin/false",
+            "CI": "1",
+        }
+        base = [
+            "env",
+            "-i",
+            *[f"{key}={value}" for key, value in env_values.items()],
+            "bash",
+            "scripts/check_all.sh",
+        ]
+        sandbox_command = [
+            "bwrap",
+            "--ro-bind", "/usr", "/usr",
+            "--ro-bind", "/bin", "/bin",
+            "--ro-bind", "/lib", "/lib",
+            "--ro-bind", "/lib64", "/lib64",
+            "--ro-bind", "/etc", "/etc",
+            "--dev", "/dev",
+            "--proc", "/proc",
+            "--tmpfs", "/tmp",
+            "--tmpfs", "/home",
+            "--tmpfs", "/root",
+            "--tmpfs", "/mnt",
+            "--tmpfs", "/media",
+            "--bind", str(sandbox_repo), "/workspace",
+            *venv_bind,
+            "--unshare-net",
+            "--chdir", "/workspace",
+            *base,
+        ]
+        code, output = command(sandbox_command, sandbox_repo, timeout)
+        if code == 0:
+            return output
+        raise RuntimeError(f"sandboxed canonical validation failed:\n{output}")
+
+
+
+
+def commit_and_push(worktree: Path, branch: str, task: str, push: bool) -> str:
+    code, output = command(["git", "add", "-A"], worktree, 30.0)
+    if code != 0:
+        raise RuntimeError(f"git add failed: {output}")
+    code, output = command(["git", "diff", "--cached", "--quiet"], worktree, 30.0)
+    if code == 0:
+        raise RuntimeError("task completed without producing a commit")
+    message = re.sub(r"[^A-Za-z0-9 .:_/-]+", "", task).strip()[:65] or "overnight PASI task"
+    commit_tag = f"task-{task_key(task)[:12]}"
+    code, output = command(["git", "commit", "-m", f"pasi: {commit_tag} {message}"], worktree, 120.0)
+    if code != 0:
+        raise RuntimeError(f"git commit failed: {output}")
+    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
+    if code != 0:
+        raise RuntimeError(f"could not read commit: {commit}")
+    if push:
+        code, output = command(["git", "push", "--set-upstream", "origin", branch], worktree, 180.0)
+        if code != 0:
+            raise RuntimeError(f"git push failed: {output}")
+    return commit
+
+
+
+
+def reconcile_committed_task(state: OvernightState) -> bool:
+    """Recover a commit acknowledged by Git but not yet written to the task ledger."""
+    normalized = re.sub(r"\s+", " ", state.current_task).strip()
+    if not normalized:
+        return False
+    key = task_key(normalized)
+    entry = load_task_ledger().get(key)
+    if isinstance(entry, dict) and str(entry.get("status", "")).casefold() == "completed":
+        return False
+    worktree = Path(state.worktree)
+    if not repository_worktree_is_clean(worktree):
+        return False
+    code, subject = command(["git", "log", "-1", "--format=%s"], worktree, 15.0)
+    if code != 0 or f"task-{key[:12]}" not in subject:
+        return False
+    code, commit = command(["git", "rev-parse", "HEAD"], worktree, 15.0)
+    if code != 0 or not commit.strip():
+        return False
+    record_task_ledger(
+        normalized,
+        "completed",
+        commit=commit.strip(),
+        evidence="Recovered completed task from an already-created tagged Git commit after restart.",
+        phase=state.phase,
+    )
+    state.completed_tasks += 1
+    if state.phase == "automation":
+        state.automation_tasks_since_gate += 1
+    state.recent_tasks.append(normalized)
+    state.current_attempt = 0
+    state.next_task = ""
+    state.current_task = choose_next_task(state, "")
+    save_state(state)
+    log_event(
+        "task_recovered_from_commit",
+        phase=state.phase,
+        task_number=state.task_number,
+        commit=commit.strip(),
+        recovered_task=normalized,
+        next_task=state.current_task,
+    )
+    return True
+
+
 
 
 def load_roadmap_selection_history() -> list[dict[str, str]]:
@@ -567,7 +771,7 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     children: list[subprocess.Popen[bytes]] = []
     if not healthy(f"{BRIDGE_URL}/health"):
         log_event("service_start", service="bridge")
-        children.append(subprocess.Popen([legacy.sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
+        children.append(subprocess.Popen([sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
         if healthy(f"{BRIDGE_URL}/health"):
@@ -818,7 +1022,7 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
         attempt=state.current_attempt,
     )
     code, output = command(
-        [legacy.sys.executable, str(control_script("pasi_chat_guard.py")), prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS), "--repo", state.worktree],
+        [sys.executable, str(control_script("pasi_chat_guard.py")), prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS), "--repo", state.worktree],
         REPO_ROOT,
         TASK_TIMEOUT_SECONDS + 45.0,
     )
@@ -836,13 +1040,52 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
-    status, summary, next_task, patch, allow_delete, values = legacy.parse_response(response)
+    if not isinstance(response, str):
+        raise ValueError("model response must be text")
+    values: dict[str, str] = {}
+    missing_or_duplicate: list[str] = []
+    for key, pattern in MARKERS.items():
+        matches = pattern.findall(response)
+        if len(matches) != 1:
+            missing_or_duplicate.append(key)
+            if matches:
+                values[key] = matches[0].strip()
+        else:
+            values[key] = matches[0].strip()
+    if missing_or_duplicate:
+        raise ValueError(
+            "PASI response contract must contain each marker exactly once: "
+            + ", ".join(sorted(missing_or_duplicate))
+        )
+    if response.count(PATCH_BEGIN) != 1 or response.count(PATCH_END) != 1:
+        raise ValueError("PASI response patch fence must occur exactly once")
+    status = values["status"].strip().lower()
+    summary = values["summary"].strip()
+    next_task = values["next_task"].strip()
+    allow_delete = values["allow_delete"].strip().lower() == "true" if "allow_delete" in values else False
     values["automation_continue"] = "true" if AUTOMATION_CONTINUE_RE.search(response) else "false"
+    raw_patch = response.split(PATCH_BEGIN, 1)[1].split(PATCH_END, 1)[0]
+    patch = normalize_patch(raw_patch)
+    values["automation_continue"] = "true" if re.search(
+        r"^PASI_AUTOMATION_CONTINUE:\s*true$",
+        response,
+        re.MULTILINE | re.IGNORECASE,
+    ) else "false"
     return status, summary, next_task, patch, allow_delete, values
 
 
+
 def completion_contract(status: str, values: dict[str, str]) -> bool:
-    return legacy.completion_contract_is_satisfied(status, values)
+    return (
+        status == "complete"
+        and values.get("requirements", "").lower() == "complete"
+        and values.get("limitations", "").lower() in {"handled", "none", "not_applicable"}
+        and values.get("research", "").lower() in {"performed", "not_applicable"}
+        and values.get("ux", "").lower() in {"verified", "not_applicable"}
+        and values.get("backend", "").lower() in {"verified", "not_applicable"}
+        and bool(values.get("evidence", "").strip())
+    )
+
 
 
 def completed_task_keys() -> set[str]:
@@ -862,7 +1105,7 @@ def no_change_completion_is_satisfied(
     task_already_completed: bool,
 ) -> bool:
     return (
-        legacy.no_change_completion_is_satisfied(worktree, status, next_task, patch, values)
+        completion_contract(status, values) and repository_worktree_is_clean(worktree)
         and bool(values.get("evidence", "").strip())
         and task_already_completed
     )
@@ -901,20 +1144,48 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
 
 
 def choose_next_task(state: OvernightState, suggested: str) -> str:
-    candidate = re.sub(r"\s+", " ", suggested).strip()
     candidates = AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS
-    configured = {item.casefold(): item for item in candidates}
-    current = state.current_task.casefold().strip()
-    if candidate.casefold() == current and current in configured:
-        # A completion response that repeats the current roadmap item must advance
-        # rather than relying on the bounded recent-task window to break the loop.
-        index = next(index for index, item in enumerate(candidates) if item.casefold() == current)
-        return candidates[(index + 1) % len(candidates)]
+    completed = completed_task_keys()
+    validated_suggestion = valid_next_task(suggested, state.current_task, state.recent_tasks)
+    if validated_suggestion:
+        return validated_suggestion
+    normalized_suggestion = re.sub(r"\s+", " ", suggested).strip()
+    current_key = task_key(state.current_task)
+    configured = {task_key(item): (index, item) for index, item in enumerate(candidates)}
+    suggestion_key = task_key(normalized_suggestion) if normalized_suggestion else ""
+    current_entry = configured.get(current_key)
+    suggestion_entry = configured.get(suggestion_key)
 
-    recent = {item.casefold() for item in state.recent_tasks[-12:]}
-    if candidate.casefold() in configured and candidate.casefold() not in recent:
-        return configured[candidate.casefold()]
+    if suggestion_entry and suggestion_key not in completed and suggestion_key != current_key:
+        return suggestion_entry[1]
+
+    advance_from_key: str | None = None
+    if suggestion_entry and (suggestion_key == current_key or suggestion_key in completed):
+        advance_from_key = suggestion_key
+    elif not normalized_suggestion:
+        recent = {task_key(item) for item in state.recent_tasks[-12:]}
+        if current_key in completed or current_key in recent:
+            advance_from_key = current_key
+        elif current_entry and current_key not in completed:
+            return current_entry[1]
+    elif current_entry and current_key not in completed:
+        completed_indices = [
+            index for key, (index, _item) in configured.items() if key in completed
+        ]
+        later_completed = [index for index in completed_indices if index > current_entry[0]]
+        if later_completed:
+            advance_from_key = task_key(candidates[max(later_completed)])
+        else:
+            # An invented/non-roadmap suggestion cannot replace an unfinished task.
+            return current_entry[1]
+
+    start_index = configured[advance_from_key][0] + 1 if advance_from_key in configured else 0
+    ordered = list(candidates[start_index:]) + list(candidates[:start_index])
+    for configured_task in ordered:
+        if task_key(configured_task) not in completed:
+            return configured_task
     return choose_unique(candidates, state)
+
 
 
 def fast_local_gate(worktree: Path) -> str:
@@ -940,7 +1211,7 @@ def fast_local_gate(worktree: Path) -> str:
     checks: list[str] = []
 
     if python_files:
-        code, output = command([legacy.sys.executable, "-m", "py_compile", *python_files], worktree, 120.0)
+        code, output = command([sys.executable, "-m", "py_compile", *python_files], worktree, 120.0)
         if code != 0:
             raise RuntimeError(f"fast local gate Python syntax failed:\n{output}")
         checks.append(f"py_compile:{len(python_files)}")
@@ -965,7 +1236,7 @@ def fast_local_gate(worktree: Path) -> str:
 
     for path in json_files:
         code, output = command(
-            [legacy.sys.executable, "-c", "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))", path],
+            [sys.executable, "-c", "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))", path],
             worktree,
             30.0,
         )
@@ -1020,7 +1291,7 @@ def fast_local_gate(worktree: Path) -> str:
 
     if python_tests:
         code, output = command(
-            [legacy.sys.executable, "-m", "pytest", "-q", *sorted(python_tests)],
+            [sys.executable, "-m", "pytest", "-q", *sorted(python_tests)],
             worktree,
             300.0,
         )
@@ -1122,7 +1393,7 @@ def verify_and_commit(
         finished_at=now_utc().isoformat(),
         changed_files=len(changed_files),
     )
-    commit = legacy.commit_and_push(worktree, branch, task, push, paths=legacy.patch_paths_from_diff(patch))
+    commit = commit_and_push(worktree, branch, task, push)
     code, status = command(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         worktree,
@@ -1135,7 +1406,7 @@ def verify_and_commit(
     if push and promote:
         promotion = command(
             [
-                legacy.sys.executable,
+                sys.executable,
                 str(control_script("pasi_promote.py")),
                 "--commit",
                 commit,
@@ -1227,6 +1498,9 @@ def sleep_until_retry(state: OvernightState, seconds: float) -> bool:
 def run(state: OvernightState, *, push: bool) -> None:
     failure = ""
     while not STOP and now_utc() < datetime.fromisoformat(state.deadline_at):
+        if reconcile_committed_task(state):
+            failure = ""
+            continue
         if not runtime_watchdog_is_live():
             if not standby_until_ready(state):
                 if STOP:
@@ -1296,7 +1570,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 )
                 fallback = command(
                     [
-                        legacy.sys.executable,
+                        sys.executable,
                         str(control_script("pasi_provider_router.py")),
                         "--task",
                         build_prompt(state.current_task, state, response),
