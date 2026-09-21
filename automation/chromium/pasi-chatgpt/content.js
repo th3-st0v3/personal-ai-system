@@ -424,7 +424,10 @@
   function assistantMessages() { return Array.from(document.querySelectorAll('[data-message-author-role="assistant"]')).filter(visible); }
 
   function messageText(node) {
-    return String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
+    return String(node?.innerText || node?.textContent || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+(?=\n)/g, '')
+      .trim();
   }
 
   function snapshotUserMessages() {
