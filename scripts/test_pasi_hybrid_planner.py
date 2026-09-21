@@ -40,6 +40,21 @@ def task(
 
 
 class TestHybridPlanner(unittest.TestCase):
+    def test_load_roadmap_rejects_malformed_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "roadmap.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "not-an-integer",
+                        "tasks": [task("a").to_dict()],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(planner.PlannerError, "schema_version must be an integer"):
+                planner.load_roadmap(path)
+
     def test_load_roadmap_validates_dependencies_and_cycles(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "roadmap.json"
