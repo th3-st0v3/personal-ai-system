@@ -1481,7 +1481,14 @@
     activeOperationId = operation.operation_id;
     processing = true;
     if (leaseTimerId !== null) clearInterval(leaseTimerId);
-    if (!hasFreshControllerLease() && !(await controllerClaim())) return;
+    if (!hasFreshControllerLease()) {
+      const claimed = await controllerClaim();
+      if (!claimed) {
+        activeOperationId = null;
+        processing = false;
+        return;
+      }
+    }
     leaseTimerId = setInterval(() => {
       controllerClaim({ force: true }).catch(() => {
         controllerLeader = false;
@@ -1525,7 +1532,11 @@
           const submission = await submitPrompt(promptText);
           const browserTiming = { ...(submission.timing || {}) };
           const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);
-          if (Number.isFinite(previousCompletionAckAtMs) && Number.isFinite(browserTiming.injected_at_ms)) {
+          if (
+            Number.isFinite(previousCompletionAckAtMs) &&
+            typeof browserTiming.injected_at_ms === 'number' &&
+            Number.isFinite(browserTiming.injected_at_ms)
+          ) {
             browserTiming.completion_to_prompt_injected_ms = Math.max(
               0,
               browserTiming.injected_at_ms - previousCompletionAckAtMs

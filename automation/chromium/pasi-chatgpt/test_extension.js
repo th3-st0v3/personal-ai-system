@@ -549,6 +549,15 @@ test('native response completion reuses the extracted assistant text for fingerp
   assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
 });
 
+test('native lost lease path clears operation state before returning', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  assert.match(source, /if \(!claimed\) \{/);
+  assert.match(source, /activeOperationId = null;/);
+  assert.match(source, /processing = false;/);
+});
+
 test('native chained operation skips controller lease await when the lease is fresh', () => {
   const start = content.indexOf('async function processOperation(operation)');
   const end = content.indexOf('  async function recoverInterruptedOperation()', start);
@@ -565,6 +574,10 @@ test('native completion telemetry is deferred off the hot path', () => {
   assert.match(source, /const payload = response\.json\(\);\n            setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
   assert.match(source, /publishResponseTelemetry\(\);\n    throw lastError/);
   assert.doesNotMatch(source, /publishResponseTelemetry\(\);\n    let lastError/);
+});
+
+test('native handoff latency only uses numeric injection timestamps', () => {
+  assert.match(content, /typeof browserTiming\.injected_at_ms === 'number'/);
 });
 
 test('native chained operation carries completion acknowledgement timing', () => {
