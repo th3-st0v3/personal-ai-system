@@ -1492,6 +1492,9 @@
             lastCompletionAckAtMs = Date.now();
             if (payload && typeof payload === 'object' && payload.next_operation && typeof payload.next_operation === 'object') {
               payload.next_operation.__pasi_completion_ack_at_ms = lastCompletionAckAtMs;
+              if (timing && typeof timing === 'object' && typeof timing.completed_at_ms === 'number') {
+                payload.next_operation.__pasi_response_completed_at_ms = timing.completed_at_ms;
+              }
               if (typeof responseText === 'string' && responseText.trim()) {
                 payload.next_operation.__pasi_baseline_fingerprint = fingerprintFromText(responseText);
               }
@@ -1574,8 +1577,10 @@
           if (!fastHandoff || (reasoningMode !== 'thinking' && reasoningMode !== 'unavailable')) {
             await ensureThinkingBestEffort();
           }
-          if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-          if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
+          if (!fastHandoff) {
+            if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
+            if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
+          }
           // A just-completed chained operation already proved generation ended.
           // Take the ready composer synchronously on this hot path, with the
           // existing event-driven wait as a bounded fallback if the UI is one
@@ -1620,6 +1625,17 @@
             browserTiming.completion_to_prompt_injected_ms = Math.max(
               0,
               browserTiming.injected_at_ms - previousCompletionAckAtMs
+            );
+          }
+          const previousResponseCompletedAtMs = Number(operation.__pasi_response_completed_at_ms);
+          if (
+            Number.isFinite(previousResponseCompletedAtMs) &&
+            typeof browserTiming.injected_at_ms === 'number' &&
+            Number.isFinite(browserTiming.injected_at_ms)
+          ) {
+            browserTiming.response_completed_to_prompt_injected_ms = Math.max(
+              0,
+              browserTiming.injected_at_ms - previousResponseCompletedAtMs
             );
           }
           void reportObservation('prompt_injected', {
