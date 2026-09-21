@@ -45,7 +45,7 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     calls: list[list[str]] = []
 
     class FakeProcess:
-        pass
+        pid = 12345
 
     def fake_popen(command: list[str], cwd: Path, **kwargs: object) -> FakeProcess:
         assert cwd == supervisor.REPO_ROOT
