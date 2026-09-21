@@ -32,7 +32,7 @@ class ExtensionCapabilityValidationTests(unittest.TestCase):
             encoding="utf-8",
         )
         (extension / "content.js").write_text(
-            "const bridge = 'http://127.0.0.1:8765/health';\n"
+            "const bridge = 'http://127.0.0.1:8765';\n"
             "const page = 'https://chatgpt.com/';\n"
             "chrome.runtime.sendMessage({});\n",
             encoding="utf-8",
@@ -111,6 +111,16 @@ class ExtensionCapabilityValidationTests(unittest.TestCase):
         )
         self.assertEqual(errors, [])
         temp.joinpath("keep").touch()
+
+    def test_bridge_origin_without_trailing_slash_matches_wildcard_host(self) -> None:
+        pattern = validator.LOCAL_BRIDGE_HOST_PATTERN
+        self.assertTrue(validator._host_pattern_matches("http://127.0.0.1:8765", pattern))
+        self.assertTrue(
+            validator._host_pattern_matches(
+                "http://127.0.0.1:8765/browser/health",
+                pattern,
+            )
+        )
 
 
 if __name__ == "__main__":
