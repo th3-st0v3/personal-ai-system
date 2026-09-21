@@ -151,7 +151,7 @@
   function waitUntil(predicate, timeoutMs, pollMs = DOM_POLL_MS) {
     return new Promise((resolve) => {
       let done = false;
-      let lastCheck = 0;
+      let checkQueued = false;
       let observer = null;
       let interval = null;
       let timeout = null;
@@ -164,18 +164,21 @@
         resolve(value);
       };
       const check = () => {
+        checkQueued = false;
         if (done) return;
-        const now = Date.now();
-        if (now - lastCheck < 10) return;
-        lastCheck = now;
         try {
           const value = predicate();
           if (value) finish(value);
         } catch (_) {}
       };
+      const scheduleCheck = () => {
+        if (done || checkQueued) return;
+        checkQueued = true;
+        queueMicrotask(check);
+      };
       const root = document.documentElement || document;
       if (typeof MutationObserver === 'function' && root) {
-        observer = new MutationObserver(() => check());
+        observer = new MutationObserver(scheduleCheck);
         try {
           observer.observe(root, {
             subtree: true,
@@ -187,9 +190,9 @@
           observer = null;
         }
       }
-      interval = setInterval(check, pollMs);
+      interval = setInterval(scheduleCheck, pollMs);
       timeout = setTimeout(() => finish(null), timeoutMs);
-      check();
+      scheduleCheck();
     });
   }
 

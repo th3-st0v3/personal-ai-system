@@ -518,6 +518,18 @@ test('native controller coalesces overlapping idle polls', () => {
 });
 
 
+test('native waitUntil coalesces mutation bursts without a fixed 10ms floor', () => {
+  const start = content.indexOf('function waitUntil(');
+  const end = content.indexOf('function visible(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /let checkQueued = false/);
+  assert.match(source, /const scheduleCheck = \(\) => \{/);
+  assert.match(source, /if \(done \|\| checkQueued\) return/);
+  assert.match(source, /queueMicrotask\(check\)/);
+  assert.doesNotMatch(source, /lastCheck/);
+  assert.doesNotMatch(source, /now - lastCheck < 10/);
+});
+
 test('native generating detection uses one grouped selector', () => {
   const start = content.indexOf('function generating()');
   const end = content.indexOf('function chatUrl()', start);
