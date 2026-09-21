@@ -154,6 +154,20 @@ The most useful unattended diagnostics are:
 .runtime/automation/action-list.md
 ```
 
+### Runtime efficiency and task-churn review
+
+The overnight event log can be summarized without exposing runtime state to GitHub:
+
+```bash
+python scripts/pasi_runtime_telemetry.py \
+  .runtime/overnight/events.jsonl \
+  --output .runtime/overnight/runtime-efficiency-report.md
+```
+
+The report tracks task attempts/completions, repeated task numbers, short-response streaks, recovery/provider-limit/auth events, compiled prompt size, and response-to-next-dispatch latency. A short response is an **attention signal**, not proof that a task was incorrect; task completion evidence remains authoritative.
+
+The primary latency measurement is the time from a completed response event to the next prompt dispatch event. It does not claim to measure the final authenticated DOM send latency, which still requires the real desktop browser flow.
+
 ## Resume after interruption
 
 Successful task commits already made to the dedicated overnight branch remain intact. Resume with:
