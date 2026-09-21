@@ -825,38 +825,14 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
     condition = provider_condition(code, output)
     if condition is None:
         return code, output
-    if condition != "auth_required":
-        # Runtime-guard and provider-limit failures stay on the primary path. They are
-        # infrastructure recovery conditions, not authorization to switch providers.
-        return code, sanitize_failure_evidence(code, output)
-    if os.environ.get("PASI_PRIMARY_CHATGPT_ONLY", "").strip().casefold() in {"1", "true", "yes"}:
-        return code, sanitize_failure_evidence(code, output)
-    if not fallback_router_available(state):
-        return code, output + "\n\n[PASI FALLBACK ROUTER SKIPPED]\noptional fallback route is in a bounded cooldown after a recent failure"
-    fallback = command(
-        [legacy.sys.executable, str(control_script("pasi_provider_router.py")), "--task", prompt, "--repo", str(state.worktree), "--timeout", "180"],
-        Path(state.worktree),
-        225.0,
-    )
-    if fallback[0] == 0 and fallback[1].strip():
-        raw_fallback = fallback[1].strip()
-        lines = raw_fallback.splitlines()
-        marker = lines[0].strip() if lines else ""
-        if not marker.startswith("PASI_FALLBACK_PROVIDER:"):
-            return code, "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
-        provider = marker.split(":", 1)[1].strip()
-        if not provider or len(provider) > 80:
-            return code, "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
-        response = "\n".join(lines[1:]).lstrip()
-        if not response.strip():
-            return code, "failure_class=fallback_empty_response; provider router returned no response body"
-        state.last_provider = f"fallback:{provider}"
-        state.fallback_router_disabled_until = ""
-        save_state(state)
-        return 0, response
-    fallback_output = fallback[1]
-    disable_fallback_router(state, fallback_output or "fallback router returned no usable response")
-    return code, output + "\n\n[PASI FALLBACK ROUTER]\n" + fallback_output
+    if condition == "auth_required":
+        # Authentication/security challenges remain a human-control boundary.
+        # The run loop waits for interactive recovery before considering fallback.
+        return code, output
+    # Runtime-guard and provider-limit failures stay on the primary path. They
+    # are infrastructure recovery conditions, not authorization to switch providers.
+    return code, sanitize_failure_evidence(code, output)
+
 
 
 def parse_response(response: str) -> tuple[str, str, str, str, bool, dict[str, str]]:
@@ -1313,11 +1289,56 @@ def run(state: OvernightState, *, push: bool) -> None:
                     continue
                 if STOP or now_utc() >= datetime.fromisoformat(state.deadline_at):
                     return
-                log_event("fallback_provider_route", reason="ChatGPT authentication challenge persisted beyond bounded human-recovery wait", task_number=state.task_number)
-                fallback = command([legacy.sys.executable, "scripts/pasi_provider_router.py", "--task", build_prompt(state.current_task, state, response), "--repo", state.worktree, "--timeout", "180"], Path(state.worktree), 225.0)
-                if fallback[0] == 0:
-                    response = fallback[1]
+                log_event(
+                    "fallback_provider_route",
+                    reason="ChatGPT authentication challenge persisted beyond bounded human-recovery wait",
+                    task_number=state.task_number,
+                )
+                fallback = command(
+                    [
+                        legacy.sys.executable,
+                        str(control_script("pasi_provider_router.py")),
+                        "--task",
+                        build_prompt(state.current_task, state, response),
+                        "--repo",
+                        state.worktree,
+                        "--timeout",
+                        "180",
+                    ],
+                    Path(state.worktree),
+                    225.0,
+                )
+                if fallback[0] == 0 and fallback[1].strip():
+                    raw_fallback = fallback[1].strip()
+                    lines = raw_fallback.splitlines()
+                    marker = lines[0].strip() if lines else ""
+                    if not marker.startswith("PASI_FALLBACK_PROVIDER:"):
+                        failure = "failure_class=fallback_provenance_missing; provider router did not return a provenance marker"
+                        attempt += 1
+                        continue
+                    provider = marker.split(":", 1)[1].strip()
+                    if not provider or len(provider) > 80:
+                        failure = "failure_class=fallback_provenance_invalid; provider name was empty or oversized"
+                        attempt += 1
+                        continue
+                    response = "\n".join(lines[1:]).lstrip()
+                    if not response.strip():
+                        failure = "failure_class=fallback_empty_response; provider router returned no response body"
+                        attempt += 1
+                        continue
+                    state.last_provider = f"fallback:{provider}"
+                    state.fallback_router_disabled_until = ""
+                    save_state(state)
                     code = 0
+                else:
+                    fallback_output = fallback[1]
+                    disable_fallback_router(
+                        state,
+                        fallback_output or "fallback router returned no usable response",
+                    )
+                    failure = sanitize_failure_evidence(code, response) + "\n\n[PASI FALLBACK ROUTER]\n" + fallback_output
+                    attempt += 1
+                    continue
             elif condition in {"provider_usage_limit", "runtime_guard"}:
                 if condition == "provider_usage_limit":
                     state.provider_limit_pauses += 1
