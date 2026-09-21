@@ -56,6 +56,7 @@ test('native recovery companion expires vanished operations after the bounded gr
 test('native recovery companion uses the shared long-response timeout policy', () => {
   assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
   assert.match(recovery, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
+  assert.match(recovery, /recovery_trigger_ms: RECOVERY_TRIGGER_MS/);
 });
 
 test('native controller and recovery companion have unique recovery declarations', () => {
@@ -74,7 +75,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'activity.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'activity.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller keeps response telemetry off the completion critical path', () => {
@@ -381,7 +382,7 @@ test('native restart reconciliation trusts nonblank persisted response text over
 });
 
 test('native prompt completion refuses an empty response payload while non-prompt operations may complete without one', () => {
-  assert.match(content, /async function finishOperation\(operationId, responseText = '', requireResponseText = false\)/);
+  assert.match(content, /async function finishOperation\(operationId, responseText = '', requireResponseText = false, timing = null\)/);
   assert.match(content, /if \(requireResponseText && \(typeof responseText !== 'string' \|\| !responseText\.trim\(\)\)\)/);
   assert.match(content, /await finishOperation\(operation\.operation_id, response, true\)/);
   assert.match(content, /await finishOperation\(operation\.operation_id\);/);
