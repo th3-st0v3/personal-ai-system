@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = 'pasi:control-center';
   const TELEMETRY_INTERVAL_MS = 5000;
+  const MAX_RAW_ROADMAP_CHARS = 500000;
 
   const defaultState = () => ({
     rawRoadmapName: '',
@@ -294,6 +295,10 @@
     }
 
     if (!raw) { feedback.textContent = 'Nothing to import.'; return; }
+    if (raw.length > MAX_RAW_ROADMAP_CHARS) {
+      feedback.textContent = 'Roadmap is too large for extension-local storage (maximum 500,000 characters).';
+      return;
+    }
 
     let parsed = null;
     try { parsed = JSON.parse(raw); } catch { parsed = null; }
