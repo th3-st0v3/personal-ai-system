@@ -1529,3 +1529,10 @@ def test_get_operation_can_skip_browser_response_repair_on_hot_ack_path(tmp_path
 
     assert result is not None
     repair.assert_not_called()
+
+
+
+def test_bridge_http_uses_persistent_http11_framing() -> None:
+    assert BridgeRequestHandler.protocol_version == "HTTP/1.1"
+    source = Path(bridge_module.__file__).read_text(encoding="utf-8")
+    assert 'self.send_header("Content-Length", str(content_length))' in source
