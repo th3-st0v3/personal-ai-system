@@ -45,7 +45,6 @@ Prefer small, reversible, well-tested changes over rewrites.
 CONTRACT = """Return each marker exactly once:
 PASI_RESULT_STATUS: complete|needs_revision|blocked
 PASI_RESULT_SUMMARY: one concise sentence
-PASI_RESULT_NEXT_TASK: one concrete high-value next task
 PASI_RESULT_REQUIREMENTS: complete
 PASI_RESULT_LIMITATIONS: handled|none|not_applicable
 PASI_RESULT_RESEARCH: performed|not_applicable
