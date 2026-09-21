@@ -57,6 +57,34 @@ def stop_server(server: BridgeHTTPServer, thread: threading.Thread) -> None:
     assert not thread.is_alive()
 
 
+def test_http_finished_rejects_nonboolean_compact_ack_flag(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    server, thread = start_server(bridge)
+
+    try:
+        operation = bridge.queue_operation("prompt", "invalid compact flag")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        status, body = post_json(
+            server,
+            "/chat/finished",
+            {
+                "operation_id": operation.operation_id,
+                "response_text": "response",
+                "response_text_available": True,
+                "ack_only": "true",
+            },
+        )
+
+        assert status == 400
+        assert body["error"] == "ack_only must be a boolean."
+    finally:
+        stop_server(server, thread)
+
+
 def test_http_finished_rejects_prompt_without_verified_response(
     tmp_path: Path,
 ) -> None:
