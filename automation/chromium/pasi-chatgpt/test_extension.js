@@ -214,7 +214,7 @@ test('native prompt submission uses a single send strategy and never duplicates 
 });
 
 test('native completion captures responses through the event-driven waiter and bounded evidence', () => {
-  assert.match(content, /async function waitForResponse\(baseline\)/);
+  assert.match(content, /async function waitForResponse\(baseline(?:,|\))/);
   assert.match(content, /let sawGeneration = false/);
   assert.match(content, /const response = await waitUntil\(\(\) =>/);
   assert.match(content, /const responseText = latestAssistant\(\)/);
