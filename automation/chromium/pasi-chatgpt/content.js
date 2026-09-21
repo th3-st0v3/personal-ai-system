@@ -13,6 +13,7 @@
   const GENERATION_START_WAIT_MS = 30 * 1000;
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
   const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;
+  const RESPONSE_TELEMETRY_DEFER_MS = 100;
   const SUBMISSION_ATTEMPTS = 3;
   const COMPLETION_RETRY_DELAY_MS = 20;
   const TIMEOUTS = {
@@ -1396,29 +1397,36 @@
     };
     if (timing && typeof timing === 'object') body.timing = timing;
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
-    // Response evidence is submitted asynchronously so bridge observation
-    // latency cannot sit between one completed generation and the next prompt.
-    // The durable /chat/finished request remains the completion gate.
-    void reportObservation('chatgpt_response', {
-      chat_url: body.chat_url,
-      response_text: body.response_text,
-      response_text_available: body.response_text_available,
-      ...(typeof responseText === 'string' ? completionProgress(responseText) : {}),
-      ...(body.timing ? { timing: body.timing } : {}),
-      conversation_context_exhausted: contextExhausted(),
-      chat_exhausted: contextExhausted(),
-      provider_usage_limited: usageLimited(),
-      active_operation_id: operationId
-    }).catch(() => {});
+    const publishResponseTelemetry = () => {
+      void reportObservation('chatgpt_response', {
+        chat_url: body.chat_url,
+        response_text: body.response_text,
+        response_text_available: body.response_text_available,
+        ...(typeof responseText === 'string' ? completionProgress(responseText) : {}),
+        ...(body.timing ? { timing: body.timing } : {}),
+        conversation_context_exhausted: contextExhausted(),
+        chat_exhausted: contextExhausted(),
+        provider_usage_limited: usageLimited(),
+        active_operation_id: operationId
+      }).catch(() => {});
 
-    void reportObservation('chat_response_received', { operation_id: operationId, phase: 'response_complete', captured_at: new Date().toISOString() });
+      void reportObservation('chat_response_received', {
+        operation_id: operationId,
+        phase: 'response_complete',
+        captured_at: new Date().toISOString()
+      });
+    };
+    // The durable /chat/finished record already contains the authoritative response.
+    // Keep duplicate telemetry out of the completion -> next-operation critical path.
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const response = await bridge('/chat/finished', { method: 'POST', body });
         if (response.ok) {
           try {
-            return response.json();
+            const payload = response.json();
+            setTimeout(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS);
+            return payload;
           } catch (_) {
             return { ok: true, operation_id: operationId, status: 'completed' };
           }
@@ -1441,6 +1449,7 @@
 
       if (attempt < 3) await sleep(COMPLETION_RETRY_DELAY_MS);
     }
+    publishResponseTelemetry();
     throw lastError || new Error('PASI_NATIVE: bridge completion failed');
   }
 

@@ -529,6 +529,16 @@ test('native response completion reuses the extracted assistant text for fingerp
   assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
 });
 
+test('native completion telemetry is deferred off the hot path', () => {
+  const start = content.indexOf('async function finishOperation(');
+  const end = content.indexOf('  async function failOperation(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /const publishResponseTelemetry = \(\) =>/);
+  assert.match(source, /const payload = response\.json\(\);\n            setTimeout\(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS\)/);
+  assert.match(source, /publishResponseTelemetry\(\);\n    throw lastError/);
+  assert.doesNotMatch(source, /publishResponseTelemetry\(\);\n    let lastError/);
+});
+
 test('native completion acknowledgement returns a durable next-operation handoff', () => {
   assert.match(content, /return response\.json\(\)/);
   assert.match(content, /next_operation/);
