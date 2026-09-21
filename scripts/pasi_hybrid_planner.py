@@ -218,6 +218,14 @@ def validate_roadmap(tasks: Sequence[TaskSpec]) -> tuple[TaskSpec, ...]:
     return tuple(tasks)
 
 
+def _require_schema_version(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PlannerError(f"{field} must be an integer")
+    if value != SCHEMA_VERSION:
+        raise PlannerError(f"unsupported {field}")
+    return value
+
+
 def load_roadmap(path: Path) -> tuple[TaskSpec, ...]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -229,8 +237,10 @@ def load_roadmap(path: Path) -> tuple[TaskSpec, ...]:
     if isinstance(raw, list):
         raw_tasks = raw
     elif isinstance(raw, dict):
-        if int(raw.get("schema_version", SCHEMA_VERSION)) != SCHEMA_VERSION:
-            raise PlannerError("unsupported roadmap schema_version")
+        _require_schema_version(
+            raw.get("schema_version", SCHEMA_VERSION),
+            field="roadmap schema_version",
+        )
         raw_tasks = raw.get("tasks")
     else:
         raise PlannerError("roadmap must be a JSON object or task list")
@@ -262,8 +272,12 @@ def load_roadmap_with_overlay(
         raw = json.loads(overlay_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise PlannerError(f"invalid roadmap decomposition overlay: {overlay_path}") from exc
-    if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != SCHEMA_VERSION:
-        raise PlannerError("invalid roadmap decomposition overlay schema")
+    if not isinstance(raw, dict):
+        raise PlannerError("invalid roadmap decomposition overlay")
+    _require_schema_version(
+        raw.get("schema_version", 0),
+        field="roadmap decomposition overlay schema_version",
+    )
     if raw.get("roadmap_sha256") != source_digest:
         return tuple(tasks)
     decompositions = raw.get("decompositions", {})
@@ -326,8 +340,12 @@ def save_decomposition_overlay(
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise PlannerError(f"invalid existing decomposition overlay: {path}") from exc
-        if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != SCHEMA_VERSION:
-            raise PlannerError("invalid existing decomposition overlay schema")
+        if not isinstance(raw, dict):
+            raise PlannerError("invalid existing decomposition overlay")
+        _require_schema_version(
+            raw.get("schema_version", 0),
+            field="existing decomposition overlay schema_version",
+        )
         if raw.get("roadmap_sha256") == source_digest:
             raw_decompositions = raw.get("decompositions", {})
             raw_generated = raw.get("generated_tasks", [])
