@@ -16,7 +16,7 @@ from typing import Any
 BRIDGE_HEALTH_URL = "http://127.0.0.1:8765/health"
 BROWSER_HEALTH_URL = "http://127.0.0.1:8765/browser/health"
 DEFAULT_MAX_HEARTBEAT_AGE_SECONDS = 30.0
-CHAT_URL_PATTERN = re.compile(r"^https://(?:www\\.)?chatgpt\\.com/c/")
+CHAT_URL_PATTERN = re.compile(r"^https://(?:www\.)?chatgpt\.com/c/")
 
 
 def request_json(url: str, token: str | None = None, timeout: float = 5.0) -> dict[str, Any]:
