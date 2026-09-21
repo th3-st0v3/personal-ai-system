@@ -390,8 +390,8 @@ class TestHybridPlanner(unittest.TestCase):
             "_ollama_call",
             return_value={
                 "tasks": [
-                    task("parent.one", depends_on=("parent",)).to_dict(),
-                    task("parent.two", depends_on=("parent",)).to_dict(),
+                    task("parent.one").to_dict(),
+                    task("parent.two").to_dict(),
                 ]
             },
         ):
