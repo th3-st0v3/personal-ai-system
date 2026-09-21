@@ -38,6 +38,8 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn('trap \'touch "$STOP_FILE"; exit 0\' INT TERM', self.source)
         self.assertIn("state_deadline_reached", self.source)
         self.assertIn("state_is_terminal", self.source)
+        self.assertIn('"roadmap_complete"', self.source)
+        self.assertIn('"roadmap_blocked_or_no_eligible_task"', self.source)
 
     def test_chromium_e2e_uses_process_group_cleanup(self) -> None:
         source = (ROOT / "scripts" / "e2e_chromium_response_recovery.py").read_text(encoding="utf-8")
