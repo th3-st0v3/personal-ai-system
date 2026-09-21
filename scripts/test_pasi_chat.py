@@ -92,6 +92,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(prompt.startswith("CURRENT TASK:\ninspect the bridge"))
         self.assertIn("RESULT:\n", prompt)
         self.assertIn("PASI_RESULT_STATUS:", prompt)
+        self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
         self.assertNotIn("REPOSITORY STATE:", prompt)
         self.assertNotIn("PUBLIC GITHUB CONTEXT:", prompt)
