@@ -588,6 +588,12 @@ class BridgeState:
     ) -> bool:
         if item.get("operation_type") != "prompt":
             return False
+        operation_id = item.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            return False
+        stored_response = self.state_manager.load_terminal_response(operation_id)
+        if isinstance(stored_response, str) and stored_response.strip():
+            return False
         current_response = item.get("response_text")
         if (
             item.get("response_text_available") is True
