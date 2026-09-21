@@ -1400,7 +1400,8 @@
             activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
           } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
-          const submission = await submitPrompt(operation.prompt);
+          const promptText = operationPrompt(operation);
+          const submission = await submitPrompt(promptText);
           const browserTiming = { ...(submission.timing || {}) };
           void reportObservation('prompt_injected', {
             operation_id: operation.operation_id,
