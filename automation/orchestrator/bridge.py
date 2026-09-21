@@ -104,12 +104,14 @@ class BridgeState:
         return queue
 
     def _save_queue(self, queue: list[dict[str, Any]]) -> None:
-        has_inline_terminal_responses = any(
-            item.get("status") in TERMINAL_QUEUE_STATUSES
-            and isinstance(item.get("response_text"), str)
-            and item.get("response_text").strip()
-            for item in queue
-        )
+        has_inline_terminal_responses = False
+        for item in queue:
+            if item.get("status") not in TERMINAL_QUEUE_STATUSES:
+                continue
+            response_text = item.get("response_text")
+            if isinstance(response_text, str) and response_text.strip():
+                has_inline_terminal_responses = True
+                break
         persistent_queue: list[dict[str, Any]]
         if not has_inline_terminal_responses:
             persistent_queue = queue
