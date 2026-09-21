@@ -1,13 +1,14 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
 test('native background bridge respects content-side request timeouts', () => {
   assert.match(background, /const requestedTimeout = Number\(message\.timeout\);/);
   assert.match(background, /Math\.min\(Math\.max\(requestedTimeout, 250\), 10000\)/);
   assert.match(background, /bridgeFetch\(path, method, body, timeoutMs\)\.then\(sendResponse\)/);
 });
 
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const test = require('node:test');
 
 const root = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
