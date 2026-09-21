@@ -1040,6 +1040,7 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
         "prompt_compiled",
         pattern_version=prompt_compiler.PROMPT_PATTERN_VERSION,
         prompt_hash=prompt_compiler.prompt_hash(prompt),
+        prompt_chars=len(prompt),
         task_key=task_key(task),
         task_number=state.task_number,
         attempt=state.current_attempt,
