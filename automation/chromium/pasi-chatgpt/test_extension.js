@@ -62,6 +62,16 @@ test('native content controller participates in the serialized controller lease'
   assert.match(content, /clearInterval\(leaseTimerId\)/);
 });
 
+
+test('native content controller reuses a fresh lease for the immediate completion poll', () => {
+  assert.match(content, /let controllerClaimedAt = 0/);
+  assert.match(content, /const CONTROLLER_CLAIM_CACHE_MS = 2000/);
+  assert.match(content, /function controllerClaim\\(\\{ force = false \\} = \\{\\}\\)/);
+  assert.match(content, /if \\(!force && controllerLeader && now - controllerClaimedAt < CONTROLLER_CLAIM_CACHE_MS\\)/);
+  assert.match(content, /controllerClaim\\(\\{ force: true \\}\\)/);
+  assert.match(content, /if \\(!finalized\\) \\{/);
+});
+
 test('native background watchdog reacts to explicit connection failures even with a fresh observation', () => {
   assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
   assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
