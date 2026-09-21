@@ -409,6 +409,50 @@ def test_terminal_response_body_is_externalized_and_rehydrated_after_restart(
     ) == response_text
 
 
+def test_missing_terminal_response_file_repairs_from_verified_browser_observation(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "repair terminal response")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    response_text = "verified browser response"
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/repair-terminal",
+        response_text=response_text,
+        response_text_available=True,
+    )
+    assert completed is not None
+
+    state_manager = StateManager(tmp_path / ".ai")
+    state_manager.save_browser_response(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-20T19:00:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/repair-terminal",
+                "response_text": response_text,
+                "response_text_available": True,
+            },
+        }
+    )
+    state_manager._terminal_response_path(operation.operation_id).unlink()
+
+    restarted = BridgeState(StateManager(tmp_path / ".ai"))
+    recovered = restarted.get_operation(operation.operation_id)
+
+    assert recovered is not None
+    assert recovered["response_text"] == response_text
+    assert recovered["response_text_available"] is True
+    assert StateManager(tmp_path / ".ai").load_terminal_response(
+        operation.operation_id
+    ) == response_text
+
+
 def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("test", "bounded")
