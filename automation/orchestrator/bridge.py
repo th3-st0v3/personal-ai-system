@@ -44,6 +44,7 @@ MAX_TIMING_KEYS = frozenset({
 })
 BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 RUNNER_CAPABILITIES_PATH = Path.home() / ".pasi" / "runner" / "capabilities.json"
+RUNNER_STATE_PATH = Path.home() / ".pasi" / "overnight" / "state.json"
 MAX_RUNNER_CAPABILITIES_BYTES = 256_000
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
@@ -83,6 +84,23 @@ def load_runner_capabilities() -> dict[str, Any]:
         return {"available": False, "reason": "capability report invalid"}
     # The bridge exposes only machine-health metadata; secrets and command output are not persisted here.
     allowed = {"schema_version", "generated_at", "runner_name", "repository", "resources", "boundary", "runtime", "required_ok", "failures", "recommended_labels", "actions"}
+    return {"available": True, **{key: payload[key] for key in allowed if key in payload}}
+
+def load_runner_state() -> dict[str, Any]:
+    try:
+        if not RUNNER_STATE_PATH.is_file() or RUNNER_STATE_PATH.stat().st_size > 128_000:
+            return {"available": False, "reason": "runner state unavailable"}
+        payload = json.loads(RUNNER_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "reason": "runner state unreadable"}
+    if not isinstance(payload, dict):
+        return {"available": False, "reason": "runner state invalid"}
+    allowed = {
+        "schema_version", "run_id", "started_at", "deadline_at", "worktree", "branch",
+        "phase", "current_task", "requested_task", "task_number", "completed_tasks",
+        "failed_tasks", "current_attempt", "task_retry_cycle", "same_failure_cycles",
+        "last_provider", "last_result", "next_task", "stop_reason", "recent_tasks",
+    }
     return {"available": True, **{key: payload[key] for key in allowed if key in payload}}
 
 class BridgeState:
@@ -1243,6 +1261,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/runner/capabilities":
             self._send_json(load_runner_capabilities())
+            return
+
+        if path == "/runner/state":
+            self._send_json(load_runner_state())
             return
 
         if path == "/browser/observation":
