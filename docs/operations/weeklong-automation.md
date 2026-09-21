@@ -48,6 +48,8 @@ cat .runtime/automation/setup-requirements.md
 
 The state file contains the current phase, task, counters, deadline, branch, and last result. The event log provides a durable execution trail. The setup catalog records discovered machine and interactive-login requirements without storing passwords, cookies, session tokens, or API keys.
 
+The bridge keeps the active queue hot path in memory and persists it through `.ai/queue.json`. Completed/failed terminal response bodies are stored separately under `.ai/terminal-responses/` so repeated queue claims do not reread or rewrite large historical response payloads. The full response remains recoverable by operation ID after a bridge restart.
+
 ## Recovery
 
 The runner has persistent state, bounded retries, browser/provider recovery, and a PID-based duplicate-run guard. If the process is dead before the stored deadline, the normal recovery command is:
