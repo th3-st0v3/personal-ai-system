@@ -58,7 +58,7 @@ test('native content controller participates in the serialized controller lease'
   assert.match(content, /type: 'pasi-controller-claim'/);
   assert.match(content, /if \(\!\(await controllerClaim\(\)\)\) return/);
   assert.match(content, /leaseTimerId = setInterval/);
-  assert.match(content, /controllerClaim\(\)\.catch/);
+  assert.match(content, /controllerClaim\(\{ force: true \}\)\.catch/);
   assert.match(content, /clearInterval\(leaseTimerId\)/);
 });
 
