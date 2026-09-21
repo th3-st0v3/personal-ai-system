@@ -52,8 +52,16 @@ jobs:
           if [[ "$APPLY_OPTIONAL" == "true" ]]; then args+=(--apply-optional); fi
           python3 scripts/reconcile_runner_capabilities.py "${args[@]}"
 
-      - name: Verify PASI desktop boundary
-        run: python3 scripts/pasi_desktop_preflight.py
+      - name: Verify runner resource boundary
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads((Path.home() / ".pasi" / "runner" / "capabilities.json").read_text())
+          if report.get("required_ok") is not True:
+              raise SystemExit("runner capability contract is not satisfied")
+          print("Runner capability contract: PASS")
+          PY
 
       - name: Stage capability evidence
         run: |
