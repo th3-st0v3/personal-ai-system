@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts.pasi_overnight_engine_v2 import find_worktree_for_branch
 from scripts import pasi_prompt_compiler as prompt_compiler
 
 
@@ -245,7 +246,7 @@ branch refs/heads/main
 
 """
         with mock.patch.object(engine, "command", return_value=(0, output)):
-            found = engine.find_worktree_for_branch("pasi/test")
+            found = find_worktree_for_branch("pasi/test")
         self.assertEqual(found, Path("/tmp/other-pasi-worktree").resolve())
 
     def test_fresh_worktree_honors_configured_base_ref(self) -> None:
