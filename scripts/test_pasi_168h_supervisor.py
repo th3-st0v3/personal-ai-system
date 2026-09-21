@@ -39,12 +39,9 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn("state_deadline_reached", self.source)
         self.assertIn("state_is_terminal", self.source)
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_chromium_e2e_uses_process_group_cleanup(self) -> None:
         source = (ROOT / "scripts" / "e2e_chromium_response_recovery.py").read_text(encoding="utf-8")
         self.assertIn("start_new_session=True", source)
         self.assertIn("os.killpg(chrome_process.pid, signal.SIGTERM)", source)
         self.assertIn("signal.SIGKILL", source)
+
