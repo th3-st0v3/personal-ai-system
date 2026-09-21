@@ -20,6 +20,12 @@ test('native bridge caches the token and refreshes once after unauthorized respo
   assert.match(background, /token = await bridgeToken\(true\)/);
 });
 
+test('native timeout defaults remain fast enough for the browser freshness gate', () => {
+  const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
+  assert.match(timeoutConfig, /heartbeatMs: 2 \* 1000/);
+  assert.match(timeoutConfig, /staleMs: 10 \* 1000/);
+});
+
 test('native extension packages and loads the shared timeout policy resource', () => {
   assert.deepEqual(manifest.web_accessible_resources, [{
     resources: ['timeout-policy.json'],
