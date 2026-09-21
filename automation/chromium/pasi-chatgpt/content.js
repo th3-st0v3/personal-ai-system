@@ -1265,7 +1265,8 @@
       operation_id: operationId,
       chat_url: chatUrl(),
       response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
-      response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
+      response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()),
+      ack_only: true
     };
     if (timing && typeof timing === 'object') body.timing = timing;
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
