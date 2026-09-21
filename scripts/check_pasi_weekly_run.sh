@@ -55,6 +55,17 @@ for endpoint in \
     rm -f /tmp/pasi-weekly-check.$$
 done
 
+printf '\n--- RUNTIME EFFICIENCY ---\n'
+if [[ -f "$EVENT_LOG" ]]; then
+    if [[ -x "$PYTHON" ]]; then
+        "$PYTHON" "$REPO_ROOT/scripts/pasi_runtime_telemetry.py" "$EVENT_LOG" || printf 'Runtime telemetry analysis failed; raw event log remains available.\n'
+    else
+        printf 'PASI virtualenv unavailable for runtime efficiency analysis\n'
+    fi
+else
+    printf 'Event log: missing\n'
+fi
+
 printf '\n--- EVENT FRESHNESS ---\n'
 if [[ -f "$EVENT_LOG" ]]; then
     tail -n 5 "$EVENT_LOG"
