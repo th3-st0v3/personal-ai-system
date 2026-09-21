@@ -63,6 +63,7 @@ FALLBACK_ROUTER_COOLDOWN_SECONDS = 900.0
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
+HANDOFF_PATH = RUNTIME_DIR / "handoff.json"
 MAX_TASK_TEXT_CHARS = 4000
 CONTROL_SCRIPTS_ROOT = REPO_ROOT / "scripts"
 
@@ -1898,11 +1899,55 @@ def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
     return "unexpected_early_exit"
 
 
+def write_handoff_summary(state: OvernightState, *, reason: str) -> None:
+    """Persist the minimum durable context needed to resume or diagnose a run."""
+    payload = {
+        "schema_version": 1,
+        "generated_at": now_utc().isoformat(),
+        "run_id": state.run_id,
+        "started_at": state.started_at,
+        "deadline_at": state.deadline_at,
+        "stop_reason": reason,
+        "phase": state.phase,
+        "current_task": state.current_task,
+        "requested_task": state.requested_task,
+        "completed_tasks": state.completed_tasks,
+        "failed_tasks": state.failed_tasks,
+        "current_attempt": state.current_attempt,
+        "task_retry_cycle": state.task_retry_cycle,
+        "same_failure_cycles": state.same_failure_cycles,
+        "last_failure_signature": state.last_failure_signature,
+        "last_provider": state.last_provider,
+        "provider_limit_pauses": state.provider_limit_pauses,
+        "fallback_router_disabled_until": state.fallback_router_disabled_until,
+        "last_result": state.last_result[-6000:],
+        "next_task": state.next_task,
+        "recent_tasks": state.recent_tasks[-12:],
+        "worktree": state.worktree,
+        "branch": state.branch,
+    }
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = HANDOFF_PATH.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(HANDOFF_PATH)
+
+
 def finish_state(state: OvernightState, reason: str) -> None:
     state.stop_reason = reason
     state.last_result = reason
     save_state(state)
-    log_event("run_finished", phase=state.phase, completed_tasks=state.completed_tasks, failed_tasks=state.failed_tasks, provider_limit_pauses=state.provider_limit_pauses, reason=reason)
+    write_handoff_summary(state, reason=reason)
+    log_event(
+        "run_finished",
+        phase=state.phase,
+        completed_tasks=state.completed_tasks,
+        failed_tasks=state.failed_tasks,
+        provider_limit_pauses=state.provider_limit_pauses,
+        reason=reason,
+    )
 
 
 def main() -> int:
@@ -1986,7 +2031,9 @@ def main() -> int:
     except Exception as exc:
         if state is not None:
             state.stop_reason = str(exc)
+            state.last_result = str(exc)
             save_state(state)
+            write_handoff_summary(state, reason="run_failed")
             log_event("run_failed", error=str(exc))
         return 1
     finally:
