@@ -447,12 +447,18 @@ class BridgeState:
         with self.lock:
             self._persist_verified_response_observation(observation)
             data = observation.get("data")
-            if isinstance(data, dict) and data.get("kind") == "chatgpt_response":
-                timing = data.get("timing")
-                active_operation_id = data.get("active_operation_id")
-                if isinstance(active_operation_id, str) and timing is not None:
-                    self.persist_timing(active_operation_id, timing)
-                self.state_manager.save_browser_response(observation)
+            if isinstance(data, dict):
+                kind = data.get("kind")
+                if kind == "chatgpt_response":
+                    timing = data.get("timing")
+                    active_operation_id = data.get("active_operation_id")
+                    if isinstance(active_operation_id, str) and timing is not None:
+                        self.persist_timing(active_operation_id, timing)
+                    self.state_manager.save_browser_response(observation)
+                elif kind == "chatgpt_health":
+                    self.state_manager.save_browser_health(observation)
+                elif kind == "chatgpt_state":
+                    self.state_manager.save_browser_state(observation)
             if isinstance(data, dict) and data.get("kind") == "chatgpt_recovery":
                 operation_id = data.get("operation_id")
                 if isinstance(operation_id, str):
@@ -475,6 +481,20 @@ class BridgeState:
                 self.state_manager.save_browser_results(observation)
 
         return observation
+
+    def get_browser_health(
+        self,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            health = self.state_manager.load_browser_health()
+            return health if health else None
+
+    def get_browser_state(
+        self,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            state = self.state_manager.load_browser_state()
+            return state if state else None
 
     def get_browser_response(
         self,
@@ -1012,6 +1032,22 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     "observation": observation
+                }
+            )
+            return
+
+        if path == "/browser/health":
+            self._send_json(
+                {
+                    "observation": self.bridge_state.get_browser_health()
+                }
+            )
+            return
+
+        if path == "/browser/state":
+            self._send_json(
+                {
+                    "observation": self.bridge_state.get_browser_state()
                 }
             )
             return
