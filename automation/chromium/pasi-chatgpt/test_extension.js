@@ -392,7 +392,7 @@ test('native controller defers first context-exhaustion failure to bounded recov
 
 test('background watchdog targets the tab matching the reported ChatGPT conversation before fallback recency', () => {
   assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string'/);
-  assert.match(background, /tabs\.find\(\(tab\) => tab\.url === targetChatUrl\)/);
+  assert.match(background, /tabs\.find\(\(tab\) => sameChatConversationUrl\(tab\.url, targetChatUrl\)\)/);
   assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
 });
 
