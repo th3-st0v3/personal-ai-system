@@ -11,6 +11,7 @@ cd "$REPO_ROOT"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}"
 export PASI_RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
+export PASI_ROADMAP_PATH="${PASI_ROADMAP_PATH:-$REPO_ROOT/roadmaps/pasi-default.json}"
 
 PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
@@ -32,6 +33,28 @@ if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
     printf 'error: start_pasi_168h.sh is fixed to a 168-hour automation window; use start_pasi_overnight.sh for another duration.\n' >&2
     exit 2
 fi
+
+ROADMAP_PATH="$(realpath -m -- "$PASI_ROADMAP_PATH")"
+if [[ ! -f "$ROADMAP_PATH" ]]; then
+    printf 'error: PASI roadmap does not exist: %s\n' "$ROADMAP_PATH" >&2
+    exit 3
+fi
+"$PYTHON" - "$ROADMAP_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    print(f"error: roadmap is not valid JSON: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+if not isinstance(payload, (list, dict)):
+    print("error: roadmap must be a JSON object or task list", file=sys.stderr)
+    raise SystemExit(1)
+print(f"Roadmap: {path}")
+PY
 
 TOKEN_FILE="$HOME/.pasi/bridge-token"
 EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
@@ -389,7 +412,7 @@ printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
 
 log_file="$RUNTIME_DIR/runner.log"
 # The 168-hour supervisor owns restart/recovery of the extended runtime. Its engine handoff target is scripts/pasi_extended_runtime_entrypoint.py.
-nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "$@" < /dev/null > /dev/null 2>&1 &
+nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "$@" --roadmap "$ROADMAP_PATH" < /dev/null > /dev/null 2>&1 &
 pid=$!
 
 runner_start_deadline=$((SECONDS + 15))
