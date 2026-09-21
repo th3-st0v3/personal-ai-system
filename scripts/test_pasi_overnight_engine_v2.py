@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -637,8 +638,11 @@ Acceptance:
             recent_tasks=[],
         )
         self.assertEqual(
-            engine.choose_next_task(state, "invented task outside roadmap"),
-            engine.AUTOMATION_TASKS[0],
+            engine.choose_next_task(
+                state,
+                "Implement a concrete seam diagnostic for queued ChatGPT operations.",
+            ),
+            "Implement a concrete seam diagnostic for queued ChatGPT operations.",
         )
 
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
