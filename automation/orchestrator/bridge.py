@@ -825,8 +825,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     ) -> None:
         body = json.dumps(
             payload,
-            indent=2,
             ensure_ascii=False,
+            separators=(",", ":"),
         ).encode("utf-8")
 
         self._set_headers(status)
@@ -1213,11 +1213,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self._send_json(
-            {
-                "operation": operation
-            }
-        )
+        if ack_only:
+            self._send_json(
+                {
+                    "ok": True,
+                    "operation_id": operation.get("operation_id"),
+                    "status": operation.get("status"),
+                }
+            )
+        else:
+            self._send_json(
+                {
+                    "operation": operation
+                }
+            )
 
     def _finished(
         self,
@@ -1239,6 +1248,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "response_text_available",
             False,
         )
+        ack_only = payload.get("ack_only", False)
         timing = payload.get("timing")
 
         if not isinstance(
@@ -1288,6 +1298,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 {
                     "error":
                         "response_text_available must be a boolean."
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        if not isinstance(ack_only, bool):
+            self._send_json(
+                {
+                    "error":
+                        "ack_only must be a boolean."
                 },
                 HTTPStatus.BAD_REQUEST,
             )
@@ -1348,7 +1368,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     operation_id,
                     normalized_timing,
                 ) or existing_operation
-            self._send_json({"operation": existing_operation})
+            if ack_only:
+                self._send_json(
+                    {
+                        "ok": True,
+                        "operation_id": existing_operation.get("operation_id"),
+                        "status": existing_operation.get("status"),
+                    }
+                )
+            else:
+                self._send_json({"operation": existing_operation})
             return
 
         if existing_operation.get("operation_type") == "prompt":
