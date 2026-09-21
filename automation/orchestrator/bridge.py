@@ -342,8 +342,16 @@ class BridgeState:
             for item in queue:
                 if item.get("operation_id") != operation_id or item.get("operation_type") != "prompt":
                     continue
+                stored_response = self.state_manager.load_terminal_response(operation_id)
                 current = item.get("response_text")
-                if item.get("response_text_available") is True and isinstance(current, str) and current.strip():
+                authoritative = (
+                    stored_response
+                    if isinstance(stored_response, str) and stored_response.strip()
+                    else current
+                )
+                if item.get("response_text_available") is True and isinstance(authoritative, str) and authoritative.strip():
+                    item["response_text"] = authoritative
+                    item["response_text_available"] = True
                     return dict(item)
                 item["response_text"] = bounded_response
                 item["response_text_available"] = True
