@@ -47,8 +47,9 @@ def test_nonblocking_service_start_does_not_wait_for_health(monkeypatch, tmp_pat
     class FakeProcess:
         pass
 
-    def fake_popen(command: list[str], cwd: Path) -> FakeProcess:
+    def fake_popen(command: list[str], cwd: Path, **kwargs: object) -> FakeProcess:
         assert cwd == supervisor.REPO_ROOT
+        assert kwargs.get("stdin") is hardening.subprocess.DEVNULL
         calls.append(command)
         return FakeProcess()
 
