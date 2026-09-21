@@ -282,36 +282,25 @@
 
   function chatUrl() { return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null; }
 
+  function detectorState() {
+    return globalThis.PASIChatGPTDetectors?.detect?.() || {
+      context_exhausted: false,
+      usage_limited: false,
+      auth_required: false,
+      connection_failure: false
+    };
+  }
+
   function contextExhausted() {
-    const text = normalize(document.body?.innerText || '');
-    return [
-      'this conversation has reached its limit',
-      'conversation has reached its limit',
-      'conversation limit reached',
-      'conversation is too long',
-      'conversation is full',
-      'maximum conversation length',
-      'maximum length for this conversation',
-      'context limit reached',
-      'context window limit',
-      'context length limit',
-      'start a new chat to continue',
-      'start a new conversation to continue'
-    ].some((marker) => text.includes(marker));
+    return detectorState().context_exhausted === true;
   }
 
   function usageLimited() {
-    if (contextExhausted()) return false;
-    const text = normalize(document.body?.innerText || '');
-    return [
-      'current usage limit', 'usage limit reached', 'free tier limit', 'message limit',
-      'daily limit', 'weekly limit', 'model usage limit', 'rate limit', 'too many requests'
-    ].some((marker) => text.includes(marker));
+    return !contextExhausted() && detectorState().usage_limited === true;
   }
 
   function authRequired() {
-    const text = normalize(document.body?.innerText || '');
-    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
+    return detectorState().auth_required === true;
   }
 
   function selectionState(element) {
@@ -577,6 +566,28 @@
 
   async function waitFor(select, timeout) {
     return waitUntil(select, timeout, DOM_POLL_MS);
+  }
+
+  function findNewChatControl() {
+    const exactSelectors = [
+      'button[data-testid="new-chat-button"]',
+      '[data-testid="new-chat-button"]',
+      'button[aria-label="New chat"]',
+      '[role="button"][aria-label="New chat"]'
+    ];
+    for (const selector of exactSelectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (!visible(element) || disabled(element)) continue;
+        if (element.closest?.('nav, aside, [role="navigation"]')) continue;
+        return element;
+      }
+    }
+    for (const element of document.querySelectorAll('button, [role="button"], a')) {
+      if (!visible(element) || disabled(element)) continue;
+      if (element.closest?.('nav, aside, [role="navigation"]')) continue;
+      if (label(element) === 'new chat') return element;
+    }
+    return null;
   }
 
   async function newChat() {
@@ -852,7 +863,10 @@
   function extractAssistant(node) {
     const markdown = Array.from(node.querySelectorAll?.('.markdown, [class*="markdown"]') || []).filter(visible);
     for (let i = markdown.length - 1; i >= 0; i -= 1) {
-      const text = String(markdown[i].innerText || markdown[i].textContent || '').replace(/\s+/g, ' ').trim();
+      const text = String(markdown[i].innerText || markdown[i].textContent || '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[ \t]+(?=\n)/g, '')
+        .trim();
       if (text) return text.slice(0, MAX_RESPONSE_TEXT_CHARS);
     }
     return messageText(node).slice(0, MAX_RESPONSE_TEXT_CHARS);
@@ -1158,6 +1172,10 @@
     throw new Error('PASI_NATIVE: prompt submission could not be verified after bounded attempts');
   }
 
+
+  function operationPrompt(operation) {
+    return `[PASI_OPERATION ${operation.operation_id}]\n${operation.prompt}`;
+  }
 
   function completionMarkersSatisfied(responseText, markers) {
     const text = typeof responseText === 'string' ? responseText : '';
