@@ -120,7 +120,7 @@ def fallback_providers_available() -> list[str]:
     return providers
 
 
-def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
+def nonblocking_ensure_services(*, ledger: ObstacleLedger, child_registry: list[Any] | None = None) -> list[Any]:
     """Start local PASI helpers opportunistically without making them a startup gate."""
     children: list[Any] = []
     services = (
@@ -135,7 +135,10 @@ def nonblocking_ensure_services(*, ledger: ObstacleLedger) -> list[Any]:
             continue
         supervisor.log_event("service_start_nonblocking", service=service_name)
         try:
-            children.append(subprocess.Popen(command, cwd=supervisor.REPO_ROOT))
+            child = subprocess.Popen(command, cwd=supervisor.REPO_ROOT)
+            children.append(child)
+            if child_registry is not None:
+                child_registry.append(child)
         except OSError as exc:
             ledger.record(
                 "service_unavailable",
