@@ -65,6 +65,8 @@ jobs:
           bash -n scripts/run_m2_live_acceptance.sh
           python -m py_compile scripts/run_m1_live_acceptance.py
           python -m py_compile scripts/pasi_desktop_preflight.py
+      - name: Test desktop preflight envelope handling
+        run: python -m pytest -q scripts/test_pasi_desktop_preflight.py
       - name: Validate extended runtime imports
         run: python -c 'import scripts.pasi_extended_runtime_entrypoint, scripts.pasi_weeklong_resilience; print("extended runtime import contract OK")'
       - name: Run canonical validation suite
