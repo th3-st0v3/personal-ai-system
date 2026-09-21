@@ -651,3 +651,43 @@ test('native completion acknowledgement returns a durable next-operation handoff
   assert.match(content, /chainedOperation = completion\?\.next_operation \|\| null/);
   assert.match(content, /scheduleImmediateOperation\(chainedOperation\)/);
 });
+
+test('native completion handoff prioritizes the next operation before health telemetry', () => {
+  const start = content.indexOf('async function processOperation(operation)');
+  const end = content.indexOf('  async function recoverInterruptedOperation()', start);
+  const source = content.slice(start, end);
+  const next = source.indexOf('if (chainedOperation?.operation_id) scheduleImmediateOperation(chainedOperation);');
+  const health = source.indexOf('setTimeout(() => { void reportHealth(); }, 0);');
+  assert.ok(next >= 0 && health > next);
+});
+
+test('native chained prompt handoff uses a bounded fast path without replacing the event-driven fallback', () => {
+  assert.match(content, /const HANDOFF_ACK_MAX_AGE_MS = 5000/);
+  assert.match(content, /function freshCompletionHandoff\(operation\)/);
+  assert.match(content, /const immediateBox = fastHandoff \? \(\(\) => \{/);
+  assert.match(content, /const box = immediateBox \|\| await waitUntil\(\(\) =>/);
+  assert.match(content, /submitPrompt\(promptText, \{\s*fastPath: fastHandoff,\s*readyBox: box\s*\}\)/);
+});
+
+test('native chained prompt reuses the completed response fingerprint instead of rescanning the DOM for its baseline', () => {
+  assert.match(content, /payload\.next_operation\.__pasi_baseline_fingerprint = fingerprintFromText\(responseText\)/);
+  assert.match(content, /const baseline = typeof operation\.__pasi_baseline_fingerprint === 'string'/);
+  assert.match(content, /: fingerprint\(\);/);
+});
+
+test('native submission fast path performs one readiness detector pass and can use an already located send control', () => {
+  const start = content.indexOf('async function submitPrompt(expected, options = {})');
+  const end = content.indexOf('  function operationPrompt(operation)', start);
+  const source = content.slice(start, end);
+  assert.match(source, /const fastPath = options\.fastPath === true/);
+  assert.match(source, /const handoffBox = options\.readyBox && options\.readyBox\.isConnected === true/);
+  assert.match(source, /const detected = detectorState\(\);/);
+  assert.match(source, /const immediateButton = sendCandidatesForComposer\(readyBox\)\[0\]/);
+  assert.match(source, /const button = immediateButton \|\| await waitForSend\(readyBox\)/);
+  assert.match(source, /await ensurePromptSubmissionReady\(\);/);
+});
+
+test('native response settle fallback remains aligned with the 10ms latency target', () => {
+  assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 10;/);
+});
+\n
