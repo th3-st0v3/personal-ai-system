@@ -458,12 +458,15 @@ def route_chat(
             print(f"Resuming persisted ChatGPT operation: {pending_operation}")
         return handoff, known_url
 
-    state = (
-        dict(initial_observation.get("data"))
+    observed_data = (
+        initial_observation.get("data")
         if isinstance(initial_observation, Mapping)
-        and isinstance(initial_observation.get("data"), Mapping)
-        else browser_state(adapter)
+        else None
     )
+    if isinstance(observed_data, Mapping):
+        state: dict[str, Any] = {str(key): value for key, value in observed_data.items()}
+    else:
+        state = browser_state(adapter)
     observed_url = valid_chat_url(state.get("chat_url"))
     known_url = valid_chat_url(handoff.get("chat_url"))
 
