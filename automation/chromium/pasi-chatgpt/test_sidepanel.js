@@ -109,5 +109,5 @@ test('side panel persists local refresh settings', () => {
   assert.match(html, /id="settings-dialog"/);
   assert.match(html, /id="telemetry-interval"/);
   assert.match(script, /telemetryIntervalMs/);
-  assert.match(script, /1 second/);
+  assert.match(script, /1000, 5000, 10000, 30000/);
 });
