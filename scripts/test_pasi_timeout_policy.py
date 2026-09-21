@@ -20,7 +20,7 @@ def test_browser_json_and_python_loader_share_the_same_fast_normal_path_policy()
     assert raw["dom_poll_ms"] == 20
     assert raw["click_settle_ms"] == 20
     assert raw["thinking_verify_ms"] == 3000
-    assert "response_settle_ms": 10.0
+    assert raw["response_settle_ms"] == 10
     assert raw["submission_ack_ms"] == 1000
     assert raw["generation_seconds"] == 3600
     assert raw["recovery_trigger_seconds"] == 3600
@@ -35,7 +35,7 @@ def test_browser_json_and_python_loader_share_the_same_fast_normal_path_policy()
     assert policy["stale_seconds"] == 15
     assert policy["dom_poll_ms"] == 20
     assert policy["click_settle_ms"] == 20
-    assert policy["response_settle_ms"] == 20
+    assert policy["response_settle_ms"] == 10
     assert policy["submission_ack_ms"] == 1000
     assert policy["generation_seconds"] == 3600
     assert policy["recovery_trigger_seconds"] == 3600
@@ -53,7 +53,7 @@ def test_timeout_policy_uses_fast_defaults_when_file_is_absent() -> None:
     assert policy["send_ms"] == 5000
     assert policy["submit_ms"] == 2500
     assert policy["dom_poll_ms"] == 20
-    assert policy["response_settle_ms"] == 20
+    assert policy["response_settle_ms"] == 10
 
 
 def test_timeout_policy_enforces_safe_relationships() -> None:
