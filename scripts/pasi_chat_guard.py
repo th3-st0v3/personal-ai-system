@@ -214,7 +214,8 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
             process.wait(timeout=5)
     finally:
         monitor_stop.set()
-        monitor.join(timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS + 0.1)
+        # The monitor is daemonized and already re-checks process completion after
+        # every bounded health request. Do not make child completion wait on it.
 
     reader.join(timeout=2)
     combined = "".join(output)
