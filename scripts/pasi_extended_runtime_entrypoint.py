@@ -34,8 +34,8 @@ def load_task_file(path: Path) -> str:
     return text
 
 
-def roadmap_argument_present(passthrough: list[str]) -> bool:
-    return "--roadmap" in passthrough
+def roadmap_selected(passthrough: list[str]) -> bool:
+    return "--roadmap" in passthrough or bool(os.environ.get("PASI_ROADMAP_PATH", "").strip())
 
 def select_task_source(
     cli_task: str,
@@ -88,7 +88,7 @@ def main() -> int:
         or os.environ.get("PASI_TASK", "").strip()
         or environment_task_file is not None
     )
-    if roadmap_argument_present(passthrough) and not explicit_task_source:
+    if roadmap_selected(passthrough) and not explicit_task_source:
         # A structured roadmap is the authoritative initial-task source.
         # Avoid injecting the legacy/default umbrella task in this mode.
         selected_task = ""
