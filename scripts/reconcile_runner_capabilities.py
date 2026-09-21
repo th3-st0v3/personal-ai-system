@@ -82,9 +82,13 @@ def resource_snapshot() -> dict[str, Any]:
         version_text = Path("/proc/version").read_text(encoding="utf-8")[:2000]
     except OSError:
         pass
+    total_bytes = mem.get("MemTotal", 0)
+    available_bytes = mem.get("MemAvailable", total_bytes)
     return {
         "cpu_count": os.cpu_count() or 0,
-        "memory_mib": int(mem.get("MemTotal", 0) / 1024 / 1024),
+        "memory_mib": int(total_bytes / 1024 / 1024),
+        "memory_available_mib": int(available_bytes / 1024 / 1024),
+        "memory_used_mib": max(0, int((total_bytes - available_bytes) / 1024 / 1024)),
         "swap_mib": int(mem.get("SwapTotal", 0) / 1024 / 1024),
         "wsl_detected": "microsoft" in version_text.casefold() or "wsl" in version_text.casefold(),
         "architecture": platform.machine(),
