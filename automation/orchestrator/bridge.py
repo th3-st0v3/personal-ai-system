@@ -574,7 +574,12 @@ class BridgeState:
     ) -> bool:
         if item.get("operation_type") != "prompt":
             return False
-        if item.get("response_text_available") is True:
+        current_response = item.get("response_text")
+        if (
+            item.get("response_text_available") is True
+            and isinstance(current_response, str)
+            and current_response.strip()
+        ):
             return False
 
         observation = self.state_manager.load_browser_response()
