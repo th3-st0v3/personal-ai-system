@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -514,11 +515,16 @@ def _ollama_call(
     ).strip()
     if not selected_model:
         raise PlannerError("no planner model configured")
-    url = (
+    candidate_url = (
         base_url
         or os.environ.get("PASI_PLANNER_BASE_URL")
         or "http://127.0.0.1:11434"
-    ).rstrip("/") + "/api/chat"
+    ).strip().rstrip("/")
+    parsed_url = urllib.parse.urlparse(candidate_url)
+    is_local = parsed_url.scheme in {"http", "https"} and parsed_url.hostname in {"127.0.0.1", "localhost", "::1"}
+    if not is_local and os.environ.get("PASI_PLANNER_ALLOW_REMOTE", "").strip().casefold() not in {"1", "true", "yes", "on"}:
+        raise PlannerError("planner AI endpoint must be local unless PASI_PLANNER_ALLOW_REMOTE is enabled")
+    url = candidate_url + "/api/chat"
     payload = {
         "model": selected_model,
         "stream": False,
@@ -622,8 +628,6 @@ def validate_decomposition(parent: TaskSpec, children: Sequence[TaskSpec]) -> tu
     for child in children:
         if child.status != "pending":
             raise PlannerError(f"decomposition child {child.id} must start pending")
-        if child.status != "pending":
-            raise PlannerError(f"decomposition child {child.id} must start pending")
         if child.decomposition_parent != parent.id:
             raise PlannerError(f"decomposition child {child.id} must identify its parent")
         if not child.acceptance_criteria or not child.verification:
@@ -642,6 +646,8 @@ def validate_decomposition(parent: TaskSpec, children: Sequence[TaskSpec]) -> tu
         allowed_dependencies = set(parent.depends_on) | ids
         if dependencies - allowed_dependencies:
             raise PlannerError(f"decomposition child {child.id} has an external dependency")
+        if not set(parent.depends_on).issubset(dependencies):
+            raise PlannerError(f"decomposition child {child.id} must inherit all parent prerequisites")
         if parent.id in dependencies:
             raise PlannerError(f"decomposition child {child.id} must not depend on the decomposed parent")
 
@@ -691,5 +697,24 @@ def ai_decompose_with_ollama(
     for item in raw:
         if not isinstance(item, dict):
             raise PlannerError("planner AI returned an invalid child task")
-        children.append(task_from_mapping(item, default_phase=task.phase))
+        child = task_from_mapping(item, default_phase=task.phase)
+        inherited_dependencies = tuple(dict.fromkeys((*task.depends_on, *child.depends_on)))
+        inherited_scope = child.allowed_paths or task.allowed_paths
+        child = TaskSpec(
+            id=child.id,
+            title=child.title,
+            objective=child.objective,
+            depends_on=inherited_dependencies,
+            acceptance_criteria=child.acceptance_criteria,
+            verification=child.verification,
+            allowed_paths=inherited_scope,
+            priority=child.priority,
+            splittable=child.splittable,
+            estimated_size=child.estimated_size,
+            phase=child.phase,
+            status=child.status,
+            decomposition_parent=child.decomposition_parent,
+            decomposed_children=child.decomposed_children,
+        )
+        children.append(child)
     return validate_decomposition(task, children)
