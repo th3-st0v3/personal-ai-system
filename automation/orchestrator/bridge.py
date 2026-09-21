@@ -1072,6 +1072,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         return bool(expected) and bool(token) and hmac.compare_digest(token, expected)
 
     server_version = "PersonalAIChatBridge/1.0"
+    protocol_version = "HTTP/1.1"
 
     @property
     def bridge_state(self) -> BridgeState:
@@ -1080,6 +1081,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     def _set_headers(
         self,
         status: int = HTTPStatus.OK,
+        *,
+        content_length: int | None = None,
     ) -> None:
         origin = self.headers.get(
             "Origin",
@@ -1118,6 +1121,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "Content-Type",
             "application/json; charset=utf-8",
         )
+        if content_length is not None:
+            self.send_header("Content-Length", str(content_length))
 
         self.end_headers()
 
@@ -1132,7 +1137,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             separators=(",", ":"),
         ).encode("utf-8")
 
-        self._set_headers(status)
+        self._set_headers(status, content_length=len(body))
 
         self.wfile.write(body)
 
