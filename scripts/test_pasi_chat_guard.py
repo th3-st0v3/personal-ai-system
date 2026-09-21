@@ -9,6 +9,12 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_guard_monitor_has_a_short_health_request_timeout(self) -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        self.assertIn("HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS = 0.25", source)
+        self.assertIn("timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS", source)
+        self.assertIn("monitor.join(timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS + 0.1)", source)
+
     def test_guard_does_not_classify_completed_child_from_late_health_observation(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
         request_pos = source.index('observed = classify_observation(request_json("/browser/observation"))')

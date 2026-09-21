@@ -18,6 +18,7 @@ from automation.computer_use.local_access import LocalAccessBroker
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_URL = "http://127.0.0.1:8765"
 POLL_SECONDS = 0.5
+HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS = 0.25
 DEFAULT_TIMEOUT = 60 * 60
 GUARD_EXIT_USAGE_LIMIT = 90
 GUARD_EXIT_AUTH_REQUIRED = 91
@@ -180,7 +181,12 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
         while not monitor_stop.is_set():
             if process.poll() is not None:
                 return
-            observed = classify_observation(request_json("/browser/observation"))
+            observed = classify_observation(
+                request_json(
+                    "/browser/observation",
+                    timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS,
+                )
+            )
             if process.poll() is not None:
                 return
             if observed in {"usage_limit", "auth_required"}:
@@ -208,7 +214,7 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
             process.wait(timeout=5)
     finally:
         monitor_stop.set()
-        monitor.join(timeout=max(1.0, bridge_poll_seconds * 2))
+        monitor.join(timeout=HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS + 0.1)
 
     reader.join(timeout=2)
     combined = "".join(output)
