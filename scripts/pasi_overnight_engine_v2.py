@@ -1562,8 +1562,6 @@ def run(state: OvernightState, *, push: bool) -> None:
 
         if state.task_retry_cycle == 0:
             state.task_number += 1
-        state.current_attempt = 0
-        save_state(state)
         finished = False
         attempt = 1
         while attempt <= MAX_ATTEMPTS:
