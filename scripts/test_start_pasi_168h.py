@@ -10,7 +10,7 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
 
     def test_launcher_verifies_native_browser_before_detaching_runner(self) -> None:
         preflight = self.source.index("=== VERIFYING NATIVE CHATGPT BROWSER ===")
-        runner = self.source.index("pasi_extended_runtime_entrypoint.py")
+        runner = self.source.index("$REPO_ROOT/scripts/pasi_168h_supervisor.sh", preflight)
         self.assertLess(preflight, runner)
         self.assertIn("http://127.0.0.1:8765/browser/health", self.source)
         self.assertIn('controller_source_path = root / "automation" / "chromium" / "pasi-chatgpt" / "content.js"', self.source)
