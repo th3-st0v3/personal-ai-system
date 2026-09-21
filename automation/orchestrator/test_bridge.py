@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import threading
+from unittest.mock import Mock
 from http.client import HTTPConnection, RemoteDisconnected
 
 import pytest
@@ -130,6 +131,22 @@ def test_retry_budgets_are_separate_by_failure_class(tmp_path: Path) -> None:
     claimed = bridge.claim_operation(operation.operation_id)
     assert claimed is not None
     assert claimed["status"] == "claimed"
+
+def test_warm_queue_cache_avoids_reloading_persistent_queue(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    load_queue = Mock(wraps=bridge.state_manager.load_queue)
+    bridge.state_manager.load_queue = load_queue
+
+    first = bridge.queue_operation("prompt", "cache first")
+    claimed = bridge.claim_next_operation()
+
+    assert claimed is not None
+    assert claimed["operation_id"] == first.operation_id
+    assert load_queue.call_count == 1
+
+    bridge.heartbeat(first.operation_id)
+    assert load_queue.call_count == 1
+
 
 def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
