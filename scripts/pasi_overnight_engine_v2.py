@@ -1774,6 +1774,10 @@ def run(state: OvernightState, *, push: bool) -> None:
                 state.current_task_id = engineering_decision.selected.id
                 save_state(state)
                 continue
+            if not state.current_task:
+                state.stop_reason = "automation_gate_not_satisfied"
+                save_state(state)
+                return
 
         if state.task_retry_cycle == 0:
             state.task_number += 1
@@ -1939,6 +1943,8 @@ def run(state: OvernightState, *, push: bool) -> None:
                 task_key(state.current_task) in completed_task_keys(),
             ):
                 state.completed_tasks += 1
+                if state.phase == "automation":
+                    state.automation_tasks_since_gate += 1
                 evidence_text = summary or values.get("evidence", "validated task already satisfied; no repository change remained")
                 record_task_ledger(
                     state.current_task,
@@ -1949,8 +1955,19 @@ def run(state: OvernightState, *, push: bool) -> None:
                     task_id=state.current_task_id,
                 )
                 state.last_result = evidence_text
-                state.next_task = choose_next_task(state, next_task)
                 state.recent_tasks.append(state.current_task)
+                if (
+                    state.phase == "automation"
+                    and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE
+                ):
+                    state.current_task = ""
+                    state.next_task = ""
+                    state.current_attempt = 0
+                    save_state(state)
+                    failure = ""
+                    finished = True
+                    break
+                state.next_task = choose_next_task(state, next_task)
                 state.current_task = state.next_task
                 state.next_task = ""
                 state.current_attempt = 0
@@ -2018,6 +2035,17 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.last_result = summary or verification[-3000:]
             state.next_task = next_task.strip()
             state.recent_tasks.append(state.current_task)
+            if (
+                state.phase == "automation"
+                and state.automation_tasks_since_gate >= AUTOMATION_TASKS_PER_GATE
+            ):
+                state.current_task = ""
+                state.next_task = ""
+                state.current_attempt = 0
+                save_state(state)
+                failure = ""
+                finished = True
+                break
             state.current_task = choose_next_task(state, state.next_task)
             state.next_task = ""
             state.current_attempt = 0
