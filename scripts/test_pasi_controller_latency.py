@@ -99,7 +99,7 @@ def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_con
     assert "const snapshot = snapshotUserMessages()" in native
     assert "countNewUserMessages(userMessages(), snapshot)" in native
     assert "composer lost the requested prompt before submission after bounded recovery" in native
-    assert "never overwrite unrelated" in native
+    assert "refusing to overwrite" in native
     assert "extensionContextInvalidated" in native
     assert "extension context invalidated; reload the ChatGPT page" in native
     assert "clearInterval(pollTimerId)" in native
