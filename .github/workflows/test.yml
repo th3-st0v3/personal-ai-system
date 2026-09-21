@@ -58,7 +58,7 @@ jobs:
       - name: Validate unattended launcher shell scripts
         run: |
           bash -n scripts/start_pasi_168h.sh
-          python -m pytest -q scripts/test_pasi_168h_launcher.py
+          python -m pytest -q scripts/test_pasi_168h_launcher.py scripts/test_pasi_168h_supervisor_handoff.py
           bash -n scripts/stop_pasi_overnight.sh
           bash -n scripts/status_pasi_overnight.sh
           bash -n scripts/check_pasi_weekly_run.sh
