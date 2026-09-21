@@ -80,17 +80,32 @@ class DelayedReplacementURLChatAdapter(StaleReplacementURLChatAdapter):
 
 
 class TestPasiChat(unittest.TestCase):
-    def test_build_prompt_uses_public_repo_as_default_and_attempts_thinking(self) -> None:
-        prompt = build_prompt("inspect the bridge", "Repository: https://github.com/example/repo\nWorking tree: clean", {})
-        self.assertIn("TASK:\ninspect the bridge", prompt)
-        self.assertIn("REPOSITORY STATE:\nRepository: https://github.com/example/repo", prompt)
-        self.assertIn("PUBLIC GITHUB CONTEXT:", prompt)
-        self.assertIn(PUBLIC_REPOSITORY_URL, prompt)
-        self.assertIn(PUBLIC_REPOSITORY_DEFAULT_BRANCH_URL, prompt)
-        self.assertIn("public GitHub repository as the default source", prompt)
-        self.assertIn("PASI attempts to keep Thinking/reasoning enabled for every task", prompt)
-        self.assertIn("continue with the best available reasoning mode", prompt)
-        self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
+    def test_build_prompt_is_minimal_and_task_focused(self) -> None:
+        prompt = build_prompt(
+            "inspect the bridge",
+            "Repository: https://github.com/example/repo\\nWorking tree: clean",
+            {
+                "chat_url": "https://chatgpt.com/c/example",
+                "summary": "old handoff",
+            },
+        )
+        self.assertTrue(prompt.startswith("CURRENT TASK:\ninspect the bridge"))
+        self.assertIn("RESULT:\n", prompt)
+        self.assertIn("PASI_RESULT_STATUS:", prompt)
+        self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
+        self.assertNotIn("REPOSITORY STATE:", prompt)
+        self.assertNotIn("PUBLIC GITHUB CONTEXT:", prompt)
+        self.assertNotIn("Thinking is required", prompt)
+        self.assertNotIn("ROADMAP", prompt)
+        self.assertNotIn("NEXT_TASK", prompt)
+
+    def test_build_prompt_does_not_double_compile_task_prompts(self) -> None:
+        compiled = (
+            "CURRENT TASK:\\ninspect the bridge\\n\\n"
+            "RESULT:\\nPASI_RESULT_STATUS: complete\\n"
+        )
+        self.assertEqual(build_prompt(compiled, "ignored", {"summary": "ignored"}), compiled)
+
 
     def test_post_response_reuses_terminal_ack_chat_url_without_browser_read(self) -> None:
         class AdapterStub(ChatGPTAdapter):
