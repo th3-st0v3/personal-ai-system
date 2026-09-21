@@ -39,6 +39,7 @@ PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_offline.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
+    "scripts/pasi_extended_runtime_entrypoint.py",
     "scripts/start_pasi_168h.sh",
     "scripts/pasi_168h_supervisor.sh",
     "scripts/pasi_timeout_policy.py",
