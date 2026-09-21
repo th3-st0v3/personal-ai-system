@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 SHORT_RESPONSE_CHARS = 800
 LATENCY_ATTENTION_MS = 500.0
@@ -119,7 +119,7 @@ def load_events(path: Path) -> tuple[list[dict[str, Any]], int]:
                 malformed += 1
     return events, malformed
 
-def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> RuntimeReport:
+def analyze(events: Sequence[Mapping[str, Any]], malformed_lines: int = 0) -> RuntimeReport:
     task_numbers: dict[str, set[int]] = defaultdict(set)
     attempts = completions = failures = 0
     short_responses = 0
