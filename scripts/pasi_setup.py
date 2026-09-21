@@ -46,9 +46,11 @@ def _runtime_observation() -> dict[str, Any] | None:
     return observation if isinstance(observation, dict) else None
 
 
-def _health(url: str) -> dict[str, Any] | None:
+def _health(url: str, token: str | None = None) -> dict[str, Any] | None:
     try:
-        with urllib.request.urlopen(url, timeout=3.0) as response:
+        headers = {"Authorization": f"Bearer {token}"} if isinstance(token, str) and token.strip() else {}
+        request = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read(100_000).decode("utf-8"))
     except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
         return None
@@ -89,7 +91,13 @@ def build_report() -> dict[str, Any]:
     python_path = REPO_ROOT / ".venv" / "bin" / "python"
     observation = _runtime_observation()
     bridge_health = _health(BRIDGE_URL + "/health")
-    browser_health = _health(BROWSER_HEALTH_URL)
+    browser_health_token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+    if not browser_health_token:
+        try:
+            browser_health_token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        except OSError:
+            browser_health_token = ""
+    browser_health = _health(BROWSER_HEALTH_URL, token=browser_health_token)
     runtime_data: dict[str, Any] = {}
     if observation is not None:
         observed_data = observation.get("data")
