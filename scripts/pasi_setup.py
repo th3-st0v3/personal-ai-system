@@ -163,7 +163,25 @@ def print_report(report: dict[str, Any]) -> None:
     print()
     print("Runtime")
     bridge = report["runtime"]["bridge_health"].get("status", "unavailable")
-    browser = report["runtime"]["browser_health"].get("status", "unavailable")
+    browser_payload = report["runtime"]["browser_health"]
+    browser_observation = (
+        browser_payload.get("observation")
+        if isinstance(browser_payload, dict)
+        else None
+    )
+    browser_data = (
+        browser_observation.get("data")
+        if isinstance(browser_observation, dict)
+        and isinstance(browser_observation.get("data"), dict)
+        else None
+    )
+    browser = (
+        "ok"
+        if isinstance(browser_data, dict)
+        and browser_data.get("native_controller") is True
+        and browser_data.get("kind") in {"chatgpt_health", "chatgpt_state"}
+        else "unavailable"
+    )
     print(f"  Bridge: {bridge}")
     print(f"  Native Chromium: {browser}")
     if report["runtime"]["chatgpt_login_required"]:
