@@ -286,7 +286,7 @@ branch refs/heads/main
         )
         self.assertEqual(
             prompt.split("RESULT:", 1)[0],
-            "CURRENT TASK:\\nFix the browser-to-Git patch seam and verify it end to end.\\n\\n",
+            "CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.\n\n",
         )
         self.assertNotIn("run-prompt-compiler", prompt)
         self.assertNotIn("Task number", prompt)
@@ -311,8 +311,8 @@ branch refs/heads/main
             phase="automation",
             previous_failure="git apply received an empty stdin payload",
         )
-        self.assertIn("CURRENT TASK:\\nFix the browser-to-Git patch seam.", prompt)
-        self.assertIn("PREVIOUS FAILURE EVIDENCE:\\ngit apply received an empty stdin payload", prompt)
+        self.assertIn("CURRENT TASK:\nFix the browser-to-Git patch seam.", prompt)
+        self.assertIn("PREVIOUS FAILURE EVIDENCE:\ngit apply received an empty stdin payload", prompt)
         self.assertNotIn("ROADMAP", prompt)
         self.assertNotIn("RECOVERY RETRY MODE", prompt)
         self.assertNotIn("NEXT_TASK", prompt)
