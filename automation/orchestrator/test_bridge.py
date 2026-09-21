@@ -1554,3 +1554,43 @@ def test_bridge_http_uses_persistent_http11_framing() -> None:
     assert BridgeRequestHandler.protocol_version == "HTTP/1.1"
     source = Path(bridge_module.__file__).read_text(encoding="utf-8")
     assert 'self.send_header("Content-Length", str(content_length))' in source
+
+
+def test_runner_control_route_requires_bridge_auth(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/runner/control",
+            body=json.dumps({"action": "retry_current"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        assert response.status == 401
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_runner_capability_report_is_sanitized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    report = tmp_path / "capabilities.json"
+    report.write_text(json.dumps({
+        "schema_version": 1,
+        "required_ok": True,
+        "resources": {"memory_used_mib": 100},
+        "secret": "must-not-leak",
+    }), encoding="utf-8")
+    monkeypatch.setattr(bridge_module, "RUNNER_CAPABILITIES_PATH", report)
+    payload = bridge_module.load_runner_capabilities()
+    assert payload["available"] is True
+    assert payload["required_ok"] is True
+    assert payload["resources"]["memory_used_mib"] == 100
+    assert "secret" not in payload
