@@ -31,6 +31,21 @@ ROADMAP_LOOP_GUARD_PATH = RUNTIME_DIR / "roadmap-loop-guard.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
 CONTROLLER_SOURCE_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js"
 BRIDGE_QUEUE_PATH = REPO_ROOT / ".ai" / "queue.json"
+CONTROLLER_MANIFEST_PATH = REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
+MAX_PATCH_BYTES = 250_000
+MAX_OUTPUT_CHARS = 20_000
+PROTECTED_UNATTENDED_PATHS = frozenset({
+    "scripts/check_all.sh",
+    "scripts/check_offline.sh",
+    "scripts/pasi_overnight_hardening.py",
+    "scripts/pasi_overnight_engine_v2.py",
+    "automation/chromium/pasi-chatgpt/manifest.json",
+})
+PROTECTED_UNATTENDED_PREFIXES = (
+    ".github/",
+    ".githooks/",
+    "hooks/",
+)
 DEFAULT_WORKTREE = legacy.DEFAULT_WORKTREE
 DEFAULT_HOURS = legacy.DEFAULT_HOURS
 MIN_HOURS = legacy.MIN_HOURS
@@ -680,6 +695,12 @@ def runtime_watchdog_is_live(*, max_age_seconds: float = WATCHDOG_MAX_AGE_SECOND
         return False
     age = (now_utc() - timestamp).total_seconds()
     return -5.0 <= age <= max_age_seconds
+
+
+def sanitize_failure_evidence(code: int, output: str) -> str:
+    condition = provider_condition(code, output)
+    bounded = re.sub(r"\s+", " ", str(output or "")).strip()
+    return f"failure_class={condition or 'task_error'}; exit_code={code}; detail={bounded[:800]}"
 
 
 def provider_condition(code: int, output: str) -> str | None:
