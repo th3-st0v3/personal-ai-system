@@ -376,7 +376,7 @@ def test_terminal_response_body_is_externalized_and_rehydrated_after_restart(
 
     assert completed is not None
     queue_path = tmp_path / ".ai" / "queue.json"
-    terminal_response_path = tmp_path / ".ai" / "terminal-responses.json"
+    terminal_response_dir = tmp_path / ".ai" / "terminal-responses"
     persisted_queue = json.loads(queue_path.read_text(encoding="utf-8"))
     persisted_item = next(
         item for item in persisted_queue
@@ -385,10 +385,12 @@ def test_terminal_response_body_is_externalized_and_rehydrated_after_restart(
     assert "response_text" not in persisted_item
     assert persisted_item["response_text_available"] is True
 
-    persisted_responses = json.loads(
-        terminal_response_path.read_text(encoding="utf-8")
+    response_files = list(terminal_response_dir.glob("*.json"))
+    assert len(response_files) == 1
+    persisted_response = StateManager(tmp_path / ".ai").load_terminal_response(
+        operation.operation_id
     )
-    assert persisted_responses[operation.operation_id] == response_text
+    assert persisted_response == response_text
 
     restarted = BridgeState(StateManager(tmp_path / ".ai"))
     recovered = restarted.get_operation(operation.operation_id)
@@ -402,9 +404,9 @@ def test_terminal_response_body_is_externalized_and_rehydrated_after_restart(
     assert claimed["operation_id"] == queued.operation_id
     assert claimed["status"] == "claimed"
     assert queue_path.stat().st_size < 20_000
-    assert json.loads(
-        terminal_response_path.read_text(encoding="utf-8")
-    )[operation.operation_id] == response_text
+    assert StateManager(tmp_path / ".ai").load_terminal_response(
+        operation.operation_id
+    ) == response_text
 
 
 def test_completed_response_text_is_bounded(tmp_path: Path) -> None:
