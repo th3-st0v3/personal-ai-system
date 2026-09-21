@@ -120,6 +120,9 @@ class OvernightState:
     completed_tasks: int = 0
     failed_tasks: int = 0
     current_attempt: int = 0
+    task_retry_cycle: int = 0
+    last_failure_signature: str = ""
+    same_failure_cycles: int = 0
     automation_tasks_since_gate: int = 0
     automation_gates: int = 0
     provider_limit_pauses: int = 0
@@ -145,6 +148,9 @@ class OvernightState:
             "completed_tasks": self.completed_tasks,
             "failed_tasks": self.failed_tasks,
             "current_attempt": self.current_attempt,
+            "task_retry_cycle": self.task_retry_cycle,
+            "last_failure_signature": self.last_failure_signature,
+            "same_failure_cycles": self.same_failure_cycles,
             "automation_tasks_since_gate": self.automation_tasks_since_gate,
             "automation_gates": self.automation_gates,
             "provider_limit_pauses": self.provider_limit_pauses,
@@ -203,6 +209,9 @@ def load_state() -> OvernightState | None:
             completed_tasks=int(raw.get("completed_tasks", 0)),
             failed_tasks=int(raw.get("failed_tasks", 0)),
             current_attempt=int(raw.get("current_attempt", 0)),
+            task_retry_cycle=int(raw.get("task_retry_cycle", 0)),
+            last_failure_signature=str(raw.get("last_failure_signature", "")),
+            same_failure_cycles=int(raw.get("same_failure_cycles", 0)),
             automation_tasks_since_gate=int(raw.get("automation_tasks_since_gate", 0)),
             automation_gates=int(raw.get("automation_gates", 0)),
             provider_limit_pauses=int(raw.get("provider_limit_pauses", 0)),
@@ -1551,7 +1560,8 @@ def run(state: OvernightState, *, push: bool) -> None:
                 save_state(state)
                 continue
 
-        state.task_number += 1
+        if state.task_retry_cycle == 0:
+            state.task_number += 1
         state.current_attempt = 0
         save_state(state)
         finished = False
@@ -1730,6 +1740,9 @@ def run(state: OvernightState, *, push: bool) -> None:
                 state.current_task = state.next_task
                 state.next_task = ""
                 state.current_attempt = 0
+                state.task_retry_cycle = 0
+                state.last_failure_signature = ""
+                state.same_failure_cycles = 0
                 save_state(state)
                 log_event(
                     "task_completed_no_change",
@@ -1790,6 +1803,9 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.current_task = choose_next_task(state, state.next_task)
             state.next_task = ""
             state.current_attempt = 0
+            state.task_retry_cycle = 0
+            state.last_failure_signature = ""
+            state.same_failure_cycles = 0
             save_state(state)
             log_event("task_completed", phase=state.phase, task_number=state.task_number, commit=commit, summary=summary[-2000:])
             failure = ""
@@ -1798,13 +1814,34 @@ def run(state: OvernightState, *, push: bool) -> None:
         if not finished:
             failed_task = state.current_task
             state.failed_tasks += 1
-            state.last_result = failure or "bounded retry budget exhausted"
-            state.recent_tasks.append(failed_task)
+            state.last_result = failure or "bounded retry cycle exhausted"
+            normalized_failure = re.sub(r"\s+", " ", state.last_result).strip()
+            failure_signature = hashlib.sha256(normalized_failure[:12000].encode("utf-8")).hexdigest()
+            if failure_signature == state.last_failure_signature:
+                state.same_failure_cycles += 1
+            else:
+                state.same_failure_cycles = 1
+            state.last_failure_signature = failure_signature
+            state.task_retry_cycle += 1
             state.recent_tasks = state.recent_tasks[-12:]
-            state.current_task = choose_next_task(state, "")
+            state.current_attempt = 0
             save_state(state)
-            log_event("task_failed", phase=state.phase, task_number=state.task_number, failed_task=failed_task, next_task=state.current_task, error=state.last_result[-6000:])
-            failure = state.last_result
+            log_event(
+                "task_retry_cycle_exhausted",
+                phase=state.phase,
+                task_number=state.task_number,
+                failed_task=failed_task,
+                retry_cycle=state.task_retry_cycle,
+                same_failure_cycles=state.same_failure_cycles,
+                error=state.last_result[-6000:],
+                action="retain_current_task",
+            )
+            failure = (
+                f"RETRY CYCLE {state.task_retry_cycle} EXHAUSTED FOR CURRENT TASK. "
+                "Do not advance to another task. Re-inspect the repository, use the failure evidence, "
+                "and change the implementation strategy before another bounded retry cycle.\n"
+                + state.last_result
+            )
 
 
 def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
