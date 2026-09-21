@@ -1579,5 +1579,22 @@
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
   }
 
-  start();
+  if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
+    globalThis.PASI_NATIVE_TEST_API = Object.freeze({
+      messageText,
+      extractAssistant,
+      fingerprint,
+      composerContainsPrompt,
+      userMessages,
+      assistantMessages,
+      conversationSignature,
+      operationPrompt,
+      findNewChatControl,
+      detectorState,
+      submitPrompt,
+      waitForResponse
+    });
+  } else {
+    start();
+  }
 })();
