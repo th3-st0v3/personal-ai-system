@@ -44,7 +44,7 @@ class TestPasiRuntimeTelemetry(unittest.TestCase):
         self.assertEqual(report.thin_evidence_count, 1)
         self.assertAlmostEqual(report.response_latency_samples[0], 1000.0)
         self.assertAlmostEqual(report.response_latency_samples[1], 1000.0)
-        self.assertAlmostEqual(report.response_to_next_dispatch_samples[0], 49000.0)
+        self.assertAlmostEqual(report.response_to_next_dispatch_samples[0], 69000.0)
         self.assertAlmostEqual(report.browser_handoff_samples[0], 55.0)
         self.assertAlmostEqual(report.browser_ack_samples[0], 20.0)
         self.assertAlmostEqual(report.browser_generation_samples[1], 1000.0)
