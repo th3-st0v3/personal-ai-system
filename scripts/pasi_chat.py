@@ -635,15 +635,23 @@ def main() -> int:
         print("\n=== CHATGPT RESPONSE ===\n")
         print(response.text)
         summary = response.text[-6_000:]
-        update_signal = process_controller_update_signal(response.text, root)
+        if re.search(r"^PASI_CONTROLLER_UPDATE:\s*true$", response.text, re.MULTILINE | re.IGNORECASE):
+            update_signal = process_controller_update_signal(response.text, root)
+        else:
+            update_signal = {"state": "not_requested", "eligible": False}
         print(f"Controller update signal: {update_signal.get('state', 'unknown')}")
         if update_signal.get("eligible") is True:
             print("Controller update request staged; it is not applied by this response itself.")
     else:
         print("No response text was captured by the bridge.")
 
-    latest_state = browser_state(adapter)
-    latest_chat_url = valid_chat_url(latest_state.get("chat_url"))
+    # The terminal operation acknowledgement already carries the current chat URL.
+    # Only perform the browser-state reconciliation read when the completion did not
+    # provide a usable URL (for example, some recovery/new-chat paths).
+    latest_chat_url = valid_chat_url(response.chat_url)
+    if latest_chat_url is None:
+        latest_state = browser_state(adapter)
+        latest_chat_url = valid_chat_url(latest_state.get("chat_url"))
     current_handoff_url = valid_chat_url(handoff.get("chat_url"))
     if latest_chat_url and current_handoff_url and latest_chat_url != current_handoff_url:
         record_chat_change(handoff, current_handoff_url, latest_chat_url, "completion_observed_chat_change")

@@ -92,6 +92,23 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("continue with the best available reasoning mode", prompt)
         self.assertIn("PASI_CONTROLLER_UPDATE: true", prompt)
 
+    def test_post_response_reuses_terminal_ack_chat_url_without_browser_read(self) -> None:
+        class AdapterStub(ChatGPTAdapter):
+            def __init__(self) -> None:
+                pass
+
+        # Source contract: normal terminal responses use response.chat_url first.
+        source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
+        content = source.read_text(encoding="utf-8")
+        self.assertIn("latest_chat_url = valid_chat_url(response.chat_url)", content)
+        self.assertIn("if latest_chat_url is None:", content)
+
+    def test_controller_update_evaluation_is_skipped_without_explicit_marker(self) -> None:
+        source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
+        content = source.read_text(encoding="utf-8")
+        self.assertIn("PASI_CONTROLLER_UPDATE:\\s*true", content)
+        self.assertIn('"state": "not_requested"', content)
+
     def test_build_prompt_prioritizes_literal_exact_output_requests(self) -> None:
         prompt = build_prompt(
             "Reply with exactly: PASI TEST OK.",
