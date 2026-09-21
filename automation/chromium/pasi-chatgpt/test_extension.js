@@ -562,8 +562,8 @@ test('native visibility checks reject non-rendered elements before computed styl
   const end = content.indexOf('function disabled(element)', start);
   const source = content.slice(start, end);
   assert.match(source, /element\.getClientRects\(\)\.length === 0/);
-  assert.match(source, /element\.hasAttribute\?\('hidden'\)/);
-  assert.match(source, /getAttribute\?\('aria-hidden'\)/);
+  assert.match(source, /element\.hasAttribute\?\.\('hidden'\)/);
+  assert.match(source, /getAttribute\?\.\('aria-hidden'\)/);
 });
 
 test('native generating detection uses one grouped selector', () => {
