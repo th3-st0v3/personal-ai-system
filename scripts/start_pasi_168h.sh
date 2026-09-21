@@ -241,6 +241,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 root = Path.cwd()
@@ -260,7 +261,19 @@ observation = payload.get("observation") if isinstance(payload, dict) else None
 data = observation.get("data") if isinstance(observation, dict) and isinstance(observation.get("data"), dict) else observation
 if not isinstance(data, dict):
     raise SystemExit(1)
-if data.get("kind") not in {"chatgpt_health", "chatgpt_state"}:
+if data.get("kind") != "chatgpt_health":
+    raise SystemExit(1)
+captured_at = data.get("captured_at")
+if not isinstance(captured_at, str):
+    raise SystemExit(1)
+try:
+    captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    if captured.tzinfo is None:
+        captured = captured.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - captured).total_seconds()
+except ValueError:
+    raise SystemExit(1)
+if age_seconds < -5 or age_seconds > 30:
     raise SystemExit(1)
 if data.get("native_controller") is not True:
     raise SystemExit(1)
