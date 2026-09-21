@@ -37,6 +37,8 @@
   let extensionContextInvalidated = false;
   let controllerLeader = false;
   let leaseTimerId = null;
+  let controllerClaimedAt = 0;
+  const CONTROLLER_CLAIM_CACHE_MS = 2000;
   let pollTimerId = null;
   let healthTimerId = null;
   let healthReportInFlight = null;
@@ -302,22 +304,29 @@
     return detectorState().context_exhausted === true;
   }
 
-  function controllerClaim() {
+  function controllerClaim({ force = false } = {}) {
     if (!globalThis.chrome?.runtime?.sendMessage) return Promise.resolve(false);
+    const now = Date.now();
+    if (!force && controllerLeader && now - controllerClaimedAt < CONTROLLER_CLAIM_CACHE_MS) {
+      return Promise.resolve(true);
+    }
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage({ type: 'pasi-controller-claim' }, (response) => {
           const runtimeError = chrome.runtime.lastError;
           if (runtimeError || !response || response.ok !== true) {
             controllerLeader = false;
+            controllerClaimedAt = 0;
             resolve(false);
             return;
           }
           controllerLeader = response.leader === true;
+          controllerClaimedAt = controllerLeader ? Date.now() : 0;
           resolve(controllerLeader);
         });
       } catch (_) {
         controllerLeader = false;
+        controllerClaimedAt = 0;
         resolve(false);
       }
     });
@@ -1425,8 +1434,9 @@
     if (leaseTimerId !== null) clearInterval(leaseTimerId);
     await controllerClaim();
     leaseTimerId = setInterval(() => {
-      controllerClaim().catch(() => {
+      controllerClaim({ force: true }).catch(() => {
         controllerLeader = false;
+        controllerClaimedAt = 0;
       });
     }, 3000);
     localStorage.setItem(ACTIVE_KEY, JSON.stringify({
@@ -1539,7 +1549,10 @@
         clearInterval(leaseTimerId);
         leaseTimerId = null;
       }
-      controllerLeader = false;
+      if (!finalized) {
+        controllerLeader = false;
+        controllerClaimedAt = 0;
+      }
       activeOperationId = null;
       processing = false;
       if (finalized) {
