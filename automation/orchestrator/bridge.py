@@ -37,6 +37,7 @@ MAX_TIMING_KEYS = frozenset({
     "generation_start_ms",
     "completed_at_ms",
     "completion_to_prompt_injected_ms",
+    "response_completed_to_prompt_injected_ms",
     "user_messages_added",
     "ack_verified",
     "submission_via",
@@ -443,11 +444,13 @@ class BridgeState:
             if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
                 return None
             result[key] = float(raw) if isinstance(raw, float) else int(raw)
-        if "completion_to_prompt_injected_ms" in value:
-            raw = value["completion_to_prompt_injected_ms"]
+        for delta_key in ("completion_to_prompt_injected_ms", "response_completed_to_prompt_injected_ms"):
+            if delta_key not in value:
+                continue
+            raw = value[delta_key]
             if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
                 return None
-            result["completion_to_prompt_injected_ms"] = float(raw) if isinstance(raw, float) else int(raw)
+            result[delta_key] = float(raw) if isinstance(raw, float) else int(raw)
 
         if "user_messages_added" in value:
             raw = value["user_messages_added"]
