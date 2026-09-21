@@ -8,6 +8,7 @@ import os
 import shutil
 import ssl
 import socket
+import signal
 import subprocess
 import tempfile
 import threading
@@ -375,17 +376,18 @@ def start_driver(
         ],
         stdout=log_file,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
 
 
 def stop_driver(driver_process: subprocess.Popen | None) -> None:
     if driver_process is None or driver_process.poll() is not None:
         return
-    driver_process.terminate()
+    os.killpg(driver_process.pid, signal.SIGTERM)
     try:
         driver_process.wait(timeout=3)
     except subprocess.TimeoutExpired:
-        driver_process.kill()
+        os.killpg(driver_process.pid, signal.SIGKILL)
         driver_process.wait(timeout=3)
 
 
@@ -545,17 +547,18 @@ def start_chrome(
         stdin=subprocess.DEVNULL,
         stdout=log_file,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
 
 
 def stop_chrome(chrome_process: subprocess.Popen | None) -> None:
     if chrome_process is None or chrome_process.poll() is not None:
         return
-    chrome_process.terminate()
+    os.killpg(chrome_process.pid, signal.SIGTERM)
     try:
         chrome_process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        chrome_process.kill()
+        os.killpg(chrome_process.pid, signal.SIGKILL)
         chrome_process.wait(timeout=5)
 
 
