@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 import tempfile
 import unittest
@@ -1051,6 +1052,76 @@ branch refs/heads/main
                 payload = __import__("json").loads(handoff_path.read_text(encoding="utf-8"))
         self.assertEqual(payload["stop_reason"], "stopped")
         self.assertEqual(payload["run_id"], "finish-handoff-test")
+
+    def test_consume_runner_control_accepts_matching_current_task(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            control = root / "control.json"
+            state = engine.OvernightState(
+                schema_version=2,
+                run_id="control-test",
+                started_at=datetime.now(timezone.utc).isoformat(),
+                deadline_at=(datetime.now(timezone.utc) + timedelta(hours=168)).isoformat(),
+                worktree=str(root),
+                branch="pasi/control-test",
+                phase="engineering_os",
+                current_task="task",
+                current_task_id="task.id",
+                task_retry_cycle=4,
+                current_attempt=3,
+                last_failure_signature="failure",
+                same_failure_cycles=2,
+                last_result="failed",
+            )
+            control.write_text(json.dumps({
+                "schema_version": 1,
+                "action": "retry_current",
+                "task_id": "task.id",
+            }), encoding="utf-8")
+            with (
+                mock.patch.object(engine, "RUNNER_CONTROL_PATH", control),
+                mock.patch.object(engine, "RUNTIME_DIR", root),
+                mock.patch.object(engine, "STATE_PATH", root / "state.json"),
+                mock.patch.object(engine, "log_event"),
+            ):
+                assert engine.consume_runner_control(state) is True
+            self.assertEqual(state.task_retry_cycle, 0)
+            self.assertEqual(state.current_attempt, 0)
+            self.assertEqual(state.last_failure_signature, "")
+            self.assertFalse(control.exists())
+
+    def test_consume_runner_control_rejects_wrong_task_without_resetting_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            control = root / "control.json"
+            state = engine.OvernightState(
+                schema_version=2,
+                run_id="control-test",
+                started_at=datetime.now(timezone.utc).isoformat(),
+                deadline_at=(datetime.now(timezone.utc) + timedelta(hours=168)).isoformat(),
+                worktree=str(root),
+                branch="pasi/control-test",
+                phase="engineering_os",
+                current_task="task",
+                current_task_id="task.id",
+                task_retry_cycle=4,
+                current_attempt=3,
+                last_failure_signature="failure",
+            )
+            control.write_text(json.dumps({
+                "schema_version": 1,
+                "action": "retry_current",
+                "task_id": "other.id",
+            }), encoding="utf-8")
+            with (
+                mock.patch.object(engine, "RUNNER_CONTROL_PATH", control),
+                mock.patch.object(engine, "log_event"),
+            ):
+                assert engine.consume_runner_control(state) is False
+            self.assertEqual(state.task_retry_cycle, 4)
+            self.assertEqual(state.current_attempt, 3)
+            self.assertEqual(state.last_failure_signature, "failure")
+            self.assertFalse(control.exists())
 
 
 if __name__ == "__main__":
