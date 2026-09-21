@@ -476,7 +476,10 @@ def route_chat(
         handoff["chat_url"] = observed_url
         known_url = observed_url
 
-    observed_exhausted = state.get("chat_exhausted") is True
+    observed_exhausted = (
+        state.get("chat_exhausted") is True
+        or state.get("conversation_context_exhausted") is True
+    )
     if observed_exhausted:
         handoff["chat_exhausted"] = True
 

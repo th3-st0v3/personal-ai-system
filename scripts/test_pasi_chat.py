@@ -103,6 +103,11 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("latest_chat_url = valid_chat_url(response.chat_url)", content)
         self.assertIn("if latest_chat_url is None:", content)
 
+    def test_route_chat_reuses_health_context_exhaustion_signal(self) -> None:
+        source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
+        content = source.read_text(encoding="utf-8")
+        self.assertIn('state.get("conversation_context_exhausted") is True', content)
+
     def test_controller_liveness_accepts_health_observations_from_browser_health(self) -> None:
         observation = {
             "captured_at": "2026-09-21T05:00:00+00:00",
