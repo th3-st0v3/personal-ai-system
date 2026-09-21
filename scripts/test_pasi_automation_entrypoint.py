@@ -99,7 +99,7 @@ class TestPasiAutomationEntrypoint(unittest.TestCase):
         self.assertEqual(events[0][0], "setup_requirements_capture_failed")
 
     def test_self_improvement_surface_logging_is_non_blocking(self) -> None:
-        output = "automation/tampermonkey/controller.js\nscripts/tool.py\n.vscode/settings.json\n"
+        output = "automation/legacy/tampermonkey/controller.js\nscripts/tool.py\n.vscode/settings.json\n"
         events: list[tuple[str, dict[str, object]]] = []
 
         def fake_log(kind: str, **data: object) -> None:
