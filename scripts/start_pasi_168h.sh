@@ -19,6 +19,7 @@ START_PID_FILE="$RUNTIME_DIR/start.pid"
 BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
+STATE_FILE="$RUNTIME_DIR/state.json"
 
 if [[ ! -x "$PYTHON" ]]; then
     printf 'error: expected executable Python at %s\n' "$PYTHON" >&2
@@ -82,17 +83,30 @@ cleanup_start_pid() {
 }
 trap cleanup_start_pid EXIT
 
+adopt_existing_runner=0
+existing_runner_pid=""
+
 if [[ -f "$RUNNER_PID_FILE" ]]; then
     pid="$(cat "$RUNNER_PID_FILE" 2>/dev/null || true)"
     if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-        if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
+        runner_command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        if [[ "$runner_command_line" != *"pasi_extended_runtime_entrypoint.py"* ]]; then
+            rm -f "$RUNNER_PID_FILE"
+            printf 'PASI overnight runner PID %s is live but is not the expected extended runtime; removed stale managed PID file.\n' "$pid" >&2
+        elif [[ -f "$SUPERVISOR_PID_FILE" ]]; then
             supervisor_pid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)"
             if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
                 printf 'PASI overnight runner and supervisor are already active (runner PID %s, supervisor PID %s).\n' "$pid" "$supervisor_pid"
                 exit 0
             fi
+            printf 'PASI overnight engine PID %s is live without its supervisor; launching a supervisor to adopt the existing engine.\n' "$pid"
+            adopt_existing_runner=1
+            existing_runner_pid="$pid"
+        else
+            printf 'PASI overnight engine PID %s is live without its supervisor; launching a supervisor to adopt the existing engine.\n' "$pid"
+            adopt_existing_runner=1
+            existing_runner_pid="$pid"
         fi
-        printf 'PASI overnight engine PID %s is live without its supervisor; launching a supervisor to adopt the existing engine.\n' "$pid"
     else
         rm -f "$RUNNER_PID_FILE"
     fi
@@ -104,6 +118,48 @@ fi
 # an existing worktree from this launcher.
 requested_branch="${PASI_OVERNIGHT_BRANCH:-}"
 configured_worktree="${PASI_OVERNIGHT_WORKTREE:-}"
+
+if (( adopt_existing_runner == 1 )); then
+    if [[ ! -f "$STATE_FILE" ]]; then
+        printf 'error: live PASI runner PID %s has no state file to recover its branch/worktree identity; refusing to risk a duplicate engine.\n' "$existing_runner_pid" >&2
+        exit 3
+    fi
+    state_values="$("$PYTHON" - "$STATE_FILE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+branch = payload.get("branch")
+worktree = payload.get("worktree")
+if not isinstance(branch, str) or not branch.strip() or not isinstance(worktree, str) or not worktree.strip():
+    raise SystemExit(1)
+print(branch.strip())
+print(worktree.strip())
+PY
+)" || state_values=""
+    state_branch="$(printf '%s\n' "$state_values" | sed -n '1p')"
+    state_worktree="$(printf '%s\n' "$state_values" | sed -n '2p')"
+    if [[ -z "$state_branch" || -z "$state_worktree" ]]; then
+        printf 'error: live PASI runner PID %s has invalid state identity; refusing to risk a duplicate engine.\n' "$existing_runner_pid" >&2
+        exit 3
+    fi
+    if [[ -n "$requested_branch" && "$requested_branch" != "$state_branch" ]]; then
+        printf 'error: live PASI runner PID %s is on branch %s, not requested branch %s.\n' "$existing_runner_pid" "$state_branch" "$requested_branch" >&2
+        exit 3
+    fi
+    if [[ -n "$configured_worktree" && "$(realpath -m -- "$configured_worktree")" != "$(realpath -m -- "$state_worktree")" ]]; then
+        printf 'error: live PASI runner PID %s is using worktree %s, not requested worktree %s.\n' "$existing_runner_pid" "$state_worktree" "$configured_worktree" >&2
+        exit 3
+    fi
+    requested_branch="${requested_branch:-$state_branch}"
+    configured_worktree="${configured_worktree:-$state_worktree}"
+    printf 'Adopting existing PASI runner identity: branch=%s worktree=%s.\n' "$requested_branch" "$configured_worktree"
+fi
+
 run_stamp="$(date -u +%Y%m%d-%H%M%S-%N)"
 BRANCH="${requested_branch:-pasi/overnight-$run_stamp}"
 WORKTREE=""
