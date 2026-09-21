@@ -1632,10 +1632,21 @@
   async function start() {
     await recoverInterruptedOperation();
     try { await reportHealth(); } catch (_) {}
-    await poll();
     if (extensionContextInvalidated) return;
+
+    // Keep the heartbeat independent of the initial queue poll. A slow bridge,
+    // recovery lookup, or other startup operation must not allow the browser
+    // observation to age past the launcher's freshness gate.
     pollTimerId = setInterval(poll, POLL_MS);
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
+
+    await poll();
+    if (extensionContextInvalidated) {
+      if (pollTimerId !== null) clearInterval(pollTimerId);
+      if (healthTimerId !== null) clearInterval(healthTimerId);
+      pollTimerId = null;
+      healthTimerId = null;
+    }
   }
 
   if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
