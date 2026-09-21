@@ -10,6 +10,7 @@ cd "$REPO_ROOT"
 # shell without requiring a manually prepared PYTHONPATH.
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}"
+export PASI_RUNTIME_DIR="$PASI_RUNTIME_DIR"
 
 PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
