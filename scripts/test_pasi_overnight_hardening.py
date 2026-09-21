@@ -95,6 +95,7 @@ class OvernightHardeningTests(unittest.TestCase):
 
             class Child:
                 def __init__(self) -> None:
+                    self.pid = 12345
                     self.terminated = False
                 def poll(self) -> None:
                     return None
