@@ -3,7 +3,6 @@
  * P1-A core: progress-based recovery decision logic for automation/chromium/pasi-chatgpt/recovery.js.
  *
  * Pure, DOM-free decision logic + a small tracker + an optional MutationObserver hookup.
- * Integration into recovery.js is NOT done here (head 7049e8d was not available); see integration notes in the reply.
  *
  * Rule: never recover on age alone.
  *   recover when  (connection-error banner)
