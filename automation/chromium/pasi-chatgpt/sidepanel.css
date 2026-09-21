@@ -97,3 +97,10 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+.danger-button { min-height: 34px; border: 1px solid rgba(255,107,122,.45); border-radius: var(--radius-sm); padding: 7px 10px; cursor: pointer; color: var(--danger); background: rgba(255,107,122,.08); font-weight: 800; }
+.danger-button:hover { border-color: var(--danger); background: rgba(255,107,122,.14); }
+.danger-button:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
+.text-link { color: var(--accent); text-decoration: none; }
+.text-link:hover { text-decoration: underline; }
+.automation-actions { margin-top: var(--space-2); }
