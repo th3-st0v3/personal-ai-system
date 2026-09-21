@@ -22,7 +22,8 @@ class RuntimeReport:
     repeated_task_numbers: int
     short_responses: int
     short_response_streak_max: int
-    latency_samples: tuple[float, ...]
+    response_latency_samples: tuple[float, ...]
+    response_to_next_dispatch_samples: tuple[float, ...]
     prompt_sizes: tuple[int, ...]
     recovery_events: int
     provider_limit_events: int
@@ -34,16 +35,20 @@ class RuntimeReport:
         return self.completed_tasks / finished if finished else 0.0
 
     @property
-    def p50_latency_ms(self) -> float | None:
-        return _percentile(self.latency_samples, 0.50)
+    def p50_response_to_next_dispatch_ms(self) -> float | None:
+        return _percentile(self.response_to_next_dispatch_samples, 0.50)
 
     @property
-    def p95_latency_ms(self) -> float | None:
-        return _percentile(self.latency_samples, 0.95)
+    def p95_response_to_next_dispatch_ms(self) -> float | None:
+        return _percentile(self.response_to_next_dispatch_samples, 0.95)
 
     @property
-    def p99_latency_ms(self) -> float | None:
-        return _percentile(self.latency_samples, 0.99)
+    def p99_response_to_next_dispatch_ms(self) -> float | None:
+        return _percentile(self.response_to_next_dispatch_samples, 0.99)
+
+    @property
+    def p50_response_latency_ms(self) -> float | None:
+        return _percentile(self.response_latency_samples, 0.50)
 
 def _timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str):
@@ -92,10 +97,12 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
     attempts = completions = failures = 0
     short_responses = 0
     short_streak = max_streak = 0
-    latency_samples: list[float] = []
+    response_latency_samples: list[float] = []
+    response_to_next_dispatch_samples: list[float] = []
     prompt_sizes: list[int] = []
     recovery_events = provider_limit_events = auth_events = 0
     previous_dispatch: datetime | None = None
+    last_response: datetime | None = None
 
     for event in events:
         kind = event.get("kind")
@@ -123,10 +130,18 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
             if timestamp is not None and previous_dispatch is not None:
                 latency_ms = (timestamp - previous_dispatch).total_seconds() * 1000
                 if latency_ms >= 0:
-                    latency_samples.append(latency_ms)
+                    response_latency_samples.append(latency_ms)
                 previous_dispatch = None
+            if timestamp is not None:
+                last_response = timestamp
         elif kind == "prompt_dispatch_started":
-            previous_dispatch = _timestamp(event.get("timestamp"))
+            timestamp = _timestamp(event.get("timestamp"))
+            if timestamp is not None and last_response is not None:
+                latency_ms = (timestamp - last_response).total_seconds() * 1000
+                if latency_ms >= 0:
+                    response_to_next_dispatch_samples.append(latency_ms)
+                last_response = None
+            previous_dispatch = timestamp
         elif kind == "prompt_compiled":
             chars = event.get("prompt_chars")
             if isinstance(chars, int) and chars >= 0:
@@ -148,7 +163,8 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
         repeated_task_numbers=repeated_task_numbers,
         short_responses=short_responses,
         short_response_streak_max=max_streak,
-        latency_samples=tuple(latency_samples),
+        response_latency_samples=tuple(response_latency_samples),
+        response_to_next_dispatch_samples=tuple(response_to_next_dispatch_samples),
         prompt_sizes=tuple(prompt_sizes),
         recovery_events=recovery_events,
         provider_limit_events=provider_limit_events,
@@ -164,7 +180,7 @@ def render_markdown(report: RuntimeReport) -> str:
         attention.append("repeated task numbers detected")
     if report.short_response_streak_max >= 3:
         attention.append("three or more short responses occurred consecutively")
-    if report.p95_latency_ms is not None and report.p95_latency_ms > LATENCY_ATTENTION_MS:
+    if report.p95_response_to_next_dispatch_ms is not None and report.p95_response_to_next_dispatch_ms > LATENCY_ATTENTION_MS:
         attention.append(f"p95 response-to-next-dispatch latency exceeds {LATENCY_ATTENTION_MS:.0f} ms")
     if report.malformed_lines:
         attention.append(f"{report.malformed_lines} malformed event lines were ignored")
@@ -201,12 +217,14 @@ def render_markdown(report: RuntimeReport) -> str:
         "",
         "## Latency",
         "",
-        "Latency here is response event to next prompt dispatch, not authenticated DOM send latency.",
+        "The primary efficiency metric is response event to next prompt dispatch. This is still not authenticated DOM send latency.",
         "",
-        f"- Samples: {len(report.latency_samples)}",
-        f"- P50: {_fmt(report.p50_latency_ms, ' ms')}",
-        f"- P95: {_fmt(report.p95_latency_ms, ' ms')}",
-        f"- P99: {_fmt(report.p99_latency_ms, ' ms')}",
+        f"- Response-to-next-dispatch samples: {len(report.response_to_next_dispatch_samples)}",
+        f"- Response-to-next-dispatch P50: {_fmt(report.p50_response_to_next_dispatch_ms, ' ms')}",
+        f"- Response-to-next-dispatch P95: {_fmt(report.p95_response_to_next_dispatch_ms, ' ms')}",
+        f"- Response-to-next-dispatch P99: {_fmt(report.p99_response_to_next_dispatch_ms, ' ms')}",
+        f"- Prompt-dispatch-to-response samples: {len(report.response_latency_samples)}",
+        f"- Prompt-dispatch-to-response P50: {_fmt(report.p50_response_latency_ms, ' ms')}",
         "",
         "## Prompt economy",
         "",
