@@ -846,6 +846,57 @@ def test_http_finished_persists_completion_response(tmp_path: Path) -> None:
         assert not thread.is_alive()
 
 
+def test_http_finished_compact_ack_does_not_return_large_response_payload(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        operation = bridge.queue_operation("prompt", "compact acknowledgement")
+        bridge.claim_next_operation()
+        bridge.heartbeat(operation.operation_id)
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps(
+            {
+                "operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/compact",
+                "response_text": "x" * 120_000,
+                "response_text_available": True,
+                "ack_only": True,
+            }
+        ).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/finished",
+            body=payload,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
+        )
+        response = connection.getresponse()
+        raw_body = response.read().decode("utf-8")
+        body = json.loads(raw_body)
+        connection.close()
+
+        assert response.status == 200
+        assert body == {
+            "ok": True,
+            "operation_id": operation.operation_id,
+            "status": "completed",
+        }
+        assert len(raw_body) < 200
+        persisted = bridge.get_operation(operation.operation_id)
+        assert persisted is not None
+        assert persisted["response_text_available"] is True
+        assert len(persisted["response_text"]) == 120_000
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+
+
 def test_http_browser_response_returns_durable_response_after_later_state(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     bridge.save_browser_observation({
