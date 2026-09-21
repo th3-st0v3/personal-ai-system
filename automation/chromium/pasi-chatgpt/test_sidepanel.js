@@ -26,6 +26,7 @@ test('background opens the side panel from the extension action and keeps contro
   assert.match(background, /pasi-control-center-bridge-request/);
   assert.match(background, /\/runner\/capabilities/);
   assert.match(background, /POST \/runner\/control/);
+  assert.match(background, /bridgeFetch\(path, method, message\.body \?\? null/);
   assert.match(background, /chrome-extension:\/\/\$\{chrome\.runtime\.id\}/);
 });
 
