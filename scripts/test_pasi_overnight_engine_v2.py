@@ -386,9 +386,8 @@ branch refs/heads/main
                     self.assertEqual(repeats, 0)
                 self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
 
-    def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
+    def test_scheduler_ignores_model_task_suggestion(self) -> None:
         now = datetime.now(timezone.utc)
-        current = engine.AUTOMATION_TASKS[1]
         state = engine.OvernightState(
             schema_version=2,
             run_id="forward-progress-test",
@@ -397,10 +396,29 @@ branch refs/heads/main
             worktree=str(Path.cwd()),
             branch="test",
             phase="automation",
-            current_task=current,
-            recent_tasks=list(engine.AUTOMATION_TASKS),
+            current_task="current task",
         )
-        self.assertEqual(engine.choose_next_task(state, current), engine.AUTOMATION_TASKS[2])
+        selected = engine.hybrid_planner.TaskSpec(
+            id="next.task",
+            title="Next task",
+            objective="Execute the planner-selected task.",
+            acceptance_criteria=("The task is verified.",),
+            verification=("Run the targeted test.",),
+            phase="automation",
+        )
+        with mock.patch.object(
+            engine,
+            "select_planner_task",
+            return_value=engine.hybrid_planner.PlannerDecision(
+                selected=selected,
+                eligible_ids=("next.task",),
+                mode="deterministic",
+                reason="only eligible task",
+            ),
+        ):
+            result = engine.choose_next_task(state, "model-invented task")
+        self.assertEqual(result, selected.execution_text())
+        self.assertEqual(state.current_task_id, "next.task")
 
     def test_attempt_budget_starts_next_retry_cycle_on_same_task(self) -> None:
         now = datetime.now(timezone.utc)
@@ -446,7 +464,24 @@ branch refs/heads/main
         try:
             engine.STOP = False
             with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
-                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                with mock.patch.object(
+                    engine,
+                    "select_planner_task",
+                    return_value=engine.hybrid_planner.PlannerDecision(
+                        selected=engine.hybrid_planner.TaskSpec(
+                            id="automation.after-retry",
+                            title="After retry",
+                            objective="Proceed to the next verified task.",
+                            acceptance_criteria=("The task is verified.",),
+                            verification=("Run the targeted test.",),
+                            phase="automation",
+                        ),
+                        eligible_ids=("automation.after-retry",),
+                        mode="deterministic",
+                        reason="planner selected the next eligible task",
+                    ),
+                ):
+                    with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
                     with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
                         with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
                             with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
