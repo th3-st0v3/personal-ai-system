@@ -233,6 +233,7 @@ def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> s
     return (
         "CURRENT TASK:\n"
         f"{task_text}\n\n"
+        "Work on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n"
         "RESULT:\n"
         "PASI_RESULT_STATUS: complete|needs_revision|blocked\n"
         "PASI_RESULT_SUMMARY: one concise sentence\n"
