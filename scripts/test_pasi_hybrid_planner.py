@@ -105,6 +105,22 @@ class TestHybridPlanner(unittest.TestCase):
         ledger["parent.two"] = {"task_id": "parent.two", "task": "two", "status": "completed"}
         self.assertIn("after", [item.id for item in planner.eligible_tasks(tasks, ledger)])
 
+    def test_decomposed_parent_is_never_execution_eligible(self) -> None:
+        tasks = (
+            task(
+                "parent",
+                status="decomposed",
+                splittable=True,
+                estimated_size="large",
+                decomposed_children=("parent.one", "parent.two"),
+            ),
+            task("parent.one", decomposition_parent="parent"),
+            task("parent.two", decomposition_parent="parent"),
+        )
+        eligible = planner.eligible_tasks(tasks, {})
+        self.assertNotIn("parent", [item.id for item in eligible])
+        self.assertEqual([item.id for item in eligible], ["parent.one", "parent.two"])
+
     def test_roadmap_is_complete_requires_all_tasks_satisfied(self) -> None:
         tasks = (
             task("root"),
@@ -155,6 +171,11 @@ class TestHybridPlanner(unittest.TestCase):
         self.assertEqual(decision.selected.id, "a")
         self.assertEqual(decision.mode, "deterministic_fallback")
         self.assertFalse(decision.ai_used)
+
+    def test_ai_ranking_rejects_non_string_task_ids(self) -> None:
+        candidates = (task("a"), task("b"))
+        with self.assertRaisesRegex(planner.PlannerError, "IDs must be strings"):
+            planner.validate_ai_ranking(candidates, ["a", 1])
 
     def test_single_eligible_task_never_calls_ai(self) -> None:
         tasks = (task("a"), task("b", depends_on=("a",)))
@@ -295,6 +316,46 @@ class TestHybridPlanner(unittest.TestCase):
             )
             loaded = planner.load_roadmap_with_overlay(roadmap, overlay)
             self.assertEqual([item.id for item in loaded], ["replacement"])
+
+    def test_saving_after_roadmap_change_discards_stale_generated_tasks(self) -> None:
+        old_parent = task("old.parent", splittable=True, estimated_size="large")
+        old_children = (
+            task("old.parent.one", decomposition_parent="old.parent"),
+            task("old.parent.two", decomposition_parent="old.parent"),
+        )
+        new_parent = task("new.parent", splittable=True, estimated_size="large")
+        new_children = (
+            task("new.parent.one", decomposition_parent="new.parent"),
+            task("new.parent.two", decomposition_parent="new.parent"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            roadmap = Path(directory) / "roadmap.json"
+            overlay = Path(directory) / "overlay.json"
+            roadmap.write_text(
+                json.dumps({"schema_version": 1, "tasks": [old_parent.to_dict()]}),
+                encoding="utf-8",
+            )
+            planner.save_decomposition_overlay(
+                overlay,
+                parent=old_parent,
+                children=old_children,
+                roadmap_path=roadmap,
+            )
+            roadmap.write_text(
+                json.dumps({"schema_version": 1, "tasks": [new_parent.to_dict()]}),
+                encoding="utf-8",
+            )
+            planner.save_decomposition_overlay(
+                overlay,
+                parent=new_parent,
+                children=new_children,
+                roadmap_path=roadmap,
+            )
+            loaded = planner.load_roadmap_with_overlay(roadmap, overlay)
+            self.assertEqual(
+                [item.id for item in loaded],
+                ["new.parent", "new.parent.one", "new.parent.two"],
+            )
 
 
     def test_ollama_ranker_validates_structured_response(self) -> None:
