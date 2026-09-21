@@ -326,6 +326,7 @@ branch refs/heads/main
         self.assertNotIn("DO NOT STOP UNTIL YOU ARE FINISHED", prompt)
         self.assertNotIn("PASI_RESULT_NEXT_TASK:", prompt)
         self.assertIn("PASI_RESULT_STATUS:", prompt)
+        self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
 
     def test_prompt_compiler_includes_bounded_failure_only_on_retry(self) -> None:
