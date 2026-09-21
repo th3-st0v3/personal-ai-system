@@ -498,3 +498,10 @@ test('native restart recovery uses the persisted pre-prompt baseline when termin
   assert.match(content, /visibleFingerprint !== baseline/);
   assert.match(content, /finishOperation\(stored\.operation_id, visibleResponse, true\)/);
 });
+
+test('native controller coalesces overlapping idle polls', () => {
+  assert.match(content, /let pollInFlight = null;/);
+  assert.match(content, /if \(pollInFlight\) return pollInFlight;/);
+  assert.match(content, /pollInFlight = \(async \(\) => \{/);
+  assert.match(content, /pollInFlight = null;/);
+});
