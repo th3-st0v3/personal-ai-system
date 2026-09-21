@@ -234,6 +234,20 @@ new file mode 100644
                 self.assertFalse(engine.runtime_watchdog_is_live())
                 self.assertFalse(engine.runtime_watchdog_is_live())
 
+    def test_branch_lookup_reuses_existing_worktree_instead_of_colliding(self) -> None:
+        output = """worktree /tmp/other-pasi-worktree
+HEAD deadbeef
+branch refs/heads/pasi/test
+
+worktree /tmp/unrelated
+HEAD cafebabe
+branch refs/heads/main
+
+"""
+        with mock.patch.object(engine, "command", return_value=(0, output)):
+            found = engine.find_worktree_for_branch("pasi/test")
+        self.assertEqual(found, Path("/tmp/other-pasi-worktree").resolve())
+
     def test_fresh_worktree_honors_configured_base_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             worktree = Path(temp_dir) / "fresh"

@@ -104,6 +104,6 @@ fi
 
 printf '\nManual monitoring:\n'
 printf '  bash scripts/status_pasi_overnight.sh\n'
-printf '  tail -f .runtime/overnight/runner.log\n'
+printf '  tail -f %s/runner.log\n' "$RUNTIME_DIR"
 printf '\nStop safely with:\n'
 printf '  bash scripts/stop_pasi_overnight.sh\n'
