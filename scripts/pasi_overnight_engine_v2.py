@@ -64,10 +64,13 @@ FALLBACK_ROUTER_COOLDOWN_SECONDS = 900.0
 ROADMAP_CONSECUTIVE_RUN_LIMIT = 2
 ROADMAP_LOOP_GUARD_HISTORY_LIMIT = 24
 TASK_LEDGER_PATH = RUNTIME_DIR / "task-ledger.json"
+HANDOFF_PATH = RUNTIME_DIR / "handoff.json"
 DEFAULT_ROADMAP_PATH = REPO_ROOT / "roadmaps" / "pasi-default.json"
 ROADMAP_OVERLAY_PATH = RUNTIME_DIR / "roadmap-decompositions.json"
 PLANNER_AI_TIMEOUT_SECONDS = 1.5
 MAX_TASK_TEXT_CHARS = 4000
+MIN_COMPLETION_SUMMARY_CHARS = 24
+MIN_COMPLETION_EVIDENCE_CHARS = 48
 CONTROL_SCRIPTS_ROOT = REPO_ROOT / "scripts"
 
 PATCH_BEGIN = "PASI_RESULT_PATCH_BEGIN"
@@ -1339,6 +1342,30 @@ def completion_contract(status: str, values: dict[str, str]) -> bool:
 
 
 
+def completion_effort_floor_reason(
+    status: str,
+    summary: str,
+    values: Mapping[str, str],
+    task_already_completed: bool,
+) -> str:
+    """Reject low-content new-task completions while preserving true no-change completions."""
+    if status != "complete" or task_already_completed:
+        return ""
+    summary_text = summary.strip()
+    evidence_text = str(values.get("evidence", "")).strip()
+    if len(summary_text) < MIN_COMPLETION_SUMMARY_CHARS:
+        return (
+            "LOW_YIELD_COMPLETION: completion summary is too short; "
+            f"minimum is {MIN_COMPLETION_SUMMARY_CHARS} characters"
+        )
+    if len(evidence_text) < MIN_COMPLETION_EVIDENCE_CHARS:
+        return (
+            "LOW_YIELD_COMPLETION: completion evidence is too short; "
+            f"minimum is {MIN_COMPLETION_EVIDENCE_CHARS} characters"
+        )
+    return ""
+
+
 def completed_task_keys() -> set[str]:
     return {
         key
@@ -1919,6 +1946,13 @@ def run(state: OvernightState, *, push: bool) -> None:
                 continue
             status, summary, next_task, patch, allow_delete, values = parse_response(response)
             contract_ok = completion_contract(status, values)
+            task_already_completed = task_key(state.current_task) in completed_task_keys()
+            effort_floor_reason = completion_effort_floor_reason(
+                status,
+                summary,
+                values,
+                task_already_completed,
+            )
             log_event(
                 "task_response_evidence",
                 phase=state.phase,
@@ -1928,12 +1962,28 @@ def run(state: OvernightState, *, push: bool) -> None:
                 provider=provider_source,
                 status=status,
                 contract_ok=contract_ok,
+                effort_floor_reason=effort_floor_reason,
                 response_chars=len(response),
                 summary_chars=len(summary),
                 evidence_chars=len(values.get("evidence", "")),
                 patch_chars=len(patch),
                 next_task_chars=len(next_task),
             )
+            if effort_floor_reason:
+                failure = effort_floor_reason + ": " + (summary or values.get("evidence", "")).strip()
+                log_event(
+                    "low_yield_completion_rejected",
+                    phase=state.phase,
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    reason=effort_floor_reason,
+                    summary_chars=len(summary),
+                    evidence_chars=len(values.get("evidence", "")),
+                    response_chars=len(response),
+                )
+                attempt += 1
+                continue
             if contract_ok and no_change_completion_is_satisfied(
                 Path(state.worktree),
                 status,
@@ -2101,11 +2151,55 @@ def finish_reason(*, stop_requested: bool, deadline_reached: bool) -> str:
     return "unexpected_early_exit"
 
 
+def write_handoff_summary(state: OvernightState, *, reason: str) -> None:
+    """Persist the minimum durable context needed to resume or diagnose a run."""
+    payload = {
+        "schema_version": 1,
+        "generated_at": now_utc().isoformat(),
+        "run_id": state.run_id,
+        "started_at": state.started_at,
+        "deadline_at": state.deadline_at,
+        "stop_reason": reason,
+        "phase": state.phase,
+        "current_task": state.current_task,
+        "requested_task": state.requested_task,
+        "completed_tasks": state.completed_tasks,
+        "failed_tasks": state.failed_tasks,
+        "current_attempt": state.current_attempt,
+        "task_retry_cycle": state.task_retry_cycle,
+        "same_failure_cycles": state.same_failure_cycles,
+        "last_failure_signature": state.last_failure_signature,
+        "last_provider": state.last_provider,
+        "provider_limit_pauses": state.provider_limit_pauses,
+        "fallback_router_disabled_until": state.fallback_router_disabled_until,
+        "last_result": state.last_result[-6000:],
+        "next_task": state.next_task,
+        "recent_tasks": state.recent_tasks[-12:],
+        "worktree": state.worktree,
+        "branch": state.branch,
+    }
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = HANDOFF_PATH.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(HANDOFF_PATH)
+
+
 def finish_state(state: OvernightState, reason: str) -> None:
     state.stop_reason = reason
     state.last_result = reason
     save_state(state)
-    log_event("run_finished", phase=state.phase, completed_tasks=state.completed_tasks, failed_tasks=state.failed_tasks, provider_limit_pauses=state.provider_limit_pauses, reason=reason)
+    write_handoff_summary(state, reason=reason)
+    log_event(
+        "run_finished",
+        phase=state.phase,
+        completed_tasks=state.completed_tasks,
+        failed_tasks=state.failed_tasks,
+        provider_limit_pauses=state.provider_limit_pauses,
+        reason=reason,
+    )
 
 
 def main() -> int:
@@ -2203,7 +2297,9 @@ def main() -> int:
     except Exception as exc:
         if state is not None:
             state.stop_reason = str(exc)
+            state.last_result = str(exc)
             save_state(state)
+            write_handoff_summary(state, reason="run_failed")
             log_event("run_failed", error=str(exc))
         return 1
     finally:
