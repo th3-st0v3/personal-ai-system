@@ -16,6 +16,9 @@
       progress: 0,
       pass: 0,
       message: 'Awaiting roadmap input'
+    },
+    settings: {
+      telemetryIntervalMs: 5000
     }
   });
 
@@ -122,8 +125,11 @@
     state = {
       ...defaultState(),
       ...saved,
-      dissection: { ...defaultState().dissection, ...(saved.dissection || {}) }
+      dissection: { ...defaultState().dissection, ...(saved.dissection || {}) },
+      settings: { ...defaultState().settings, ...(saved.settings || {}) }
     };
+    const allowedIntervals = new Set([1000, 5000, 10000, 30000]);
+    if (!allowedIntervals.has(Number(state.settings.telemetryIntervalMs))) state.settings.telemetryIntervalMs = 5000;
     state.preferredOrder = preferredOrderFor(state.tasks, state.preferredOrder);
   }
 
@@ -241,29 +247,76 @@
     });
   }
 
+  async function bridgePost(path, body) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: 'pasi-control-center-bridge-request', method: 'POST', path, body },
+        (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError) { reject(new Error(runtimeError.message || 'extension messaging failed')); return; }
+          if (!response || typeof response !== 'object') { reject(new Error('invalid bridge response')); return; }
+          if (!response.ok) { reject(new Error('bridge request failed (' + (response.status || 0) + ')')); return; }
+          try { resolve(JSON.parse(response.text || 'null')); } catch { reject(new Error('bridge returned invalid JSON')); }
+        }
+      );
+    });
+  }
+
   async function refreshTelemetry() {
     if (telemetryInFlight) return;
     telemetryInFlight = true;
     try {
-      const [status, browser] = await Promise.all([bridgeGet('/status'), bridgeGet('/browser/observation')]);
+      const [status, browser, capabilities, runner] = await Promise.all([
+        bridgeGet('/status'),
+        bridgeGet('/browser/observation'),
+        bridgeGet('/runner/capabilities'),
+        bridgeGet('/runner/state')
+      ]);
       const { observation, data } = observationData(browser);
       const age = observationAgeMs(observation);
       const ready = data?.native_controller === true && data?.composer_present === true && data?.auth_required !== true && Number.isFinite(age) && age < 45000;
+      const runnerReady = capabilities?.required_ok === true;
+      const runnerAvailable = runner?.available === true;
+      const memory = capabilities?.resources;
+      const used = Number(memory?.memory_used_mib);
+      const total = Number(memory?.memory_mib);
+      const ramText = Number.isFinite(used) && Number.isFinite(total) && total > 0
+        ? Math.round(used) + ' / ' + Math.round(total) + ' MiB'
+        : '—';
       setOverallStatus(ready ? 'ready' : data?.auth_required === true ? 'auth' : 'offline', ready ? 'READY' : data?.auth_required === true ? 'AUTH REQUIRED' : 'STALE / CHECKING');
       byId('bridge-metric').textContent = status?.service ? 'ONLINE' : 'UNKNOWN';
       byId('native-metric').textContent = data?.native_controller === true ? 'YES' : 'NO';
       byId('latency-metric').textContent = Number.isFinite(age) ? Math.round(age) + ' ms' : '—';
       byId('composer-metric').textContent = data?.composer_present === true ? 'READY' : 'NOT READY';
+      if (byId('runner-metric')) byId('runner-metric').textContent = runnerReady ? 'READY' : runnerAvailable ? 'DRIFT' : 'MISSING';
+      if (byId('ram-metric')) byId('ram-metric').textContent = ramText;
+      if (byId('runner-capability-note')) {
+        byId('runner-capability-note').textContent = runnerReady
+          ? 'Runner capability contract satisfied.'
+          : (capabilities?.failures ? 'Capability drift: ' + Object.values(capabilities.failures).flat().join(', ') : 'Runner capability report unavailable.');
+      }
+      if (runnerAvailable && byId('automation-state')) {
+        const phase = String(runner.phase || 'unknown').toUpperCase();
+        const task = compact(runner.current_task || 'no active task', 110);
+        const done = Number(runner.completed_tasks || 0);
+        const failed = Number(runner.failed_tasks || 0);
+        const stop = runner.stop_reason ? ' · ' + compact(runner.stop_reason, 80) : '';
+        byId('automation-state').dataset.state = runner.stop_reason && runner.stop_reason !== '' ? 'blocked' : 'ready';
+        byId('automation-state-text').textContent = phase + ' · ' + task + ' · completed ' + done + ' · failed ' + failed + stop;
+      } else {
+        byId('automation-state').dataset.state = ready ? 'ready' : 'unknown';
+        byId('automation-state-text').textContent = ready ? 'Browser controller is healthy. Runner state unavailable.' : 'Runner state unavailable or browser controller is not ready.';
+      }
       byId('telemetry-updated').textContent = new Date().toLocaleTimeString();
-      byId('automation-state').dataset.state = ready ? 'ready' : 'unknown';
-      byId('automation-state-text').textContent = ready ? 'Browser controller is healthy. Runner commands remain desktop-owned.' : 'Runner state unavailable or browser controller is not ready.';
-      byId('footer-state').textContent = ready ? 'LIVE' : 'DEGRADED';
+      byId('footer-state').textContent = ready && runnerReady ? 'LIVE' : 'DEGRADED';
     } catch (error) {
       setOverallStatus('offline', 'BRIDGE OFFLINE');
       byId('bridge-metric').textContent = 'OFFLINE';
       byId('native-metric').textContent = '—';
       byId('latency-metric').textContent = '—';
       byId('composer-metric').textContent = '—';
+      if (byId('runner-metric')) byId('runner-metric').textContent = '—';
+      if (byId('ram-metric')) byId('ram-metric').textContent = '—';
       byId('telemetry-updated').textContent = '—';
       byId('automation-state').dataset.state = 'blocked';
       byId('automation-state-text').textContent = compact(error?.message || error, 140);
@@ -322,10 +375,47 @@
     byId('import-dialog').close();
   }
 
+  async function controlRunner(action) {
+    const message = action === 'stop'
+      ? 'Stop the PASI runner now? This sends SIGTERM to the supervised runner.'
+      : 'Retry the current PASI task using a fresh bounded retry cycle?';
+    if (!globalThis.confirm(message)) return;
+    try {
+      const result = await bridgePost('/runner/control', { action });
+      byId('automation-state-text').textContent = result?.accepted ? (action === 'stop' ? 'STOP REQUEST SENT' : 'RETRY REQUEST SENT') : (result?.reason || 'Runner control was not accepted.');
+      byId('automation-state').dataset.state = result?.accepted ? 'ready' : 'blocked';
+      setTimeout(() => { void refreshTelemetry(); }, 200);
+    } catch (error) {
+      byId('automation-state').dataset.state = 'blocked';
+      byId('automation-state-text').textContent = compact(error?.message || error, 140);
+    }
+  }
+
+  function openSettingsDialog() {
+    const dialog = byId('settings-dialog');
+    if (!dialog) return;
+    byId('telemetry-interval').value = String(state.settings.telemetryIntervalMs);
+    dialog.showModal();
+  }
+
+  async function saveSettings() {
+    const interval = Number(byId('telemetry-interval').value);
+    state.settings.telemetryIntervalMs = [1000, 5000, 10000, 30000].includes(interval) ? interval : 5000;
+    await persistState();
+    if (telemetryTimer !== null) clearInterval(telemetryTimer);
+    telemetryTimer = setInterval(() => { void refreshTelemetry(); }, state.settings.telemetryIntervalMs);
+    byId('settings-dialog').close();
+    void refreshTelemetry();
+  }
+
   function wireEvents() {
     byId('btn-import').addEventListener('click', openImportDialog);
     byId('btn-save-roadmap').addEventListener('click', () => { void importRoadmap(); });
     byId('btn-refresh').addEventListener('click', () => { void refreshTelemetry(); });
+    if (byId('btn-settings')) byId('btn-settings').addEventListener('click', openSettingsDialog);
+    if (byId('btn-save-settings')) byId('btn-save-settings').addEventListener('click', () => { void saveSettings(); });
+    if (byId('btn-retry-current')) byId('btn-retry-current').addEventListener('click', () => { void controlRunner('retry_current'); });
+    if (byId('btn-panic-stop')) byId('btn-panic-stop').addEventListener('click', () => { void controlRunner('stop'); });
     byId('hardware-profile').addEventListener('change', (event) => {
       state.hardwareProfile = event.target.value;
       void persistState();
@@ -337,7 +427,7 @@
     renderAll();
     wireEvents();
     await refreshTelemetry();
-    telemetryTimer = setInterval(() => { void refreshTelemetry(); }, TELEMETRY_INTERVAL_MS);
+    telemetryTimer = setInterval(() => { void refreshTelemetry(); }, state.settings.telemetryIntervalMs || TELEMETRY_INTERVAL_MS);
     window.addEventListener('pagehide', () => {
       if (telemetryTimer !== null) clearInterval(telemetryTimer);
     }, { once: true });
