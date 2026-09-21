@@ -43,6 +43,10 @@ MAX_TIMING_KEYS = frozenset({
     "submission_via",
 })
 BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
+RUNNER_CAPABILITIES_PATH = Path.home() / ".pasi" / "runner" / "capabilities.json"
+RUNNER_STATE_PATH = Path.home() / ".pasi" / "overnight" / "state.json"
+RUNNER_CONTROL_PATH = Path.home() / ".pasi" / "overnight" / "control.json"
+MAX_RUNNER_CAPABILITIES_BYTES = 256_000
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -69,6 +73,77 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "PASI_NATIVE: response text unavailable",
 )
 
+
+def load_runner_capabilities() -> dict[str, Any]:
+    try:
+        if not RUNNER_CAPABILITIES_PATH.is_file() or RUNNER_CAPABILITIES_PATH.stat().st_size > MAX_RUNNER_CAPABILITIES_BYTES:
+            return {"available": False, "reason": "capability report unavailable"}
+        payload = json.loads(RUNNER_CAPABILITIES_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "reason": "capability report unreadable"}
+    if not isinstance(payload, dict):
+        return {"available": False, "reason": "capability report invalid"}
+    # The bridge exposes only machine-health metadata; secrets and command output are not persisted here.
+    allowed = {"schema_version", "generated_at", "runner_name", "repository", "resources", "boundary", "runtime", "required_ok", "failures", "recommended_labels", "actions"}
+    return {"available": True, **{key: payload[key] for key in allowed if key in payload}}
+
+def load_runner_state() -> dict[str, Any]:
+    try:
+        if not RUNNER_STATE_PATH.is_file() or RUNNER_STATE_PATH.stat().st_size > 128_000:
+            return {"available": False, "reason": "runner state unavailable"}
+        payload = json.loads(RUNNER_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"available": False, "reason": "runner state unreadable"}
+    if not isinstance(payload, dict):
+        return {"available": False, "reason": "runner state invalid"}
+    allowed = {
+        "schema_version", "run_id", "started_at", "deadline_at", "worktree", "branch",
+        "phase", "current_task", "current_task_id", "requested_task", "task_number", "completed_tasks",
+        "failed_tasks", "current_attempt", "task_retry_cycle", "same_failure_cycles",
+        "last_provider", "last_result", "next_task", "stop_reason", "recent_tasks",
+    }
+    return {"available": True, **{key: payload[key] for key in allowed if key in payload}}
+
+def request_runner_control(action: str) -> dict[str, Any]:
+    if action not in {"stop", "retry_current"}:
+        raise ValueError("unsupported runner control action")
+    if action == "stop":
+        try:
+            raw_pid = (RUNNER_STATE_PATH.parent / "runner.pid").read_text(encoding="utf-8").strip()
+            pid = int(raw_pid)
+        except (OSError, ValueError):
+            return {"accepted": False, "action": action, "reason": "runner pid unavailable"}
+        if pid <= 1:
+            return {"accepted": False, "action": action, "reason": "runner pid invalid"}
+        try:
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\\x00", b" ").decode("utf-8", "ignore")
+        except OSError:
+            return {"accepted": False, "action": action, "reason": "runner process is no longer present"}
+        if "pasi_overnight_engine_v2.py" not in cmdline and "pasi_168h_supervisor.sh" not in cmdline:
+            return {"accepted": False, "action": action, "reason": "runner pid does not identify as PASI"}
+        try:
+            os.kill(pid, 15)
+        except ProcessLookupError:
+            return {"accepted": False, "action": action, "reason": "runner process already stopped"}
+        except PermissionError:
+            return {"accepted": False, "action": action, "reason": "runner process signal denied"}
+        return {"accepted": True, "action": action, "pid": pid}
+
+    current_state = load_runner_state()
+    current_task = str(current_state.get("current_task", "")).strip()
+    if not current_state.get("available") or not current_task:
+        return {"accepted": False, "action": action, "reason": "no current runner task"}
+    RUNNER_CONTROL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "action": action,
+        "task_id": current_state.get("current_task_id", ""),
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    temporary = RUNNER_CONTROL_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(RUNNER_CONTROL_PATH)
+    return {"accepted": True, "action": action, "task": current_task}
 
 class BridgeState:
     """
@@ -1226,6 +1301,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/runner/capabilities":
+            self._send_json(load_runner_capabilities())
+            return
+
+        if path == "/runner/state":
+            self._send_json(load_runner_state())
+            return
+
         if path == "/browser/observation":
             observation = (
                 self.bridge_state.get_browser_observation()
@@ -1349,6 +1432,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
             if path == "/browser/observation":
                 self._browser_observation(payload)
+                return
+
+            if path == "/runner/control":
+                action = payload.get("action")
+                if not isinstance(action, str):
+                    self._send_json({"error": "action is required."}, HTTPStatus.BAD_REQUEST)
+                    return
+                self._send_json(request_runner_control(action.strip().casefold()))
                 return
 
             if path == "/queue":
