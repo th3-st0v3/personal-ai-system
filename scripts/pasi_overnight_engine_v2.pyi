@@ -34,6 +34,9 @@ class OvernightState:
     completed_tasks: int
     failed_tasks: int
     current_attempt: int
+    task_retry_cycle: int
+    last_failure_signature: str
+    same_failure_cycles: int
     automation_tasks_since_gate: int
     automation_gates: int
     provider_limit_pauses: int
@@ -60,6 +63,9 @@ class OvernightState:
         completed_tasks: int = ...,
         failed_tasks: int = ...,
         current_attempt: int = ...,
+        task_retry_cycle: int = ...,
+        last_failure_signature: str = ...,
+        same_failure_cycles: int = ...,
         automation_tasks_since_gate: int = ...,
         automation_gates: int = ...,
         provider_limit_pauses: int = ...,
