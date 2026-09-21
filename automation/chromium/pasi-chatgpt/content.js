@@ -1815,6 +1815,16 @@
     }
   }
 
+  chrome.runtime?.onMessage?.addListener?.((message) => {
+    if (message?.type === 'pasi-health-ping' && !extensionContextInvalidated) {
+      void reportHealth();
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!extensionContextInvalidated) void reportHealth();
+  });
+
   if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
     globalThis.PASI_NATIVE_TEST_API = Object.freeze({
       messageText,
