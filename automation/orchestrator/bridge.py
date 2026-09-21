@@ -119,11 +119,12 @@ class BridgeState:
             persistent_queue.append(persistent_item)
 
         normalized_queue = self.state_manager.save_queue(persistent_queue)
-        retained_terminal_ids = {
-            item.get("operation_id")
+        retained_terminal_ids: set[str] = {
+            operation_id
             for item in normalized_queue
             if item.get("status") in TERMINAL_QUEUE_STATUSES
-            and isinstance(item.get("operation_id"), str)
+            for operation_id in [item.get("operation_id")]
+            if isinstance(operation_id, str)
         }
         self.state_manager.prune_terminal_responses(retained_terminal_ids)
 
@@ -1310,20 +1311,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if ack_only:
-            self._send_json(
-                {
-                    "ok": True,
-                    "operation_id": operation.get("operation_id"),
-                    "status": operation.get("status"),
-                }
-            )
-        else:
-            self._send_json(
-                {
-                    "operation": operation
-                }
-            )
+        self._send_json(
+            {
+                "operation": operation
+            }
+        )
 
     def _finished(
         self,
