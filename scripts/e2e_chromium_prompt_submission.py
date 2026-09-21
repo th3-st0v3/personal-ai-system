@@ -188,9 +188,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self.current_status[operation_id] = "completed"
                 self.finished_at[operation_id] = time.monotonic()
                 self.finished_payloads.append(payload)
+                next_operation = None
                 if operation_id == OPERATIONS[0]["operation_id"] and len(self.finished_payloads) == 1:
-                    self.current_status[OPERATIONS[1]["operation_id"]] = "queued"
-            self._send_json(200, {"operation": self.operation(operation_id)})
+                    next_id = OPERATIONS[1]["operation_id"]
+                    # Mirror the production bridge contract: terminal completion
+                    # atomically claims the next queued operation and returns it
+                    # in the same acknowledgement, so the browser never needs
+                    # to fall back to /next-operation polling on the hot path.
+                    if self.current_status.get(next_id) == "queued":
+                        self.current_status[next_id] = "claimed"
+                        next_operation = self.operation(next_id)
+            self._send_json(
+                200,
+                {
+                    "operation": self.operation(operation_id),
+                    "next_operation": next_operation,
+                },
+            )
             return
 
         if path == "/chat/failed":
