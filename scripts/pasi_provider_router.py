@@ -24,6 +24,10 @@ DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENROUTER_MODEL = "openrouter/free"
 DEFAULT_PERPLEXITY_URL = "https://api.perplexity.ai/v1"
 DEFAULT_PERPLEXITY_MODEL = "sonar-pro"
+DEFAULT_GROQ_URL = "https://api.groq.com/openai/v1"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+DEFAULT_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 MAX_CONTEXT_CHARS = 60_000
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_PROMPT_CHARS = 90_000
@@ -183,6 +187,55 @@ def call_openrouter(prompt: str, timeout: float) -> str:
     return extract_chat_text(data)
 
 
+def call_openai_compatible(
+    prompt: str,
+    timeout: float,
+    *,
+    api_key_env: str,
+    default_url: str,
+    default_model: str,
+    provider: str,
+) -> str:
+    key = os.environ.get(api_key_env, "").strip()
+    if not key:
+        raise RuntimeError(f"{api_key_env} is not configured")
+    base_url = os.environ.get(f"{provider.upper()}_BASE_URL", default_url).rstrip("/")
+    model = os.environ.get(f"{provider.upper()}_MODEL", default_model).strip() or default_model
+    data = post_json(
+        base_url + "/chat/completions",
+        {
+            "model": model,
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+            "max_tokens": 5000,
+        },
+        {"Authorization": f"Bearer {key}"},
+        timeout,
+    )
+    return extract_chat_text(data)
+
+
+def call_groq(prompt: str, timeout: float) -> str:
+    return call_openai_compatible(
+        prompt,
+        timeout,
+        api_key_env="GROQ_API_KEY",
+        default_url=DEFAULT_GROQ_URL,
+        default_model=DEFAULT_GROQ_MODEL,
+        provider="groq",
+    )
+
+
+def call_gemini(prompt: str, timeout: float) -> str:
+    return call_openai_compatible(
+        prompt,
+        timeout,
+        api_key_env="GEMINI_API_KEY",
+        default_url=DEFAULT_GEMINI_URL,
+        default_model=DEFAULT_GEMINI_MODEL,
+        provider="gemini",
+    )
+
+
 def call_perplexity(prompt: str, timeout: float) -> str:
     key = os.environ.get("PERPLEXITY_API_KEY", "").strip()
     if not key:
@@ -214,6 +267,8 @@ def call_opencode(prompt: str, repo: Path, timeout: float) -> str:
             "GH_TOKEN",
             "OPENROUTER_API_KEY",
             "PERPLEXITY_API_KEY",
+            "GROQ_API_KEY",
+            "GEMINI_API_KEY",
             "NVIDIA_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
@@ -267,6 +322,10 @@ def providers_available() -> list[str]:
         values.append("openrouter")
     if os.environ.get("PERPLEXITY_API_KEY", "").strip():
         values.append("perplexity")
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        values.append("groq")
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        values.append("gemini")
     return values
 
 
@@ -296,6 +355,10 @@ def route(task: str, repo: Path, timeout: float) -> tuple[str, str]:
                 return provider, call_openrouter(prompt, limit)
             if provider == "perplexity":
                 return provider, call_perplexity(prompt, limit)
+            if provider == "groq":
+                return provider, call_groq(prompt, limit)
+            if provider == "gemini":
+                return provider, call_gemini(prompt, limit)
             return provider, call_opencode(prompt, repo, limit)
         except urllib.error.HTTPError as exc:
             if provider == "openrouter" and exc.code == 429 and OPENROUTER_429_RETRY_MAX > 0:
