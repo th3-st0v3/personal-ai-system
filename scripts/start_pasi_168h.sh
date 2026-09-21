@@ -329,6 +329,9 @@ if data.get("kind") != "chatgpt_health":
     raise SystemExit(1)
 captured_at = data.get("captured_at")
 if not isinstance(captured_at, str):
+    raw_capture = observation.get("captured_at") if isinstance(observation, dict) else None
+    captured_at = raw_capture if isinstance(raw_capture, str) else None
+if not isinstance(captured_at, str):
     raise SystemExit(1)
 try:
     captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
