@@ -119,7 +119,9 @@ jobs:
 
       - name: Verify native desktop boundary
         if: ${{ inputs.mode == 'start-automation' }}
-        run: python3 scripts/pasi_desktop_preflight.py
+        run: |
+          python3 scripts/reconcile_runner_capabilities.py --spec config/runner/capabilities.json --report "$HOME/.pasi/runner/capabilities.json" --json
+          python3 scripts/pasi_desktop_preflight.py
 
       - name: Start PASI development automation
         if: ${{ inputs.mode == 'start-automation' }}
