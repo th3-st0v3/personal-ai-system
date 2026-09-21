@@ -19,7 +19,6 @@ class TestPasiRuntimeTelemetry(unittest.TestCase):
             {"timestamp": "2026-09-20T20:01:20+00:00", "kind": "prompt_dispatch_started", "task_id": "a", "task_number": 2},
             {"timestamp": "2026-09-20T20:01:21+00:00", "kind": "response_received", "task_id": "a", "task_number": 2, "chars": 220},
             {"timestamp": "2026-09-20T20:01:22+00:00", "kind": "task_failed", "task_id": "a", "task_number": 2},
-            {"timestamp": "2026-09-20T20:01:22+00:00", "kind": "task_failed", "task_id": "a", "task_number": 2},
             {"timestamp": "2026-09-20T20:01:23+00:00", "kind": "task_response_evidence", "contract_ok": True, "response_chars": 1200, "patch_chars": 900, "evidence_chars": 140},
             {"timestamp": "2026-09-20T20:01:24+00:00", "kind": "browser_timing", "injected_at_ms": 200000, "ack_at_ms": 200020, "generation_start_ms": 200100, "completed_at_ms": 201100},
             {"timestamp": "2026-09-20T20:01:25+00:00", "kind": "browser_timing", "injected_at_ms": 201155, "ack_at_ms": 201175, "generation_start_ms": 201300, "completed_at_ms": 202300},
