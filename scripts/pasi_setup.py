@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 from automation.computer_use.setup_requirements import MARKDOWN_RELATIVE_PATH, RUNTIME_RELATIVE_PATH
 CATALOG_PATH = REPO_ROOT / "config" / "automation" / "setup_catalog.json"
 BRIDGE_URL = "http://127.0.0.1:8765"
+BROWSER_HEALTH_URL = BRIDGE_URL + "/browser/health"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -29,8 +30,14 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _runtime_observation() -> dict[str, Any] | None:
     try:
-        headers = {"Authorization": f"Bearer {(os.environ.get("PASI_BRIDGE_TOKEN", "") or (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8")).strip()}"}
-        request = urllib.request.Request(f"{BRIDGE_URL}/browser/health", headers=headers, method="GET")
+        token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
+        if not token:
+            token = (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8").strip()
+        request = urllib.request.Request(
+            f"{BRIDGE_URL}/browser/observation",
+            headers={"Authorization": f"Bearer {token}"},
+            method="GET",
+        )
         with urllib.request.urlopen(request, timeout=3.0) as response:
             payload = json.loads(response.read(1_000_000).decode("utf-8"))
     except (OSError, urllib.error.URLError, UnicodeDecodeError, json.JSONDecodeError):
@@ -82,6 +89,7 @@ def build_report() -> dict[str, Any]:
     python_path = REPO_ROOT / ".venv" / "bin" / "python"
     observation = _runtime_observation()
     bridge_health = _health(BRIDGE_URL + "/health")
+    browser_health = _health(BROWSER_HEALTH_URL)
     runtime_data: dict[str, Any] = {}
     if observation is not None:
         observed_data = observation.get("data")
@@ -97,11 +105,11 @@ def build_report() -> dict[str, Any]:
             },
             "git": {"present": shutil.which("git") is not None},
             "node": {"present": shutil.which("node") is not None},
-            "bubblewrap": {"present": shutil.which("bwrap") is not None},
         },
         "runtime": {
             "bridge_health": bridge_health or {"status": "unavailable"},
-            "browser_health": observation or {"status": "unavailable"},
+            "browser_health": browser_health or {"status": "unavailable"},
+            "browser_observation": observation or {"status": "unavailable"},
             "chatgpt_login_required": runtime_data.get("auth_required") is True,
             "chatgpt_usage_limited": runtime_data.get("provider_usage_limited") is True,
             "chatgpt_context_exhausted": runtime_data.get("conversation_context_exhausted") is True,
@@ -149,7 +157,7 @@ def print_report(report: dict[str, Any]) -> None:
     bridge = report["runtime"]["bridge_health"].get("status", "unavailable")
     browser = report["runtime"]["browser_health"].get("status", "unavailable")
     print(f"  Bridge: {bridge}")
-    print(f"  Browser health: {browser}")
+    print(f"  Native Chromium: {browser}")
     if report["runtime"]["chatgpt_login_required"]:
         print("  ChatGPT: ACTION REQUIRED — authenticate / complete the interactive security check in the browser.")
     elif report["runtime"]["chatgpt_usage_limited"]:
@@ -178,13 +186,7 @@ def main() -> int:
 
     mandatory = report["local_prerequisites"]["venv_python"]
     git = report["local_prerequisites"]["git"]
-    bubblewrap = report["local_prerequisites"]["bubblewrap"]
-    if args.check and (
-        not mandatory.get("present")
-        or not mandatory.get("executable")
-        or not git.get("present")
-        or not bubblewrap.get("present")
-    ):
+    if args.check and (not mandatory.get("present") or not mandatory.get("executable") or not git.get("present")):
         return 2
     return 0
 

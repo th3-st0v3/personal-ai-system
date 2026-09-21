@@ -12,10 +12,16 @@
   "background": {
     "service_worker": "background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["timeout-policy.json"],
+      "matches": ["https://chatgpt.com/*", "https://www.chatgpt.com/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://www.chatgpt.com/*"],
-      "js": ["activity.js", "timeout-config.js", "detectors.js", "content.js", "recovery.js"],
+      "js": ["timeout-config.js", "activity.js", "recovery_progress.js", "content.js", "recovery.js"],
       "run_at": "document_idle"
     }
   ]

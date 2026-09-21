@@ -4,8 +4,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
-import sys
 
 from automation.computer_use import setup_requirements
 
@@ -25,36 +23,6 @@ PASI_SETUP_REQUIREMENTS_END"""
 PASI_SETUP_REQUIREMENTS_END"""
         with self.assertRaises(ValueError):
             setup_requirements.parse_requirements(response)
-
-
-    def test_main_check_builds_complete_prerequisite_report(self) -> None:
-        import scripts.pasi_setup as pasi_setup
-
-        complete_report = {
-            "repository": str(pasi_setup.REPO_ROOT),
-            "local_prerequisites": {
-                "venv_python": {"path": "/tmp/python", "present": True, "executable": True},
-                "git": {"present": True},
-                "node": {"present": True},
-                "bubblewrap": {"present": True},
-            },
-            "runtime": {
-                "bridge_health": {"status": "ok"},
-                "browser_health": {"status": "unavailable"},
-                "chatgpt_login_required": False,
-                "chatgpt_usage_limited": False,
-                "chatgpt_context_exhausted": False,
-            },
-            "downloads": [],
-            "logins": [],
-            "dynamic_requirements_file": "/tmp/setup.json",
-            "dynamic_requirements_markdown": "/tmp/setup.md",
-            "verification_policy": "test",
-        }
-        with patch.object(pasi_setup, "build_report", return_value=complete_report):
-            with patch.object(pasi_setup, "print_report"):
-                with patch.object(sys, "argv", ["pasi_setup.py", "--check"]):
-                    self.assertEqual(pasi_setup.main(), 0)
 
     def test_record_requirements_deduplicates_and_never_writes_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

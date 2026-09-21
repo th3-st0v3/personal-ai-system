@@ -46,9 +46,9 @@ if [[ -f "$STATE_FILE" ]]; then
 fi
 
 printf '\nManaged services:\n'
+printf '\nManaged services:\n'
 for spec in \
-    "PASI bridge|$BRIDGE_PID_FILE|pasi_log_router.py" \
-    ; do
+    "PASI bridge|$BRIDGE_PID_FILE|pasi_log_router.py"; do
     name="$(printf '%s' "$spec" | cut -d'|' -f1)"
     pid_file="$(printf '%s' "$spec" | cut -d'|' -f2)"
     expected="$(printf '%s' "$spec" | cut -d'|' -f3)"
@@ -73,15 +73,5 @@ printf '\nServices:\n'
 curl -fsS http://127.0.0.1:8765/health 2>/dev/null || printf 'bridge: unavailable\n'
 printf '\n'
 if command -v curl >/dev/null 2>&1; then
-    token=""
-    if [[ -n "${PASI_BRIDGE_TOKEN:-}" ]]; then
-        token="$PASI_BRIDGE_TOKEN"
-    elif [[ -r "$HOME/.pasi/bridge-token" ]]; then
-        token="$(cat "$HOME/.pasi/bridge-token")"
-    fi
-    if [[ -n "$token" ]]; then
-        curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8765/browser/health 2>/dev/null || printf 'browser health: unavailable\n'
-    else
-        printf 'browser health: bridge token unavailable\n'
-    fi
+    curl -fsS http://127.0.0.1:8765/browser/observation 2>/dev/null || printf 'browser observation: unavailable\n'
 fi

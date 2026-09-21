@@ -73,7 +73,6 @@ class ChatOperation:
     operation_type: str
     prompt: str
     idempotency_key: str | None = None
-    completion_markers: list[str] | None = None
 
     status: str = "queued"
 

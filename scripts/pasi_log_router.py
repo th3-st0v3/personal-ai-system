@@ -4,12 +4,17 @@
 The child process remains the real service process from the service's
 perspective; this wrapper owns the log file and forwards the child's exit
 status. Logs rotate before they can grow without bound.
+
+On POSIX, the wrapped command runs in its own process group. Termination
+signals received by the router are forwarded to that group so a managed
+service cannot outlive its log router and leave an orphaned descendant.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +22,7 @@ from pathlib import Path
 
 DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 DEFAULT_BACKUPS = 4
+SHUTDOWN_GRACE_SECONDS = 2.0
 
 
 def rotate_log(path: Path, backups: int) -> None:
@@ -32,6 +38,45 @@ def rotate_log(path: Path, backups: int) -> None:
             source.replace(destination)
     if path.exists():
         path.replace(path.with_name(f"{path.name}.1"))
+
+
+def terminate_process_group(
+    process: subprocess.Popen[bytes],
+    signum: int,
+    *,
+    grace_seconds: float,
+) -> None:
+    if process.poll() is not None:
+        return
+
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            return
+    else:
+        process.send_signal(signum)
+
+    try:
+        process.wait(timeout=grace_seconds)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    else:
+        process.kill()
+
+    try:
+        process.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        # The caller will still fail closed by exiting the router. There is no
+        # safe reason to keep waiting forever on a managed-service shutdown.
+        pass
 
 
 def run(command: list[str], log_path: Path, max_bytes: int, backups: int) -> int:
@@ -52,7 +97,22 @@ def run(command: list[str], log_path: Path, max_bytes: int, backups: int) -> int
         stderr=subprocess.STDOUT,
         text=False,
         bufsize=0,
+        start_new_session=(os.name == "posix"),
     )
+
+    def handle_signal(signum: int, _frame: object) -> None:
+        # Forward termination to the entire wrapped process group. Raising
+        # SystemExit immediately after bounded cleanup is intentional: stdout
+        # reads can otherwise block forever on a child that ignores SIGTERM.
+        terminate_process_group(
+            process,
+            signum,
+            grace_seconds=SHUTDOWN_GRACE_SECONDS,
+        )
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
 
     assert process.stdout is not None
     stdout = process.stdout
@@ -81,6 +141,7 @@ def run(command: list[str], log_path: Path, max_bytes: int, backups: int) -> int
                     current_size = 0
     finally:
         log.close()
+        stdout.close()
 
     return process.wait()
 

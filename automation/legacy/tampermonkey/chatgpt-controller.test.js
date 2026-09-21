@@ -115,6 +115,8 @@ test('controller re-checks auth, exhaustion, and Thinking at the send boundary',
 test('controller retains guarded prompt submission with bounded explicit acknowledgement', () => {
     assert.match(source, /SUBMISSION_ACK_MS = 2500/);
     assert.match(source, /SUBMISSION_ATTEMPTS = 3/);
+    assert.match(source, /COMPLETION_RETRY_DELAY_MS = 20/);
+    assert.match(source, /sleep\(COMPLETION_RETRY_DELAY_MS\)/);
     assert.match(source, /function newestUserMatches\(/);
     assert.match(source, /function waitForSubmissionAck\(/);
     assert.match(source, /prompt submission could not be verified after bounded attempts/);

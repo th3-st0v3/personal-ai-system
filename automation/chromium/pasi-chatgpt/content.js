@@ -2,23 +2,25 @@
   'use strict';
 
   const CONTROLLER_VERSION = '2.4.11';
-  const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || globalThis.PASI_TIMEOUT_POLICY?.defaults || {};
-  var POLL_MS = 2000;
-  POLL_MS = TIMEOUT_POLICY.pollMs || POLL_MS;
+  const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
+  const POLL_MS = TIMEOUT_POLICY.pollMs || 500;
   const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
-  var DOM_POLL_MS = 250;
-  DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || DOM_POLL_MS;
-  const CLICK_SETTLE_MS = 250;
-  const THINKING_VERIFY_MS = 5000;
-  const RESPONSE_SETTLE_MS = 3500;
-  const SUBMISSION_ACK_MS = 7500;
+  const DOM_POLL_MS = TIMEOUT_POLICY.domPollMs || 20;
+  const CLICK_SETTLE_MS = TIMEOUT_POLICY.clickSettleMs || 20;
+  const THINKING_VERIFY_MS = TIMEOUT_POLICY.thinkingVerifyMs || 3000;
+  const RESPONSE_SETTLE_MS = TIMEOUT_POLICY.responseSettleMs || 20;
+  const PREVIOUS_RESPONSE_WAIT_MS = 5 * 60 * 1000;
+  const GENERATION_START_WAIT_MS = 30 * 1000;
+  const MAX_RESPONSE_TEXT_CHARS = 120_000;
+  const SUBMISSION_ACK_MS = TIMEOUT_POLICY.submissionAckMs || 1000;
   const SUBMISSION_ATTEMPTS = 3;
+  const COMPLETION_RETRY_DELAY_MS = 20;
   const TIMEOUTS = {
     menu: TIMEOUT_POLICY.menuMs || 8000,
     composer: TIMEOUT_POLICY.composerMs || 15000,
     send: TIMEOUT_POLICY.sendMs || 10000,
     submit: TIMEOUT_POLICY.submitMs || 5000,
-    generation: TIMEOUT_POLICY.generationMs || 1500 * 1000
+    generation: TIMEOUT_POLICY.generationMs || 60 * 60 * 1000
   };
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
@@ -28,7 +30,6 @@
   const MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200;
   let activeOperationId = null;
   let processing = false;
-  let controllerLeader = false;
   let reasoningMode = null;
   let githubAttached = false;
   let githubRepository = null;
@@ -36,7 +37,17 @@
   let extensionContextInvalidated = false;
   let pollTimerId = null;
   let healthTimerId = null;
-  let leaseTimerId = null;
+  let immediatePollQueued = false;
+
+  function scheduleImmediatePoll() {
+    if (immediatePollQueued || extensionContextInvalidated) return;
+    immediatePollQueued = true;
+    queueMicrotask(() => {
+      immediatePollQueued = false;
+      if (!processing && activeOperationId === null && !extensionContextInvalidated) void poll();
+    });
+  }
+
 
   function isExtensionContextInvalidatedError(error) {
     return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
@@ -114,18 +125,54 @@
   }  const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  function accessibilityHidden(element) {
-    for (let current = element; current; current = current.parentElement) {
-      if (
-        current.getAttribute?.('aria-hidden') === 'true' ||
-        current.hasAttribute?.('inert')
-      ) return true;
-    }
-    return false;
+  /* Event-driven waits: MutationObserver reacts immediately; the interval is only a backstop. */
+  function waitUntil(predicate, timeoutMs, pollMs = DOM_POLL_MS) {
+    return new Promise((resolve) => {
+      let done = false;
+      let lastCheck = 0;
+      let observer = null;
+      let interval = null;
+      let timeout = null;
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        if (observer) observer.disconnect();
+        if (interval !== null) clearInterval(interval);
+        if (timeout !== null) clearTimeout(timeout);
+        resolve(value);
+      };
+      const check = () => {
+        if (done) return;
+        const now = Date.now();
+        if (now - lastCheck < 10) return;
+        lastCheck = now;
+        try {
+          const value = predicate();
+          if (value) finish(value);
+        } catch (_) {}
+      };
+      const root = document.documentElement || document;
+      if (typeof MutationObserver === 'function' && root) {
+        observer = new MutationObserver(() => check());
+        try {
+          observer.observe(root, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true
+          });
+        } catch (_) {
+          observer = null;
+        }
+      }
+      interval = setInterval(check, pollMs);
+      timeout = setTimeout(() => finish(null), timeoutMs);
+      check();
+    });
   }
 
   function visible(element) {
-    if (!element || accessibilityHidden(element)) return false;
+    if (!element) return false;
     const style = getComputedStyle(element);
     return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.getClientRects().length > 0;
   }
@@ -225,6 +272,7 @@
     element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
   }
 
+  function insertText(element, text) { setText(element, text); }
 
   function readText(element) { return isTextControl(element) ? String(element.value || '') : String(element?.innerText || element?.textContent || ''); }
 
@@ -234,54 +282,36 @@
 
   function chatUrl() { return /^https:\/\/chatgpt\.com(?::\d+)?\/c\//.test(location.href) ? location.href : null; }
 
-  function freshChatSurface(previousLocation, previousChat) {
-    if (!previousChat || location.href === previousLocation) return false;
-    if (!/^https:\/\/chatgpt\.com(?::\d+)?\/?(?:\?.*)?$/.test(location.href)) return false;
-    return Boolean(composer()) && !generating() && userMessages().length === 0 && assistantMessages().length === 0;
-  }
-
-
-  function detectorState() {
-    return globalThis.PASIChatGPTDetectors?.detect?.() || {
-      context_exhausted: false,
-      usage_limited: false,
-      auth_required: false,
-      connection_failure: false
-    };
-  }
-
   function contextExhausted() {
-    return detectorState().context_exhausted === true;
+    const text = normalize(document.body?.innerText || '');
+    return [
+      'this conversation has reached its limit',
+      'conversation has reached its limit',
+      'conversation limit reached',
+      'conversation is too long',
+      'conversation is full',
+      'maximum conversation length',
+      'maximum length for this conversation',
+      'context limit reached',
+      'context window limit',
+      'context length limit',
+      'start a new chat to continue',
+      'start a new conversation to continue'
+    ].some((marker) => text.includes(marker));
   }
-  function controllerClaim() {
-    if (!globalThis.chrome?.runtime?.sendMessage) return Promise.resolve(false);
-    return new Promise((resolve) => {
-      try {
-        chrome.runtime.sendMessage({ type: 'pasi-controller-claim' }, (response) => {
-          const runtimeError = chrome.runtime.lastError;
-          if (runtimeError || !response || response.ok !== true) {
-            controllerLeader = false;
-            resolve(false);
-            return;
-          }
-          controllerLeader = response.leader === true;
-          resolve(controllerLeader);
-        });
-      } catch (_) {
-        controllerLeader = false;
-        resolve(false);
-      }
-    });
-  }
-
 
   function usageLimited() {
-    const state = detectorState();
-    return state.context_exhausted !== true && state.usage_limited === true;
+    if (contextExhausted()) return false;
+    const text = normalize(document.body?.innerText || '');
+    return [
+      'current usage limit', 'usage limit reached', 'free tier limit', 'message limit',
+      'daily limit', 'weekly limit', 'model usage limit', 'rate limit', 'too many requests'
+    ].some((marker) => text.includes(marker));
   }
 
   function authRequired() {
-    return detectorState().auth_required === true;
+    const text = normalize(document.body?.innerText || '');
+    return ['log in to continue', 'sign in to continue', "verify you're human", 'security check', 'captcha', 'session has expired', 'cloudflare', 'turnstile'].some((marker) => text.includes(marker));
   }
 
   function selectionState(element) {
@@ -394,44 +424,78 @@
   function assistantMessages() { return Array.from(document.querySelectorAll('[data-message-author-role="assistant"]')).filter(visible); }
 
   function messageText(node) {
-    return String(node?.innerText || node?.textContent || '')
-      .replace(/\r\n?/g, '\n')
-      .replace(/[ \t]+(?=\n)/g, '')
-      .trim();
+    return String(node?.innerText || node?.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
-  function collapseWhitespace(value) {
-    return String(value || '').replace(/\s+/g, ' ').trim();
-  }
-
-  function newestUserMatches(expected, baselineCount) {
+  function snapshotUserMessages() {
     const nodes = userMessages();
-    if (nodes.length <= baselineCount) return false;
-    const needle = normalize(expected);
-    for (let index = nodes.length - 1; index >= baselineCount; index -= 1) {
-      const text = normalize(messageText(nodes[index]));
-      if (text === needle || text.includes(needle)) return true;
+    return {
+      keys: new Set(nodes.map((node) => node.getAttribute?.('data-message-id')).filter(Boolean)),
+      nodes: new WeakSet(nodes),
+      count: nodes.length
+    };
+  }
+
+  function promptFingerprints(prompt) {
+    const text = normalize(prompt);
+    return { head: text.slice(0, 80), tail: text.slice(-80) };
+  }
+
+  // returns 'match' | 'new_unmatched' | null
+  function classifyNewUserMessages(nodes, snapshot, head, tail, textOf) {
+    let unmatched = false;
+    for (const node of nodes) {
+      const key = node.getAttribute?.('data-message-id');
+      const known = key ? snapshot.keys.has(key) : snapshot.nodes.has(node);
+      if (known) continue;
+      const text = normalize(textOf(node));
+      if ((head && text.includes(head)) || (tail && text.includes(tail))) return 'match';
+      unmatched = true;
     }
-    return false;
+    return unmatched ? 'new_unmatched' : null;
+  }
+
+  function countNewUserMessages(nodes, snapshot) {
+    let count = 0;
+    for (const node of nodes) {
+      const key = node.getAttribute?.('data-message-id');
+      const known = key ? snapshot.keys.has(key) : snapshot.nodes.has(node);
+      if (!known) count += 1;
+    }
+    return count;
+  }
+
+  function captureUiDiagnostics() {
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
+      .filter(visible).slice(0, 30)
+      .map((element) => ({
+        l: label(element).slice(0, 40),
+        t: element.getAttribute('data-testid') || '',
+        d: disabled(element) ? 1 : 0
+      }));
+    return {
+      vis: document.visibilityState,
+      gen: generating(),
+      composer: Boolean(composer()),
+      auth: authRequired(),
+      limited: usageLimited(),
+      exhausted: contextExhausted(),
+      users: userMessages().length,
+      assistants: assistantMessages().length,
+      mode: reasoningMode,
+      buttons
+    };
+  }
+
+  function clearMonitoringStateFor(operationId) {
+    try {
+      const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
+      if (state && state.operation_id === operationId && state.phase === 'monitoring') localStorage.removeItem(RECOVERY_KEY);
+    } catch (_) {}
   }
 
   function conversationSignature() {
     return `${userMessages().length}:${assistantMessages().length}:${fingerprint()}`;
-  }
-
-  function userMessageExistsForOperation(operationId) {
-    const needle = normalize(`[PASI_OPERATION ${operationId}]`);
-    if (!needle) return false;
-    return userMessages().some((node) => normalize(messageText(node)).includes(needle));
-  }
-
-  function readJsonStorage(key) {
-    try {
-      const value = JSON.parse(localStorage.getItem(key) || 'null');
-      return value && typeof value === 'object' ? value : null;
-    } catch (_) {
-      return null;
-    }
   }
 
   function recoveryContext() {
@@ -462,7 +526,6 @@
   }
 
   async function reportHealth() {
-    if (!(await controllerClaim())) return;
     const currentUrl = chatUrl();
     if (currentUrl !== lastKnownChatUrl) {
       if (lastKnownChatUrl !== null || currentUrl !== null) {
@@ -510,82 +573,28 @@
   }
 
   async function waitFor(select, timeout) {
-    const started = Date.now();
-    while (Date.now() - started < timeout) {
-      const value = select();
-      if (value) return value;
-      await sleep(DOM_POLL_MS);
-    }
-    return null;
-  }
-
-  function clearFocusBeforeActivation() {
-    const active = document.activeElement;
-    if (!active || active === document.body || active === document.documentElement) return;
-    try { active.blur(); } catch (_) {}
-  }
-
-  function activateControl(element) {
-    if (!element || !visible(element) || disabled(element)) return false;
-    clearFocusBeforeActivation();
-    try {
-      element.click();
-      const focused = document.activeElement;
-      if (focused && accessibilityHidden(focused)) {
-        try { focused.blur(); } catch (_) {}
-      }
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function findNewChatControl() {
-    const exactSelectors = [
-      'button[data-testid="new-chat-button"]',
-      '[data-testid="new-chat-button"]',
-      'button[aria-label="New chat"]',
-      '[role="button"][aria-label="New chat"]'
-    ];
-    for (const selector of exactSelectors) {
-      for (const element of document.querySelectorAll(selector)) {
-        if (!visible(element) || disabled(element)) continue;
-        if (element.closest?.('nav, aside, [role="navigation"]')) continue;
-        return element;
-      }
-    }
-    for (const element of document.querySelectorAll('button, [role="button"], a')) {
-      if (!visible(element) || disabled(element)) continue;
-      if (element.closest?.('nav, aside, [role="navigation"]')) continue;
-      if (label(element) === 'new chat') return element;
-    }
-    return null;
+    return waitUntil(select, timeout, DOM_POLL_MS);
   }
 
   async function newChat() {
     const previousLocation = location.href;
     const previousChat = chatUrl();
     const previousSignature = conversationSignature();
-    const button = await waitFor(findNewChatControl, TIMEOUTS.menu);
+    const button = await waitFor(() => findLabeled(['new chat'], ['a', 'button', '[role="button"]']), TIMEOUTS.menu);
     if (!button || disabled(button)) throw new Error('PASI_NATIVE: New chat control unavailable');
-    if (!activateControl(button)) throw new Error('PASI_NATIVE: New chat control activation failed');
+    button.click();
 
     const ready = await waitFor(() => {
       const currentChat = chatUrl();
       const navigated = location.href !== previousLocation;
-      const emptySurface = Boolean(composer()) && !generating() && userMessages().length === 0 && assistantMessages().length === 0;
-      const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat && emptySurface);
-      const freshRootChat = freshChatSurface(previousLocation, previousChat);
-      const initialChatReady = !previousChat && navigated && currentChat && emptySurface && conversationSignature() !== previousSignature;
-      return emptySurface && (differentChat || freshRootChat || initialChatReady);
+      const differentChat = Boolean(previousChat && currentChat && currentChat !== previousChat);
+      const initialChatReady = !previousChat && navigated && currentChat && composer() && !generating() && userMessages().length === 0 && assistantMessages().length === 0 && conversationSignature() !== previousSignature;
+      return composer() && !generating() && (differentChat || initialChatReady);
     }, TIMEOUTS.menu + 7000);
     if (!ready) throw new Error('PASI_NATIVE: new chat did not reach a verified ready state');
 
     const current = chatUrl();
-    if (previousChat && current === previousChat) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
-    if (previousChat && !current && !freshChatSurface(previousLocation, previousChat)) {
-      throw new Error('PASI_NATIVE: new chat control did not reach a verified fresh chat surface');
-    }
+    if (previousChat && (!current || current === previousChat)) throw new Error('PASI_NATIVE: new chat control did not change conversation identity');
     reasoningMode = null;
     githubAttached = false;
     githubRepository = null;
@@ -655,11 +664,11 @@
         return;
       }
       if (state === false) {
-        if (!activateControl(directThinkingControl)) throw new Error('PASI_NATIVE: Thinking control activation failed');
+        directThinkingControl.click();
         await sleep(CLICK_SETTLE_MS);
         const verified = await waitFor(
           () => thinkingEnabled() === true ? true : null,
-          5000
+          THINKING_VERIFY_MS
         );
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after direct Think control');
         reasoningMode = 'thinking';
@@ -672,7 +681,7 @@
       const mode = currentModelMode();
       if (mode === 'thinking') { reasoningMode = 'thinking'; return; }
 
-      if (!activateControl(pill)) throw new Error('PASI_NATIVE: model selector activation failed');
+      pill.click();
       await sleep(CLICK_SETTLE_MS);
 
       const configure = await waitFor(
@@ -682,7 +691,7 @@
       );
 
       if (configure && visible(configure)) {
-        if (!activateControl(configure)) throw new Error('PASI_NATIVE: model configure control activation failed');
+        configure.click();
         await sleep(CLICK_SETTLE_MS);
       }
 
@@ -695,7 +704,7 @@
       if (optionState === true) {
         await waitFor(() => currentModelMode() === 'thinking' || thinkingEnabled() === true ? true : null, 3000);
       } else {
-        if (!activateControl(thinkingOption)) throw new Error('PASI_NATIVE: Thinking option activation failed');
+        thinkingOption.click();
       }
 
       const verified = await waitFor(
@@ -719,9 +728,9 @@
         return;
       }
       if (state === false) {
-        if (!activateControl(control)) throw new Error('PASI_NATIVE: Thinking toggle activation failed');
+        control.click();
         await sleep(CLICK_SETTLE_MS);
-        const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+        const verified = await waitFor(() => thinkingEnabled() === true ? true : null, THINKING_VERIFY_MS);
         if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after toggle');
         reasoningMode = 'thinking';
         return;
@@ -739,7 +748,7 @@
       TIMEOUTS.menu
     );
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: Thinking/model selection control unavailable');
-    if (!activateControl(plus)) throw new Error('PASI_NATIVE: add-files control activation failed');
+    plus.click();
     await sleep(CLICK_SETTLE_MS);
 
     const menuThinking = await waitFor(findThinkingMenuOption, TIMEOUTS.menu);
@@ -752,9 +761,9 @@
       return;
     }
     if (menuState === false) {
-      if (!activateControl(menuThinking)) throw new Error('PASI_NATIVE: Thinking menu activation failed');
+      menuThinking.click();
       await sleep(CLICK_SETTLE_MS);
-      const verified = await waitFor(() => thinkingEnabled() === true ? true : null, 5000);
+      const verified = await waitFor(() => thinkingEnabled() === true ? true : null, THINKING_VERIFY_MS);
       if (!verified) throw new Error('PASI_NATIVE: Thinking selection could not be verified after menu selection');
       reasoningMode = 'thinking';
       return;
@@ -773,19 +782,35 @@
     }
     const plus = await waitFor(() => firstVisible(['button[aria-label="Add files and more"]', 'button[aria-label*="Add files"]', 'button[aria-label*="Attach"]']), TIMEOUTS.menu);
     if (!plus || disabled(plus)) throw new Error('PASI_NATIVE: GitHub menu unavailable');
-    if (!activateControl(plus)) throw new Error('PASI_NATIVE: add-files control activation failed');
+    plus.click();
     const github = await waitFor(() => findLabeled(['github'], ['button', '[role="button"]', '[role="menuitem"]', '[role="option"]']), TIMEOUTS.menu);
     if (!github) throw new Error('PASI_NATIVE: GitHub app unavailable');
-    if (!activateControl(github)) throw new Error('PASI_NATIVE: GitHub control activation failed');
+    github.click();
     const picker = await waitFor(() => firstVisible(['input[placeholder*="repository" i]', 'input[placeholder*="repo" i]', '[role="dialog"] input[type="text"]']), TIMEOUTS.menu);
     if (!picker) throw new Error('PASI_NATIVE: repository picker unavailable');
     setText(picker, repository);
     const result = await waitFor(() => findLabeled([repository], ['button', '[role="button"]', '[role="option"]', '[role="menuitem"]', 'a']), TIMEOUTS.menu);
     if (!result) throw new Error('PASI_NATIVE: requested repository unavailable');
-    if (!activateControl(result)) throw new Error('PASI_NATIVE: repository result activation failed');
+    result.click();
     await sleep(CLICK_SETTLE_MS);
-    const githubState = detectorState();
-    if (githubState.github_failure === true) {
+    const bodyText = normalize(document.body?.innerText || '');
+    const githubFailureMarkers = [
+      'github connection failed',
+      'github connection error',
+      'failed to connect to github',
+      'could not connect to github',
+      'unable to connect to github',
+      'github connection is unavailable',
+      'github access is unavailable',
+      'github access failed',
+      'github authentication required',
+      'github authentication failed',
+      'reconnect github',
+      'connect your github account',
+      'github needs to be connected',
+      'github app connection failed'
+    ];
+    if (githubFailureMarkers.some((marker) => bodyText.includes(marker))) {
       throw new Error('PASI_NATIVE: GitHub connection/access unavailable');
     }
     githubAttached = true;
@@ -819,26 +844,23 @@
     if (!githubAttached) await attachGithub(repository);
   }
 
+  function assistants() { return assistantMessages(); }
+
   function extractAssistant(node) {
     const markdown = Array.from(node.querySelectorAll?.('.markdown, [class*="markdown"]') || []).filter(visible);
     for (let i = markdown.length - 1; i >= 0; i -= 1) {
-      const text = String(markdown[i].innerText || markdown[i].textContent || '')
-        .replace(/\r\n?/g, '\n')
-        .replace(/[ \t]+(?=\n)/g, '')
-        .trim();
-      if (text) return text.slice(0, 50000);
+      const text = String(markdown[i].innerText || markdown[i].textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) return text.slice(0, MAX_RESPONSE_TEXT_CHARS);
     }
-    return messageText(node).slice(0, 50000);
+    return messageText(node).slice(0, MAX_RESPONSE_TEXT_CHARS);
   }
 
   function latestAssistant() {
-    const nodes = assistantMessages();
+    const nodes = assistants();
     return nodes.length ? extractAssistant(nodes[nodes.length - 1]) : '';
   }
 
-  function fingerprint() {
-    return collapseWhitespace(latestAssistant()).slice(-4000);
-  }
+  function fingerprint() { return latestAssistant().slice(-4000); }
 
   function nearbyScopedControls(box) {
     const controls = [];
@@ -926,64 +948,49 @@
     }, TIMEOUTS.send);
   }
 
-  async function waitForSubmissionAck(expected, baselineUserCount) {
-    const started = Date.now();
-    while (Date.now() - started < SUBMISSION_ACK_MS) {
-      // A submission acknowledgement must identify PASI's exact prompt. Merely
-      // observing generation plus an increased user-message count can be caused
-      // by another message and can falsely advance the controller into the
-      // one-hour response wait.
-      if (newestUserMatches(expected, baselineUserCount)) return true;
-      await sleep(DOM_POLL_MS);
-    }
-    return false;
-  }
-
-  async function verifyThinkingState() {
-    return waitFor(() => {
-      const state = thinkingEnabled();
-      return state === true ? true : null;
-    }, THINKING_VERIFY_MS);
-  }
-
-  async function ensureThinkingReady() {
-    let state = thinkingEnabled();
-    if (state === true) {
-      reasoningMode = 'thinking';
-      return true;
-    }
-    if (reasoningMode === 'unavailable') return true;
-
-    // The model selector can report null briefly while ChatGPT is closing
-    // the intelligence menu. Give the DOM a chance to settle before trying
-    // to toggle the control again.
-    state = await verifyThinkingState();
-    if (state) {
-      reasoningMode = 'thinking';
-      return true;
-    }
-    if (reasoningMode === 'unavailable') return true;
-
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const selected = await selectThinking();
-      if (selected === false && reasoningMode === 'unavailable') return true;
-      if (await verifyThinkingState()) {
+  async function ensureThinkingBestEffort() {
+    if (reasoningMode === 'thinking' || reasoningMode === 'unavailable') return reasoningMode;
+    try {
+      if (thinkingEnabled() === true) {
         reasoningMode = 'thinking';
-        return true;
+        return reasoningMode;
       }
-      if (attempt < 2) await sleep(CLICK_SETTLE_MS);
+      await selectThinking();
+      if (thinkingEnabled() === true) reasoningMode = 'thinking';
+    } catch (error) {
+      reasoningMode = 'unavailable';
+      void reportObservation('chatgpt_reasoning_capability', {
+        chat_url: chatUrl(),
+        thinking_available: false,
+        reasoning_mode: 'unavailable',
+        reason: String(error?.message || error).slice(0, 300),
+        native_controller: true
+      });
+      closeOpenMenus();
     }
+    return reasoningMode;
+  }
 
-    return false;
+  function closeOpenMenus() {
+    const target = document.activeElement || document.body;
+    for (const type of ['keydown', 'keyup']) {
+      target.dispatchEvent(new KeyboardEvent(type, {
+        key: 'Escape',
+        code: 'Escape',
+        keyCode: 27,
+        which: 27,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      }));
+    }
   }
 
   async function ensurePromptSubmissionReady() {
     if (authRequired()) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
     if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-    if (!(await ensureThinkingReady())) {
-      throw new Error('PASI_NATIVE: Thinking state could not be verified before prompt submission');
-    }
+    await ensureThinkingBestEffort();
   }
 
   function composerContainsPrompt(element, expected) {
@@ -1008,7 +1015,7 @@
 
   function nativeMouseActivate(element) {
     if (!element) return false;
-    clearFocusBeforeActivation();
+    element.focus();
     const init = {
       bubbles: true,
       cancelable: true,
@@ -1031,92 +1038,116 @@
     } catch (_) {}
     element.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
     element.click();
-    const focused = document.activeElement;
-    if (focused && accessibilityHidden(focused)) {
-      try { focused.blur(); } catch (_) {}
-    }
     return true;
   }
 
 
-  function operationPrompt(operation) {
-    return `[PASI_OPERATION ${operation.operation_id}]\n${operation.prompt}`;
-  }
-
   async function submitPrompt(expected) {
-    const baselineUserCount = userMessages().length;
+    const snapshot = snapshotUserMessages();
+    const { head, tail } = promptFingerprints(expected);
+    const newMessageState = () => classifyNewUserMessages(userMessages(), snapshot, head, tail, messageText);
+    const accepted = () => {
+      const state = newMessageState();
+      if (state === 'match') return 'verified';
+      if (state === 'new_unmatched' && generating()) return 'new_message_generating';
+      return null;
+    };
 
-    for (let attempt = 1; attempt <= SUBMISSION_ATTEMPTS; attempt += 1) {
-      // ChatGPT can rerender or replace the composer node during controlled
-      // input updates. Confirm the message was not already accepted before
-      // treating a missing composer value as a failure.
-      if (newestUserMatches(expected, baselineUserCount)) return;
-
-      if (generating() || userMessages().length > baselineUserCount) {
-        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-        throw new Error('PASI_NATIVE: prompt submission already appears to be in progress; refusing to reinsert');
+    const strategies = [
+      async (box, button) => {
+        if (generating()) return false;
+        const form = (button || box).closest?.('form') || box.closest?.('form') || null;
+        if (!form || typeof form.requestSubmit !== 'function') return false;
+        try {
+          const type = String(button?.getAttribute?.('type') || 'submit').toLowerCase();
+          if (!button || type === 'submit') form.requestSubmit(button || undefined);
+          else form.requestSubmit();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      },
+      async (_box, button) => {
+        if (generating() || !button || disabled(button)) return false;
+        nativeMouseActivate(button);
+        return true;
+      },
+      async (box) => {
+        if (generating() || !composerContainsPrompt(box, expected)) return false;
+        dispatchEnter(box);
+        return true;
       }
+    ];
+
+    for (let attempt = 1; attempt <= strategies.length; attempt += 1) {
+      let via = accepted();
+      if (via) return {
+        via,
+        attempt,
+        verified: via === 'verified',
+        timing: {
+          injected_at_ms: null,
+          ack_at_ms: Date.now(),
+          user_messages_added: countNewUserMessages(userMessages(), snapshot),
+          ack_verified: via === 'verified',
+          submission_via: via
+        }
+      };
 
       await ensurePromptSubmissionReady();
-
-      let box = composer();
-      if (!box) throw new Error('PASI_NATIVE: composer disappeared');
-
-      // Re-acquire the composer after readiness checks. Restore the requested
-      // prompt only when the new composer is empty; never overwrite unrelated
-      // text that may have been entered independently.
-      if (!composerContainsPrompt(box, expected)) {
-        const currentText = normalize(readText(box));
-        if (!currentText) {
-          setText(box, expected);
-          box = await waitFor(
-            () => {
-              const current = composer();
-              return current && composerContainsPrompt(current, expected) ? current : null;
-            },
-            2000
-          ) || composer();
-        }
+      const box = composer();
+      const composerEmptied = !box || !composerContainsPrompt(box, expected);
+      if ((attempt > 1 && composerEmptied) || generating() || newMessageState()) {
+        via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
+        return { via: via || 'sent_unverified', attempt, verified: via === 'verified' };
       }
 
-      if (newestUserMatches(expected, baselineUserCount)) return;
+      let readyBox = box;
+      if (!readyBox) throw new Error('PASI_NATIVE: composer disappeared');
 
-      if (!box || !composerContainsPrompt(box, expected)) {
-        if (attempt < SUBMISSION_ATTEMPTS) {
-          await sleep(DOM_POLL_MS + 50);
-          continue;
+      if (!composerContainsPrompt(readyBox, expected)) {
+        if (normalize(readText(readyBox))) {
+          throw new Error('PASI_NATIVE: composer holds unrelated text; refusing to overwrite');
         }
+        insertText(readyBox, expected);
+        readyBox = await waitUntil(() => {
+          const current = composer();
+          return current && composerContainsPrompt(current, expected) ? current : null;
+        }, 2000, DOM_POLL_MS) || composer();
+      }
+
+      if (!readyBox || !composerContainsPrompt(readyBox, expected)) {
+        if (attempt < strategies.length) continue;
         throw new Error('PASI_NATIVE: composer lost the requested prompt before submission after bounded recovery');
       }
 
-      const button = await waitForSend(box);
-      const form = (button || box)?.closest?.('form') || box.closest?.('form') || null;
-
-      if (form?.requestSubmit) {
-        try {
-          const buttonType = String(button?.getAttribute?.('type') || 'submit').toLowerCase();
-          if (!button || buttonType === 'submit') form.requestSubmit(button || undefined);
-          else form.requestSubmit();
-          if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-        } catch (_) {}
+      const button = await waitForSend(readyBox);
+      if (!button) {
+        if (attempt < strategies.length) continue;
+        throw new Error('PASI_NATIVE: send control unavailable');
       }
 
-      if (newestUserMatches(expected, baselineUserCount)) return;
+      // Once a send strategy has fired, never invoke another send mechanism:
+      // the delayed acknowledgement may simply trail the real submission, and
+      // a second click can duplicate work.
+      const injectedAtMs = Date.now();
+      const fired = await strategies[attempt - 1](readyBox, button);
+      if (!fired) continue;
 
-      const currentBox = composer();
-      const currentButton = sendCandidatesForComposer(currentBox)[0] || button;
-      if (currentButton && !disabled(currentButton)) {
-        nativeMouseActivate(currentButton);
-        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-      }
-
-      const retryBox = composer();
-      if (retryBox && composerContainsPrompt(retryBox, expected) && !generating()) {
-        dispatchEnter(retryBox);
-        if (await waitForSubmissionAck(expected, baselineUserCount)) return;
-      }
-
-      if (attempt < SUBMISSION_ATTEMPTS) await sleep(DOM_POLL_MS + 50);
+      via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
+      const finalVia = via || 'sent_unverified';
+      return {
+        via: finalVia,
+        attempt,
+        verified: via === 'verified',
+        timing: {
+          injected_at_ms: injectedAtMs,
+          ack_at_ms: Date.now(),
+          user_messages_added: countNewUserMessages(userMessages(), snapshot),
+          ack_verified: via === 'verified',
+          submission_via: finalVia
+        }
+      };
     }
 
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
@@ -1125,68 +1156,46 @@
   }
 
 
-  function completionMarkersSatisfied(responseText, markers) {
-    const text = typeof responseText === 'string' ? responseText : '';
-    if (!text.trim()) return false;
-    const configured = Array.isArray(markers)
-      ? markers.filter((marker) => typeof marker === 'string' && marker.trim()).map((marker) => marker.trim())
-      : [];
-    if (!configured.length) return true;
-    const lines = text.split(/\r?\n/).map((line) => line.trim());
-    return configured.some((marker) =>
-      lines.some((line) => line === marker || line.startsWith(marker + ':'))
-    );
-  }
-
-  async function waitForResponse(baseline, operationId, completionMarkers = []) {
-    const started = Date.now();
+  async function waitForResponse(baseline) {
     let sawGeneration = false;
-    let stableFingerprint = '';
-    let stableSince = 0;
-    let lastOperationCheckAt = 0;
-    while (Date.now() - started < TIMEOUTS.generation) {
+    let generationEndedAt = 0;
+    let failureReason = null;
+
+    const response = await waitUntil(() => {
+      if (contextExhausted()) {
+        failureReason = 'CHAT_EXHAUSTED: conversation context is exhausted';
+        return null;
+      }
+      if (usageLimited()) {
+        failureReason = 'CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited';
+        return null;
+      }
+
       if (generating()) {
         sawGeneration = true;
-        stableFingerprint = '';
-        stableSince = 0;
-      } else if (sawGeneration) {
-        const response = latestAssistant();
-        const current = fingerprint();
-        if (response && current !== baseline) {
-          if (current !== stableFingerprint) {
-            stableFingerprint = current;
-            stableSince = Date.now();
-          }
-          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && completionMarkersSatisfied(response, completionMarkers)) return response;
-        }
-      } else {
-        const current = fingerprint();
-        if (current !== baseline && current) {
-          if (current !== stableFingerprint) {
-            stableFingerprint = current;
-            stableSince = Date.now();
-          }
-          const response = latestAssistant();
-          if (Date.now() - stableSince >= RESPONSE_SETTLE_MS && /^PASI_RESULT_STATUS:\s*.+$/m.test(response)) return response;
-        }
+        generationEndedAt = 0;
+        return null;
       }
-      if (operationId && Date.now() - lastOperationCheckAt >= 2000) {
-        lastOperationCheckAt = Date.now();
-        try {
-          const operationResponse = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
-          const current = operationResponse.ok ? operationResponse.json()?.operation : null;
-          if (current?.status === 'cancelled') throw new Error('PASI_NATIVE: operation cancelled by runner');
-          if (current?.status === 'failed') throw new Error(current.error || 'PASI_NATIVE: operation failed while generating');
-        } catch (error) {
-          if (String(error?.message || '').startsWith('PASI_NATIVE: operation ')) throw error;
-        }
+
+      if (sawGeneration) {
+        if (!generationEndedAt) generationEndedAt = Date.now();
+        if (Date.now() - generationEndedAt < RESPONSE_SETTLE_MS) return null;
+        const responseText = latestAssistant();
+        return responseText && fingerprint() !== baseline ? responseText : null;
       }
-      if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-      if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-      await sleep(DOM_POLL_MS * 2);
-    }
+
+      const current = fingerprint();
+      if (current !== baseline && current) {
+        return latestAssistant();
+      }
+      return null;
+    }, TIMEOUTS.generation, DOM_POLL_MS);
+
+    if (failureReason) throw new Error(failureReason);
+    if (response) return response;
     throw new Error('PASI_NATIVE: ChatGPT generation timed out');
   }
+
 
   function rememberContextRecovery(operation, error) {
     let stored = null;
@@ -1200,7 +1209,6 @@
 
     localStorage.setItem(RECOVERY_KEY, JSON.stringify({
       operation_id: operation.operation_id,
-      recovery_operation_id: operation.operation_id,
       operation_type: operation.operation_type,
       started_at: startedAt,
       started_ms: Date.parse(startedAt) || Date.now(),
@@ -1225,7 +1233,6 @@
 
     localStorage.setItem(RECOVERY_KEY, JSON.stringify({
       operation_id: operation.operation_id,
-      recovery_operation_id: operation.operation_id,
       operation_type: operation.operation_type,
       started_at: startedAt,
       started_ms: Date.parse(startedAt) || Date.now(),
@@ -1251,28 +1258,35 @@
     };
   }
 
-  async function finishOperation(operationId, responseText = '', requireResponseText = false) {
+  async function finishOperation(operationId, responseText = '', requireResponseText = false, timing = null) {
     if (requireResponseText && (typeof responseText !== 'string' || !responseText.trim())) {
       throw new Error('PASI_NATIVE: response text unavailable; completion acknowledgement withheld');
     }
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
-      response_text: responseText.slice(0, 50000),
-      response_text_available: typeof responseText === 'string' && Boolean(responseText.trim())
+      response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
+      response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()),
+      ack_only: true
     };
+    if (timing && typeof timing === 'object') body.timing = timing;
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
-    await reportObservation('chatgpt_response', {
+    // Response evidence is submitted asynchronously so bridge observation
+    // latency cannot sit between one completed generation and the next prompt.
+    // The durable /chat/finished request remains the completion gate.
+    void reportObservation('chatgpt_response', {
       chat_url: body.chat_url,
       response_text: body.response_text,
       response_text_available: body.response_text_available,
       ...(typeof responseText === 'string' ? completionProgress(responseText) : {}),
+      ...(body.timing ? { timing: body.timing } : {}),
       conversation_context_exhausted: contextExhausted(),
       chat_exhausted: contextExhausted(),
       provider_usage_limited: usageLimited(),
       active_operation_id: operationId
-    });
+    }).catch(() => {});
 
+    void reportObservation('chat_response_received', { operation_id: operationId, phase: 'response_complete', captured_at: new Date().toISOString() });
     let lastError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
@@ -1294,33 +1308,14 @@
         ) return;
       } catch (_) {}
 
-      if (attempt < 3) await sleep(150);
+      if (attempt < 3) await sleep(COMPLETION_RETRY_DELAY_MS);
     }
     throw lastError || new Error('PASI_NATIVE: bridge completion failed');
   }
 
-  async function cancelOperation(operationId, reason) {
+  async function failOperation(operationId, error) {
     try {
-      const response = await bridge('/chat/cancel', {
-        method: 'POST',
-        body: { operation_id: operationId, reason: String(reason || 'cancelled by runner timeout') }
-      });
-      return response.ok;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  async function failOperation(operationId, error, recoveryContext = null) {
-    try {
-      const body = {
-        operation_id: operationId,
-        error: String(error?.message || error)
-      };
-      if (recoveryContext && typeof recoveryContext === 'object') {
-        body.recovery_context = recoveryContext;
-      }
-      const response = await bridge('/chat/failed', { method: 'POST', body });
+      const response = await bridge('/chat/failed', { method: 'POST', body: { operation_id: operationId, error: String(error?.message || error) } });
       return response.ok;
     } catch (_) {
       return false;
@@ -1330,12 +1325,6 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
-    if (leaseTimerId !== null) clearInterval(leaseTimerId);
-    leaseTimerId = setInterval(() => {
-      controllerClaim().catch(() => {
-        controllerLeader = false;
-      });
-    }, 3000);
     localStorage.setItem(ACTIVE_KEY, JSON.stringify({
       operation_id: operation.operation_id,
       operation_type: operation.operation_type,
@@ -1343,56 +1332,60 @@
       chat_url: chatUrl(),
       reasoning_mode: reasoningMode,
       github_attached: githubAttached,
-      github_repository: githubRepository,
-      recovery_context: recoveryContext()
+      github_repository: githubRepository
     }));
     let finalized = false;
     try {
       switch (operation.operation_type) {
         case 'new_chat': await newChat(); break;
-        case 'select_reasoning': await selectThinking(); break;
+        case 'select_reasoning': await ensureThinkingBestEffort(); break;
         case 'attach_github': await attachGithub(operation.prompt); break;
         case 'prompt': {
           await restoreRecoveryContext(operation.recovery_context);
-          await selectThinking();
-          if (reasoningMode !== 'unavailable') reasoningMode = 'thinking';
-
-          const promptText = operationPrompt(operation);
-          const activeState = readJsonStorage(ACTIVE_KEY) || {};
-          const recoveryState = readJsonStorage(RECOVERY_KEY) || {};
-          const savedBaseline = typeof activeState.baseline === 'string'
-            ? activeState.baseline
-            : (typeof recoveryState.baseline === 'string' ? recoveryState.baseline : '');
-
-          if (userMessageExistsForOperation(operation.operation_id)) {
-            if (typeof operation.response_text === 'string' && operation.response_text.trim()) {
-              await finishOperation(operation.operation_id, operation.response_text, true);
-              finalized = true;
-              return;
-            }
-            if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-            const response = await waitForResponse(savedBaseline, operation.operation_id, operation.completion_markers || []);
-            await finishOperation(operation.operation_id, response, true);
-            finalized = true;
-            return;
-          }
-
+          await ensureThinkingBestEffort();
           if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
           if (usageLimited()) throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
-          const box = await waitFor(composer, TIMEOUTS.composer);
-          if (!box) throw new Error('PASI_NATIVE: composer unavailable');
+          // Never inject into a composer while an earlier response is still generating.
+          const box = await waitUntil(() => {
+            const current = composer();
+            return current && !generating() ? current : null;
+          }, PREVIOUS_RESPONSE_WAIT_MS, DOM_POLL_MS);
+          if (!box) throw new Error(generating() ? 'PASI_NATIVE: previous response still generating' : 'PASI_NATIVE: composer unavailable');
           const baseline = fingerprint();
+          let activeState = {};
+          try {
+            activeState = JSON.parse(localStorage.getItem(ACTIVE_KEY) || '{}');
+          } catch (_) {}
           localStorage.setItem(ACTIVE_KEY, JSON.stringify({ ...activeState, baseline }));
-          setText(box, '');
-          setText(box, promptText);
-          // Scope the preflight check to the exact composer already being used.
-          // A document-wide send lookup can bind to an unrelated control while the
-          // bounded submitPrompt() path is still waiting for the real composer send action.
-          const send = await waitForSend(box);
-          if (!send) throw new Error('PASI_NATIVE: send control unavailable');
-          await submitPrompt(promptText);
-          const response = await waitForResponse(baseline, operation.operation_id, operation.completion_markers || []);
-          await finishOperation(operation.operation_id, response, true);
+          const submission = await submitPrompt(operation.prompt);
+          const browserTiming = { ...(submission.timing || {}) };
+          void reportObservation('prompt_injected', {
+            operation_id: operation.operation_id,
+            captured_at: new Date().toISOString(),
+            submission_via: submission.via,
+            submission_attempt: submission.attempt,
+            submission_verified: submission.verified,
+            timing: browserTiming
+          });
+          if (!submission.verified) {
+            void reportObservation('chatgpt_submit_unverified', {
+              operation_id: operation.operation_id,
+              via: submission.via,
+              attempt: submission.attempt
+            });
+          }
+          let generationStartMs = null;
+          if (!(await waitUntil(() => {
+            const started = generating() || fingerprint() !== baseline;
+            if (started && generationStartMs === null) generationStartMs = Date.now();
+            return started;
+          }, GENERATION_START_WAIT_MS, DOM_POLL_MS))) {
+            throw new Error('PASI_NATIVE: submission accepted but generation did not start');
+          }
+          browserTiming.generation_start_ms = generationStartMs;
+          const response = await waitForResponse(baseline);
+          browserTiming.completed_at_ms = Date.now();
+          await finishOperation(operation.operation_id, response, true, browserTiming);
           finalized = true;
           return;
         }
@@ -1402,11 +1395,10 @@
       finalized = true;
     } catch (error) {
       const errorMessage = String(error?.message || error);
-      const contextRetryCount = Number(operation.retry_counts?.context || 0);
       const contextRecoveryEligible =
         operation.operation_type === 'prompt' &&
         errorMessage.startsWith('CHAT_EXHAUSTED:') &&
-        contextRetryCount < MAX_CONTEXT_AUTO_RECOVERIES;
+        Number(operation.retry_count || 0) < MAX_CONTEXT_AUTO_RECOVERIES;
 
       const responseRecoveryEligible =
         operation.operation_type === 'prompt' &&
@@ -1417,55 +1409,41 @@
 
       if (contextRecoveryEligible) {
         rememberContextRecovery(operation, error);
-        await failOperation(
-          operation.operation_id,
-          error,
-          recoveryContext()
-        );
         finalized = false;
       } else if (responseRecoveryEligible) {
         rememberResponseRecovery(operation, error);
-        await failOperation(
-          operation.operation_id,
-          error,
-          recoveryContext()
-        );
         finalized = false;
       } else {
         const failure = (
           errorMessage.startsWith('CHAT_EXHAUSTED:') &&
-          contextRetryCount >= MAX_CONTEXT_AUTO_RECOVERIES
+          Number(operation.retry_count || 0) >= MAX_CONTEXT_AUTO_RECOVERIES
         )
           ? new Error('PASI_NATIVE: context recovery exhausted: ' + errorMessage)
           : error;
-        finalized = await failOperation(operation.operation_id, failure);
+        const detail = errorMessage + ' | ui=' + JSON.stringify(captureUiDiagnostics()).slice(0, 1400);
+        finalized = await failOperation(operation.operation_id, new Error(detail));
       }
       throw error;
     } finally {
       activeOperationId = null;
       processing = false;
-      if (leaseTimerId !== null) {
-        clearInterval(leaseTimerId);
-        leaseTimerId = null;
-      }
       if (finalized) {
         localStorage.removeItem(ACTIVE_KEY);
         if (recoveryResumeOperationId() === operation.operation_id) {
           localStorage.removeItem(RECOVERY_KEY);
         }
+        clearMonitoringStateFor(operation.operation_id);
       }
-      await reportHealth();
+      void reportHealth();
+      if (finalized) scheduleImmediatePoll();
     }
   }
 
   async function recoverInterruptedOperation() {
     try {
-      if (!(await controllerClaim())) return;
-      const stored = readJsonStorage(ACTIVE_KEY);
-      const recovery = readJsonStorage(RECOVERY_KEY);
-      const operationId = stored?.operation_id || recovery?.operation_id;
-      if (!operationId) return;
-      const current = await bridge(`/operation?operation_id=${encodeURIComponent(operationId)}`);
+      const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+      if (!stored?.operation_id) return;
+      const current = await bridge(`/operation?operation_id=${encodeURIComponent(stored.operation_id)}`);
       const payload = current.ok ? current.json() : null;
       const operation = payload?.operation;
       if (!operation) return;
@@ -1478,18 +1456,18 @@
         const responseAvailable = Boolean(responseText.trim());
         if (responseAvailable) {
           try {
-            await finishOperation(operationId, responseText, true);
+            await finishOperation(stored.operation_id, responseText, true);
           } catch (_) {
             // Keep the active marker so the next controller start can reconcile again.
             return;
           }
         } else if (!generating()) {
-          const baseline = typeof stored?.baseline === 'string' ? stored.baseline : '';
+          const baseline = typeof stored?.baseline === 'string' ? stored.baseline : fingerprint();
           const visibleResponse = latestAssistant();
           const visibleFingerprint = fingerprint();
           if (visibleResponse && visibleFingerprint !== baseline) {
             try {
-              await finishOperation(operationId, visibleResponse, true);
+              await finishOperation(stored.operation_id, visibleResponse, true);
             } catch (_) {
               // Keep the active marker so recovery.js can retry against the same operation.
               return;
@@ -1499,41 +1477,15 @@
         localStorage.removeItem(ACTIVE_KEY);
       } else if (operation.status === 'failed' || operation.status === 'cancelled') {
         localStorage.removeItem(ACTIVE_KEY);
-        localStorage.removeItem(RECOVERY_KEY);
-      } else if (operation.operation_type === 'prompt') {
-        const baseline = typeof stored?.baseline === 'string'
-          ? stored.baseline
-          : (typeof recovery?.baseline === 'string' ? recovery.baseline : '');
-        if (contextExhausted()) {
-          await newChat();
-          await failOperation(operationId, new Error('CHAT_EXHAUSTED: verified conversation context exhaustion; fresh chat prepared for retry.'));
-          localStorage.removeItem(ACTIVE_KEY);
-          localStorage.removeItem(RECOVERY_KEY);
-          return;
-        }
-        if (userMessageExistsForOperation(operationId)) {
-          const response = await waitForResponse(baseline, operationId);
-          await finishOperation(operationId, response, true);
-          localStorage.removeItem(ACTIVE_KEY);
-          localStorage.removeItem(RECOVERY_KEY);
-          return;
-        }
-        await failOperation(operationId, new Error('PASI_NATIVE: browser page reloaded during operation'));
-        localStorage.removeItem(ACTIVE_KEY);
-        localStorage.removeItem(RECOVERY_KEY);
-      } else {
-        await failOperation(operationId, new Error('PASI_NATIVE: browser page reloaded during operation'));
-        localStorage.removeItem(ACTIVE_KEY);
-        localStorage.removeItem(RECOVERY_KEY);
       }
-      // content.js owns completion and retry mutation; recovery.js is observe-only.
+      // Preserve non-terminal operations for the dedicated bounded recovery companion.
     } catch (_) {}
   }
 
   function recoveryOperationId() {
     try {
       const state = JSON.parse(localStorage.getItem(RECOVERY_KEY) || 'null');
-      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY] || state?.operation_id;
+      const value = state?.[RECOVERY_OPERATION_KEY] || state?.[RECOVERY_RESUME_OPERATION_KEY];
       return typeof value === 'string' && value.trim() ? value : null;
     } catch (_) {
       return null;
@@ -1552,7 +1504,6 @@
 
   async function poll() {
     if (processing || activeOperationId !== null || extensionContextInvalidated) return;
-    if (!(await controllerClaim())) return;
     try {
       const recoveryOperation = recoveryOperationId();
       if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
@@ -1562,7 +1513,7 @@
             method: 'POST',
             body: { operation_id: recoveryOperation }
           })
-        : await bridge('/next-operation', { method: 'POST', body: {} });
+        : await bridge('/next-operation');
       if (!response.ok) {
         if (recoveryOperation) {
           try {
@@ -1590,7 +1541,6 @@
   }
 
   async function start() {
-    await globalThis.PASI_TIMEOUT_POLICY?.load?.();
     await recoverInterruptedOperation();
     try { await reportHealth(); } catch (_) {}
     await poll();
@@ -1599,22 +1549,5 @@
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
   }
 
-  if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
-    globalThis.PASI_NATIVE_TEST_API = Object.freeze({
-      messageText,
-      extractAssistant,
-      fingerprint,
-      composerContainsPrompt,
-      userMessages,
-      assistantMessages,
-      conversationSignature,
-      operationPrompt,
-      findNewChatControl,
-      detectorState,
-      submitPrompt,
-      waitForResponse
-    });
-  } else {
-    start();
-  }
+  start();
 })();

@@ -13,23 +13,45 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MAIN_BRANCH = "main"
 MAX_TITLE_CHARS = 65
 MAX_BODY_CHARS = 8_000
+MAX_AUTOMERGE_FILES = 15
+MAX_AUTOMERGE_SCOPE_GROUPS = 2
 HIGH_RISK_PATH_PREFIXES = (
     ".github/workflows/",
+    ".github/pull_request_template.md",
     "automation/chromium/",
-    "automation/legacy/tampermonkey/",
+    "automation/legacy/",
+    "automation/tampermonkey/",
     "automation/computer_use/capability_gateway.py",
     "automation/computer_use/local_access.py",
     "automation/computer_use/preapproval.py",
     "automation/computer_use/recovery.py",
     "automation/computer_use/research.py",
-    "automation/legacy/",
+    "automation/legacy/pasi_controller_server.py",
+    "scripts/pasi_controller_server.py",
     "scripts/pasi_chat_guard.py",
+    "scripts/pasi_timeout_policy.py",
     "scripts/pasi_provider_router.py",
+    "docs/architecture/verified-live-self-update.md",
+    "docs/operations/pr-scope-policy.md",
+    "docs/operations/runtime-acceptance-gates.md",
+    "docs/operations/weeklong-automation.md",
+    "SECURITY.md",
+    "scripts/check_all.sh",
     "scripts/pasi_promote.py",
     "scripts/cleanup_duplicate_branches.py",
+    "scripts/start_pasi_168h.sh",
+    "scripts/start_pasi_overnight.sh",
+    "scripts/stop_pasi_overnight.sh",
+    "scripts/status_pasi_overnight.sh",
+    "scripts/check_pasi_weekly_run.sh",
     "automation/orchestrator/",
+    "scripts/pasi_overnight_engine.py",
     "scripts/pasi_overnight_engine_v2.py",
+    "scripts/pasi_extended_runtime_entrypoint.py",
+    "scripts/pasi_setup.py",
+    "scripts/pasi_log_router.py",
     "scripts/pasi_overnight_hardening.py",
+    "scripts/pasi_automation_entrypoint.py",
 )
 HIGH_RISK_NAME_PATTERNS = (
     re.compile(r"(^|/)(credentials|secrets?)(\.|/|$)", re.IGNORECASE),
@@ -77,7 +99,23 @@ def changed_paths(commit: str) -> tuple[str, ...]:
     return tuple(sorted({line.strip().replace("\\", "/") for line in output.splitlines() if line.strip()}))
 
 
+def _scope_group(path: str) -> str:
+    normalized = path.replace("\\", "/").lstrip("/")
+    parts = normalized.split("/")
+    if not parts:
+        return ""
+    if parts[0] in {".github", "automation", "docs", "scripts", "src", "web"}:
+        if parts[0] == "automation" and len(parts) > 1:
+            return f"automation/{parts[1]}"
+        return parts[0]
+    return parts[0]
+
+
 def classify_risk(paths: Sequence[str]) -> str:
+    if len(paths) > MAX_AUTOMERGE_FILES:
+        return "high"
+    if len({_scope_group(path) for path in paths if _scope_group(path)}) > MAX_AUTOMERGE_SCOPE_GROUPS:
+        return "high"
     for path in paths:
         normalized = path.replace("\\", "/").lstrip("/")
         if normalized.startswith(HIGH_RISK_PATH_PREFIXES) or any(
@@ -116,11 +154,6 @@ def _branch_pr(branch: str) -> tuple[int | None, str, str]:
     except (KeyError, TypeError, ValueError):
         return None, "", ""
     return number, str(payload.get("url", "")), str(payload.get("state", "")).upper()
-
-
-def _reopen_pr(pr_number: int) -> tuple[bool, str]:
-    return_code, output = _run(["gh", "pr", "reopen", str(pr_number)], timeout=30.0)
-    return return_code == 0, output
 
 
 def _find_open_task_pr(task: str) -> tuple[int | None, str, str, str]:

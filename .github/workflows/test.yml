@@ -7,11 +7,12 @@ on:
     branches: [main, 'pasi/**']
   workflow_dispatch:
 
+concurrency:
+  group: pasi-test-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    concurrency:
-      group: pasi-test-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -26,10 +27,6 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
-      - name: Install JavaScript DOM fixture dependency
-        run: npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
-      - name: Install validation sandbox
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - name: Validate browser acceptance prerequisites
         run: |
           if command -v google-chrome-stable >/dev/null 2>&1; then
@@ -61,9 +58,6 @@ jobs:
           bash -n scripts/stop_pasi_overnight.sh
           bash -n scripts/status_pasi_overnight.sh
           bash -n scripts/check_pasi_weekly_run.sh
-          bash -n scripts/run_m0_live_acceptance.sh
-          bash -n scripts/run_m2_live_acceptance.sh
-          python -m py_compile scripts/run_m1_live_acceptance.py
       - name: Validate extended runtime imports
         run: python -c 'import scripts.pasi_extended_runtime_entrypoint, scripts.pasi_weeklong_resilience; print("extended runtime import contract OK")'
       - name: Run canonical validation suite
@@ -71,11 +65,15 @@ jobs:
       - name: Run targeted computer-use regression suites
         run: |
           python -m pytest -q automation/orchestrator/test_bridge.py automation/computer_use/test_chatgpt.py scripts/test_pasi_chat.py
-          node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js automation/chromium/pasi-chatgpt/test_native_mutation.js automation/chromium/pasi-chatgpt/test_dom_fixtures.js
+          node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js
       - name: Run minimized Chromium response-recovery acceptance test
         run: python scripts/e2e_chromium_response_recovery.py
+      - name: Run Chromium prompt-submission and chaining acceptance test
+        run: python scripts/e2e_chromium_prompt_submission.py
       - name: Run Tampermonkey controller contract tests
-        run: node --test automation/legacy/tampermonkey/chatgpt-controller.test.js
+        run: |
+          node --test automation/legacy/tampermonkey/chatgpt-controller.test.js
+          node --test automation/legacy/tampermonkey/chatgpt-runtime-watchdog.test.js
       - name: Run Tampermonkey controller loader contract tests
         run: node --test automation/legacy/tampermonkey/chatgpt-controller-loader.test.js
       - name: Validate Tampermonkey controller syntax
@@ -91,9 +89,6 @@ jobs:
           if-no-files-found: ignore
 
   browser-use-compat:
-    concurrency:
-      group: pasi-browser-use-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

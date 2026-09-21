@@ -14,10 +14,9 @@ Tampermonkey remains a fallback while the native extension is being adopted. Do 
 
 `scripts/pasi_provider_router.py` is dependency-light and uses only the Python standard library plus the existing repository context helper. It tries configured providers in this order:
 
-1. Local Ollama through `OLLAMA_MODEL` or the first locally installed model.
-2. Local OpenCode through the `opencode` executable, using a temporary read-only evidence copy of the repository.
-3. OpenRouter through `OPENROUTER_API_KEY`.
-4. Perplexity through `PERPLEXITY_API_KEY`.
+1. OpenRouter through `OPENROUTER_API_KEY`.
+2. Perplexity through `PERPLEXITY_API_KEY`.
+3. Local OpenCode through the `opencode` executable when installed.
 
 Fallback providers are evidence/model sources only. The unattended runner still applies repository patches only after the normal PASI completion contract, patch-path checks, and canonical validation pass.
 

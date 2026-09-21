@@ -5,7 +5,6 @@ import json
 import os
 import threading
 import time
-import traceback
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,22 +15,28 @@ from urllib.parse import parse_qs, urlparse
 from .config import CONFIG, ensure_runtime_directories
 from .models import ChatOperation
 from .operation_lifecycle import InvalidOperationTransition, validate_transition
-from .state import StateManager
-from scripts.pasi_timeout_policy import load_timeout_policy
+from .state import TERMINAL_QUEUE_STATUSES, StateManager
 
 
 HOST = "127.0.0.1"
 PORT = 8765
-MAX_RESPONSE_TEXT_CHARS = 50_000
+MAX_RESPONSE_TEXT_CHARS = 120_000
 MAX_TRANSIENT_FAILURE_RETRIES = 3
-TIMEOUT_POLICY = load_timeout_policy()
-CLAIM_LEASE_SECONDS = TIMEOUT_POLICY["bridge_claim_lease_seconds"]
-QUEUE_TTL_SECONDS = TIMEOUT_POLICY["queue_ttl_seconds"]
-MAX_ERROR_CHARS = 2_000
-BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 RETRY_BUDGETS = {"controller": 3, "response": 2, "context": 1}
+MAX_ERROR_CHARS = 2_000
 MAX_RECOVERY_CONTEXT_REPOSITORY_CHARS = 200
 MAX_IDEMPOTENCY_KEY_CHARS = 128
+MAX_RECOVERY_EVENTS_PER_OPERATION = 64
+MAX_TIMING_KEYS = frozenset({
+    "injected_at_ms",
+    "ack_at_ms",
+    "generation_start_ms",
+    "completed_at_ms",
+    "user_messages_added",
+    "ack_verified",
+    "submission_via",
+})
+BRIDGE_TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -47,23 +52,15 @@ _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "CHAT_EXHAUSTED:",
     "PASI_NATIVE: new chat did not reach a verified ready state",
     "PASI_NATIVE: new chat control did not change conversation identity",
-    "PASI_NATIVE: new chat control did not reach a verified fresh chat surface",
-    "PASI_NATIVE: ChatGPT generation timed out",
-    "PASI_NATIVE: response text unavailable",
     "PASI_NATIVE: prompt submission could not be verified after bounded attempts",
-    "PASI_NATIVE: New chat control activation failed",
-    "PASI_NATIVE: Thinking control activation failed",
-    "PASI_NATIVE: model selector activation failed",
-    "PASI_NATIVE: model configure control activation failed",
-    "PASI_NATIVE: Thinking option activation failed",
-    "PASI_NATIVE: Thinking toggle activation failed",
-    "PASI_NATIVE: add-files control activation failed",
-    "PASI_NATIVE: Thinking menu activation failed",
-    "PASI_NATIVE: GitHub control activation failed",
-    "PASI_NATIVE: repository result activation failed",
+    "PASI_NATIVE: previous response still generating",
+    "PASI_NATIVE: composer holds unrelated text",
+    "PASI_NATIVE: submission accepted but generation did not start",
     "PASI_NATIVE: send control unavailable",
     "PASI_NATIVE: composer unavailable",
     "PASI_NATIVE: composer disappeared",
+    "PASI_NATIVE: ChatGPT generation timed out",
+    "PASI_NATIVE: response text unavailable",
 )
 
 
@@ -78,37 +75,92 @@ class BridgeState:
     def __init__(self, state_manager: StateManager):
         self.state_manager = state_manager
         self.lock = threading.RLock()
+        self._queue_cache: list[dict[str, Any]] | None = None
+        self._queue_cache_mtime_ns: int | None = None
+
+    @staticmethod
+    def _mtime_ns(path: Path) -> int | None:
+        try:
+            return path.stat().st_mtime_ns
+        except FileNotFoundError:
+            return None
+
+    def _load_queue(self) -> list[dict[str, Any]]:
+        mtime_ns = self._mtime_ns(self.state_manager.queue_path)
+        if (
+            self._queue_cache is not None
+            and self._queue_cache_mtime_ns == mtime_ns
+        ):
+            return self._queue_cache
+
+        queue = self.state_manager.load_queue()
+        self._queue_cache = queue
+        self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
+        return queue
+
+    def _save_queue(self, queue: list[dict[str, Any]]) -> None:
+        persistent_queue: list[dict[str, Any]] = []
+
+        for item in queue:
+            persistent_item = dict(item)
+            if item.get("status") in TERMINAL_QUEUE_STATUSES:
+                operation_id = item.get("operation_id")
+                response_text = item.get("response_text")
+                if (
+                    isinstance(operation_id, str)
+                    and isinstance(response_text, str)
+                    and response_text.strip()
+                ):
+                    self.state_manager.save_terminal_response(
+                        operation_id,
+                        response_text,
+                    )
+                persistent_item.pop("response_text", None)
+            persistent_queue.append(persistent_item)
+
+        normalized_queue = self.state_manager.save_queue(persistent_queue)
+        retained_terminal_ids: set[str] = {
+            operation_id
+            for item in normalized_queue
+            if item.get("status") in TERMINAL_QUEUE_STATUSES
+            for operation_id in [item.get("operation_id")]
+            if isinstance(operation_id, str)
+        }
+        self.state_manager.prune_terminal_responses(retained_terminal_ids)
+
+        # Keep the hot-path cache compact. Terminal response bodies are loaded
+        # only when a specific terminal operation is inspected.
+        self._queue_cache = normalized_queue
+        self._queue_cache_mtime_ns = self._mtime_ns(self.state_manager.queue_path)
+
+    def _hydrate_terminal_response(self, item: dict[str, Any]) -> dict[str, Any]:
+        operation_id = item.get("operation_id")
+        if item.get("status") not in TERMINAL_QUEUE_STATUSES:
+            return item
+        if not isinstance(operation_id, str):
+            return item
+        response_text = item.get("response_text")
+        if isinstance(response_text, str) and response_text.strip():
+            return item
+        stored = self.state_manager.load_terminal_response(operation_id)
+        if isinstance(stored, str) and stored.strip():
+            item = dict(item)
+            item["response_text"] = stored
+            item["response_text_available"] = True
+        return item
 
     def queue_operation(
         self,
         operation_type: str,
         prompt: str,
         idempotency_key: str | None = None,
-        completion_markers: list[str] | None = None,
     ) -> ChatOperation:
         if idempotency_key is not None:
             if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS:
                 raise ValueError("idempotency_key must be a nonblank bounded string")
 
-        if completion_markers is not None:
-            if (
-                not isinstance(completion_markers, list)
-                or not completion_markers
-                or len(completion_markers) > 4
-                or any(
-                    not isinstance(marker, str)
-                    or not marker.strip()
-                    or len(marker.strip()) > 120
-                    or "\n" in marker
-                    or "\r" in marker
-                    for marker in completion_markers
-                )
-            ):
-                raise ValueError("completion_markers must be 1-4 bounded single-line strings")
-            completion_markers = list(dict.fromkeys(marker.strip() for marker in completion_markers))
-
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             if idempotency_key is not None:
                 for item in queue:
                     if (
@@ -125,81 +177,51 @@ class BridgeState:
                 operation_type=operation_type,
                 prompt=prompt,
                 idempotency_key=idempotency_key,
-                completion_markers=completion_markers,
                 status="queued",
             )
             item = operation.to_dict()
-            now = time.time()
             item["retry_count"] = 0
-            item["retry_counts"] = {"controller": 0, "response": 0, "context": 0}
-            item["expires_at"] = now + QUEUE_TTL_SECONDS
-            item["updated_at"] = now
             queue.append(item)
-            self.state_manager.save_queue(queue)
+            self._save_queue(queue)
             return operation
-
-    def _sweep_queue_locked(self, queue: list[dict[str, Any]]) -> None:
-        now = time.time()
-        changed = False
-        for item in queue:
-            status = str(item.get("status", ""))
-            expires_at = float(item.get("expires_at", 0) or 0)
-            if "expires_at" in item and now >= expires_at and status in {"queued", "claimed", "generating"}:
-                validate_transition(status, "failed")
-                item["status"] = "failed"
-                item["error"] = "operation queue TTL expired"
-                item["failure_reason"] = "queue_ttl_expired"
-                item["updated_at"] = now
-                changed = True
-                continue
-            claimed_at = float(item.get("claimed_at", 0) or 0)
-            if status in {"claimed", "generating"} and now - claimed_at >= CLAIM_LEASE_SECONDS:
-                validate_transition(status, "queued")
-                item["status"] = "queued"
-                item.pop("claimed_at", None)
-                item["reclaimed_at"] = now
-                item["failure_reason"] = "claim_lease_expired"
-                item["updated_at"] = now
-                changed = True
-        if changed:
-            self.state_manager.save_queue(queue)
-
-    @classmethod
-    def _mark_claimed(cls, item: dict[str, Any]) -> dict[str, Any]:
-        now = time.time()
-        validate_transition(str(item.get("status", "")), "claimed")
-        item["status"] = "claimed"
-        item["claimed_at"] = now
-        item["updated_at"] = now
-        return item
 
     def claim_operation(
         self,
         operation_id: str,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
-            self._sweep_queue_locked(queue)
+            queue = self._load_queue()
+
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
                 if item.get("status") != "queued":
                     return None
-                claimed = self._mark_claimed(item)
-                self.state_manager.save_queue(queue)
-                return dict(claimed)
+
+                validate_transition("queued", "claimed")
+                item["status"] = "claimed"
+                item["claimed_at"] = time.time()
+                self._save_queue(queue)
+                return dict(item)
+
         return None
 
     def claim_next_operation(self) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
-            self._sweep_queue_locked(queue)
+            queue = self._load_queue()
+
             for item in queue:
                 if item.get("status") != "queued":
                     continue
-                claimed = self._mark_claimed(item)
-                self.state_manager.save_queue(queue)
-                return dict(claimed)
+
+                validate_transition("queued", "claimed")
+                item["status"] = "claimed"
+                item["claimed_at"] = time.time()
+
+                self._save_queue(queue)
+
+                return item
+
         return None
 
     def get_operation(
@@ -207,17 +229,103 @@ class BridgeState:
         operation_id: str,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
 
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
 
                 if self._repair_response_from_browser_observation(item):
-                    self.state_manager.save_queue(queue)
+                    self._save_queue(queue)
 
+                return self._hydrate_terminal_response(dict(item))
+
+        return None
+
+    @staticmethod
+    def normalize_timing(value: object) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        if any(key not in MAX_TIMING_KEYS for key in value):
+            return None
+        result: dict[str, Any] = {}
+        for key in ("injected_at_ms", "ack_at_ms", "generation_start_ms", "completed_at_ms"):
+            if key not in value:
+                continue
+            raw = value[key]
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+                return None
+            result[key] = float(raw) if isinstance(raw, float) else int(raw)
+        if "user_messages_added" in value:
+            raw = value["user_messages_added"]
+            if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0 or raw > 100:
+                return None
+            result["user_messages_added"] = raw
+        if "ack_verified" in value:
+            if not isinstance(value["ack_verified"], bool):
+                return None
+            result["ack_verified"] = value["ack_verified"]
+        if "submission_via" in value:
+            raw = value["submission_via"]
+            if not isinstance(raw, str) or not raw.strip() or len(raw) > 64:
+                return None
+            result["submission_via"] = raw.strip()
+        previous: float | None = None
+        for key in ("injected_at_ms", "ack_at_ms", "generation_start_ms", "completed_at_ms"):
+            raw = result.get(key)
+            if raw is None:
+                continue
+            numeric = float(raw)
+            if previous is not None and numeric < previous:
+                return None
+            previous = numeric
+        if result.get("ack_verified") is True and "ack_at_ms" not in result:
+            return None
+        return result
+
+    def persist_timing(self, operation_id: str, timing: object) -> dict[str, Any] | None:
+        normalized = self.normalize_timing(timing)
+        if normalized is None or not operation_id.strip():
+            return None
+        with self.lock:
+            queue = self._load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                item["timing"] = normalized
+                self._save_queue(queue)
                 return dict(item)
+        return None
 
+    def append_recovery_event(
+        self,
+        operation_id: str,
+        data: dict[str, Any],
+        captured_at: object,
+    ) -> dict[str, Any] | None:
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            return None
+        allowed = (
+            "phase", "reason", "recovery_reason", "recovery_action",
+            "replacement_reason", "reload_count", "age_ms", "idle_ms",
+            "recovery_started_at_ms", "recovery_finished_at_ms",
+            "recovery_duration_ms", "outcome", "observed_status", "error"
+        )
+        event = {key: data[key] for key in allowed if key in data}
+        if isinstance(captured_at, str):
+            event["captured_at"] = captured_at
+        with self.lock:
+            queue = self._load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                events = item.get("recovery_events")
+                events = list(events) if isinstance(events, list) else []
+                if not events or events[-1] != event:
+                    events.append(event)
+                    item["recovery_events"] = events[-MAX_RECOVERY_EVENTS_PER_OPERATION:]
+                    self._save_queue(queue)
+                return dict(item)
         return None
 
     def persist_response_evidence(
@@ -231,12 +339,20 @@ class BridgeState:
         if not bounded_response.strip():
             return None
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             for item in queue:
                 if item.get("operation_id") != operation_id or item.get("operation_type") != "prompt":
                     continue
+                stored_response = self.state_manager.load_terminal_response(operation_id)
                 current = item.get("response_text")
-                if item.get("response_text_available") is True and isinstance(current, str) and current.strip():
+                authoritative = (
+                    stored_response
+                    if isinstance(stored_response, str) and stored_response.strip()
+                    else current
+                )
+                if item.get("response_text_available") is True and isinstance(authoritative, str) and authoritative.strip():
+                    item["response_text"] = authoritative
+                    item["response_text_available"] = True
                     return dict(item)
                 item["response_text"] = bounded_response
                 item["response_text_available"] = True
@@ -244,7 +360,7 @@ class BridgeState:
                     item["chat_url"] = chat_url
                 item["response_source"] = "completion_ack"
                 item["response_observed_at"] = time.time()
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
                 return dict(item)
         return None
 
@@ -254,6 +370,7 @@ class BridgeState:
         chat_url: str | None = None,
         response_text: str | None = None,
         response_text_available: bool = False,
+        timing: object = None,
     ) -> dict[str, Any] | None:
         return self._update_operation(
             operation_id=operation_id,
@@ -261,6 +378,7 @@ class BridgeState:
             chat_url=chat_url,
             response_text=response_text,
             response_text_available=response_text_available,
+            timing=timing,
         )
 
     def fail_operation(
@@ -281,25 +399,6 @@ class BridgeState:
             status="failed",
             error=error,
         )
-
-    def cancel_operation(self, operation_id: str, reason: str = "cancelled by runner timeout") -> dict[str, Any] | None:
-        with self.lock:
-            queue = self.state_manager.load_queue()
-            for item in queue:
-                if item.get("operation_id") != operation_id:
-                    continue
-                current = str(item.get("status", ""))
-                if current in {"completed", "failed", "cancelled"}:
-                    return dict(item)
-                validate_transition(current, "cancelled")
-                now = time.time()
-                item["status"] = "cancelled"
-                item["error"] = str(reason)[:MAX_ERROR_CHARS]
-                item["cancelled_at"] = now
-                item["updated_at"] = now
-                self.state_manager.save_queue(queue)
-                return dict(item)
-        return None
 
     def heartbeat(
         self,
@@ -348,14 +447,16 @@ class BridgeState:
         with self.lock:
             self._persist_verified_response_observation(observation)
             data = observation.get("data")
-            if isinstance(data, dict):
-                kind = data.get("kind")
-                if kind == "chatgpt_response":
-                    self.state_manager.save_browser_response(observation)
-                elif kind == "chatgpt_health":
-                    self.state_manager.save_browser_health(observation)
-                elif kind == "chatgpt_state":
-                    self.state_manager.save_browser_state(observation)
+            if isinstance(data, dict) and data.get("kind") == "chatgpt_response":
+                timing = data.get("timing")
+                active_operation_id = data.get("active_operation_id")
+                if isinstance(active_operation_id, str) and timing is not None:
+                    self.persist_timing(active_operation_id, timing)
+                self.state_manager.save_browser_response(observation)
+            if isinstance(data, dict) and data.get("kind") == "chatgpt_recovery":
+                operation_id = data.get("operation_id")
+                if isinstance(operation_id, str):
+                    self.append_recovery_event(operation_id, data, observation.get("captured_at"))
 
             current = self.state_manager.load_browser_results()
             incoming_priority = self._browser_observation_priority(observation)
@@ -382,16 +483,6 @@ class BridgeState:
             response = self.state_manager.load_browser_response()
             return response if response else None
 
-    def get_browser_health(self) -> dict[str, Any] | None:
-        with self.lock:
-            health = self.state_manager.load_browser_health()
-            return health if health else None
-
-    def get_browser_state(self) -> dict[str, Any] | None:
-        with self.lock:
-            state = self.state_manager.load_browser_state()
-            return state if state else None
-
     def get_browser_observation(
         self,
     ) -> dict[str, Any] | None:
@@ -407,8 +498,7 @@ class BridgeState:
 
     def get_status(self) -> dict[str, Any]:
         with self.lock:
-            queue = self.state_manager.load_queue()
-            self._sweep_queue_locked(queue)
+            queue = self._load_queue()
 
             counts: dict[str, int] = {}
 
@@ -446,8 +536,6 @@ class BridgeState:
         self,
         observation: dict[str, Any],
     ) -> None:
-        if observation.get("schema_version") != "pasi-native-chromium-v2":
-            return
         data = observation.get("data")
         if not isinstance(data, dict) or data.get("kind") != "chatgpt_response":
             return
@@ -467,16 +555,22 @@ class BridgeState:
             return
         response_text_available = True
 
-        queue = self.state_manager.load_queue()
+        queue = self._load_queue()
         for item in queue:
             if item.get("operation_id") != operation_id:
                 continue
             if item.get("operation_type") != "prompt":
                 return
+            stored_response = self.state_manager.load_terminal_response(operation_id)
             current_response = item.get("response_text")
-            if item.get("response_text_available") is True and isinstance(
-                current_response, str
-            ) and current_response.strip():
+            if (
+                isinstance(stored_response, str)
+                and stored_response.strip()
+            ) or (
+                item.get("response_text_available") is True
+                and isinstance(current_response, str)
+                and current_response.strip()
+            ):
                 return
 
             item["response_text"] = response_text
@@ -486,7 +580,7 @@ class BridgeState:
                 item["chat_url"] = chat_url
             item["response_source"] = "browser_observation"
             item["response_observed_at"] = observation.get("captured_at", time.time())
-            self.state_manager.save_queue(queue)
+            self._save_queue(queue)
             return
 
     def _repair_response_from_browser_observation(
@@ -495,15 +589,24 @@ class BridgeState:
     ) -> bool:
         if item.get("operation_type") != "prompt":
             return False
-        if item.get("response_text_available") is True:
+        operation_id = item.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            return False
+        stored_response = self.state_manager.load_terminal_response(operation_id)
+        if isinstance(stored_response, str) and stored_response.strip():
+            return False
+        current_response = item.get("response_text")
+        if (
+            item.get("response_text_available") is True
+            and isinstance(current_response, str)
+            and current_response.strip()
+        ):
             return False
 
         observation = self.state_manager.load_browser_response()
         if not isinstance(observation, dict):
             return False
 
-        if observation.get("schema_version") != "pasi-native-chromium-v2":
-            return False
         data = observation.get("data")
         if not isinstance(data, dict) or data.get("kind") != "chatgpt_response":
             return False
@@ -534,7 +637,7 @@ class BridgeState:
 
     @staticmethod
     def _retry_class(error: str) -> str:
-        if error.startswith("CHAT_EXHAUSTED:"):
+        if error.startswith("CHAT_EXHAUSTED:") or error.startswith("PASI_NATIVE: context recovery exhausted:"):
             return "context"
         if error.startswith("PASI_NATIVE: ChatGPT generation timed out") or error.startswith("PASI_NATIVE: response text unavailable"):
             return "response"
@@ -547,14 +650,18 @@ class BridgeState:
         recovery_context: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
             for item in queue:
                 if item.get("operation_id") != operation_id:
                     continue
                 current_status = str(item.get("status", ""))
                 retry_counts = item.get("retry_counts")
                 if not isinstance(retry_counts, dict):
-                    retry_counts = {"controller": int(item.get("retry_count", 0) or 0), "response": 0, "context": 0}
+                    retry_counts = {
+                        "controller": int(item.get("retry_count", 0) or 0),
+                        "response": 0,
+                        "context": 0,
+                    }
                 retry_class = self._retry_class(error)
                 count = int(retry_counts.get(retry_class, 0) or 0)
 
@@ -569,20 +676,26 @@ class BridgeState:
                     item["completion_recovery_reason"] = "browser_response_observation_after_transient_failure"
                     item["recovery_error"] = error[:MAX_ERROR_CHARS]
                     item["updated_at"] = time.time()
-                    self.state_manager.save_queue(queue)
+                    self._save_queue(queue)
                     return dict(item)
 
                 if count >= RETRY_BUDGETS[retry_class]:
                     validate_transition(current_status, "failed")
                     item["status"] = "failed"
                     item["error"] = error[:MAX_ERROR_CHARS]
-                    item["failure_reason"] = "transient_retry_exhausted" if retry_class == "controller" else f"{retry_class}_retry_exhausted"
+                    item["failure_reason"] = (
+                        "transient_retry_exhausted"
+                        if retry_class == "controller"
+                        else f"{retry_class}_retry_exhausted"
+                    )
+                    item["retry_class"] = retry_class
                     item["updated_at"] = time.time()
-                    self.state_manager.save_queue(queue)
+                    self._save_queue(queue)
                     return dict(item)
 
                 retry_counts = dict(retry_counts)
                 retry_counts[retry_class] = count + 1
+                item["retry_class"] = retry_class
                 validate_transition(current_status, "queued")
                 item["status"] = "queued"
                 item["retry_counts"] = retry_counts
@@ -593,10 +706,9 @@ class BridgeState:
                 item.pop("claimed_at", None)
                 item["requeued_at"] = time.time()
                 item["updated_at"] = time.time()
-                self.state_manager.save_queue(queue)
+                self._save_queue(queue)
                 return dict(item)
         return None
-
 
     @staticmethod
     def _is_transient_browser_error(error: str) -> bool:
@@ -652,9 +764,10 @@ class BridgeState:
         error: str | None = None,
         response_text: str | None = None,
         response_text_available: bool = False,
+        timing: object = None,
     ) -> dict[str, Any] | None:
         with self.lock:
-            queue = self.state_manager.load_queue()
+            queue = self._load_queue()
 
             for item in queue:
                 if item.get("operation_id") != operation_id:
@@ -678,7 +791,13 @@ class BridgeState:
                         and bool(bounded_response.strip())
                     )
 
-                self.state_manager.save_queue(queue)
+                if timing is not None:
+                    normalized_timing = self.normalize_timing(timing)
+                    if normalized_timing is None:
+                        raise ValueError("invalid timing payload")
+                    item["timing"] = normalized_timing
+
+                self._save_queue(queue)
 
                 return item
 
@@ -715,6 +834,13 @@ def _bridge_access_log_should_emit(message: str) -> bool:
 
 
 class BridgeRequestHandler(BaseHTTPRequestHandler):
+    """
+    Small localhost HTTP API consumed by the Tampermonkey
+    ChatGPT controller.
+
+    CORS is intentionally restricted to ChatGPT origins.
+    """
+
     def _expected_bridge_token(self) -> str:
         configured = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
         if configured:
@@ -730,9 +856,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if host != f"{HOST}:{bound_port}":
             return False
         origin = self.headers.get("Origin", "").strip()
-        # Browser-originated requests must come from an installed PASI
-        # extension. Host-local Python clients intentionally omit Origin and
-        # remain authorized by the launch token.
         if origin and not origin.startswith("chrome-extension://"):
             return False
         if not require_token:
@@ -742,13 +865,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         prefix = "Bearer "
         token = supplied[len(prefix):].strip() if supplied.startswith(prefix) else ""
         return bool(expected) and bool(token) and hmac.compare_digest(token, expected)
-
-    """
-    Small localhost HTTP API consumed by the Tampermonkey
-    ChatGPT controller.
-
-    CORS is intentionally restricted to ChatGPT origins.
-    """
 
     server_version = "PersonalAIChatBridge/1.0"
 
@@ -765,9 +881,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "",
         )
 
+        allowed_origins = {
+            "https://chatgpt.com",
+            "https://www.chatgpt.com",
+        }
+
         self.send_response(status)
 
-        if origin.startswith("chrome-extension://"):
+        if origin in allowed_origins:
             self.send_header(
                 "Access-Control-Allow-Origin",
                 origin,
@@ -802,8 +923,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     ) -> None:
         body = json.dumps(
             payload,
-            indent=2,
             ensure_ascii=False,
+            separators=(",", ":"),
         ).encode("utf-8")
 
         self._set_headers(status)
@@ -837,12 +958,12 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             content_length
         )
 
+        if not raw_body:
+            return {}
+
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if content_length and content_type != "application/json":
             raise ValueError("JSON request body requires Content-Type: application/json")
-
-        if not raw_body:
-            return {}
 
         payload = json.loads(
             raw_body.decode("utf-8")
@@ -863,10 +984,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
-
-        if path == "/next-operation":
-            self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
-            return
 
         if path != "/health" and not self._request_is_authorized(require_token=True):
             self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
@@ -899,14 +1016,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if path == "/browser/health":
-            self._send_json({"observation": self.bridge_state.get_browser_health()})
-            return
-
-        if path == "/browser/state":
-            self._send_json({"observation": self.bridge_state.get_browser_state()})
-            return
-
         if path == "/browser/response":
             response = self.bridge_state.get_browser_response()
 
@@ -935,6 +1044,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            self._send_json({"operation": operation})
+            return
+
+        if path == "/next-operation":
+            operation = self.bridge_state.claim_next_operation()
             self._send_json({"operation": operation})
             return
 
@@ -969,10 +1083,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            if path == "/next-operation":
-                self._next_operation()
-                return
-
             if path == "/chat/claim":
                 self._claim(payload)
                 return
@@ -997,10 +1107,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 self._failed(payload)
                 return
 
-            if path == "/chat/cancel":
-                self._cancel(payload)
-                return
-
             self._send_json(
                 {
                     "error": "Not found"
@@ -1016,31 +1122,12 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.CONFLICT,
             )
         except Exception:
-            traceback.print_exc()
             self._send_json(
                 {
                     "error": "Internal server error."
                 },
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
-
-    def _next_operation(self) -> None:
-        operation = self.bridge_state.claim_next_operation()
-        self._send_json({"operation": operation})
-
-    def _cancel(self, payload: dict[str, Any]) -> None:
-        operation_id = payload.get("operation_id")
-        if not isinstance(operation_id, str) or not operation_id.strip():
-            self._send_json({"error": "operation_id is required."}, HTTPStatus.BAD_REQUEST)
-            return
-        reason = payload.get("reason")
-        if not isinstance(reason, str) or not reason.strip():
-            reason = "cancelled by runner timeout"
-        operation = self.bridge_state.cancel_operation(operation_id, reason)
-        if operation is None:
-            self._send_json({"error": "Operation not found."}, HTTPStatus.NOT_FOUND)
-            return
-        self._send_json({"operation": operation})
 
     def _claim(
         self,
@@ -1127,23 +1214,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "prompt"
         )
 
-        completion_markers = payload.get("completion_markers")
-        if completion_markers is not None and (
-            not isinstance(completion_markers, list)
-            or not completion_markers
-            or len(completion_markers) > 4
-            or any(
-                not isinstance(marker, str)
-                or not marker.strip()
-                or len(marker.strip()) > 120
-                or "\n" in marker
-                or "\r" in marker
-                for marker in completion_markers
-            )
-        ):
-            self._send_json({"error": "completion_markers must be 1-4 bounded single-line strings."}, HTTPStatus.BAD_REQUEST)
-            return
-
         idempotency_key = payload.get("idempotency_key")
         if idempotency_key is not None and (
             not isinstance(idempotency_key, str)
@@ -1194,7 +1264,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 operation_type=operation_type,
                 prompt=prompt,
                 idempotency_key=idempotency_key,
-                completion_markers=completion_markers,
             )
         )
 
@@ -1268,6 +1337,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "response_text_available",
             False,
         )
+        ack_only = payload.get("ack_only", False)
+        timing = payload.get("timing")
 
         if not isinstance(
             operation_id,
@@ -1321,6 +1392,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if not isinstance(ack_only, bool):
+            self._send_json(
+                {
+                    "error":
+                        "ack_only must be a boolean."
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
         if response_text is not None and len(response_text) > MAX_RESPONSE_TEXT_CHARS:
             self._send_json(
                 {
@@ -1337,6 +1418,16 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         # apparently missing response. Blank text remains fail-closed.
         if isinstance(response_text, str) and response_text.strip():
             response_text_available = True
+
+        normalized_timing = None
+        if timing is not None:
+            normalized_timing = self.bridge_state.normalize_timing(timing)
+            if normalized_timing is None:
+                self._send_json(
+                    {"error": "invalid timing payload."},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
 
         existing_operation = self.bridge_state.get_operation(operation_id)
         if existing_operation is None:
@@ -1361,7 +1452,21 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     chat_url,
                     response_text or "",
                 ) or existing_operation
-            self._send_json({"operation": existing_operation})
+            if normalized_timing is not None:
+                existing_operation = self.bridge_state.persist_timing(
+                    operation_id,
+                    normalized_timing,
+                ) or existing_operation
+            if ack_only:
+                self._send_json(
+                    {
+                        "ok": True,
+                        "operation_id": existing_operation.get("operation_id"),
+                        "status": existing_operation.get("status"),
+                    }
+                )
+            else:
+                self._send_json({"operation": existing_operation})
             return
 
         if existing_operation.get("operation_type") == "prompt":
@@ -1399,6 +1504,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 chat_url=chat_url,
                 response_text=response_text,
                 response_text_available=response_text_available,
+                timing=normalized_timing,
             )
         except InvalidOperationTransition:
             # Completion acknowledgements are retried by the browser controller.
@@ -1418,11 +1524,20 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self._send_json(
-            {
-                "operation": operation
-            }
-        )
+        if ack_only:
+            self._send_json(
+                {
+                    "ok": True,
+                    "operation_id": operation.get("operation_id"),
+                    "status": operation.get("status"),
+                }
+            )
+        else:
+            self._send_json(
+                {
+                    "operation": operation
+                }
+            )
 
     def _failed(
         self,
@@ -1559,7 +1674,7 @@ class ChatGPTBridge:
             "  GET  /status"
         )
         print(
-            "  POST /next-operation"
+            "  GET  /next-operation"
         )
         print(
             "  GET  /operation?operation_id=<id>"
@@ -1575,9 +1690,6 @@ class ChatGPTBridge:
         )
         print(
             "  POST /chat/failed"
-        )
-        print(
-            "  POST /chat/cancel"
         )
         print()
         print(

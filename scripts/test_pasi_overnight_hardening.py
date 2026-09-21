@@ -11,6 +11,7 @@ from automation.computer_use.obstacles import ObstacleLedger
 from scripts import pasi_overnight_engine_v2 as supervisor
 from scripts import pasi_overnight_hardening as hardening
 from scripts.pasi_overnight_hardening import (
+    nonblocking_ensure_services,
     nonblocking_sleep,
     nonblocking_standby,
     resilient_invoke_chat,
@@ -35,7 +36,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_backoff_is_deferred_and_recorded_without_sleeping(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root, root.parent / (root.name + "-operator-state"))
+            ledger = ObstacleLedger(root)
             state = self._state(root)
             started = time.monotonic()
             result = nonblocking_sleep(state, 300.0, ledger=ledger)
@@ -48,7 +49,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_stale_browser_uses_fallback_without_entering_standby(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root, root.parent / (root.name + "-operator-state"))
+            ledger = ObstacleLedger(root)
             state = self._state(root)
             with patch.object(supervisor, "runtime_watchdog_is_live", return_value=False), patch.object(
                 hardening, "fallback_providers_available", return_value=["ollama"]
@@ -60,7 +61,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_stale_browser_without_fallback_waits_instead_of_burning_task_attempts(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root, root.parent / (root.name + "-operator-state"))
+            ledger = ObstacleLedger(root)
             state = self._state(root)
             watchdog = iter([False, False, True])
             with patch.object(supervisor, "runtime_watchdog_is_live", side_effect=lambda: next(watchdog)), patch.object(
@@ -75,7 +76,7 @@ class OvernightHardeningTests(unittest.TestCase):
     def test_missing_browser_uses_fallback_route_without_waiting_for_chatgpt(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            ledger = ObstacleLedger(root, root.parent / (root.name + "-operator-state"))
+            ledger = ObstacleLedger(root)
             state = self._state(root)
             with patch.object(supervisor, "runtime_watchdog_is_live", return_value=False), patch.object(
                 supervisor, "command", return_value=(0, "PASI_RESULT_STATUS: blocked")
@@ -86,6 +87,61 @@ class OvernightHardeningTests(unittest.TestCase):
             command = command_mock.call_args.args[0]
             self.assertIn("scripts/pasi_provider_router.py", command)
             self.assertNotIn("scripts/pasi_chat_guard.py", command)
+
+    def test_nonblocking_service_restart_is_retained_for_shutdown(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger = ObstacleLedger(root)
+
+            class Child:
+                def __init__(self) -> None:
+                    self.pid = 12345
+                    self.terminated = False
+                def poll(self) -> None:
+                    return None
+                def terminate(self) -> None:
+                    self.terminated = True
+
+            child = Child()
+            registry: list[object] = []
+            pid_file = root / "bridge.pid"
+            with patch.object(supervisor, "healthy", return_value=False), patch.object(
+                hardening.subprocess, "Popen", return_value=child
+            ), patch.object(hardening, "_BRIDGE_PID_FILE", pid_file):
+                started = hardening.nonblocking_ensure_services(ledger=ledger, child_registry=registry)
+
+            self.assertEqual(started, [child])
+            self.assertEqual(registry, [child])
+            self.assertEqual(pid_file.read_text(encoding="utf-8").strip(), str(child.pid))
+
+    def test_nonblocking_service_restart_does_not_spawn_duplicate_while_child_is_live(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ledger = ObstacleLedger(root)
+
+            class Child:
+                def poll(self) -> None:
+                    return None
+
+            registry: list[object] = [Child()]
+            with patch.object(supervisor, "healthy", return_value=False), patch.object(
+                hardening.subprocess, "Popen"
+            ) as popen:
+                started = hardening.nonblocking_ensure_services(ledger=ledger, child_registry=registry)
+
+            self.assertEqual(started, [])
+            popen.assert_not_called()
+
+    def test_nonblocking_service_recovery_is_native_bridge_only(self) -> None:
+        import inspect
+
+        source = inspect.getsource(nonblocking_ensure_services)
+        self.assertEqual(hardening._BRIDGE_HEALTH_URL, "http://127.0.0.1:8765/health")
+        self.assertIn("supervisor.healthy(_BRIDGE_HEALTH_URL)", source)
+        self.assertIn("automation.orchestrator.bridge", source)
+        self.assertNotIn("127.0.0.1:8766", source)
+        self.assertNotIn("pasi_controller_server.py", source)
+        self.assertNotIn("controller_distribution", source)
 
     def test_patch_guard_rejects_secret_and_symlink_paths(self) -> None:
         with self.assertRaises(ValueError):

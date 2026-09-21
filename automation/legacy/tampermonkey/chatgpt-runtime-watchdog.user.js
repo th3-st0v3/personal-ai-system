@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Personal AI System - ChatGPT Runtime Watchdog
+// @name         Personal AI System - Legacy ChatGPT Runtime Watchdog
 // @namespace    https://github.com/th3-st0v3/personal-ai-system
 // @version      1.0.0
-// @description  Reports provider limits, auth challenges, and browser readiness to PASI during unattended ChatGPT automation.
+// @description  Legacy compatibility watchdog. Do not enable alongside the native PASI Chromium controller.
 // @match        https://chatgpt.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      127.0.0.1
@@ -140,7 +140,7 @@
         await bridgePost(observation);
     }
 
-    console.log('[PASI Watchdog] ChatGPT runtime watchdog v1.0.0 active.');
+    console.log('[PASI Watchdog] Legacy ChatGPT runtime watchdog v1.0.0 active. Do not enable alongside the native controller.');
     sample();
     setInterval(sample, INTERVAL_MS);
 })();

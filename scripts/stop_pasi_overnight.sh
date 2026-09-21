@@ -4,7 +4,6 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PID_FILE="$REPO_ROOT/.runtime/overnight/runner.pid"
-SUPERVISOR_PID_FILE="$REPO_ROOT/.runtime/overnight/supervisor.pid"
 START_PID_FILE="$REPO_ROOT/.runtime/overnight/start.pid"
 BRIDGE_PID_FILE="$REPO_ROOT/.runtime/overnight/bridge.pid"
 
@@ -90,30 +89,6 @@ stop_managed_service() {
     rm -f "$pid_file"
     printf '%s: required forced termination.\n' "$name"
 }
-
-if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
-    supervisor_pid="$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)"
-    if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
-        command_line="$(ps -p "$supervisor_pid" -o args= 2>/dev/null || true)"
-        if [[ "$command_line" == *"pasi_168h_supervisor.sh"* ]]; then
-            kill -TERM "$supervisor_pid" 2>/dev/null || true
-            printf 'Requested graceful stop for PASI 168-hour supervisor PID %s.\n' "$supervisor_pid"
-            for _ in {1..10}; do
-                if ! kill -0 "$supervisor_pid" 2>/dev/null; then
-                    break
-                fi
-                sleep 1
-            done
-            if kill -0 "$supervisor_pid" 2>/dev/null; then
-                kill -KILL "$supervisor_pid" 2>/dev/null || true
-                printf 'PASI 168-hour supervisor required forced termination.\n'
-            else
-                printf 'PASI 168-hour supervisor stopped cleanly.\n'
-            fi
-        fi
-    fi
-    rm -f "$SUPERVISOR_PID_FILE"
-fi
 
 if [[ ! -f "$PID_FILE" ]]; then
     if [[ -z "$launcher_pid" ]]; then

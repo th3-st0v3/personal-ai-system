@@ -8,32 +8,50 @@ let STALE_MS = 45 * 1000;
 const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
+let controllerClaimTail = Promise.resolve();
+let cachedBridgeToken = null;
+let bridgeTokenPromise = null;
+
+function serializeControllerClaim(task) {
+  const next = controllerClaimTail.then(task, task);
+  controllerClaimTail = next.catch(() => undefined);
+  return next;
+}
 
 const BRIDGE_ROUTES = new Set([
   'GET /health',
   'GET /status',
   'GET /browser/observation',
-  'GET /browser/health',
-  'GET /browser/state',
   'GET /browser/response',
-  'POST /next-operation',
-  'POST /browser/observation',
+    'POST /browser/observation',
   'POST /queue',
   'POST /chat/claim',
   'POST /chat/heartbeat',
   'POST /chat/finished',
   'POST /chat/failed',
-  'POST /chat/cancel'
+  'POST /chat/cancel',
+  'GET /next-operation'
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
 
-async function bridgeToken() {
-  try {
-    const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
-    return response.ok ? (await response.text()).trim() : '';
-  } catch (_) {
-    return '';
-  }
+async function bridgeToken(forceRefresh = false) {
+  if (!forceRefresh && cachedBridgeToken) return cachedBridgeToken;
+  if (bridgeTokenPromise) return bridgeTokenPromise;
+
+  bridgeTokenPromise = (async () => {
+    try {
+      const response = await fetch(chrome.runtime.getURL('.bridge-token'), { cache: 'no-store' });
+      if (!response.ok) return '';
+      const token = (await response.text()).trim();
+      if (token) cachedBridgeToken = token;
+      return token;
+    } catch (_) {
+      return '';
+    } finally {
+      bridgeTokenPromise = null;
+    }
+  })();
+  return bridgeTokenPromise;
 }
 
 function allowedBridgeRequest(method, path) {
@@ -52,19 +70,25 @@ async function bridgeFetch(path, method = 'GET', body = null, timeoutMs = 5000) 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const token = await bridgeToken();
-    const headers = {
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-    };
-    const response = await fetch(`${BRIDGE}${path}`, {
+    const request = (token) => fetch(`${BRIDGE}${path}`, {
       method: normalizedMethod,
-      headers: Object.keys(headers).length ? headers : undefined,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
       credentials: 'omit',
       cache: 'no-store'
     });
+
+    let token = await bridgeToken();
+    let response = await request(token);
+    if (response.status === 401) {
+      cachedBridgeToken = null;
+      token = await bridgeToken(true);
+      if (token) response = await request(token);
+    }
     return { ok: response.ok, status: response.status, text: await response.text() };
   } catch (error) {
     const message = String(error?.message || error).slice(0, 300);
@@ -92,7 +116,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, leader: false });
       return undefined;
     }
-    chrome.storage.local.get(CONTROLLER_LEASE_KEY).then((stored) => {
+    serializeControllerClaim(async () => {
+      const stored = await chrome.storage.local.get(CONTROLLER_LEASE_KEY);
       const current = stored?.[CONTROLLER_LEASE_KEY];
       const now = Date.now();
       const owned = current && current.tabId === tabId && now - Number(current.renewedAt || 0) < CONTROLLER_LEASE_MS;
@@ -101,9 +126,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, leader: false });
         return;
       }
-      return chrome.storage.local.set({
+      await chrome.storage.local.set({
         [CONTROLLER_LEASE_KEY]: { tabId, renewedAt: now }
-      }).then(() => sendResponse({ ok: true, leader: true }));
+      });
+      sendResponse({ ok: true, leader: true });
     }).catch(() => sendResponse({ ok: false, leader: false }));
     return true;
   }
@@ -176,18 +202,22 @@ async function reloadBoundedTab(tab) {
 
 async function inspect() {
   const status = await bridgeJson('/status');
-  const payload = await bridgeJson('/browser/health');
+  const payload = await bridgeJson('/browser/observation');
   if (!status || !payload) return;
   const health = healthData(payload);
   if (!health) return;
   if (health.data.auth_required === true) return;
-  if (status.queue_size <= 0 && !String(health.data.active_operation_id || '').trim()) return;
-  if (observationAge(health.observation) <= STALE_MS) return;
+  if (typeof health.data.active_operation_id !== 'string' || !health.data.active_operation_id.trim()) return;
+  if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
+  const connectionFailure = health.data.connection_failure === true;
+  const observationStale = observationAge(health.observation) > STALE_MS;
+  if (!connectionFailure && !observationStale) return;
 
   const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
-  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url.trim() : '';
-  if (!targetChatUrl) return;
-  const matchingTab = tabs.find((tab) => tab.url === targetChatUrl);
+  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
+  const matchingTab = targetChatUrl
+    ? tabs.find((tab) => tab.url === targetChatUrl)
+    : null;
   // If the exact conversation tab is gone, recreate only the verified target
   // URL. Never substitute another ChatGPT tab, which could belong to a separate task.
   if (!matchingTab) {

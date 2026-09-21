@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import asdict
@@ -9,6 +10,10 @@ from typing import Any
 
 class StateCorruptionError(RuntimeError):
     """Raised when persisted orchestration state cannot be trusted."""
+
+
+MAX_PERSISTED_TERMINAL_QUEUE_ITEMS = 32
+TERMINAL_QUEUE_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
 class StateManager:
@@ -21,14 +26,13 @@ class StateManager:
         self.retry_state_path = ai_dir / "retry-state.json"
         self.test_results_path = ai_dir / "test-results.json"
         self.browser_results_path = ai_dir / "browser-results.json"
-        self.browser_health_path = ai_dir / "browser-health.json"
-        self.browser_state_path = ai_dir / "browser-state.json"
         self.browser_response_path = ai_dir / "browser-response.json"
         self.context_package_path = ai_dir / "context-package.json"
         self.research_state_path = ai_dir / "research-state.json"
         self.execution_results_path = ai_dir / "execution-results.json"
         self.handoff_path = ai_dir / "handoff.json"
         self.queue_path = ai_dir / "queue.json"
+        self.terminal_responses_dir = ai_dir / "terminal-responses"
         self.lock_path = ai_dir / "lock.json"
 
     def write_json(self, path: Path, value: Any) -> None:
@@ -164,24 +168,6 @@ class StateManager:
             results,
         )
 
-    def save_browser_health(self, health: dict[str, Any]) -> None:
-        self.write_json(self.browser_health_path, health)
-
-    def load_browser_health(self) -> dict[str, Any]:
-        return self.require_dict(
-            self.browser_health_path,
-            self.read_json(self.browser_health_path, {}),
-        )
-
-    def save_browser_state(self, state: dict[str, Any]) -> None:
-        self.write_json(self.browser_state_path, state)
-
-    def load_browser_state(self) -> dict[str, Any]:
-        return self.require_dict(
-            self.browser_state_path,
-            self.read_json(self.browser_state_path, {}),
-        )
-
     def save_browser_results(
         self,
         results: dict[str, Any],
@@ -279,11 +265,87 @@ class StateManager:
     def save_queue(
         self,
         queue: list[dict[str, Any]],
-    ) -> None:
+    ) -> list[dict[str, Any]]:
+        terminal_indexes = [
+            index
+            for index, item in enumerate(queue)
+            if item.get("status") in TERMINAL_QUEUE_STATUSES
+        ]
+        if len(terminal_indexes) > MAX_PERSISTED_TERMINAL_QUEUE_ITEMS:
+            drop_indexes = set(
+                terminal_indexes[:-MAX_PERSISTED_TERMINAL_QUEUE_ITEMS]
+            )
+            queue[:] = [
+                item
+                for index, item in enumerate(queue)
+                if index not in drop_indexes
+            ]
         self.write_json(
             self.queue_path,
             queue,
         )
+        return queue
+
+    @staticmethod
+    def _terminal_response_filename(operation_id: str) -> str:
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            raise ValueError("operation_id must be a nonblank string")
+        digest = hashlib.sha256(operation_id.encode("utf-8")).hexdigest()
+        return f"{digest}.json"
+
+    def _terminal_response_path(self, operation_id: str) -> Path:
+        return self.terminal_responses_dir / self._terminal_response_filename(operation_id)
+
+    def save_terminal_response(
+        self,
+        operation_id: str,
+        response_text: str,
+    ) -> None:
+        if not isinstance(response_text, str):
+            raise ValueError("terminal response must be a string")
+        self.write_json(
+            self._terminal_response_path(operation_id),
+            {
+                "operation_id": operation_id,
+                "response_text": response_text,
+            },
+        )
+
+    def load_terminal_response(
+        self,
+        operation_id: str,
+    ) -> str | None:
+        path = self._terminal_response_path(operation_id)
+        value = self.read_json(path, None)
+        if value is None:
+            return None
+        if (
+            not isinstance(value, dict)
+            or value.get("operation_id") != operation_id
+            or not isinstance(value.get("response_text"), str)
+        ):
+            raise StateCorruptionError(
+                f"Invalid state shape for {path}: expected terminal response record"
+            )
+        return value["response_text"]
+
+    def prune_terminal_responses(
+        self,
+        retained_operation_ids: set[str],
+    ) -> None:
+        if not self.terminal_responses_dir.exists():
+            return
+        retained_files = {
+            self._terminal_response_filename(operation_id)
+            for operation_id in retained_operation_ids
+        }
+        for path in self.terminal_responses_dir.glob("*.json"):
+            if path.name in retained_files:
+                continue
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
     def load_queue(
         self,

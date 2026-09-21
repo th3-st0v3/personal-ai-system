@@ -14,9 +14,6 @@ class FakeAdapter:
     def read_browser_observation(self) -> dict[str, Any] | None:
         return self.observation
 
-    def read_browser_state(self) -> dict[str, Any] | None:
-        return self.observation
-
     def new_session(self) -> str:
         self.new_sessions += 1
         return f"new-chat-{self.new_sessions}"
@@ -135,7 +132,7 @@ def test_controller_observation_live_contract_accepts_recent_state() -> None:
 
 def test_controller_observation_live_contract_rejects_stale_state() -> None:
     now = datetime.now(timezone.utc)
-    captured = (now - timedelta(seconds=20)).isoformat()
+    captured = (now - timedelta(seconds=30)).isoformat()
     observation = {"data": {"kind": "chatgpt_state", "captured_at": captured}}
 
     assert not controller_observation_is_live(observation, now=now)

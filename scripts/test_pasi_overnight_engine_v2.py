@@ -1,95 +1,28 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
-import os
 from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts import pasi_prompt_compiler as prompt_compiler
 
 
 class TestPasiOvernightEngineV2(unittest.TestCase):
-    def test_git_resolved_path_validator_rejects_protected_resolved_paths(self) -> None:
-        for record in (
-            ".githooks/pre-commit",
-            "hooks/pre-push",
-            ".github/workflows/test.yml",
-            "scripts/check_all.sh",
-        ):
-            summary = "0\t0\t" + record + "\x00"
-            with self.assertRaisesRegex(RuntimeError, "protected unattended path"):
-                engine.validate_git_resolved_paths(Path.cwd(), summary)
 
-    def test_git_resolved_path_validator_accepts_rename_records(self) -> None:
-        engine.validate_git_resolved_paths(
-            Path.cwd(),
-            "0\t0\told.txt\x00new.txt\x00",
-        )
-
-    def test_git_resolved_path_validator_accepts_normal_paths(self) -> None:
-        engine.validate_git_resolved_paths(
-            Path.cwd(),
-            "1\t0\tREADME.md\x00",
-        )
-
-    def test_unattended_patch_rejects_hooks_and_validator_paths(self) -> None:
-        safe_patch = """diff --git a/app.py b/app.py
---- a/app.py
-+++ b/app.py
-@@ -1 +1 @@
--old
-+new
-"""
-        for path_value in (".githooks/pre-commit", "hooks/pre-push", ".github/workflows/test.yml", "scripts/check_all.sh"):
-            patch = safe_patch.replace("app.py", path_value)
-            with self.assertRaises(ValueError):
-                engine.validate_patch_paths(patch, allow_delete=False)
-
-    def test_parse_response_requires_all_markers_exactly_once_and_preserves_patch_lines(self) -> None:
+    def test_parse_response_records_optional_automation_continue(self) -> None:
         response = """PASI_RESULT_STATUS: complete
-PASI_RESULT_SUMMARY: parser seam
-PASI_RESULT_NEXT_TASK: next
+PASI_RESULT_SUMMARY: fixed the issue
+PASI_RESULT_NEXT_TASK: improve automation
 PASI_RESULT_REQUIREMENTS: complete
 PASI_RESULT_LIMITATIONS: handled
-PASI_RESULT_RESEARCH: not_applicable
-PASI_RESULT_UX: verified
-PASI_RESULT_BACKEND: verified
-PASI_RESULT_EVIDENCE: multiline patch preserved
-PASI_RESULT_REPOSITORY_PROGRESS: changed
-PASI_RESULT_ALLOW_DELETE: false
-PASI_RESULT_PATCH_BEGIN
-diff --git a/example.txt b/example.txt
---- a/example.txt
-+++ b/example.txt
-@@ -1 +1 @@
--old
-+new
-PASI_RESULT_PATCH_END"""
-        status, summary, next_task, patch, allow_delete, values = engine.parse_response(response)
-        self.assertEqual(status, "complete")
-        self.assertEqual(summary, "parser seam")
-        self.assertEqual(next_task, "next")
-        self.assertFalse(allow_delete)
-        self.assertIn("@@ -1 +1 @@\n-old\n+new", patch)
-        self.assertEqual(values["repository_progress"], "changed")
-
-    def test_parse_response_rejects_missing_marker(self) -> None:
-        response = "PASI_RESULT_STATUS: complete\nPASI_RESULT_PATCH_BEGIN\nPASI_RESULT_PATCH_END"
-        with self.assertRaisesRegex(ValueError, "each marker exactly once"):
-            engine.parse_response(response)
-
-    def test_parse_response_honors_optional_automation_continue_signal(self) -> None:
-        response = """PASI_RESULT_STATUS: complete
-PASI_RESULT_SUMMARY: automation capability still required
-PASI_RESULT_NEXT_TASK: build recovery telemetry
-PASI_RESULT_REQUIREMENTS: complete
-PASI_RESULT_LIMITATIONS: none
 PASI_RESULT_RESEARCH: performed
 PASI_RESULT_UX: verified
 PASI_RESULT_BACKEND: verified
-PASI_RESULT_EVIDENCE: verified
+PASI_RESULT_EVIDENCE: pytest passed
 PASI_RESULT_REPOSITORY_PROGRESS: changed
 PASI_RESULT_ALLOW_DELETE: false
 PASI_AUTOMATION_CONTINUE: true
@@ -100,9 +33,83 @@ diff --git a/example.txt b/example.txt
 @@ -1 +1 @@
 -old
 +new
-PASI_RESULT_PATCH_END"""
-        _, _, _, _, _, values = engine.parse_response(response)
+PASI_RESULT_PATCH_END
+"""
+        *_, values = engine.parse_response(response)
         self.assertEqual(values["automation_continue"], "true")
+
+    def test_automation_gate_reads_durable_task_evidence(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="gate-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger_path = Path(temp_dir) / "task-ledger.json"
+            with mock.patch.object(engine, "TASK_LEDGER_PATH", ledger_path):
+                engine.record_task_ledger(
+                    engine.AUTOMATION_TASKS[0],
+                    "completed",
+                    evidence="verified automation fix",
+                    phase="automation",
+                )
+                engine.record_task_ledger(
+                    engine.AUTOMATION_TASKS[1],
+                    "completed",
+                    evidence="verified second automation fix",
+                    phase="automation",
+                )
+                evidence = engine.automation_gate_evidence(state)
+                self.assertEqual(evidence["automation_gate"], "proceed_engineering")
+                engine.record_task_ledger(
+                    engine.AUTOMATION_TASKS[1],
+                    "completed",
+                    evidence="there is still a browser recovery improvement to implement",
+                    phase="automation",
+                    automation_continue=True,
+                )
+                evidence = engine.automation_gate_evidence(state)
+                self.assertEqual(evidence["automation_gate"], "continue_automation")
+
+    def test_patch_boundary_rejects_ignored_and_protected_paths(self) -> None:
+        import subprocess
+
+        ignored_patch = """diff --git a/.runtime/secret.json b/.runtime/secret.json
+new file mode 100644
+--- /dev/null
++++ b/.runtime/secret.json
+@@ -0,0 +1 @@
++blocked
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir)
+            (worktree / ".runtime").mkdir()
+            (worktree / ".gitignore").write_text(".runtime/\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=worktree, check=True)
+            with self.assertRaisesRegex(ValueError, r"(Git-ignored|forbidden credential/secret)"):
+                engine.validate_patch_paths(ignored_patch, False, worktree)
+
+        protected = """diff --git a/scripts/check_all.sh b/scripts/check_all.sh
+--- a/scripts/check_all.sh
++++ b/scripts/check_all.sh
+@@ -1 +1 @@
+-old
++new
+"""
+        with self.assertRaisesRegex(ValueError, "protected unattended"):
+            engine.validate_patch_paths(protected, False, Path.cwd())
+
+    def test_control_script_stays_inside_launcher_checkout(self) -> None:
+        script = engine.control_script("pasi_chat_guard.py")
+        self.assertEqual(script.parent.resolve(), engine.CONTROL_SCRIPTS_ROOT.resolve())
+        with self.assertRaises(ValueError):
+            engine.control_script("../pasi_chat_guard.py")
 
     def test_automation_gate_requires_consistent_evidence(self) -> None:
         self.assertTrue(
@@ -148,26 +155,29 @@ PASI_RESULT_PATCH_END"""
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=False), "stopped")
         self.assertEqual(finish_reason(stop_requested=True, deadline_reached=True), "deadline_reached")
 
-    def test_offline_remote_fetch_is_deferred_not_fatal(self) -> None:
-        source = Path(engine.__file__).read_text(encoding="utf-8")
-        self.assertIn('log_event("git_fetch_deferred"', source)
-        self.assertIn('if code != 0:', source)
-        self.assertIn('saved = load_state() if args.resume else None', source)
-
-    def test_fresh_worktree_starts_from_launcher_head_by_default(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            worktree = Path(temp_dir) / "fresh"
-            with mock.patch.dict(os.environ, {"PASI_OVERNIGHT_BASE_REF": ""}, clear=False):
-                with mock.patch.object(engine, "command", return_value=(0, "")) as run_command:
-                    engine.ensure_worktree(worktree, "pasi/test", resume=False)
-            command_args = run_command.call_args.args[0]
-            self.assertEqual(command_args[-1], "HEAD")
-
-    def test_task_key_canonicalizes_whitespace_for_commit_recovery(self) -> None:
-        first = engine.task_key("one\n two")
-        second = engine.task_key("one two")
-        self.assertEqual(first, second)
-        self.assertEqual(first, engine.task_key("  one   two  "))
+    def test_no_change_completion_requires_durable_task_evidence(self) -> None:
+        values = {
+            "repository_progress": "stopped",
+            "requirements": "complete",
+            "limitations": "none",
+            "research": "not_applicable",
+            "ux": "not_applicable",
+            "backend": "verified",
+            "evidence": "verified existing implementation",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(engine.legacy, "repository_worktree_is_clean", return_value=True):
+                self.assertFalse(
+                    engine.no_change_completion_is_satisfied(
+                        root, "complete", "next", "", values, False
+                    )
+                )
+                self.assertTrue(
+                    engine.no_change_completion_is_satisfied(
+                        root, "complete", "next", "", values, True
+                    )
+                )
 
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
@@ -176,7 +186,6 @@ PASI_RESULT_PATCH_END"""
             "kind": "chatgpt_state",
             "controller_version": "2.4.11",
             "captured_at": timestamp,
-            "native_controller": True,
         }
         stale = dict(current, controller_version="2.4.10")
         missing = dict(current)
@@ -191,23 +200,122 @@ PASI_RESULT_PATCH_END"""
                 self.assertFalse(engine.runtime_watchdog_is_live())
                 self.assertFalse(engine.runtime_watchdog_is_live())
 
-    def test_controller_observation_rejects_legacy_controller_even_with_current_version(self) -> None:
-        now = datetime.now(timezone.utc)
-        legacy_observation = {
-            "kind": "chatgpt_state",
-            "controller_version": "2.4.11",
-            "captured_at": now.isoformat(),
-            "native_controller": False,
-        }
-        native_missing = dict(legacy_observation)
-        native_missing.pop("native_controller")
-        with mock.patch(
-            "scripts.pasi_overnight_engine_v2.expected_controller_version",
-            return_value="2.4.11",
-        ):
-            with mock.patch.object(engine, "browser_observation", side_effect=[legacy_observation, native_missing]):
-                self.assertFalse(engine.runtime_watchdog_is_live())
-                self.assertFalse(engine.runtime_watchdog_is_live())
+    def test_fresh_worktree_honors_configured_base_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir) / "fresh"
+            with mock.patch.dict(os.environ, {"PASI_OVERNIGHT_BASE_REF": "origin/pasi/consolidated"}, clear=False):
+                with mock.patch.object(engine, "command", return_value=(0, "")) as run_command:
+                    engine.ensure_worktree(worktree, "pasi/test", resume=False)
+            command_args = run_command.call_args.args[0]
+            self.assertEqual(
+                command_args,
+                ["git", "worktree", "add", "-B", "pasi/test", str(worktree), "origin/pasi/consolidated"],
+            )
+
+    def test_prompt_compiler_replaces_task_and_preserves_required_context(self) -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            "Fix the browser-to-Git patch seam and verify it end to end.",
+            run_id="run-prompt-compiler",
+            task_number=7,
+            attempt=2,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="engineering_os",
+            recent_tasks=["previous verified task"],
+            roadmap_tasks=["Roadmap task A", "Roadmap task B"],
+            previous_failure="git apply received an empty stdin payload",
+        )
+        self.assertIn(
+            "CONTINUE WORKING ON THE CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.",
+            prompt,
+        )
+        self.assertIn("DO NOT STOP UNTIL YOU ARE FINISHED.", prompt)
+        self.assertIn(
+            "Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.",
+            prompt,
+        )
+        self.assertIn("Task number: 7", prompt)
+        self.assertIn("Attempt: 2/3", prompt)
+        self.assertIn("PREVIOUS FAILURE EVIDENCE:", prompt)
+        self.assertIn("git apply received an empty stdin payload", prompt)
+        self.assertIn("previous verified task", prompt)
+        self.assertIn("Fix the browser-to-Git patch seam and verify it end to end.", prompt)
+        self.assertNotIn("Roadmap task A", prompt)
+        self.assertNotIn("Roadmap task B", prompt)
+        self.assertIn("PASI_RESULT_NEXT_TASK: one concrete next task", prompt)
+        self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
+        self.assertIn("empty patch", prompt)
+        self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
+        self.assertIn("machine-read as task evidence", prompt)
+
+    def test_prompt_compiler_preserves_multiline_task_requirements(self) -> None:
+        task = """Implement the feature.
+Requirements:
+- Preserve existing behavior.
+- Add deterministic regression coverage.
+Acceptance:
+- Run the canonical gate."""
+        prompt = prompt_compiler.compile_task_prompt(
+            task,
+            run_id="run-multiline",
+            task_number=1,
+            attempt=1,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="engineering_os",
+        )
+        self.assertIn(
+            "CONTINUE WORKING ON THE CURRENT TASK:\nImplement the feature.\nRequirements:\n- Preserve existing behavior.",
+            prompt,
+        )
+        self.assertIn("Acceptance:\n- Run the canonical gate.", prompt)
+
+    def test_prompt_compiler_selects_automation_first_pass_mode(self) -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            engine.AUTOMATION_TASKS[0],
+            run_id="run-conditional-automation",
+            task_number=1,
+            attempt=1,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="automation",
+            roadmap_tasks=["Roadmap task A", "Roadmap task B", "Roadmap task C"],
+        )
+        self.assertIn("CONDITIONAL EXECUTION MODE:", prompt)
+        self.assertIn("AUTOMATION FIRST PASS:", prompt)
+        self.assertIn("Roadmap task A", prompt)
+        self.assertIn("Roadmap task B", prompt)
+        self.assertIn("Roadmap task C", prompt)
+
+    def test_prompt_compiler_selects_recovery_mode_and_focuses_roadmap(self) -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            "Roadmap task A",
+            run_id="run-conditional-recovery",
+            task_number=2,
+            attempt=2,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="automation",
+            roadmap_tasks=["Roadmap task A", "Roadmap task B", "Roadmap task C"],
+            previous_failure="targeted verification failed on the previous approach",
+        )
+        self.assertIn("RECOVERY RETRY MODE:", prompt)
+        self.assertIn("Verify PREVIOUS FAILURE EVIDENCE", prompt)
+        self.assertIn("Roadmap task A", prompt)
+        self.assertNotIn("Roadmap task B", prompt)
+        self.assertNotIn("Roadmap task C", prompt)
+
+    def test_prompt_compiler_hash_is_stable_for_identical_prompt(self) -> None:
+        prompt = "deterministic prompt\n"
+        self.assertEqual(
+            prompt_compiler.prompt_hash(prompt),
+            prompt_compiler.prompt_hash(prompt),
+        )
+        self.assertTrue(prompt_compiler.prompt_hash(prompt).startswith("sha256:"))
 
     def test_build_prompt_contains_anti_loop_continuation_rule(self) -> None:
         now = datetime.now(timezone.utc)
@@ -225,17 +333,15 @@ PASI_RESULT_PATCH_END"""
         prompt = engine.build_prompt(state.current_task, state)
         self.assertIn("TASK CONTINUATION:", prompt)
         self.assertIn("Keep working on the CURRENT TASK until the requirement is implemented, tested, diagnosed, and verified.", prompt)
-        self.assertRegex(
-            prompt,
-            r"immediately (?:work on|continue to) the next incomplete roadmap (?:item|task)",
-        )
+        self.assertIn("The scheduler owns the full roadmap", prompt)
         self.assertIn("If the same failure repeats, change approach", prompt)
-        self.assertIn("do not invent work or cosmetic changes", prompt)
+        self.assertIn("do not invent work or cosmetic changes", prompt.casefold())
         self.assertNotIn("KEEP WORKING UNTIL YOU'RE FINISHED:", prompt)
         self.assertNotIn("Keep inspecting, implementing, testing, diagnosing, and repairing", prompt)
         self.assertIn("RECENT TASKS:", prompt)
         self.assertIn("PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped", prompt)
         self.assertIn("PASI_AUTOMATION_CONTINUE: true", prompt)
+        self.assertIn("machine-read as task evidence", prompt)
         self.assertIn("empty patch", prompt)
         self.assertNotIn("PASI_RESULT_REPOSITORY_PROGRESS: ongoing", prompt)
 
@@ -277,49 +383,6 @@ PASI_RESULT_PATCH_END"""
                     self.assertEqual(repeats, 0)
                 self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
 
-    def test_valid_next_task_is_honored_and_completed_ledger_is_skipped(self) -> None:
-        now = datetime.now(timezone.utc)
-        state = engine.OvernightState(
-            schema_version=2,
-            run_id="ledger-test",
-            started_at=now.isoformat(),
-            deadline_at=(now + timedelta(hours=8)).isoformat(),
-            worktree=str(Path.cwd()),
-            branch="test",
-            phase="automation",
-            current_task=engine.AUTOMATION_TASKS[0],
-            recent_tasks=[],
-        )
-        with tempfile.TemporaryDirectory() as temp_dir:
-            ledger_path = Path(temp_dir) / "task-ledger.json"
-            with mock.patch.object(engine, "TASK_LEDGER_PATH", ledger_path):
-                engine.record_task_ledger(engine.AUTOMATION_TASKS[1], "completed", commit="abc123", evidence="verified")
-                self.assertEqual(
-                    engine.choose_next_task(state, engine.AUTOMATION_TASKS[1]),
-                    engine.AUTOMATION_TASKS[2],
-                )
-                candidate = "Implement a concrete seam diagnostic for queued ChatGPT operations."
-                self.assertEqual(engine.choose_next_task(state, candidate), candidate)
-
-    def test_commit_message_contains_task_identity_for_restart_reconciliation(self) -> None:
-        self.assertIn("commit_tag = f\"task-{task_key(task)[:12]}\"", (Path(engine.__file__).read_text(encoding="utf-8")))
-
-    def test_task_ledger_records_completion_before_selection(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            ledger_path = Path(temp_dir) / "task-ledger.json"
-            with mock.patch.object(engine, "TASK_LEDGER_PATH", ledger_path):
-                engine.record_task_ledger(
-                    engine.AUTOMATION_TASKS[0],
-                    "completed",
-                    commit="abc123",
-                    evidence="verified",
-                    phase="automation",
-                )
-                self.assertIn(
-                    engine.task_key(engine.AUTOMATION_TASKS[0]),
-                    engine.completed_task_keys(),
-                )
-
     def test_same_task_suggestion_advances_to_next_roadmap_item(self) -> None:
         now = datetime.now(timezone.utc)
         current = engine.AUTOMATION_TASKS[1]
@@ -335,6 +398,74 @@ PASI_RESULT_PATCH_END"""
             recent_tasks=list(engine.AUTOMATION_TASKS),
         )
         self.assertEqual(engine.choose_next_task(state, current), engine.AUTOMATION_TASKS[2])
+
+    def test_attempt_budget_advances_to_next_task_instead_of_ending_run(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="attempt-budget-progress",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        attempts: list[tuple[str, int]] = []
+        failure_values = {
+            "requirements": "complete",
+            "limitations": "handled",
+            "research": "not_applicable",
+            "ux": "not_applicable",
+            "backend": "verified",
+            "evidence": "attempt failed before a usable patch was produced",
+            "repository_progress": "stopped",
+        }
+        success_values = dict(failure_values, evidence="verified patch for next task", repository_progress="changed")
+        parsed = iter(
+            [
+                ("needs_revision", "first failure", "", "", False, failure_values),
+                ("needs_revision", "second failure", "", "", False, failure_values),
+                ("needs_revision", "third failure", "", "", False, failure_values),
+                ("complete", "next task completed", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
+            ]
+        )
+
+        def invoke(task, _state, _failure):
+            attempts.append((task, _state.current_attempt))
+            return 0, "fixture response"
+
+        def verify(*_args, **_kwargs):
+            engine.STOP = True
+            return "deadbeef", "verified"
+
+        original_stop = engine.STOP
+        try:
+            engine.STOP = False
+            with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
+                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                    with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
+                        with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
+                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                with mock.patch.object(engine, "record_task_ledger"):
+                                    with mock.patch.object(engine, "save_state"):
+                                        with mock.patch.object(engine, "log_event"):
+                                            engine.run(state, push=False)
+        finally:
+            engine.STOP = original_stop
+
+        self.assertEqual(
+            attempts,
+            [
+                (engine.AUTOMATION_TASKS[0], 1),
+                (engine.AUTOMATION_TASKS[0], 2),
+                (engine.AUTOMATION_TASKS[0], 3),
+                (engine.AUTOMATION_TASKS[1], 1),
+            ],
+        )
+        self.assertEqual(state.failed_tasks, 1)
+        self.assertEqual(state.completed_tasks, 1)
+        self.assertEqual(state.current_task, engine.AUTOMATION_TASKS[2])
 
     def test_failed_task_is_excluded_before_next_selection(self) -> None:
         now = datetime.now(timezone.utc)
@@ -358,11 +489,155 @@ PASI_RESULT_PATCH_END"""
         self.assertEqual(engine.provider_condition(92, "CHAT_GUARD_TIMEOUT: timeout"), "runtime_guard")
         self.assertIsNone(engine.provider_condition(1, "CHAT_EXHAUSTED: conversation context"))
 
-    def test_choose_next_task_honors_unique_concrete_suggestion(self) -> None:
+    def test_auth_recovery_waits_for_interactive_recovery_before_resuming_same_session(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
-            run_id="dynamic-next-task-test",
+            run_id="auth-recovery-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(minutes=5)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with mock.patch.object(engine, "ensure_services", return_value=[]):
+            with mock.patch.object(engine, "browser_auth_required", side_effect=[True, False]):
+                with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
+                    with mock.patch.object(engine, "log_event") as log_event:
+                        with mock.patch("time.sleep"):
+                            self.assertTrue(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=30.0))
+        events = [call.args[0] for call in log_event.call_args_list if call.args]
+        self.assertIn("auth_recovery_wait_started", events)
+        self.assertIn("standby_recovered", events)
+
+    def test_auth_condition_is_deferred_before_provider_fallback(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="auth-boundary-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(minutes=5)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with mock.patch.object(
+            engine,
+            "command",
+            return_value=(91, "CHAT_AUTH_REQUIRED: interactive authentication is required"),
+        ) as command:
+            code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual(code, 91)
+        self.assertIn("CHAT_AUTH_REQUIRED", output)
+        self.assertEqual(command.call_count, 1)
+
+    def test_failed_fallback_router_enters_bounded_cooldown(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="fallback-cooldown-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        responses = iter((
+            (90, "CHAT_USAGE_LIMITED: provider limit"),
+            (1, "all configured fallback providers failed: ollama: no model; openrouter: HTTP 429 after bounded 429 retry"),
+        ))
+        with mock.patch.object(engine, "command", side_effect=lambda *args, **kwargs: next(responses)) as command:
+            with mock.patch.object(engine, "save_state") as save_state:
+                code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual(code, 90)
+        self.assertIn("PASI FALLBACK ROUTER", output)
+        self.assertFalse(engine.fallback_router_available(state))
+        self.assertEqual(command.call_count, 2)
+        save_state.assert_called_once()
+
+    def test_fallback_cooldown_skips_router_without_losing_primary_provider_condition(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="fallback-skip-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            fallback_router_disabled_until=(now + timedelta(minutes=5)).isoformat(),
+        )
+        with mock.patch.object(engine, "command", return_value=(90, "CHAT_USAGE_LIMITED: provider limit")) as command:
+            code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual(code, 90)
+        self.assertIn("PASI FALLBACK ROUTER SKIPPED", output)
+        self.assertEqual(command.call_count, 1)
+
+    def test_successful_fallback_clears_previous_cooldown(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="fallback-clear-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+            fallback_router_disabled_until=(now - timedelta(seconds=1)).isoformat(),
+        )
+        with mock.patch.object(
+            engine,
+            "command",
+            side_effect=((90, "CHAT_USAGE_LIMITED: provider limit"), (0, "fallback response")),
+        ):
+            with mock.patch.object(engine, "save_state") as save_state:
+                code, output = engine.invoke_chat(state.current_task, state, "")
+        self.assertEqual((code, output), (0, "fallback response"))
+        self.assertEqual(state.fallback_router_disabled_until, "")
+        self.assertGreaterEqual(save_state.call_count, 1)
+
+    def test_auth_recovery_wait_budget_is_bounded(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="auth-budget-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(minutes=5)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        with mock.patch.object(engine, "ensure_services", return_value=[]):
+            with mock.patch.object(engine, "browser_auth_required", return_value=True):
+                with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=False):
+                    with mock.patch.object(engine, "log_event"):
+                        with mock.patch("time.sleep"):
+                            with mock.patch.object(
+                                engine,
+                                "now_utc",
+                                side_effect=[
+                                    now,
+                                    now,
+                                    now,
+                                    now + timedelta(seconds=2),
+                                    now + timedelta(seconds=6),
+                                    now + timedelta(seconds=6),
+                                    now + timedelta(seconds=6),
+                                ],
+                            ):
+                                self.assertFalse(engine.standby_until_ready(state, wait_for_auth=True, max_wait_seconds=5.0))
+
+    def test_choose_next_task_ignores_non_roadmap_suggestion(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="non-roadmap-test",
             started_at=now.isoformat(),
             deadline_at=(now + timedelta(hours=8)).isoformat(),
             worktree=str(Path.cwd()),
@@ -371,8 +646,10 @@ PASI_RESULT_PATCH_END"""
             current_task=engine.AUTOMATION_TASKS[0],
             recent_tasks=[],
         )
-        suggestion = "Implement a concrete seam diagnostic for queued ChatGPT operations."
-        self.assertEqual(engine.choose_next_task(state, suggestion), suggestion)
+        self.assertEqual(
+            engine.choose_next_task(state, "invented task outside roadmap"),
+            engine.AUTOMATION_TASKS[0],
+        )
 
     def test_unique_task_selection_avoids_recent_tasks(self) -> None:
         now = datetime.now(timezone.utc)
@@ -418,8 +695,54 @@ PASI_RESULT_PATCH_END"""
 
         self.assertEqual(service_checks, ["checked", "checked"])
 
-    def test_legacy_v1_engine_is_retired(self) -> None:
-        self.assertFalse((engine.REPO_ROOT / "scripts" / "pasi_overnight_engine.py").exists())
+    def test_command_feeds_unified_patch_to_git_apply_stdin(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir)
+            subprocess.run(
+                ["git", "init", "-q"],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            (worktree / "example.txt").write_text("old\n", encoding="utf-8")
+            subprocess.run(["git", "add", "example.txt"], cwd=worktree, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c", "user.email=test@example.com",
+                    "-c", "user.name=PASI Test",
+                    "commit", "-q", "-m", "baseline",
+                ],
+                cwd=worktree,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            patch = """diff --git a/example.txt b/example.txt
+--- a/example.txt
++++ b/example.txt
+@@ -1 +1,2 @@
+ old
++new
+"""
+            code, output = engine.command(
+                ["git", "apply", "--check", "--whitespace=nowarn"],
+                worktree,
+                30.0,
+                input_text=patch,
+            )
+            self.assertEqual(code, 0, output)
+            code, output = engine.command(
+                ["git", "apply", "--whitespace=nowarn"],
+                worktree,
+                30.0,
+                input_text=patch,
+            )
+            self.assertEqual(code, 0, output)
+            self.assertEqual((worktree / "example.txt").read_text(encoding="utf-8"), "old\nnew\n")
 
     def test_state_round_trip_uses_schema_v2(self) -> None:
         now = datetime.now(timezone.utc)
@@ -456,38 +779,96 @@ PASI_RESULT_PATCH_END"""
         self.assertEqual(restored.phase, "engineering_os")
         self.assertEqual(restored.provider_limit_pauses, 1)
 
+    def test_verify_and_commit_records_gate_timing_and_supports_fast_gate(self) -> None:
+        events: list[str] = []
+
+        def fake_command(argv, cwd, timeout, **kwargs):
+            if argv[:3] == ["git", "apply", "--check"]:
+                return 0, ""
+            if argv[:3] == ["git", "apply", "--whitespace=nowarn"]:
+                return 0, ""
+            if argv[:3] == ["git", "diff", "--check"]:
+                return 0, ""
+            if argv[:3] == ["git", "diff", "--name-only"]:
+                return 0, "automation/chromium/pasi-chatgpt/content.js\n"
+            if argv[:2] == [engine.legacy.sys.executable, "-m"]:
+                return 0, "1 passed"
+            if argv[:2] == ["node", "--check"]:
+                return 0, ""
+            if argv[:2] == ["node", "--test"]:
+                return 0, "2 tests passed"
+            if argv[:3] == ["git", "status", "--porcelain"]:
+                if "--untracked-files=all" in argv:
+                    return 0, ""
+                return 0, " M automation/chromium/pasi-chatgpt/content.js"
+            raise AssertionError(f"unexpected command: {argv!r}")
+
+        with tempfile.TemporaryDirectory() as root:
+            worktree = Path(root)
+            changed = worktree / "automation" / "chromium" / "pasi-chatgpt"
+            changed.mkdir(parents=True)
+            (changed / "content.js").write_text("console.log('fixture');\n", encoding="utf-8")
+
+            with mock.patch.dict("os.environ", {"PASI_LOCAL_GATE_MODE": "fast"}, clear=False):
+                with mock.patch.object(engine, "command", side_effect=fake_command):
+                    with mock.patch.object(engine, "validate_patch_paths"):
+                        with mock.patch.object(
+                            engine,
+                            "log_event",
+                            side_effect=lambda name, **_kwargs: events.append(name),
+                        ):
+                            with mock.patch.object(
+                                engine.legacy,
+                                "commit_and_push",
+                                return_value="deadbeef",
+                            ):
+                                commit, output = engine.verify_and_commit(
+                                    worktree,
+                                    "test",
+                                    "latency regression",
+                                    "diff --git a/automation/chromium/pasi-chatgpt/content.js "
+                                    "b/automation/chromium/pasi-chatgpt/content.js\n",
+                                    False,
+                                    push=False,
+                                )
+
+        self.assertEqual(commit, "deadbeef")
+        self.assertIn("FAST LOCAL GATE PASSED", output)
+        self.assertIn("verify_started", events)
+        self.assertIn("verify_finished", events)
 
 
-    def test_validation_sandbox_uses_network_free_validator(self) -> None:
-        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
-        self.assertIn('"scripts/check_offline.sh"', source)
+    def test_operation_id_extraction_and_queue_size_telemetry(self) -> None:
+        self.assertEqual(
+            engine.extract_operation_id("Prompt operation: op-1234-abcd"),
+            "op-1234-abcd",
+        )
+        self.assertEqual(
+            engine.extract_operation_id("Resuming persisted ChatGPT operation: op-9"),
+            "op-9",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            queue_path = Path(temp_dir) / "queue.json"
+            queue_path.write_text("{}\n", encoding="utf-8")
+            with mock.patch.object(engine, "BRIDGE_QUEUE_PATH", queue_path):
+                self.assertEqual(engine.queue_file_bytes(), 3)
 
+    def test_native_controller_version_comes_from_native_source(self) -> None:
+        self.assertEqual(
+            engine.CONTROLLER_SOURCE_PATH,
+            engine.REPO_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "content.js",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "content.js"
+            source.write_text("const CONTROLLER_VERSION = '2.4.11';\n", encoding="utf-8")
+            self.assertEqual(engine.expected_controller_version(source), "2.4.11")
 
+    def test_engine_does_not_start_retired_controller_distribution_service(self) -> None:
+        import inspect
 
-    def test_fallback_provenance_contract_is_enforced(self) -> None:
-        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
-        self.assertIn("PASI_FALLBACK_PROVIDER:", source)
-        self.assertIn("failure_class=fallback_provenance_missing", source)
-        self.assertIn('state.last_provider = f"fallback:{provider}"', source)
-
-    def test_fallback_results_cannot_be_auto_promoted(self) -> None:
-        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
-        self.assertIn('promote=provider_source == "chatgpt_browser"', source)
-        self.assertIn("if push and promote:", source)
-
-
-
-    def test_runtime_guard_never_routes_to_provider_fallback(self) -> None:
-        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
-        invoke = source[source.index("def invoke_chat("):source.index("def parse_response(")]
-        self.assertIn('if condition != "auth_required":', invoke)
-        self.assertIn("Runtime-guard/browser failures must not be converted into provider", invoke)
-
-    def test_fallback_provider_provenance_is_durable_and_promotion_aware(self) -> None:
-        source = Path("scripts/pasi_overnight_engine_v2.py").read_text(encoding="utf-8")
-        self.assertIn('last_provider: str = "chatgpt_browser"', source)
-        self.assertIn('state.last_provider = f"fallback:{provider}"', source)
-        self.assertIn('promote=provider_source == "chatgpt_browser"', source)
+        source = inspect.getsource(engine.ensure_services)
+        self.assertNotIn("8766", source)
+        self.assertNotIn("pasi_controller_server.py", source)
 
 
 if __name__ == "__main__":

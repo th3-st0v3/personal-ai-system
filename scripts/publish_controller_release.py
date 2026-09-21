@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "chatgpt-controller.user.js"
-MANIFEST_PATH = REPOSITORY_ROOT / "automation" / "tampermonkey" / "controller-sync.json"
+CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
+MANIFEST_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json"
 REQUEST_PATH = REPOSITORY_ROOT / ".runtime" / "chatgpt" / "controller-update-request.json"
 
 
