@@ -127,7 +127,7 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("initial_observation: Mapping[str, Any] | None = None", content)
         self.assertIn("live_observation = wait_for_browser_controller(", content)
         self.assertIn("initial_observation=live_observation", content)
-        self.assertIn("else browser_state(adapter)", content)
+        self.assertIn("state = browser_state(adapter)", content)
 
     def test_operation_metrics_are_emitted_at_end_of_child_output(self) -> None:
         source = Path(__file__).resolve().parents[0] / "pasi_chat.py"
