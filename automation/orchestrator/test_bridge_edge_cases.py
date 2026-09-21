@@ -294,6 +294,27 @@ def test_http_finished_persists_and_exposes_timing(
         stop_server(server, thread)
 
 
+
+def test_timing_accepts_response_complete_to_prompt_injected_metric(
+    tmp_path: Path,
+) -> None:
+    bridge = make_bridge(tmp_path)
+    timing = {
+        "injected_at_ms": 20_000,
+        "ack_at_ms": 20_050,
+        "generation_start_ms": 10_000,
+        "completed_at_ms": 19_000,
+        "response_completed_to_prompt_injected_ms": 1_000,
+        "user_messages_added": 1,
+        "ack_verified": True,
+        "submission_via": "verified",
+    }
+
+    normalized = bridge.normalize_timing(timing)
+
+    assert normalized == timing
+
+
 def test_http_finished_rejects_non_monotonic_timing(
     tmp_path: Path,
 ) -> None:
