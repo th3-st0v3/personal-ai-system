@@ -9,6 +9,14 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_guard_does_not_classify_completed_child_from_late_health_observation(self) -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        request_pos = source.index('observed = classify_observation(request_json("/browser/observation"))')
+        post_request_poll_pos = source.index("if process.poll() is not None:", request_pos)
+        observed_limit_pos = source.index('if observed in {"usage_limit", "auth_required"}:', request_pos)
+        self.assertLess(request_pos, post_request_poll_pos)
+        self.assertLess(post_request_poll_pos, observed_limit_pos)
+
     def test_guard_waits_for_child_exit_without_polling_for_process_completion(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn("process.wait(timeout=timeout)", source)

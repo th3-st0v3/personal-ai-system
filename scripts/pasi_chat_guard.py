@@ -181,6 +181,8 @@ def run_child(command: list[str], *, timeout: float, bridge_poll_seconds: float)
             if process.poll() is not None:
                 return
             observed = classify_observation(request_json("/browser/observation"))
+            if process.poll() is not None:
+                return
             if observed in {"usage_limit", "auth_required"}:
                 with classification_lock:
                     classification[0] = observed
