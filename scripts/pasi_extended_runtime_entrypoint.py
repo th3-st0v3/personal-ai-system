@@ -34,6 +34,9 @@ def load_task_file(path: Path) -> str:
     return text
 
 
+def roadmap_argument_present(passthrough: list[str]) -> bool:
+    return "--roadmap" in passthrough
+
 def select_task_source(
     cli_task: str,
     explicit_task_file: Path | None,
@@ -79,14 +82,25 @@ def main() -> int:
     if environment_path:
         environment_task_file = Path(environment_path)
 
-    selected_task = select_task_source(
-        args.task,
-        args.task_file,
-        os.environ.get("PASI_TASK", ""),
-        environment_task_file,
-        DEFAULT_TASK_FILE,
+    explicit_task_source = bool(
+        args.task.strip()
+        or args.task_file is not None
+        or os.environ.get("PASI_TASK", "").strip()
+        or environment_task_file is not None
     )
-    selected_task = DIFFICULT_MODE_PREFIX + "\n" + selected_task
+    if roadmap_argument_present(passthrough) and not explicit_task_source:
+        # A structured roadmap is the authoritative initial-task source.
+        # Avoid injecting the legacy/default umbrella task in this mode.
+        selected_task = ""
+    else:
+        selected_task = select_task_source(
+            args.task,
+            args.task_file,
+            os.environ.get("PASI_TASK", ""),
+            environment_task_file,
+            DEFAULT_TASK_FILE,
+        )
+        selected_task = DIFFICULT_MODE_PREFIX + "\n" + selected_task
 
     sys.argv = [
         "pasi_overnight_engine_v2.py",
