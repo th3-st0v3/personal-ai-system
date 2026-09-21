@@ -108,8 +108,7 @@ jobs:
           REQUESTED_REF: ${{ inputs.ref }}
         run: |
           ref="${REQUESTED_REF:-${GITHUB_REF_NAME}}"
-          printf 'ref=%s
-' "$ref" >> "$GITHUB_OUTPUT"
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
