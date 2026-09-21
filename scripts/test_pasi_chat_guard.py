@@ -9,6 +9,32 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 
 class TestPasiChatGuard(unittest.TestCase):
+    def test_guard_timeout_cancels_active_bridge_operation(self) -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        self.assertIn("def cancel_active_operation(reason: str)", source)
+        self.assertIn('request_json("/browser/health")', source)
+        self.assertIn('"/chat/cancel"', source)
+        self.assertIn('cancel_active_operation("guard timeout before child termination")', source)
+
+    def test_fallback_sandbox_scrubs_sensitive_environment(self) -> None:
+        source = Path("scripts/pasi_provider_router.py").read_text(encoding="utf-8")
+        for secret_name in (
+            "PASI_BRIDGE_TOKEN",
+            "GITHUB_TOKEN",
+            "GH_TOKEN",
+            "OPENROUTER_API_KEY",
+            "PERPLEXITY_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+            "GEMINI_API_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "SSH_AUTH_SOCK",
+        ):
+            self.assertIn(f'"{secret_name}"', source)
+
     def test_guard_uses_immutable_launcher_control_script_and_explicit_target_repo(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn('str(REPO_ROOT / "scripts" / "pasi_chat.py")', source)
