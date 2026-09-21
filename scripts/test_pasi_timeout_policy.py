@@ -31,6 +31,8 @@ def test_browser_json_and_python_loader_share_the_same_fast_normal_path_policy()
     assert raw["recovery_progress_poll_ms"] == 5000
     assert raw["python_wait_seconds"] == 3600
     assert policy["controller_poll_ms"] == 500
+    assert policy["heartbeat_seconds"] == 2
+    assert policy["stale_seconds"] == 10
     assert policy["dom_poll_ms"] == 20
     assert policy["click_settle_ms"] == 20
     assert policy["response_settle_ms"] == 20
