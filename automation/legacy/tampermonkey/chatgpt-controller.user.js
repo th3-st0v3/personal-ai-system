@@ -459,7 +459,7 @@
     }
 
     async function reportFinished(operationId, responseText) {
-        var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()) };
+        var body = { operation_id: operationId, chat_url: chatUrl(), response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()), ack_only: true };
         if (typeof responseText === 'string') {
             body.response_text = responseText.slice(0, 50000);
             var progress = completionProgress(responseText);
