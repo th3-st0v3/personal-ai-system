@@ -1661,6 +1661,7 @@
     pollTimerId = setInterval(poll, POLL_MS);
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
     void reportHealth();
+    if (extensionContextInvalidated) return;
 
     await recoverInterruptedOperation();
     if (extensionContextInvalidated) {
