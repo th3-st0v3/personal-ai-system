@@ -1159,7 +1159,22 @@
   }
 
 
-  async function waitForResponse(baseline) {
+  function completionMarkersSatisfied(responseText, markers) {
+    const text = typeof responseText === 'string' ? responseText : '';
+    if (!text.trim()) return false;
+    const configured = Array.isArray(markers)
+      ? markers
+          .filter((marker) => typeof marker === 'string' && marker.trim())
+          .map((marker) => marker.trim())
+      : [];
+    if (!configured.length) return true;
+    const lines = text.split(/\r?\n/).map((line) => line.trim());
+    return configured.some((marker) =>
+      lines.some((line) => line === marker || line.startsWith(marker + ':'))
+    );
+  }
+
+  async function waitForResponse(baseline, completionMarkers = []) {
     let sawGeneration = false;
     let generationEndedAt = 0;
     let failureReason = null;
@@ -1184,12 +1199,19 @@
         if (!generationEndedAt) generationEndedAt = Date.now();
         if (Date.now() - generationEndedAt < RESPONSE_SETTLE_MS) return null;
         const responseText = latestAssistant();
-        return responseText && fingerprint() !== baseline ? responseText : null;
+        return (
+          responseText &&
+          fingerprint() !== baseline &&
+          completionMarkersSatisfied(responseText, completionMarkers)
+        ) ? responseText : null;
       }
 
       const current = fingerprint();
       if (current !== baseline && current) {
-        return latestAssistant();
+        const responseText = latestAssistant();
+        return completionMarkersSatisfied(responseText, completionMarkers)
+          ? responseText
+          : null;
       }
       return null;
     }, TIMEOUTS.generation, DOM_POLL_MS);
@@ -1386,7 +1408,12 @@
             throw new Error('PASI_NATIVE: submission accepted but generation did not start');
           }
           browserTiming.generation_start_ms = generationStartMs;
-          const response = await waitForResponse(baseline);
+          const response = await waitForResponse(
+            baseline,
+            Array.isArray(operation.completion_markers)
+              ? operation.completion_markers
+              : []
+          );
           browserTiming.completed_at_ms = Date.now();
           await finishOperation(operation.operation_id, response, true, browserTiming);
           finalized = true;
