@@ -24,6 +24,9 @@ class RuntimeReport:
     short_response_streak_max: int
     response_latency_samples: tuple[float, ...]
     response_to_next_dispatch_samples: tuple[float, ...]
+    browser_handoff_samples: tuple[float, ...]
+    browser_ack_samples: tuple[float, ...]
+    browser_generation_samples: tuple[float, ...]
     prompt_sizes: tuple[int, ...]
     recovery_events: int
     provider_limit_events: int
@@ -49,6 +52,26 @@ class RuntimeReport:
     @property
     def p50_response_latency_ms(self) -> float | None:
         return _percentile(self.response_latency_samples, 0.50)
+
+    @property
+    def p50_browser_handoff_ms(self) -> float | None:
+        return _percentile(self.browser_handoff_samples, 0.50)
+
+    @property
+    def p95_browser_handoff_ms(self) -> float | None:
+        return _percentile(self.browser_handoff_samples, 0.95)
+
+    @property
+    def p99_browser_handoff_ms(self) -> float | None:
+        return _percentile(self.browser_handoff_samples, 0.99)
+
+    @property
+    def p50_browser_ack_ms(self) -> float | None:
+        return _percentile(self.browser_ack_samples, 0.50)
+
+    @property
+    def p95_browser_ack_ms(self) -> float | None:
+        return _percentile(self.browser_ack_samples, 0.95)
 
 def _timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str):
@@ -99,10 +122,14 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
     short_streak = max_streak = 0
     response_latency_samples: list[float] = []
     response_to_next_dispatch_samples: list[float] = []
+    browser_handoff_samples: list[float] = []
+    browser_ack_samples: list[float] = []
+    browser_generation_samples: list[float] = []
     prompt_sizes: list[int] = []
     recovery_events = provider_limit_events = auth_events = 0
     previous_dispatch: datetime | None = None
     last_response: datetime | None = None
+    last_browser_completed_ms: float | None = None
 
     for event in events:
         kind = event.get("kind")
@@ -142,6 +169,32 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
                     response_to_next_dispatch_samples.append(latency_ms)
                 last_response = None
             previous_dispatch = timestamp
+        elif kind == "browser_timing":
+            injected_ms = event.get("injected_at_ms")
+            ack_ms = event.get("ack_at_ms")
+            generation_start_ms = event.get("generation_start_ms")
+            completed_ms = event.get("completed_at_ms")
+            if isinstance(injected_ms, (int, float)) and not isinstance(injected_ms, bool):
+                if last_browser_completed_ms is not None:
+                    handoff_ms = float(injected_ms) - last_browser_completed_ms
+                    if handoff_ms >= 0:
+                        browser_handoff_samples.append(handoff_ms)
+                if (
+                    isinstance(ack_ms, (int, float))
+                    and not isinstance(ack_ms, bool)
+                    and float(ack_ms) >= float(injected_ms)
+                ):
+                    browser_ack_samples.append(float(ack_ms) - float(injected_ms))
+            if (
+                isinstance(generation_start_ms, (int, float))
+                and not isinstance(generation_start_ms, bool)
+                and isinstance(completed_ms, (int, float))
+                and not isinstance(completed_ms, bool)
+                and float(completed_ms) >= float(generation_start_ms)
+            ):
+                browser_generation_samples.append(float(completed_ms) - float(generation_start_ms))
+            if isinstance(completed_ms, (int, float)) and not isinstance(completed_ms, bool):
+                last_browser_completed_ms = float(completed_ms)
         elif kind == "prompt_compiled":
             chars = event.get("prompt_chars")
             if isinstance(chars, int) and chars >= 0:
@@ -165,6 +218,9 @@ def analyze(events: list[Mapping[str, Any]], malformed_lines: int = 0) -> Runtim
         short_response_streak_max=max_streak,
         response_latency_samples=tuple(response_latency_samples),
         response_to_next_dispatch_samples=tuple(response_to_next_dispatch_samples),
+        browser_handoff_samples=tuple(browser_handoff_samples),
+        browser_ack_samples=tuple(browser_ack_samples),
+        browser_generation_samples=tuple(browser_generation_samples),
         prompt_sizes=tuple(prompt_sizes),
         recovery_events=recovery_events,
         provider_limit_events=provider_limit_events,
@@ -180,8 +236,9 @@ def render_markdown(report: RuntimeReport) -> str:
         attention.append("repeated task numbers detected")
     if report.short_response_streak_max >= 3:
         attention.append("three or more short responses occurred consecutively")
-    if report.p95_response_to_next_dispatch_ms is not None and report.p95_response_to_next_dispatch_ms > LATENCY_ATTENTION_MS:
-        attention.append(f"p95 response-to-next-dispatch latency exceeds {LATENCY_ATTENTION_MS:.0f} ms")
+    primary_p95 = report.p95_browser_handoff_ms if report.browser_handoff_samples else report.p95_response_to_next_dispatch_ms
+    if primary_p95 is not None and primary_p95 > LATENCY_ATTENTION_MS:
+        attention.append(f"p95 response-to-next-injection latency exceeds {LATENCY_ATTENTION_MS:.0f} ms")
     if report.malformed_lines:
         attention.append(f"{report.malformed_lines} malformed event lines were ignored")
     status = "ATTENTION" if attention else "OBSERVE"
@@ -215,16 +272,21 @@ def render_markdown(report: RuntimeReport) -> str:
         f"| Provider-limit pauses | {report.provider_limit_events} |",
         f"| Auth/re-auth events | {report.auth_events} |",
         "",
-        "## Latency",
+        "## Browser latency",
         "",
-        "The primary efficiency metric is response event to next prompt dispatch. This is still not authenticated DOM send latency.",
+        "The primary efficiency metric uses native controller millisecond evidence: response completion to the next prompt injection. This excludes later repository verification/commit work. It still does not prove authenticated production behavior until the real desktop flow is exercised.",
         "",
-        f"- Response-to-next-dispatch samples: {len(report.response_to_next_dispatch_samples)}",
-        f"- Response-to-next-dispatch P50: {_fmt(report.p50_response_to_next_dispatch_ms, ' ms')}",
-        f"- Response-to-next-dispatch P95: {_fmt(report.p95_response_to_next_dispatch_ms, ' ms')}",
-        f"- Response-to-next-dispatch P99: {_fmt(report.p99_response_to_next_dispatch_ms, ' ms')}",
-        f"- Prompt-dispatch-to-response samples: {len(report.response_latency_samples)}",
-        f"- Prompt-dispatch-to-response P50: {_fmt(report.p50_response_latency_ms, ' ms')}",
+        f"- Completion-to-next-injection samples: {len(report.browser_handoff_samples)}",
+        f"- Completion-to-next-injection P50: {_fmt(report.p50_browser_handoff_ms, ' ms')}",
+        f"- Completion-to-next-injection P95: {_fmt(report.p95_browser_handoff_ms, ' ms')}",
+        f"- Completion-to-next-injection P99: {_fmt(report.p99_browser_handoff_ms, ' ms')}",
+        f"- Submission acknowledgment P50: {_fmt(report.p50_browser_ack_ms, ' ms')}",
+        f"- Generation duration samples: {len(report.browser_generation_samples)}",
+        "",
+        "Fallback engine-event latency:",
+        f"- Response event to next engine dispatch samples: {len(report.response_to_next_dispatch_samples)}",
+        f"- P50: {_fmt(report.p50_response_to_next_dispatch_ms, ' ms')}",
+        f"- P95: {_fmt(report.p95_response_to_next_dispatch_ms, ' ms')}",
         "",
         "## Prompt economy",
         "",
