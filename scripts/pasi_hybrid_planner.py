@@ -326,20 +326,21 @@ def save_decomposition_overlay(
             raise PlannerError(f"invalid existing decomposition overlay: {path}") from exc
         if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != SCHEMA_VERSION:
             raise PlannerError("invalid existing decomposition overlay schema")
-        raw_decompositions = raw.get("decompositions", {})
-        raw_generated = raw.get("generated_tasks", [])
-        if isinstance(raw_decompositions, dict):
-            decompositions = {
-                str(key): dict(item)
-                for key, item in raw_decompositions.items()
-                if isinstance(item, dict)
-            }
-        if isinstance(raw_generated, list):
-            generated = {
-                str(item["id"]): dict(item)
-                for item in raw_generated
-                if isinstance(item, dict) and isinstance(item.get("id"), str)
-            }
+        if raw.get("roadmap_sha256") == source_digest:
+            raw_decompositions = raw.get("decompositions", {})
+            raw_generated = raw.get("generated_tasks", [])
+            if isinstance(raw_decompositions, dict):
+                decompositions = {
+                    str(key): dict(item)
+                    for key, item in raw_decompositions.items()
+                    if isinstance(item, dict)
+                }
+            if isinstance(raw_generated, list):
+                generated = {
+                    str(item["id"]): dict(item)
+                    for item in raw_generated
+                    if isinstance(item, dict) and isinstance(item.get("id"), str)
+                }
     decompositions[parent.id] = {
         "status": "decomposed",
         "children": [child.id for child in children],
