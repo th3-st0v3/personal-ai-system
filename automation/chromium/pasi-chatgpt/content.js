@@ -1577,13 +1577,6 @@
               0,
               browserTiming.injected_at_ms - previousCompletionAckAtMs
             );
-            void reportObservation('pasi_latency_measurement', {
-              operation_id: operation.operation_id,
-              phase: 'completion_to_prompt_injected',
-              elapsed_ms: browserTiming.completion_to_prompt_injected_ms,
-              previous_completion_ack_at_ms: previousCompletionAckAtMs,
-              prompt_injected_at_ms: browserTiming.injected_at_ms
-            });
           }
           void reportObservation('prompt_injected', {
             operation_id: operation.operation_id,

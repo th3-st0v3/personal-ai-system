@@ -599,6 +599,14 @@ test('native completion telemetry is deferred off the hot path', () => {
   assert.doesNotMatch(source, /publishResponseTelemetry\(\);\n    let lastError/);
 });
 
+test('native handoff latency is persisted in operation timing without an extra telemetry request', () => {
+  const start = content.indexOf('const submission = await submitPrompt(promptText);');
+  const end = content.indexOf('if (!submission.verified)', start);
+  const source = content.slice(start, end);
+  assert.match(source, /completion_to_prompt_injected_ms/);
+  assert.doesNotMatch(source, /pasi_latency_measurement/);
+});
+
 test('native handoff latency only uses numeric injection timestamps', () => {
   assert.match(content, /typeof browserTiming\.injected_at_ms === 'number'/);
 });
