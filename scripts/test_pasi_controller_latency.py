@@ -13,9 +13,19 @@ def _read(path: Path) -> str:
 
 
 def _number(source: str, name: str) -> int:
-    match = re.search(rf"(?:var|const)\s+{re.escape(name)}\s*=\s*(\d+)", source)
-    assert match, f"missing {name}"
-    return int(match.group(1))
+    literal = re.search(
+        rf"(?:var|const)\s+{re.escape(name)}\s*=\s*(\d+)",
+        source,
+    )
+    if literal:
+        return int(literal.group(1))
+
+    fallback = re.search(
+        rf"(?:var|const)\s+{re.escape(name)}\s*=\s*[^;]+\|\|\s*(\d+)",
+        source,
+    )
+    assert fallback, f"missing numeric fallback for {name}"
+    return int(fallback.group(1))
 
 
 def test_tampermonkey_controller_uses_bounded_idle_polling_and_recovery_state() -> None:
@@ -36,10 +46,11 @@ def test_tampermonkey_controller_uses_bounded_idle_polling_and_recovery_state() 
 def test_native_controller_uses_bounded_idle_polling() -> None:
     source = _read(NATIVE)
 
-    assert 1000 <= _number(source, "POLL_MS") <= 5000
-    assert _number(source, "DOM_POLL_MS") <= 250
-    assert _number(source, "CLICK_SETTLE_MS") <= 300
-    assert 3000 <= _number(source, "RESPONSE_SETTLE_MS") <= 5000
+    assert 250 <= _number(source, "POLL_MS") <= 1000
+    assert _number(source, "DOM_POLL_MS") <= 100
+    assert _number(source, "CLICK_SETTLE_MS") <= 100
+    assert _number(source, "RESPONSE_SETTLE_MS") <= 100
+    assert _number(source, "COMPLETION_RETRY_DELAY_MS") <= 20
     assert "const ACTIVE_KEY = 'pasi:active-operation';" in source
     assert "localStorage.setItem(ACTIVE_KEY" in source
     assert "localStorage.removeItem(ACTIVE_KEY);" in source
@@ -85,7 +96,8 @@ def test_latency_changes_preserve_browser_safety_boundaries() -> None:
 def test_native_controller_recovers_composer_rerenders_and_stops_invalidated_context_polling() -> None:
     native = _read(NATIVE)
 
-    assert "newestUserMatches(expected, baselineUserCount)" in native
+    assert "const snapshot = snapshotUserMessages()" in native
+    assert "countNewUserMessages(userMessages(), snapshot)" in native
     assert "composer lost the requested prompt before submission after bounded recovery" in native
     assert "never overwrite unrelated" in native
     assert "extensionContextInvalidated" in native
