@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-REPO_URL="\${PASI_GITHUB_RUNNER_REPO_URL:-https://github.com/th3-st0v3/personal-ai-system}"
-RUNNER_DIR="\${PASI_GITHUB_RUNNER_DIR:-$HOME/.pasi/actions-runner}"
-RUNNER_NAME="\${PASI_GITHUB_RUNNER_NAME:-$(hostname)-pasi}"
-RUNNER_LABELS="\${PASI_GITHUB_RUNNER_LABELS:-pasi-wsl,pasi-desktop,pasi-capabilities-v1}"
-WORK_DIR="\${PASI_GITHUB_RUNNER_WORK_DIR:-_work}"
-TOKEN="\${PASI_GITHUB_RUNNER_TOKEN:-}"
-FORCE_RECONFIGURE="\${PASI_GITHUB_RUNNER_FORCE_RECONFIGURE:-0}"
+REPO_URL="${PASI_GITHUB_RUNNER_REPO_URL:-https://github.com/th3-st0v3/personal-ai-system}"
+RUNNER_DIR="${PASI_GITHUB_RUNNER_DIR:-$HOME/.pasi/actions-runner}"
+RUNNER_NAME="${PASI_GITHUB_RUNNER_NAME:-$(hostname)-pasi}"
+RUNNER_LABELS="${PASI_GITHUB_RUNNER_LABELS:-pasi-wsl,pasi-desktop,pasi-capabilities-v1}"
+WORK_DIR="${PASI_GITHUB_RUNNER_WORK_DIR:-_work}"
+TOKEN="${PASI_GITHUB_RUNNER_TOKEN:-}"
+FORCE_RECONFIGURE="${PASI_GITHUB_RUNNER_FORCE_RECONFIGURE:-0}"
 
 log() { printf '[pasi-runner] %s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -30,8 +30,8 @@ if [[ ! -x "$RUNNER_DIR/config.sh" || ! -x "$RUNNER_DIR/run.sh" ]]; then
     version="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["tag_name"].lstrip("v"))' <<<"$metadata")"
     [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "could not determine a safe runner release version"
 
-    archive="actions-runner-linux-x64-\${version}.tar.gz"
-    curl -fsSL -o "$archive" "https://github.com/actions/runner/releases/download/v\${version}/\${archive}"
+    archive="actions-runner-linux-x64-${version}.tar.gz"
+    curl -fsSL -o "$archive" "https://github.com/actions/runner/releases/download/v${version}/${archive}"
     tar -xzf "$archive"
     rm -f "$archive"
 fi

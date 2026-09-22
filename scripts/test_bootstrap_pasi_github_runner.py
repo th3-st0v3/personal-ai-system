@@ -51,5 +51,5 @@ def test_obsolete_hosted_pr_audits_are_not_present() -> None:
 
 def test_security_runs_cancel_stale_heads() -> None:
     workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
-    assert "group: pasi-security-\${{ github.event.pull_request.number || github.ref }}" in workflow
+    assert "group: pasi-security-${{ github.event.pull_request.number || github.ref }}" in workflow
     assert "cancel-in-progress: true" in workflow
