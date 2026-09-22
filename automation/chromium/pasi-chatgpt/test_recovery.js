@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const test = require('node:test');
 
 const source = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery.js', 'utf8');
+const detectors = fs.readFileSync('automation/chromium/pasi-chatgpt/detectors.js', 'utf8');
 
 test('recovery uses progress-based stall detection with a hard ceiling instead of age-only reloads', () => {
   assert.match(source, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
@@ -45,6 +46,12 @@ test('recovery never prepares a replacement chat without verified exhaustion', (
 test('recovery clears terminal operations and does not loop on the same failed operation', () => {
   assert.match(source, /current\.status === 'completed' \|\| current\.status === 'failed' \|\| current\.status === 'cancelled'/);
   assert.match(source, /if \(!current\) return/);
+});
+
+
+test('connection interruption is recognized by both native recovery layers', () => {
+  assert.match(detectors, /'connection interrupted'/);
+  assert.match(source, /'connection interrupted'/);
 });
 
 test('connection failure detection is scoped to visible error/alert elements', () => {
