@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-import argparseimport subprocess
+import argparse
+import subprocess
 import sys
 from pathlib import Path
 
