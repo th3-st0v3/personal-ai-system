@@ -196,6 +196,38 @@ class TestProviderRouter(unittest.TestCase):
         ollama.assert_called_once()
 
 
+    def test_post_json_sets_a_non_default_user_agent(self) -> None:
+        import json
+        import urllib.request
+
+        captured = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, _limit):
+                return b'{"ok": true}'
+
+        def fake_urlopen(request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return Response()
+
+        with patch.object(urllib.request, "urlopen", side_effect=fake_urlopen):
+            result = pasi_provider_router.post_json(
+                "https://example.invalid/test",
+                {"x": 1},
+                {"Authorization": "Bearer secret"},
+                3.0,
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(captured["request"].headers["User-agent"], "PASI-provider-router/1.0")
+        self.assertEqual(captured["request"].headers["Accept"], "application/json")
+        self.assertEqual(captured["timeout"], 3.0)
+
     def test_groq_and_gemini_provider_adapters_use_openai_compatible_shape(self) -> None:
         with patch.dict(
             "os.environ",
