@@ -198,6 +198,7 @@
         if(target.matches('[data-view="projects"]')){await openProjects();return;}
         if(target.matches('[data-view="education"]')){setView('education');window.renderEducationPage?.();return;}
         if(target.matches('[data-view="simulations"]')){setView('simulations');await window.openSimulationsView?.();return;}
+        if(target.matches('[data-view="lab"]')){setView('lab');await window.openExperimentLabView?.();return;}
         if(target.matches('[data-view="connections"]')){setView('connections');await window.openConnectionsView?.();return;}
         if(target.matches('[data-view="settings"]')){setView('settings');window.renderSettingsPage?.();return;}
         if(target.matches('[data-view="chat"],#new-chat,#new-chat-header')){draftChat();return;}
