@@ -82,6 +82,7 @@
   }
 
   const setView = (view) => {
+    if (state.view === 'lab' && view !== 'lab') window.stopExperimentLabPolling?.();
     state.view = view; $('home-view').hidden=view!=='chat'; $('page-view').hidden=view==='chat';
     document.querySelectorAll('.nav-item[data-view]').forEach((button)=>button.classList.toggle('active',button.dataset.view===view));
     if (view!=='chat') $('project-tools').hidden=true; syncAccessibility();
