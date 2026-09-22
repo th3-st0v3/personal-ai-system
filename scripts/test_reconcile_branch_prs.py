@@ -111,6 +111,15 @@ class TestBranchPrReconciliation(unittest.TestCase):
             )
         )
 
+    def test_merge_state_is_case_insensitive_in_api_recording(self) -> None:
+        pr = self._pr(merge_state="CLEAN")
+        self.assertTrue(
+            hygiene.is_standard_auto_merge_candidate(
+                pr,
+                checks_green=True,
+            )
+        )
+
     def test_protected_and_system_branches_are_not_auto_pr_opened(self) -> None:
         branches = (
             {"name": "main", "ahead_by": 5},
