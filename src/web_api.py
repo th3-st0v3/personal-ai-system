@@ -117,6 +117,7 @@ class WebApplication:
                 "processes_endpoint": "/api/lab/processes",
                 "fuzz_endpoint": "/api/lab/fuzz",
                 "model_endpoint": "/api/lab/model",
+                "providers_capabilities_endpoint": "/api/lab/providers/capabilities",
             },
             "simulations": [
                 {
