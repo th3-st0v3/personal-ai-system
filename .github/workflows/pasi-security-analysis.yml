@@ -16,7 +16,7 @@ permissions:
 jobs:
   codeql:
     name: CodeQL (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     strategy:
       fail-fast: false
       matrix:
@@ -31,7 +31,7 @@ jobs:
           category: /language:${{ matrix.language }}
 
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -40,7 +40,7 @@ jobs:
       - run: python scripts/scan_repository_secrets.py
 
   dependency-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
