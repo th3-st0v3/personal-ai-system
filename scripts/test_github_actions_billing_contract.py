@@ -1,38 +1,71 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_WORKFLOW = ROOT / ".github" / "workflows" / "test.yml"
+WORKFLOW_DIR = ROOT / ".github" / "workflows"
+
+
+def job_block(source: str, job_name: str) -> str:
+    pattern = re.compile(
+        rf"(?ms)^  {re.escape(job_name)}:\n.*?(?=^  [A-Za-z0-9_-]+:|\Z)"
+    )
+    match = pattern.search(source)
+    if not match:
+        raise AssertionError(f"workflow job not found: {job_name}")
+    return match.group(0)
 
 
 class TestGitHubActionsBillingContract(unittest.TestCase):
-    def test_required_free_validation_is_self_hosted(self) -> None:
+    def test_test_workflow_defaults_every_test_job_to_self_hosted(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
-        job_start = source.index("  free-validation:")
-        job_end = source.index("
-  test:", job_start)
-        job = source[job_start:job_end]
-
-        self.assertIn(
-            "runs-on: [self-hosted, linux, x64, pasi-wsl]",
-            job,
+        expected_selector = (
+            "runs-on: ${{ inputs.runner_mode == 'github-hosted' "
+            "&& 'ubuntu-latest' || 'pasi-wsl' }}"
         )
-        self.assertNotIn("runs-on: ubuntu-latest", job)
-        self.assertNotIn("runs-on: ubuntu-", job)
-        self.assertIn("scripts/run_free_acceptance.py", job)
+        for job_name in ("runner-preflight", "free-validation", "test", "browser-use-compat"):
+            job = job_block(source, job_name)
+            self.assertIn(expected_selector, job, job_name)
+        self.assertNotIn("runs-on: ubuntu-", source)
 
-    def test_free_validation_job_does_not_require_billing_state(self) -> None:
+    def test_manual_runner_switch_is_explicit_and_self_hosted_by_default(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
-        job_start = source.index("  free-validation:")
-        job_end = source.index("
-  test:", job_start)
-        job = source[job_start:job_end]
-        self.assertNotIn("ubuntu-latest", job)
+        self.assertIn("runner_mode:", source)
+        self.assertIn("default: self-hosted", source)
+        self.assertRegex(
+            source,
+            r"options:\n\s+- self-hosted\n\s+- github-hosted",
+        )
+        self.assertIn("actions/checkout@v7", source)
+
+    def test_self_hosted_preflight_is_part_of_required_test_gate(self) -> None:
+        source = TEST_WORKFLOW.read_text(encoding="utf-8")
+        preflight = job_block(source, "runner-preflight")
+        self.assertIn("pasi-wsl", preflight)
+        self.assertIn("scripts/check_pasi_self_hosted_runner.py", preflight)
+        for job_name in ("free-validation", "test", "browser-use-compat"):
+            self.assertIn("needs: runner-preflight", job_block(source, job_name))
+
+    def test_required_free_validation_stays_local_and_free(self) -> None:
+        source = TEST_WORKFLOW.read_text(encoding="utf-8")
+        job = job_block(source, "free-validation")
+        self.assertIn("scripts/run_free_acceptance.py", job)
         self.assertNotIn("ubuntu-24.04", job)
         self.assertNotIn("ubuntu-22.04", job)
+        self.assertIn("PASI_FREE_TEST_MODE: '1'", job)
+
+    def test_no_static_github_hosted_runner_selector_exists_in_workflows(self) -> None:
+        for path in WORKFLOW_DIR.glob("*.yml"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotRegex(
+                source,
+                r"(?m)^\s*runs-on:\s*ubuntu-[^\s]+\s*$",
+                msg=f"static GitHub-hosted runner selector in {path}",
+            )
 
 
 if __name__ == "__main__":
