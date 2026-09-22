@@ -19,6 +19,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from automation.computer_use.chatgpt import ChatGPTAdapter, UrllibBridgeTransport
 from automation.computer_use.contracts import AIResponse
 from automation.orchestrator.controller_update import evaluate_controller_update, read_last_synced_version, write_update_request
+from scripts import pasi_prompt_compiler
 
 RUNTIME_DIR = REPOSITORY_ROOT / ".runtime" / "chatgpt"
 SESSION_STATE_PATH = RUNTIME_DIR / "session.json"
@@ -223,31 +224,22 @@ def clear_active_operation(handoff: dict[str, object]) -> None:
 
 
 def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> str:
-    """Return a minimal task prompt; scheduler/runtime policy stays outside the model message."""
+    """Compile direct CLI tasks through the same adaptive prompt contract."""
     del repo_state, handoff
     task_text = task.strip()
     if not task_text:
         raise ValueError("task must not be empty")
     if task_text.startswith("CURRENT TASK:") and "\nRESULT:\n" in task_text:
         return task_text
-    return (
-        "CURRENT TASK:\n"
-        f"{task_text}\n\n"
-        "Work on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n"
-        "RESULT:\n"
-        "PASI_RESULT_STATUS: complete|needs_revision|blocked\n"
-        "PASI_RESULT_SUMMARY: one concise sentence\n"
-        "PASI_RESULT_REQUIREMENTS: complete\n"
-        "PASI_RESULT_LIMITATIONS: handled|none|not_applicable\n"
-        "PASI_RESULT_RESEARCH: performed|not_applicable\n"
-        "PASI_RESULT_UX: verified|not_applicable\n"
-        "PASI_RESULT_BACKEND: verified|not_applicable\n"
-        "PASI_RESULT_EVIDENCE: concise tests/verification evidence\n"
-        "PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped\n"
-        "PASI_RESULT_ALLOW_DELETE: true|false\n"
-        "PASI_RESULT_PATCH_BEGIN\n"
-        "<one unified git diff>\n"
-        "PASI_RESULT_PATCH_END\n"
+    return pasi_prompt_compiler.compile_task_prompt(
+        task_text,
+        run_id="direct-chat",
+        task_number=0,
+        attempt=1,
+        max_attempts=1,
+        branch="",
+        worktree="",
+        phase="direct_chat",
     )
 
 

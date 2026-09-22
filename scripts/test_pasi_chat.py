@@ -91,16 +91,19 @@ class TestPasiChat(unittest.TestCase):
                 "summary": "old handoff",
             },
         )
-        self.assertTrue(prompt.startswith("CURRENT TASK:\ninspect the bridge"))
+        self.assertTrue(prompt.startswith("PASI TASK EXECUTION\n"))
+        self.assertIn("CURRENT TASK:\ninspect the bridge", prompt)
         self.assertIn("RESULT:\n", prompt)
         self.assertIn("PASI_RESULT_STATUS:", prompt)
-        self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
+        self.assertIn("Use the available turn to implement and verify the CURRENT TASK", prompt)
+        self.assertIn("Stay on this task until every acceptance criterion is satisfied", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
         self.assertNotIn("REPOSITORY STATE:", prompt)
         self.assertNotIn("PUBLIC GITHUB CONTEXT:", prompt)
         self.assertNotIn("Thinking is required", prompt)
         self.assertNotIn("ROADMAP", prompt)
         self.assertNotIn("NEXT_TASK", prompt)
+        self.assertIn("TASK_MODE: fresh_task", prompt)
 
     def test_build_prompt_does_not_double_compile_task_prompts(self) -> None:
         compiled = (

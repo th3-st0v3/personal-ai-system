@@ -1390,6 +1390,50 @@ def no_change_completion_is_satisfied(
     )
 
 
+
+def completed_task_handoff(
+    state: OvernightState,
+    current_task: str,
+) -> tuple[str, str, str]:
+    """Return bounded context from the most recently verified completed task."""
+    if not state.recent_tasks:
+        return "", "", ""
+    previous_task = str(state.recent_tasks[-1]).strip()
+    if not previous_task or task_key(previous_task) == task_key(current_task):
+        return "", "", ""
+    entry = load_task_ledger().get(task_key(previous_task))
+    if not isinstance(entry, dict) or str(entry.get("status", "")).casefold() != "completed":
+        return "", "", ""
+    previous_task_id = str(entry.get("task_id", "")).strip()
+    evidence = str(entry.get("evidence", "")).strip()
+    summary = str(state.last_result).strip()
+    if not summary or summary == state.stop_reason:
+        summary = evidence.split("\n", 1)[-1].strip() if evidence else ""
+    return previous_task_id, summary[-1500:], evidence[-1500:]
+
+
+def prompt_task_metadata(
+    state: OvernightState,
+    task: str,
+) -> tuple[str, str]:
+    """Resolve planner metadata without making prompt construction depend on it."""
+    task_id = state.current_task_id.strip()
+    task_size = "unspecified"
+    if not state.roadmap_path.strip() and not os.environ.get("PASI_ROADMAP_PATH", "").strip():
+        return task_id, task_size
+    try:
+        tasks = load_planner_tasks(state)
+    except (OSError, hybrid_planner.PlannerError):
+        return task_id, task_size
+    normalized = " ".join(task.split())
+    for candidate in tasks:
+        if task_id and candidate.id == task_id:
+            return candidate.id, candidate.estimated_size
+        if " ".join(candidate.execution_text().split()) == normalized:
+            return candidate.id, candidate.estimated_size
+    return task_id, task_size
+
+
 def continuation_directive(_state: OvernightState, _task: str | None = None) -> str:
     """Compatibility helper kept for legacy callers; prompt construction is centralized."""
     return (
@@ -1399,6 +1443,11 @@ def continuation_directive(_state: OvernightState, _task: str | None = None) -> 
     )
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
+    task_id, task_size = prompt_task_metadata(state, task)
+    previous_task_id, previous_task_summary, previous_task_evidence = completed_task_handoff(
+        state,
+        task,
+    )
     return prompt_compiler.compile_task_prompt(
         task,
         run_id=state.run_id,
@@ -1408,6 +1457,11 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
         branch=state.branch,
         worktree=state.worktree,
         phase=state.phase,
+        task_id=task_id,
+        task_size=task_size,
+        previous_task_id=previous_task_id,
+        previous_task_summary=previous_task_summary,
+        previous_task_evidence=previous_task_evidence,
         recent_tasks=state.recent_tasks,
         roadmap_tasks=AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS,
         previous_failure=failure,

@@ -1124,6 +1124,121 @@ branch refs/heads/main
             self.assertFalse(control.exists())
 
 
+
+    def test_prompt_compiler_adapts_to_task_identity_and_completion_mode(self) -> None:
+        first = prompt_compiler.compile_task_prompt(
+            "TITLE: First task\nOBJECTIVE: Fix the bridge",
+            run_id="run-1",
+            task_number=1,
+            attempt=1,
+            max_attempts=3,
+            branch="branch",
+            worktree="/tmp/worktree",
+            phase="automation",
+            task_id="task.one",
+            task_size="small",
+        )
+        second = prompt_compiler.compile_task_prompt(
+            "TITLE: Second task\nOBJECTIVE: Fix the parser",
+            run_id="run-1",
+            task_number=2,
+            attempt=1,
+            max_attempts=3,
+            branch="branch",
+            worktree="/tmp/worktree",
+            phase="automation",
+            task_id="task.two",
+            task_size="large",
+            previous_task_id="task.one",
+            previous_task_summary="The bridge fix was implemented and verified.",
+            previous_task_evidence="pytest and targeted integration verification passed.",
+        )
+        self.assertNotEqual(first, second)
+        self.assertIn("TASK_ID: task.one", first)
+        self.assertIn("TASK_MODE: fresh_task", first)
+        self.assertIn("TASK_SIZE: small", first)
+        self.assertIn("TASK_ID: task.two", second)
+        self.assertIn("TASK_MODE: fresh_task", second)
+        self.assertIn("TASK_SIZE: large", second)
+        self.assertIn("PREVIOUS VERIFIED TASK HANDOFF:", second)
+        self.assertIn("The bridge fix was implemented and verified.", second)
+        self.assertIn("Use the available turn to implement and verify the CURRENT TASK", second)
+        self.assertIn("Do not start another roadmap task", second)
+
+    def test_prompt_compiler_changes_mode_and_includes_retry_evidence(self) -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            "TITLE: Retry task\nOBJECTIVE: Repair the failing implementation",
+            run_id="run-retry",
+            task_number=4,
+            attempt=2,
+            max_attempts=3,
+            branch="branch",
+            worktree="/tmp/worktree",
+            phase="engineering_os",
+            task_id="task.retry",
+            task_size="medium",
+            previous_failure="pytest failed: assertion mismatch in parser handoff",
+        )
+        self.assertIn("TASK_MODE: retry_after_failure", prompt)
+        self.assertIn("TASK_ATTEMPT: 2/3", prompt)
+        self.assertIn("CURRENT TASK RETRY EVIDENCE:", prompt)
+        self.assertIn("assertion mismatch in parser handoff", prompt)
+        self.assertIn("do not repeat a failed approach unchanged", prompt)
+
+    def test_build_prompt_uses_planner_metadata_and_verified_handoff(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="prompt-transition",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="engineering_os",
+            current_task="TITLE: Next task\nOBJECTIVE: Improve parser",
+            current_task_id="next.task",
+            recent_tasks=["TITLE: Previous task\nOBJECTIVE: Improve bridge"],
+            last_result="Previous task completed with verified parser coverage.",
+        )
+        planner_task = pasi_hybrid_planner.TaskSpec(
+            id="next.task",
+            title="Next task",
+            objective="Improve parser",
+            acceptance_criteria=("All parser cases pass.",),
+            verification=("python -m pytest -q scripts/test_pasi_overnight_engine_v2.py",),
+            phase="engineering_os",
+            estimated_size="large",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger = Path(temp_dir) / "task-ledger.json"
+            roadmap = Path(temp_dir) / "roadmap.json"
+            roadmap.write_text(
+                json.dumps({"schema_version": 1, "tasks": [planner_task.to_dict(), {
+                    "id": "previous.task",
+                    "title": "Previous task",
+                    "objective": "Improve bridge",
+                    "status": "pending",
+                    "phase": "engineering_os",
+                }]}),
+                encoding="utf-8",
+            )
+            state.roadmap_path = str(roadmap)
+            with mock.patch.object(engine, "TASK_LEDGER_PATH", ledger):
+                engine.record_task_ledger(
+                    "TITLE: Previous task\nOBJECTIVE: Improve bridge",
+                    "completed",
+                    evidence="bridge tests and integration checks passed",
+                    phase="engineering_os",
+                    task_id="previous.task",
+                )
+                prompt = engine.build_prompt(state.current_task, state, "")
+        self.assertIn("TASK_ID: next.task", prompt)
+        self.assertIn("TASK_SIZE: large", prompt)
+        self.assertIn("SUMMARY: Previous task completed with verified parser coverage.", prompt)
+        self.assertIn("EVIDENCE: bridge tests and integration checks passed", prompt)
+        self.assertIn("CURRENT TASK:\nTITLE: Next task", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()
 
