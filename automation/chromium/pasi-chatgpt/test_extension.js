@@ -699,15 +699,15 @@ test('native completion acknowledgement returns a durable next-operation handoff
   assert.match(content, /scheduleImmediateOperation\(chainedOperation\)/);
 });
 
-test('native completion handoff prioritizes the next operation before health telemetry', () => {
+test('native prompt completion keeps the next-operation handoff ahead of deferred health telemetry', () => {
   const start = content.indexOf('async function processOperation(operation)');
   const end = content.indexOf('  async function recoverInterruptedOperation()', start);
   const source = content.slice(start, end);
   const next = source.indexOf('if (chainedOperation?.operation_id) scheduleImmediateOperation(chainedOperation);');
   const health = source.indexOf('setTimeout(() => { void reportHealth(); }, 0);');
-  assert.ok(next >= 0 && health > next);
+  const newChat = source.indexOf("if (operation.operation_type === 'new_chat') {");
+  assert.ok(newChat >= 0 && next > health && health > newChat);
 });
-
 test('native chained prompt handoff uses a bounded fast path without replacing the event-driven fallback', () => {
   assert.match(content, /const HANDOFF_ACK_MAX_AGE_MS = 5000/);
   assert.match(content, /function freshCompletionHandoff\(operation\)/);
