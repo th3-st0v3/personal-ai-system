@@ -88,6 +88,7 @@ token=os.environ["PASI_BRIDGE_TOKEN"]
 headers={"Authorization":"Bearer "+token}
 opid=p["operation_id"]
 session_path=os.environ.get("SESSION_STATE_PATH")
+session_path=os.environ.get("SESSION_STATE_PATH")
 def get(path):
     req=urllib.request.Request("http://127.0.0.1:8765"+path,headers=headers,method="GET")
     with urllib.request.urlopen(req,timeout=5) as response:
