@@ -52,7 +52,63 @@ class TestEngineeringSchema(unittest.TestCase):
             version = connection.execute("SELECT version FROM engineering_schema_version").fetchone()[0]
         finally:
             connection.close()
-        self.assertEqual(version, 2)
+        self.assertEqual(version, 3)
+
+    def test_requirement_changes_are_audited_and_audit_events_are_immutable(self):
+        project_id = db.create_project("Audit Project")
+        requirement_id = db.create_requirement(project_id, "Initial requirement")
+        connection = db.get_connection()
+        try:
+            created = connection.execute(
+                "SELECT action, metadata FROM audit_events WHERE entity_type = 'requirement' AND entity_id = ? ORDER BY id",
+                (requirement_id,),
+            ).fetchall()
+            self.assertEqual(created[0][0], "requirement_created")
+
+            connection.execute(
+                "UPDATE requirements SET title = ?, priority = ?, status = ? WHERE id = ?",
+                ("Updated", "High", "Verified", requirement_id),
+            )
+            connection.commit()
+
+            rows = connection.execute(
+                "SELECT action, metadata FROM audit_events WHERE entity_type = 'requirement' AND entity_id = ? ORDER BY id",
+                (requirement_id,),
+            ).fetchall()
+            self.assertEqual(len(rows), 4)
+            field_names = {
+                json.loads(row[1])["field"]
+                for row in rows[1:]
+            }
+            self.assertEqual(field_names, {"title", "priority", "status"})
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    "UPDATE audit_events SET action = 'tampered' WHERE entity_type = 'requirement' AND entity_id = ?",
+                    (requirement_id,),
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute(
+                    "DELETE FROM audit_events WHERE entity_type = 'requirement' AND entity_id = ?",
+                    (requirement_id,),
+                )
+        finally:
+            connection.close()
+
+    def test_schema_can_be_reinitialized_after_direct_requirement_write(self):
+        connection = db.get_connection()
+        try:
+            requirement_id = db.create_requirement(self._project_id if hasattr(self, '_project_id') else db.create_project("Direct DB Project"), "Direct")
+            connection.execute("UPDATE requirements SET status = 'Failed' WHERE id = ?", (requirement_id,))
+            connection.commit()
+            row = connection.execute(
+                "SELECT metadata FROM audit_events WHERE entity_type = 'requirement' AND entity_id = ? AND action = 'requirement_field_changed'",
+                (requirement_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(json.loads(row[0])["field"], "status")
 
 
 if __name__ == "__main__":
