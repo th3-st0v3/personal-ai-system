@@ -4,8 +4,10 @@ The supported long-running topology keeps the Windows browser and Linux executio
 
 ```text
 GitHub Actions
-  ├─ hosted CI / security checks
-  └─ self-hosted runner (pasi-desktop)
+  ├─ repository-wide CI / security checks
+  │    └─ self-hosted runner (pasi-wsl)
+  └─ PASI desktop controls
+       └─ self-hosted runner (pasi-desktop)
        └─ WSL Ubuntu
             ├─ PASI supervisor + engine
             ├─ authenticated localhost bridge :8765
@@ -51,7 +53,7 @@ bash scripts/start_pasi_168h.sh --roadmap roadmaps/pasi-default.json
 bash scripts/status_pasi_overnight.sh
 ```
 
-The GitHub development workflow starts that launcher on the self-hosted desktop runner only after hosted verification and a local capability/preflight check. The workflow itself is intentionally short-lived; the supervised PASI process owns the 168-hour boundary and durable state.
+The GitHub development workflow performs verification on the self-hosted WSL runner, then starts the launcher on the self-hosted desktop runner after the local capability/preflight check. The workflow itself is intentionally short-lived; the supervised PASI process owns the 168-hour boundary and durable state.
 
 The Control Center reads capability and runner-state telemetry through the authenticated bridge. `Retry current` creates a task-bound control request, and `Panic stop` signals only a PID whose `/proc` command line identifies the PASI engine or supervisor. There is no arbitrary command endpoint.
 
