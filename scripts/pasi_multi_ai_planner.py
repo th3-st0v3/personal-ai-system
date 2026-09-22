@@ -107,12 +107,10 @@ def next_prompt(tasks: list[Mapping[str, Any]], *, ledger: Mapping[str, Mapping[
         raise MultiAIError('no eligible roadmap task is available')
     eligible_ids = {item.id for item in eligible}
     ordered = tuple(item for item in parsed if item.id in eligible_ids)
-    if not ordered:
-        ordered = hybrid.deterministic_rank(eligible, parsed, ledger or {})
     selected = ordered[0]
     return {
         'task_id': selected.id,
-        'mode': 'roadmap_order' if ordered[0].id in {item.id for item in parsed[:len(parsed)]} else 'deterministic',
+        'mode': 'roadmap_order',
         'ranked_ids': [item.id for item in ordered],
         'prompt': build_coding_prompt(selected.to_dict()),
     }
