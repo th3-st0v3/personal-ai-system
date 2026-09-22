@@ -11,10 +11,43 @@ configured=0
 [[ -f .runner ]] && configured=1
 active=0
 pid=""
+
+is_runner_process() {
+  local candidate="$1"
+  [[ -r "/proc/$candidate/cmdline" ]] || return 1
+  tr "\0" " " <"/proc/$candidate/cmdline" 2>/dev/null |
+    grep -Eq "Runner\.Listener|run-helper|run\.sh"
+}
+
+find_listener_pid() {
+  local proc candidate cmdline cwd root
+  root="$(cd "$RUNNER_ROOT" && pwd -P)"
+  for proc in /proc/[0-9]*; do
+    [[ -d "$proc" ]] || continue
+    candidate="${proc##*/}"
+    cmdline="$(tr "\0" " " <"$proc/cmdline" 2>/dev/null || true)"
+    cwd="$(readlink -f "$proc/cwd" 2>/dev/null || true)"
+    if [[ "$cmdline" =~ Runner\.Listener|run-helper|run\.sh ]] &&
+      [[ "$cmdline" == *"$root"* || "$cwd" == "$root" || "$cwd" == "$root"/* ]]; then
+      printf "%s\n" "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [[ -f "$RUNNER_PID_FILE" ]]; then
   pid="$(cat "$RUNNER_PID_FILE" 2>/dev/null || true)"
-  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null && is_runner_process "$pid"; then
     active=1
+  fi
+fi
+
+if (( active == 0 )); then
+  if discovered_pid="$(find_listener_pid 2>/dev/null)"; then
+    pid="$discovered_pid"
+    active=1
+    printf "%s\n" "$pid" >"$RUNNER_PID_FILE"
   fi
 fi
 
