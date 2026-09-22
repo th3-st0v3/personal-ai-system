@@ -72,9 +72,8 @@ if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
     fi
 fi
 
-printf '%s\n' "$$" > "$SUPERVISOR_PID_FILE"
+printf '%s\n' "$" > "$SUPERVISOR_PID_FILE"
 rm -f "$STOP_FILE"
-start_resource_sampler
 
 stop_resource_sampler() {
     if [[ ! -f "$RESOURCE_SAMPLER_PID_FILE" ]]; then
@@ -117,6 +116,8 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'touch "$STOP_FILE"; exit 0' INT TERM
+start_resource_sampler
+
 
 state_deadline_reached() {
     [[ -f "$RUNTIME_DIR/state.json" ]] || return 1
