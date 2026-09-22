@@ -262,7 +262,7 @@ async function inspect() {
     return;
   }
 
-  const payload = await bridgeJson('/browser/observation');
+  const payload = await bridgeJson('/browser/health');
   const health = healthData(payload);
 
   if (!health) {
