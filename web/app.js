@@ -899,6 +899,45 @@
     });
   }
 
+  function plannerNavigate(section, snapshot) {
+    const titles = {
+      executions: 'Executions',
+      artifacts: 'Artifacts',
+      dependencies: 'Dependencies',
+      environments: 'Environments',
+      overview: 'Project overview',
+      milestones: 'Milestones',
+      team: 'Team',
+      settings: 'Planner settings',
+    };
+    if (section === 'planner') {
+      plannerUi.tab = 'overview';
+      plannerUi.queueFilter = 'all';
+      plannerRender();
+      return;
+    }
+    const title = titles[section] || 'Planner';
+    const runtime = snapshot.runtime || {};
+    const ready = plannerEligible(snapshot).length;
+    const blocked = snapshot.tasks.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length;
+    const body = section === 'dependencies'
+      ? \`<div class="planner-integration-modal"><strong>Dependency map</strong><p>\${snapshot.tasks.length} tasks are represented in the current roadmap snapshot. Select a task in the graph to focus upstream and downstream relationships.</p><div class="planner-detail-grid"><div class="planner-detail-block"><span>Nodes</span><strong>\${snapshot.tasks.length}</strong></div><div class="planner-detail-block"><span>Ready</span><strong>\${ready}</strong></div><div class="planner-detail-block"><span>Blocked</span><strong>\${blocked}</strong></div><div class="planner-detail-block"><span>Current</span><strong>\${escapeHtml(runtime.current_task_id || 'None')}</strong></div></div></div>\`
+      : section === 'executions'
+        ? \`<div class="planner-integration-modal"><strong>Execution monitor</strong><p>The unattended runtime remains authoritative. This draft can preview planner runs locally without mutating it.</p><div class="properties"><div class="property"><span>Run</span><strong>\${escapeHtml(runtime.run_id || 'No run reported')}</strong></div><div class="property"><span>Phase</span><strong>\${escapeHtml(runtime.phase || 'Idle')}</strong></div><div class="property"><span>Current task</span><strong>\${escapeHtml(runtime.current_task_id || 'None')}</strong></div><div class="property"><span>Attempt</span><strong>\${escapeHtml(runtime.current_attempt || 0)}</strong></div></div></div>\`
+        : section === 'artifacts'
+          ? '<div class="planner-integration-modal"><strong>Artifacts</strong><p>Evidence and generated artifacts are available from the task verification boundary. This draft keeps the planner focused on selecting and sequencing work.</p></div>'
+          : section === 'environments'
+            ? '<div class="planner-integration-modal"><strong>Environments</strong><p>Local preview environment is active. PASI Bridge remains the control-plane connection for authoritative runtime state.</p><div class="property"><span>Bridge</span><strong>127.0.0.1:8765</strong></div></div>'
+            : section === 'milestones'
+              ? \`<div class="planner-integration-modal"><strong>Milestones</strong><p>Use roadmap phases and GitHub Project iterations for human planning. PASI consumes the resulting roadmap structure.</p><div class="property"><span>Roadmap</span><strong>\${escapeHtml(snapshot.roadmap.path)}</strong></div></div>\`
+              : section === 'team'
+                ? '<div class="planner-integration-modal"><strong>Team</strong><p>This draft targets unattended local execution. Human ownership can be layered on later without changing task identity or dependency semantics.</p></div>'
+                : section === 'overview'
+                  ? \`<div class="planner-integration-modal"><strong>Project overview</strong><p>Planner state is based on the authoritative roadmap snapshot and runtime ledger.</p><div class="planner-detail-grid"><div class="planner-detail-block"><span>Total</span><strong>\${snapshot.tasks.length}</strong></div><div class="planner-detail-block"><span>Complete</span><strong>\${snapshot.progress?.completed || 0}</strong></div><div class="planner-detail-block"><span>Ready</span><strong>\${ready}</strong></div><div class="planner-detail-block"><span>Blocked</span><strong>\${blocked}</strong></div></div></div>\`
+                  : '<div class="planner-integration-modal"><strong>Planner settings</strong><p>AI ranking, refresh cadence, and local draft controls are configured in this prototype through the visible planner controls.</p></div>';
+    modal(title, body);
+  }
+
   function bindPlannerInteractions(snapshot) {
     plannerBindTaskEvents(snapshot);
     plannerBindSearch();
@@ -920,6 +959,9 @@
         plannerUi.graphFocus = button.dataset.plannerGraphTask;
         plannerRender();
       };
+    });
+    document.querySelectorAll('[data-planner-nav]').forEach((button) => {
+      button.onclick = () => plannerNavigate(button.dataset.plannerNav, snapshot);
     });
     document.querySelectorAll('[data-planner-action]').forEach((button) => {
       button.onclick = async () => {
