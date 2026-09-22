@@ -102,7 +102,10 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
             'TOKEN_FILE="$HOME/.pasi/bridge-token"',
-            'EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"',
+            'EXTENSION_SOURCE_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"',
+            'EXTENSION_BUNDLE_DIR="${PASI_BROWSER_EXTENSION_DIR:-$REPO_ROOT/.runtime/chromium/pasi-chatgpt}"',
+            'EXTENSION_TOKEN_FILE="$EXTENSION_BUNDLE_DIR/.bridge-token"',
+            'cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"',
             'secrets.token_urlsafe(48)',
             'export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"',
             'Authorization": f"Bearer {token}',
