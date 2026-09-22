@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +29,14 @@ EXTENSION_FILES = (
 )
 
 
-def build_extension(output: Path = DEFAULT_OUTPUT) -> Path:
+def validate_test_bridge_url(bridge_url: str) -> str:
+    parsed = urlparse(bridge_url)
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.path:
+        raise ValueError("test bridge URL must be an http://127.0.0.1[:port] URL")
+    return bridge_url.rstrip("/")
+
+
+def build_extension(output: Path = DEFAULT_OUTPUT, *, bridge_url: str | None = None) -> Path:
     output = output.resolve()
     source = SOURCE.resolve()
     if output == source or source in output.parents:
@@ -47,6 +56,26 @@ def build_extension(output: Path = DEFAULT_OUTPUT) -> Path:
         if not source_file.is_file():
             raise FileNotFoundError(source_file)
         shutil.copy2(source_file, output / relative)
+
+    if bridge_url is not None:
+        bridge = validate_test_bridge_url(bridge_url)
+        background = output / "background.js"
+        background_text = background.read_text(encoding="utf-8")
+        background_text = background_text.replace(
+            "const BRIDGE = 'http://127.0.0.1:8765';",
+            "const BRIDGE = '" + bridge + "';",
+        )
+        background.write_text(background_text, encoding="utf-8")
+        manifest_path = output / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["host_permissions"] = [
+            bridge + "/*" if item == "http://127.0.0.1:8765/*" else item
+            for item in manifest.get("host_permissions", [])
+        ]
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
     # The bridge token is a host-local runtime secret, not a source-controlled
     # extension asset. Preserve it across rebuilds so refreshing the generated
