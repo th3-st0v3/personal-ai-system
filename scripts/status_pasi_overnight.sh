@@ -94,3 +94,13 @@ if [[ -n "$token" ]]; then
 else
     printf 'browser health: bridge token unavailable\n'
 fi
+
+printf '\nResource evidence:\n'
+RESOURCE_SAMPLES_FILE="$RUNTIME_DIR/resource-samples.jsonl"
+if [[ -f "$RESOURCE_SAMPLES_FILE" ]]; then
+    printf 'samples: %s bytes\n' "$(wc -c < "$RESOURCE_SAMPLES_FILE")"
+    printf 'last sample: '
+    tail -n 1 "$RESOURCE_SAMPLES_FILE" 2>/dev/null || printf 'unavailable'
+else
+    printf 'resource samples: not present yet\n'
+fi
