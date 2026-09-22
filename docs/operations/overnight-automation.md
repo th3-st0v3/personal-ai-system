@@ -19,9 +19,9 @@ Thinking stays enabled when the GitHub app is used.
 
 ## Browser automation components
 
-The native Chromium controller is the preferred path. During the transition, the existing PASI ChatGPT Controller Loader in Tampermonkey can remain enabled as a fallback. Keep the legacy direct controller disabled when the loader/native controller is installed.
+The native Chromium extension is the only supported browser-controller path. The legacy PASI ChatGPT Controller Loader in Tampermonkey is migration-only and deprecated; new installations must not depend on it.
 
-The controller-distribution service runs on `127.0.0.1:8766`; the ChatGPT bridge runs on `127.0.0.1:8765`. The browser controller reports bounded health/state/response observations. It does not grant PASI arbitrary OS access.
+The ChatGPT bridge runs on `127.0.0.1:8765`. The browser controller reports bounded health/state/response observations. It does not grant PASI arbitrary OS access.
 
 The controller update mechanism is evidence-gated. A model response cannot directly install a controller update; it can only request one through the validated PASI controller-update signal.
 
@@ -109,19 +109,17 @@ cd ~/workspace/personal-ai-system
 git checkout main
 git pull --ff-only
 source .venv/bin/activate
-python scripts/pasi_controller_server.py
 ```
 
 In another WSL terminal:
 
 ```bash
-curl -fsS http://127.0.0.1:8766/health
 curl -fsS http://127.0.0.1:8765/health
 ```
 
-Refresh `https://chatgpt.com/`. The browser console should show the native controller or PASI loader starting successfully.
+Refresh `https://chatgpt.com/`. The browser console should show the native controller starting successfully.
 
-The unattended runner starts the PASI bridge and controller-distribution service automatically. The manual server command is primarily for first-time validation and troubleshooting.
+The unattended runner starts and verifies the PASI bridge as needed. No controller-distribution service is required for native operation.
 
 ## Provider and browser recovery
 
