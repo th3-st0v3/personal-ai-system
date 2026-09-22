@@ -1476,3 +1476,22 @@ body:not(.planner-focus) .engineering-timeline-dot.active { background:#25d5a3; 
 body:not(.planner-focus) .engineering-timeline-dot.invalid { background:#ff5576; }
 body:not(.planner-focus) .engineering-timeline-dot.decision { background:#9a72ff; }
 body:not(.planner-focus) .engineering-timeline-dot.review { background:#f7af47; }
+body:not(.planner-focus) .engineering-timeline-dot.neutral { background:#687c95; }
+body:not(.planner-focus) .engineering-timeline-change {
+  display:grid; grid-template-columns:minmax(65px,auto) minmax(0,1fr) 12px minmax(0,1fr);
+  gap:5px; align-items:center; margin-top:6px; padding:6px 7px;
+  border:1px solid #1a3551; border-radius:5px; background:#071528;
+  color:#6f89a4; font:6px var(--ui-font-mono);
+}
+body:not(.planner-focus) .engineering-timeline-change span {
+  color:#91a7bf; font-size:7px; font-family:var(--ui-font);
+}
+body:not(.planner-focus) .engineering-timeline-change code {
+  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  padding:3px 4px; border-radius:3px; background:#0c2038; color:#7891ac;
+}
+body:not(.planner-focus) .engineering-timeline-change b { color:#4e6c8b; text-align:center; }
+@media(max-width:560px) {
+  body:not(.planner-focus) .engineering-timeline-change { grid-template-columns:1fr; }
+  body:not(.planner-focus) .engineering-timeline-change b { display:none; }
+}
