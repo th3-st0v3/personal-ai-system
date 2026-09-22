@@ -63,6 +63,27 @@ python scripts/check_pasi_self_hosted_runner.py
 
 A manual `workflow_dispatch` exposes `runner_mode` with two choices:
 
+To run the current branch on GitHub-hosted runners later, use the GitHub Actions **Run workflow** control for `.github/workflows/test.yml`, select the branch to test, choose `github-hosted` for `runner_mode`, and start the workflow. This launches the same `free-validation`, `test`, and `browser-use-compat` jobs, with `ubuntu-latest` selected by the workflow expression.
+
+From an authenticated shell, the equivalent command is:
+
+```bash
+gh workflow run test.yml \
+  --repo th3-st0v3/personal-ai-system \
+  --ref pasi/retire-port-8766-20260922 \
+  -f runner_mode=github-hosted
+```
+
+GitHub CLI documents `gh workflow run` as creating a `workflow_dispatch` event, with `--ref` selecting the workflow's branch/tag and `-f` supplying workflow inputs. citeturn324833search0
+
+After dispatching, inspect the resulting run with:
+
+```bash
+gh run list --repo th3-st0v3/personal-ai-system --workflow test.yml --limit 1
+gh run watch RUN_ID --repo th3-st0v3/personal-ai-system
+```
+
+
 - `self-hosted` — normal/default path; keeps validation independent of GitHub-hosted usage limits and payment state.
 - `github-hosted` — explicit fallback/switch for use after GitHub-hosted Actions limits or payment restrictions have been cleared.
 
