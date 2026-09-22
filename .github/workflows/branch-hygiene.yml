@@ -1,10 +1,9 @@
 name: branch-hygiene
 
 on:
-  # Sweep every branch after a push so new and existing work is covered.
-  push:
+  # Test completion is the normal reconciliation trigger for pushes/PR updates.
   pull_request:
-    types: [opened, synchronize, closed, converted_to_ready_for_review]
+    types: [closed, converted_to_ready_for_review]
   workflow_run:
     workflows: ["test"]
     types: [completed]
