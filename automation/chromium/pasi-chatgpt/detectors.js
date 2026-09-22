@@ -79,12 +79,24 @@
     return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
+  function visible(element) {
+    if (!element || element.hasAttribute?.('hidden') || element.getAttribute?.('aria-hidden') === 'true') {
+      return false;
+    }
+    try {
+      const style = getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+        && element.getClientRects().length > 0;
+    } catch (_) {
+      return true;
+    }
+  }
+
   function excluded(element) {
-    return Boolean(element?.closest?.(
+    return !visible(element) || Boolean(element?.closest?.(
       '[data-message-author-role], nav, aside, [role="navigation"], [data-testid*="sidebar" i]'
     ));
   }
-
   function scopedTexts() {
     const values = [];
     const seen = new Set();
