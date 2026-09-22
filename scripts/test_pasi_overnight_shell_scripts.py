@@ -118,7 +118,7 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
 
     def test_168h_launcher_verifies_detached_runner_startup(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
-        self.assertIn("runner_start_deadline=$((SECONDS + 15))", script)
+        self.assertIn("runner_start_deadline=$((SECONDS + ${PASI_STARTUP_VERIFY_SECONDS:-90}))", script)
         self.assertIn("runner_ready=0", script)
         self.assertIn('kill -0 "$runner_pid"', script)
         self.assertIn("detached PASI supervisor/runner did not become live", script)
