@@ -39,25 +39,25 @@
       }
 
       function engineeringRequirementEditForm(requirement){
-        const body=\`<form id="engineering-requirement-edit-form" class="form-stack">
-          <label>Identifier<input name="identifier" value="\${attr(requirement.identifier||\`REQ-\${requirement.id}\`)}"></label>
-          <label>Title<input name="title" value="\${attr(requirement.title||'')}"></label>
-          <label>Acceptance criteria<textarea name="acceptance_criteria">\${esc(requirement.acceptance_criteria||'')}</textarea></label>
-          <label>Priority<input name="priority" value="\${attr(requirement.priority||'')}"></label>
+        const body=`<form id="engineering-requirement-edit-form" class="form-stack">
+          <label>Identifier<input name="identifier" value="${attr(requirement.identifier||`REQ-${requirement.id}`)}"></label>
+          <label>Title<input name="title" value="${attr(requirement.title||'')}"></label>
+          <label>Acceptance criteria<textarea name="acceptance_criteria">${esc(requirement.acceptance_criteria||'')}</textarea></label>
+          <label>Priority<input name="priority" value="${attr(requirement.priority||'')}"></label>
           <label>Status<select name="status"><option>Unverified</option><option>Verified</option><option>At risk</option><option>Failed</option></select></label>
           <div class="form-actions"><button type="button" class="outline-button" id="engineering-requirement-edit-cancel">Cancel</button><button class="primary-button">Save requirement</button></div>
-        </form>\`;
-        modal(\`Edit REQ-\${requirement.id}\`,body);
+        </form>`;
+        modal(`Edit REQ-${requirement.id}`,body);
         const select=document.querySelector('#engineering-requirement-edit-form [name="status"]');
         if(select) select.value=requirement.status||'Unverified';
         $('engineering-requirement-edit-cancel').onclick=closeModal;
         $('engineering-requirement-edit-form').onsubmit=async(event)=>{
           event.preventDefault();
           try{
-            await patch(\`/api/engineering/projects/\${st().projectId}/requirements/\${requirement.id}\`,Object.fromEntries(new FormData(event.target)));
+            await patch(`/api/engineering/projects/${st().projectId}/requirements/${requirement.id}`,Object.fromEntries(new FormData(event.target)));
             closeModal();
             await openProjectEngineeringView();
-          }catch(error){event.target.insertAdjacentHTML('beforeend',\`<div class="error">\${esc(error.message)}</div>\`);}
+          }catch(error){event.target.insertAdjacentHTML('beforeend',`<div class="error">${esc(error.message)}</div>`);}
         };
       }
 
