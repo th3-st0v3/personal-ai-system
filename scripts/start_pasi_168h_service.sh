@@ -90,6 +90,14 @@ if [[ "$(git -C "$SERVICE_ROOT" branch --show-current 2>/dev/null || true)" != "
     exit 3
 fi
 
+# The service outlives the Actions job, so verify that the host credentials can
+# still perform the Git push that PASI needs after the temporary Actions token expires.
+if ! git -C "$SERVICE_ROOT" push --dry-run origin "HEAD:$REF" >/dev/null 2>&1; then
+    printf 'error: persistent PASI service checkout cannot authenticate a Git push to origin/%s.\n' "$REF" >&2
+    printf 'Configure durable host GitHub credentials (for example, gh auth login + gh auth setup-git) and retry.\n' >&2
+    exit 5
+fi
+
 mkdir -p "$RUNTIME_DIR"
 
 systemd-run \
