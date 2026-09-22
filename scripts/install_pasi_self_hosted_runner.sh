@@ -6,6 +6,7 @@ RUNNER_ROOT="${PASI_RUNNER_ROOT:-$HOME/.pasi/actions-runner}"
 RUNNER_TOKEN="${PASI_RUNNER_TOKEN:-}"
 RUNNER_LABELS="${PASI_RUNNER_LABELS:-pasi-desktop,pasi-wsl,pasi-capabilities-v1}"
 RUNNER_NAME="${PASI_RUNNER_NAME:-pasi-wsl-runner}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 command -v curl >/dev/null || { echo 'curl is required' >&2; exit 2; }
 command -v tar >/dev/null || { echo 'tar is required' >&2; exit 2; }
@@ -65,14 +66,10 @@ if [[ -x ./svc.sh ]] && command -v systemctl >/dev/null 2>&1 && systemctl --user
     echo 'GitHub Actions runner service installed and started.'
   else
     echo 'Runner registered. Automatic service installation requires passwordless sudo; starting a headless runner instead.'
-    nohup ./run.sh >>"$RUNNER_ROOT/runner.log" 2>&1 </dev/null &
-    echo "$!" > "$RUNNER_ROOT/runner.pid"
-    echo 'Persistent headless runner started.'
+    "$SCRIPT_DIR/start_pasi_actions_runner.sh"
   fi
 else
-  nohup ./run.sh >>"$RUNNER_ROOT/runner.log" 2>&1 </dev/null &
-  echo "$!" > "$RUNNER_ROOT/runner.pid"
-  echo 'Persistent headless runner started.'
+  "$SCRIPT_DIR/start_pasi_actions_runner.sh"
 fi
 
 echo "Runner root: $RUNNER_ROOT"
