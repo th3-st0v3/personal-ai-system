@@ -1,6 +1,6 @@
 # PASI Quality Proofing Workflow
 
-PASI uses a progressive quality-proofing model that stays on the self-hosted `pasi-wsl` runner for repository validation.
+PASI uses a progressive quality-proofing model that stays on the self-hosted `pasi-wsl` runner for repository validation. The developer hooks provide the fast PR/local layer; the separate quality workflow runs its extended coverage/post-merge checks on `main`/`beta-foundation` and on schedule, keeping the single WSL runner from accumulating duplicate PR jobs.
 
 ## Stage 1 — Local proofing
 
