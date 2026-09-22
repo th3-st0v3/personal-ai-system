@@ -5,9 +5,8 @@
 The branch-hygiene workflow is a **single repository-wide reconciler**, not a workflow that must be configured once per branch.
 
 It runs from one workflow definition on:
-- every branch push;
-- pull-request open/synchronize/close/ready-for-review events;
-- completion of the authoritative `test` workflow;
++ pull-request close/ready-for-review lifecycle events;
++ completion of the authoritative `test` workflow;
 - the daily schedule;
 - manual dispatch.
 
@@ -48,9 +47,9 @@ Fork-owned PRs are never mutated.
 
 ## Future branches
 
-No branch name needs to be added to the workflow. The workflow's unqualified `push:` trigger and the all-branch `test` workflow provide the coverage.
+No branch name needs to be added to the workflow. The all-branch `test` workflow provides validation coverage, and its completion triggers repository-wide reconciliation.
 
-A newly created branch enters the lifecycle on its next push and is also picked up by the scheduled repository-wide sweep, which means stale existing branches do not require a separate manual workflow run per branch.
+A newly created branch enters the lifecycle when its all-branch `test` run completes and is also picked up by the scheduled repository-wide sweep, so stale existing branches do not require a separate manual workflow run per branch.
 
 ## Safety
 
