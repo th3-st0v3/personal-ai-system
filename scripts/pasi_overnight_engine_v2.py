@@ -1406,9 +1406,13 @@ def completed_task_handoff(
         return "", "", ""
     previous_task_id = str(entry.get("task_id", "")).strip()
     evidence = str(entry.get("evidence", "")).strip()
-    summary = str(state.last_result).strip()
-    if not summary or summary == state.stop_reason:
-        summary = evidence.split("\n", 1)[-1].strip() if evidence else ""
+    summary = ""
+    if evidence:
+        for line in reversed(evidence.splitlines()):
+            candidate = line.strip()
+            if candidate and not candidate.casefold().startswith("provider="):
+                summary = candidate
+                break
     return previous_task_id, summary[-1500:], evidence[-1500:]
 
 
