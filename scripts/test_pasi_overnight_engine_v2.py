@@ -444,7 +444,11 @@ branch refs/heads/main
             "evidence": "attempt failed before a usable patch was produced",
             "repository_progress": "stopped",
         }
-        success_values = dict(failure_values, evidence="verified patch for next task", repository_progress="changed")
+        success_values = dict(
+            failure_values,
+            evidence="Verified the patch, targeted validation, and repository progress for the next task.",
+            repository_progress="changed",
+        )
         parsed = iter(
             [
                 ("needs_revision", "first failure", "", "", False, failure_values),
@@ -986,12 +990,12 @@ branch refs/heads/main
         self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
         for path in sorted(expected):
             patch = (
-                f"diff --git a/{path} b/{path}\\n"
-                f"--- a/{path}\\n"
-                f"+++ b/{path}\\n"
-                "@@ -1 +1 @@\\n"
-                "-old\\n"
-                "+new\\n"
+                f"diff --git a/{path} b/{path}\n"
+                f"--- a/{path}\n"
+                f"+++ b/{path}\n"
+                "@@ -1 +1 @@\n"
+                "-old\n"
+                "+new\n"
             )
             with self.assertRaisesRegex(ValueError, "protected unattended"):
                 engine.validate_patch_paths(patch, False, Path.cwd())
