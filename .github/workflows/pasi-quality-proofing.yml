@@ -1,0 +1,90 @@
+name: PASI quality proofing
+
+on:
+  push:
+    branches: [main, beta-foundation, 'pasi/**']
+  pull_request:
+    branches: [main, 'pasi/**']
+  schedule:
+    - cron: '47 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      run_coverage:
+        description: "Run the full Python branch-coverage measurement"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pasi-quality-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  local-proofing:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install local proofing dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Validate local hook configuration
+        run: pre-commit run --all-files
+      - name: Validate runner-free proofing contract
+        run: python scripts/pasi_local_proof.py --all
+
+  coverage:
+    needs: local-proofing
+    if: ${{ github.event_name == 'schedule' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' || (github.event_name == 'workflow_dispatch' && inputs.run_coverage) }}
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+      - name: Measure Python branch coverage
+        run: python scripts/run_python_coverage.py --output-dir .runtime/coverage
+      - name: Upload coverage evidence
+        uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: pasi-python-coverage
+          path: .runtime/coverage
+          if-no-files-found: error
+
+  post-merge-smoke:
+    needs: coverage
+    if: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install smoke-test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run post-merge web/API smoke test
+        run: python scripts/ci_web_smoke.py
+      - name: Record post-merge quality summary
+        run: |
+          {
+            echo "# PASI Post-Merge Quality Gate"
+            echo
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Branch: $GITHUB_REF_NAME"
+            echo "- Local proofing: passed"
+            echo "- Python branch coverage: passed"
+            echo "- Web/API smoke: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
