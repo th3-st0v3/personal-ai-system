@@ -167,6 +167,28 @@ def test_queue_idempotency_reuses_only_nonterminal_matching_operation(tmp_path: 
     assert bridge.get_status()["history_size"] == 2
 
 
+def test_queue_operation_persists_roadmap_metadata_atomically(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation(
+        "prompt",
+        "roadmap task",
+        idempotency_key="roadmap-key",
+        roadmap_id="rm-1",
+        roadmap_task_id="task-1",
+    )
+    stored = bridge.get_operation(operation.operation_id)
+    assert stored is not None
+    assert stored["roadmap_id"] == "rm-1"
+    assert stored["roadmap_task_id"] == "task-1"
+
+    with pytest.raises(ValueError, match="supplied together"):
+        bridge.queue_operation(
+            "prompt",
+            "invalid roadmap metadata",
+            roadmap_id="rm-2",
+        )
+
+
 def test_queue_idempotency_survives_bridge_restart(tmp_path: Path) -> None:
     first_bridge = make_bridge(tmp_path)
     first = first_bridge.queue_operation(
