@@ -34,7 +34,7 @@ jobs:
           echo "Runner environment: $RUNNER_ENVIRONMENT"
           echo "Runner OS/arch: $RUNNER_OS/$RUNNER_ARCH"
       - name: Verify runner and billing contracts
-        run: python -m pytest -q scripts/test_github_actions_billing_contract.py scripts/test_check_pasi_self_hosted_runner.py
+        run: python -m pytest -q scripts/test_github_actions_billing_contract.py scripts/test_check_pasi_self_hosted_runner.py scripts/test_quality_proofing_workflow.py scripts/test_pasi_actions_runner.py
 
       - name: Verify self-hosted runner fallback readiness
         if: ${{ inputs.runner_mode != 'github-hosted' }}
