@@ -32,7 +32,7 @@ def runner_mapping_from_workflow(source: str) -> tuple[str, str, str]:
     matches = RUNNER_SELECTOR_PATTERN.findall(source)
     if not matches:
         raise AssertionError("runner_mode runs-on expression not found")
-    unique = list(dict.fromKeys(matches))
+    unique = list(dict.fromkeys(matches))
     if len(unique) != 1:
         raise AssertionError(f"expected one consistent runner mapping, found {unique}")
     return unique[0]
