@@ -184,10 +184,26 @@ def git_identity(worktree: Path) -> dict[str, Any]:
 
 def pr_provenance(branch: str, number: int | None, url: str) -> dict[str, Any]:
     if number is not None:
+        output = command(["gh", "pr", "view", str(number), "--json", "number,url,state,headRefName,headRefOid"])
+        if output:
+            try:
+                payload = json.loads(output)
+            except json.JSONDecodeError:
+                return {"status": "provided_unverified", "number": number, "url": url, "reason": "gh returned non-JSON PR metadata"}
+            if int(payload.get("number", 0) or 0) == number:
+                return {
+                    "status": "observed",
+                    "number": number,
+                    "url": payload.get("url") or url,
+                    "state": payload.get("state"),
+                    "head_ref": payload.get("headRefName"),
+                    "head_sha": payload.get("headRefOid"),
+                }
         return {
-            "status": "provided",
+            "status": "provided_unverified",
             "number": number,
             "url": url,
+            "reason": "gh could not verify the supplied PR identity",
         }
     if not branch:
         return {"status": "unavailable", "reason": "branch identity missing"}
@@ -216,19 +232,31 @@ def classify_p04_status(
     configured_seconds: float | None,
     deadline_reached: bool,
     stop_reason: str,
-) -> str:
+    resource_sample_count: int,
+    branch_matches: bool,
+    worktree_clean: bool,
+    pr_verified: bool,
+) -> tuple[str, list[str]]:
+    failures: list[str] = []
     runtime_shape_ok = (
         configured_seconds is not None
         and abs(configured_seconds - EXPECTED_RUNTIME_SECONDS) <= RUNTIME_TOLERANCE_SECONDS
     )
     if not deadline_reached:
-        return "INCOMPLETE"
+        return "INCOMPLETE", ["168-hour deadline has not been reached"]
     if not runtime_shape_ok:
-        return "FAIL"
+        failures.append("configured runtime window is not exactly 168 hours")
     if stop_reason != "deadline_reached":
-        return "FAIL"
-    return "PASS"
-
+        failures.append(f"run did not terminate with deadline_reached (got {stop_reason or 'empty'})")
+    if resource_sample_count <= 0:
+        failures.append("no historical periodic resource samples were recorded")
+    if not branch_matches:
+        failures.append("runtime branch does not match the persisted run branch")
+    if not worktree_clean:
+        failures.append("acceptance worktree is not clean at close-out")
+    if not pr_verified:
+        failures.append("PR provenance was not machine-verified")
+    return ("PASS" if not failures else "FAIL"), failures
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Assemble reproducible evidence for a PASI 168-hour runtime.")
@@ -265,7 +293,10 @@ def main() -> int:
     )
     now = datetime.now(timezone.utc)
     deadline_reached = deadline_dt is not None and now >= deadline_dt
-    result_status = classify_p04_status(configured_seconds, deadline_reached, str(state.get("stop_reason") or "").strip())
+    git = git_identity(worktree)
+    expected_branch = str(state.get("branch") or "").strip()
+    branch_matches = bool(expected_branch and git.get("branch") == expected_branch)
+    worktree_clean = not str(git.get("status_porcelain") or "").strip()
 
     pid_files = {
         "runner": runtime_dir / "runner.pid",
@@ -276,13 +307,21 @@ def main() -> int:
     for name, path in pid_files.items():
         pids[name] = process_snapshot(read_text(path))
 
-    git = git_identity(worktree)
     pr = pr_provenance(
         git.get("branch") or str(state.get("branch") or ""),
         args.pr_number,
         args.pr_url.strip(),
     )
     stop_reason = str(state.get("stop_reason") or "").strip()
+    result_status, gate_failures = classify_p04_status(
+        configured_seconds,
+        deadline_reached,
+        stop_reason,
+        len(resource_samples),
+        branch_matches,
+        worktree_clean,
+        pr.get("status") == "observed",
+    )
 
     limitations: list[str] = []
     if malformed:
@@ -291,8 +330,8 @@ def main() -> int:
         limitations.append(f"{malformed_resource} malformed resource-sample lines were ignored")
     if not resource_samples:
         limitations.append("No historical periodic resource samples were available for this run.")
-    if pr.get("status") == "unavailable":
-        limitations.append("PR provenance was not observed automatically; provide --pr-number/--pr-url for an explicit immutable association.")
+    if pr.get("status") != "observed":
+        limitations.append("PR provenance is not machine-verified; rerun with a reachable GitHub CLI and the accepted PR number.")
 
     payload = {
         "gate": "P0.4",
@@ -339,6 +378,13 @@ def main() -> int:
             "configured": configured_resource_limits(Path(__file__).resolve().parents[1]),
             "historical_periodic_samples": resource_peak_summary(resource_samples),
             "process_snapshots": pids,
+        },
+        "acceptance_checks": {
+            "failures": gate_failures,
+            "branch_matches": branch_matches,
+            "worktree_clean": worktree_clean,
+            "resource_sample_count": len(resource_samples),
+            "pr_verified": pr.get("status") == "observed",
         },
         "limitations": limitations,
     }
