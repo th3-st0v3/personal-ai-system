@@ -8,16 +8,44 @@ on:
   schedule:
     - cron: '30 4 * * *'
   workflow_dispatch:
+    inputs:
+      runner_mode:
+        description: "Runner for the test suite. Self-hosted is the default; select GitHub-hosted only after Actions usage limits/payment restrictions are cleared."
+        required: true
+        default: self-hosted
+        type: choice
+        options:
+          - self-hosted
+          - github-hosted
 
 jobs:
+  runner-preflight:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ inputs.runner_mode == 'github-hosted' && 'ubuntu-latest' || 'pasi-wsl' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Report CI runner mode
+        env:
+          PASI_CI_RUNNER_MODE: ${{ inputs.runner_mode || 'self-hosted' }}
+        run: |
+          echo "PASI CI runner mode: $PASI_CI_RUNNER_MODE"
+          echo "Runner name: $RUNNER_NAME"
+          echo "Runner environment: $RUNNER_ENVIRONMENT"
+          echo "Runner OS/arch: $RUNNER_OS/$RUNNER_ARCH"
+      - name: Verify self-hosted runner fallback readiness
+        if: ${{ inputs.runner_mode != 'github-hosted' }}
+        run: python scripts/check_pasi_self_hosted_runner.py
+
   free-validation:
+    needs: runner-preflight
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     concurrency:
       group: pasi-free-validation-${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: false
     # Keep the required free-validation gate on the local PASI runner so private-repository
     # validation never depends on GitHub-hosted minutes, payment state, or spending limits.
-    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    runs-on: ${{ inputs.runner_mode == 'github-hosted' && 'ubuntu-latest' || 'pasi-wsl' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -41,11 +69,12 @@ jobs:
         run: python scripts/run_free_acceptance.py
 
   test:
+    needs: runner-preflight
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     concurrency:
       group: pasi-test-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: true
-    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    runs-on: ${{ inputs.runner_mode == 'github-hosted' && 'ubuntu-latest' || 'pasi-wsl' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -169,11 +198,12 @@ jobs:
           if-no-files-found: ignore
 
   browser-use-compat:
+    needs: runner-preflight
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
     concurrency:
       group: pasi-browser-use-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: true
-    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    runs-on: ${{ inputs.runner_mode == 'github-hosted' && 'ubuntu-latest' || 'pasi-wsl' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
