@@ -8,6 +8,12 @@ on:
     - cron: '17 4 * * 1'
   workflow_dispatch:
 
+# A single WSL runner services this workflow. Keep only the newest security run
+# for each ref so obsolete queued scans cannot starve current verification.
+concurrency:
+  group: pasi-security-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   security-events: write
@@ -20,6 +26,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         language: [python, javascript, actions]
     steps:
