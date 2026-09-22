@@ -303,7 +303,7 @@
                 </section>
 
                 <section class="engineering-panel">
-                  <div class="engineering-panel-head"><div><span class="engineering-kicker">DECISION CONTEXT</span><h2>Linked decisions</h2></div><button class="quiet-button" data-engineering-action="decision">\`+ Add decision\`</button></div>
+                  <div class="engineering-panel-head"><div><span class="engineering-kicker">DECISION CONTEXT</span><h2>Linked decisions</h2></div><button class="quiet-button" data-engineering-action="decision">+ Add decision</button></div>
                   <div class="engineering-linked-decisions">
                     \${linkedDecisions.length ? linkedDecisions.map((item,index)=>\`<article class="engineering-linked-decision"><div class="engineering-decision-number">\${String(index+1).padStart(2,'0')}</div><div><div class="engineering-decision-heading"><strong>\${esc(item.title)}</strong><span class="engineering-decision-status">\${esc(item.status||'Proposed')}</span></div><p>\${esc(item.decision||'No decision statement recorded.')}</p>\${item.rationale?\`<small>Rationale · \${esc(item.rationale)}</small>\`:''}<time>\${esc(item.updated_at||item.created_at||'')}</time></div></article>\`).join('') : '<div class="engineering-empty compact"><strong>No decisions are linked.</strong><span>Capture why the requirement is shaped this way.</span><button class="outline-button" data-engineering-action="decision">Add linked decision</button></div>'}
                   </div>
