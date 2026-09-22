@@ -37,20 +37,29 @@
         if(!history.length){
           return '<div class="engineering-empty compact"><strong>No verification activity.</strong><span>The history will populate as evidence, decisions, reviews, and audit events are persisted.</span></div>';
         }
-        return history.slice(0,20).map((item)=>{
+        const displayValue=(value)=>{
+          if(value===null||value===undefined||value==='') return '—';
+          if(typeof value==='object'){try{return JSON.stringify(value);}catch{return String(value);}}
+          return String(value);
+        };
+        const fieldLabel=(field)=>String(field||'field').replace(/_/g,' ').replace(/\w/g,(char)=>char.toUpperCase());
+        return history.map((item)=>{
           const kind=String(item.event_type||'event');
           const rejectedReview=kind==='review'&&String(item.status||'')==='Rejected';
-          const state=kind==='evidence_invalidated'||rejectedReview?'invalid':kind==='decision_recorded'||kind==='audit'?'decision':kind==='review'?'review':'active';
-          const label=kind==='evidence_recorded'?'Evidence':kind==='evidence_invalidated'?'Evidence invalidated':kind==='decision_recorded'?'Decision':kind==='review'?'Review':kind==='requirement_record'?'Requirement':'Audit';
+          const state=kind==='evidence_invalidated'||rejectedReview?'invalid':kind==='decision_recorded'?'decision':kind==='review'?'review':'neutral';
+          const label=kind==='evidence_recorded'?'Evidence':kind==='evidence_invalidated'?'Evidence invalidated':kind==='decision_recorded'?'Decision':kind==='review'?'Review':kind==='requirement_created'?'Requirement created':kind==='requirement_field_changed'?'Field change':kind==='requirement_record'?'Requirement':'Audit';
           const source=item.source?.title;
           const location=item.location;
           const result=item.result;
+          const fieldChange=kind==='requirement_field_changed'?
+            '<div class="engineering-timeline-change"><span>'+esc(fieldLabel(item.field))+'</span><code>'+esc(displayValue(item.old_value))+'</code><b>→</b><code>'+esc(displayValue(item.new_value))+'</code></div>':'';
           return '<article class="engineering-timeline-item" data-history-kind="'+esc(kind)+'">'+
             '<span class="engineering-timeline-dot '+state+'"></span>'+
             '<div class="engineering-timeline-card">'+
               '<div class="engineering-timeline-heading"><strong>'+esc(label)+'</strong><span>'+esc(item.status||'Recorded')+'</span></div>'+
               '<small>'+esc(item.occurred_at||'Recorded')+'</small>'+
               '<p>'+esc(item.description||item.title||'Activity recorded.')+'</p>'+
+              fieldChange+
               (result?'<div class="engineering-timeline-result">'+esc(result)+'</div>':'')+
               ((source||location)?'<div class="engineering-timeline-links">'+
                 (source?'<span>▧ '+esc(source)+'</span>':'')+
