@@ -49,6 +49,17 @@ def _runtime_observation() -> dict[str, Any] | None:
 
 
 
+PASI_VENV = Path(os.environ.get("PASI_VENV", str(Path.home() / ".pasi" / "venv"))).expanduser()
+def _resolve_python() -> Path:
+    explicit = os.environ.get("PASI_PYTHON", "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    repository_python = REPO_ROOT / ".venv" / "bin" / "python"
+    if repository_python.is_file() and repository_python.stat().st_mode & 0o111 != 0:
+        return repository_python
+    return PASI_VENV / "bin" / "python"
+
+
 BROWSER_OBSERVATION_MAX_AGE_SECONDS = 30.0
 
 
@@ -109,7 +120,7 @@ def build_report() -> dict[str, Any]:
     dynamic = _merge_dynamic()
     downloads = _entries(catalog, dynamic, "downloads")
     logins = _entries(catalog, dynamic, "logins")
-    python_path = REPO_ROOT / ".venv" / "bin" / "python"
+    python_path = _resolve_python()
     observation = _runtime_observation()
     bridge_health = _health(BRIDGE_URL + "/health")
     browser_health_token = os.environ.get("PASI_BRIDGE_TOKEN", "").strip()
