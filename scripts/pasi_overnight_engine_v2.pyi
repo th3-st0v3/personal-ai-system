@@ -15,6 +15,8 @@ RUNTIME_DIR: Path
 STATE_PATH: Path
 STOP: bool
 MAX_ATTEMPTS: int
+MAX_SAME_FAILURE_CYCLES: int
+MAX_SAME_ROOT_CAUSE_CYCLES: int
 TASK_TIMEOUT_SECONDS: float
 DEFAULT_HOURS: float
 MIN_HOURS: float
@@ -45,6 +47,9 @@ class OvernightState:
     task_retry_cycle: int
     last_failure_signature: str
     same_failure_cycles: int
+    last_failure_root_signature: str
+    same_root_cause_cycles: int
+    repair_reset_count: int
     automation_tasks_since_gate: int
     automation_gates: int
     provider_limit_pauses: int
@@ -76,6 +81,9 @@ class OvernightState:
         task_retry_cycle: int = ...,
         last_failure_signature: str = ...,
         same_failure_cycles: int = ...,
+        last_failure_root_signature: str = ...,
+        same_root_cause_cycles: int = ...,
+        repair_reset_count: int = ...,
         automation_tasks_since_gate: int = ...,
         automation_gates: int = ...,
         provider_limit_pauses: int = ...,
@@ -113,6 +121,10 @@ def browser_auth_required() -> bool: ...
 def fallback_router_available(state: OvernightState) -> bool: ...
 def disable_fallback_router(state: OvernightState, reason: str) -> None: ...
 def task_key(task: str) -> str: ...
+def failure_root_signature(failure: str) -> str: ...
+def repair_loop_reset_reason(*, repair_eligible: bool, same_failure_cycles: int, same_root_cause_cycles: int) -> str: ...
+def reset_repair_counters(state: OvernightState) -> None: ...
+def record_blocked_repair_task(state: OvernightState, *, task: str, failure: str, reset_reason: str) -> None: ...
 
 def valid_next_task(candidate: str, current_task: str, recent_tasks: Sequence[str]) -> str: ...
 def normalize_patch(patch: str) -> str: ...
