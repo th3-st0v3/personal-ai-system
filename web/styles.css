@@ -1430,3 +1430,49 @@ body:not(.planner-focus) .engineering-detail-side .engineering-panel { position:
   body:not(.planner-focus) .engineering-source-trace { grid-template-columns:1fr; }
   body:not(.planner-focus) .engineering-detail-health-main { padding:10px; }
 }
+
+
+/* Verification history timeline — backend-connected operator console */
+body:not(.planner-focus) .engineering-history-state {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  margin:0 11px 10px; padding:7px 9px; border:1px solid #143452; border-radius:6px;
+  background:#071528; color:#5f7793; font-size:7px; line-height:1.35;
+}
+body:not(.planner-focus) .engineering-history-state.error-state {
+  border-color:#6f3042; background:#27101b; color:#d48697;
+}
+body:not(.planner-focus) .engineering-timeline {
+  max-height:560px; overflow:auto;
+  padding:2px 13px 13px 18px;
+}
+body:not(.planner-focus) .engineering-timeline::before {
+  left:22px; top:8px; bottom:14px; background:linear-gradient(#244d75,#183452);
+}
+body:not(.planner-focus) .engineering-timeline-item {
+  grid-template-columns:12px minmax(0,1fr);
+  gap:9px; padding:0 0 10px;
+}
+body:not(.planner-focus) .engineering-timeline-card {
+  min-width:0; padding:8px 9px;
+  border:1px solid #173657; border-radius:7px; background:#09182d;
+  transition:border-color .14s, background .14s, transform .14s;
+}
+body:not(.planner-focus) .engineering-timeline-card:hover {
+  border-color:#2b5d92; background:#0b1e36; transform:translateX(1px);
+}
+body:not(.planner-focus) .engineering-timeline-heading strong { color:#aec3da; }
+body:not(.planner-focus) .engineering-timeline-heading span {
+  max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+body:not(.planner-focus) .engineering-timeline-result {
+  margin-top:6px; padding:6px 7px; border-left:2px solid #27598c; background:#071528;
+  color:#9ab1cc; font-size:7px; line-height:1.45;
+}
+body:not(.planner-focus) .engineering-timeline-links {
+  display:flex; gap:9px; flex-wrap:wrap; margin-top:6px;
+  color:#5d7fa4; font-size:7px;
+}
+body:not(.planner-focus) .engineering-timeline-dot.active { background:#25d5a3; }
+body:not(.planner-focus) .engineering-timeline-dot.invalid { background:#ff5576; }
+body:not(.planner-focus) .engineering-timeline-dot.decision { background:#9a72ff; }
+body:not(.planner-focus) .engineering-timeline-dot.review { background:#f7af47; }
