@@ -4,9 +4,21 @@ This is the native Chromium replacement for the PASI Tampermonkey controller.
 
 ## Install
 
-Open `chrome://extensions` in Chromium or Chrome, enable **Developer mode**, choose **Load unpacked**, and select this directory:
+Open `chrome://extensions` in Chromium or Chrome, enable **Developer mode**, choose **Load unpacked**, and select the generated staging directory:
 
-`automation/chromium/pasi-chatgpt`
+`automation/chromium/pasi-chatgpt` is the **source** tree and may contain Python `__pycache__` directories after local tooling runs; do **not** load it directly.
+
+Build the cache-free extension first:
+
+```bash
+python scripts/build_chromium_extension.py
+```
+
+Then load:
+
+`.runtime/chromium/pasi-chatgpt`
+
+When loading from Windows while the source lives in WSL, select the corresponding WSL/UNC path for `.runtime/chromium/pasi-chatgpt` (for example `\\wsl.localhost\\Ubuntu\\home\\riley\\workspace\\personal-ai-system\\.runtime\\chromium\\pasi-chatgpt`). The generated staging directory contains only the packaged extension files and no Python cache artifacts.
 
 Open `https://chatgpt.com/` and verify the PASI bridge is running on `127.0.0.1:8765`.
 
