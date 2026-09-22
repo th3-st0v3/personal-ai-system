@@ -18,6 +18,7 @@ import simulation_library
 import engineering_modeler
 import fuzzing_service
 import host_resources
+import provider_capabilities
 import workspace_browser
 from calculation_application import CalculationApplication
 from workspace_application import WorkspaceApplication
@@ -278,6 +279,13 @@ class WebApplication:
                 iterations=int(data.get("iterations", 100)),
                 seed=int(data.get("seed", 1)),
             )
+        if method == "GET" and path == "/api/lab/providers/capabilities":
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "observe_host_resources")
+            finally:
+                connection.close()
+            return 200, provider_capabilities.capabilities()
         if method == "GET" and path == "/api/lab/control":
             connection = db.get_connection()
             try:
