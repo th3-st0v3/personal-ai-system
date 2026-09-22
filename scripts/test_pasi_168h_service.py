@@ -52,6 +52,15 @@ class TestPasi168HourDurableServiceContract(unittest.TestCase):
             source,
         )
 
+
+    def test_168h_supervisor_honors_explicit_resume_before_terminal_state_check(self) -> None:
+        source = (ROOT / "scripts" / "pasi_168h_supervisor.sh").read_text(encoding="utf-8")
+        self.assertIn("        --resume)", source)
+        self.assertIn("resume=1", source)
+        self.assertIn("state_is_terminal && (( resume == 0 ))", source)
+        self.assertIn("if (( resume == 1 )); then", source)
+        self.assertIn("cmd+=(--resume)", source)
+
     def test_service_launcher_does_not_depend_on_actions_job_lifetime(self) -> None:
         source = (ROOT / "scripts" / "start_pasi_168h_service.sh").read_text(encoding="utf-8")
         self.assertNotIn("nohup", source)
