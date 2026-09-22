@@ -133,6 +133,8 @@ def validate_p04(path: Path) -> list[str]:
         errors.append("P0.4 worktree is not verified clean")
     if checks.get("pr_verified") is not True:
         errors.append("P0.4 PR provenance is not verified")
+    if checks.get("pr_head_matches") is not True:
+        errors.append("P0.4 PR head does not match final Git HEAD")
     if not isinstance(checks.get("resource_sample_count"), int) or checks["resource_sample_count"] <= 0:
         errors.append("P0.4 has no historical resource samples")
     return errors
