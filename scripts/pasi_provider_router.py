@@ -33,6 +33,7 @@ MAX_RESPONSE_BYTES = 2_000_000
 MAX_PROMPT_CHARS = 90_000
 OLLAMA_DISCOVERY_TIMEOUT = 2.0
 OLLAMA_REQUEST_TIMEOUT = 30.0
+DEFAULT_OLLAMA_CONTEXT_TOKENS = 32_768
 OPENROUTER_429_RETRY_MAX = 1
 OPENROUTER_429_MAX_DELAY = 5.0
 
@@ -148,6 +149,14 @@ def call_ollama(prompt: str, timeout: float) -> str:
         model = names[0] if names else ""
     if not model:
         raise RuntimeError("no Ollama model is installed; set OLLAMA_MODEL or install a local model")
+    context_raw = os.environ.get("PASI_OLLAMA_CONTEXT_TOKENS", str(DEFAULT_OLLAMA_CONTEXT_TOKENS)).strip()
+    try:
+        context_tokens = int(context_raw)
+    except ValueError as exc:
+        raise RuntimeError("PASI_OLLAMA_CONTEXT_TOKENS must be an integer") from exc
+    if context_tokens < 1024:
+        raise RuntimeError("PASI_OLLAMA_CONTEXT_TOKENS must be at least 1024")
+
     data = post_json(
         base_url + "/api/chat",
         {
@@ -157,6 +166,7 @@ def call_ollama(prompt: str, timeout: float) -> str:
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
+            "options": {"num_ctx": context_tokens},
         },
         {},
         timeout,
