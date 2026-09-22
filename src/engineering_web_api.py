@@ -315,16 +315,34 @@ class EngineeringWebApplication:
                         metadata = json.loads(row[2])
                     except (TypeError, json.JSONDecodeError):
                         metadata = {"raw": row[2]}
+                event_type = {
+                    "requirement_created": "requirement_created",
+                    "requirement_field_changed": "requirement_field_changed",
+                }.get(row[1], "audit")
+                field = metadata.get("field") if isinstance(metadata, dict) else None
                 audit_events.append({
                     "id": f"audit-{row[0]}",
                     "entity_type": "audit",
                     "entity_id": requirement_id,
-                    "event_type": "audit",
+                    "event_type": event_type,
                     "occurred_at": row[3],
                     "status": None,
-                    "title": row[1],
-                    "description": row[1],
+                    "title": (
+                        "Requirement field changed"
+                        if event_type == "requirement_field_changed"
+                        else "Requirement created"
+                        if event_type == "requirement_created"
+                        else row[1]
+                    ),
+                    "description": (
+                        f"{field.replace('_', ' ').title()} changed."
+                        if isinstance(field, str) and field
+                        else row[1]
+                    ),
                     "metadata": metadata,
+                    "field": field,
+                    "old_value": metadata.get("old") if isinstance(metadata, dict) else None,
+                    "new_value": metadata.get("new") if isinstance(metadata, dict) else None,
                 })
 
             requirement_record = next(
