@@ -145,6 +145,12 @@ test('native controller keeps response telemetry off the completion critical pat
   assert.doesNotMatch(content, /await reportObservation\('chatgpt_response'/);
 });
 
+test('native new-chat completion publishes fresh post-navigation health before queue handoff', () => {
+  assert.ok(content.includes("if (operation.operation_type === 'new_chat') {"));
+  assert.ok(content.includes("if (operation.operation_type === 'new_chat') {\n          await reportHealth();\n        } else {"));
+  assert.ok(content.includes("setTimeout(() => { void reportHealth(); }, 0);"));
+  assert.ok(content.includes("if (chainedOperation?.operation_id) scheduleImmediateOperation(chainedOperation);"));
+});
 test('native controller chains the next queued operation immediately after terminal completion', () => {
   assert.match(content, /let immediatePollQueued = false;/);
   assert.match(content, /function scheduleImmediatePoll\(\)/);
