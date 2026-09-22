@@ -155,6 +155,23 @@ def configured_resource_limits(root: Path) -> dict[str, Any]:
     }
 
 
+def parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def git_identity(worktree: Path) -> dict[str, Any]:
     return {
         "worktree": str(worktree),
@@ -181,7 +198,6 @@ def pr_provenance(branch: str, number: int | None, url: str) -> dict[str, Any]:
             "status": "unavailable",
             "reason": "gh CLI unavailable, unauthenticated, or no PR was found",
         }
-    payload = load_json(Path("/dev/null"), {})
     try:
         payload = json.loads(output)
     except json.JSONDecodeError:
@@ -240,8 +256,8 @@ def main() -> int:
 
     started_at = state.get("started_at")
     deadline_at = state.get("deadline_at")
-    start_dt = datetime.fromisoformat(str(started_at).replace("Z", "+00:00")) if started_at else None
-    deadline_dt = datetime.fromisoformat(str(deadline_at).replace("Z", "+00:00")) if deadline_at else None
+    start_dt = parse_timestamp(started_at)
+    deadline_dt = parse_timestamp(deadline_at)
     configured_seconds = (
         (deadline_dt - start_dt).total_seconds()
         if start_dt is not None and deadline_dt is not None
@@ -258,8 +274,7 @@ def main() -> int:
     }
     pids = {}
     for name, path in pid_files.items():
-        raw = path.read_text(encoding="utf-8").strip() if path.is_file() else ""
-        pids[name] = process_snapshot(raw)
+        pids[name] = process_snapshot(read_text(path))
 
     git = git_identity(worktree)
     pr = pr_provenance(
