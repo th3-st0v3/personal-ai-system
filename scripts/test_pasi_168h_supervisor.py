@@ -51,7 +51,8 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
 
     def test_supervisor_ignores_terminal_state_from_a_different_run_identity(self) -> None:
         self.assertIn("state_matches_identity()", self.source)
-        self.assertIn("state_matches_identity && (state_deadline_reached || state_is_terminal)", self.source)
+        self.assertIn("{ state_matches_identity && state_deadline_reached; }", self.source)
+        self.assertIn("{ state_matches_identity && state_is_terminal && (( resume == 0 )); };", self.source)
         self.assertIn('state.get("branch")', self.source)
         self.assertIn('state.get("worktree")', self.source)
         self.assertIn("os.path.realpath(state_worktree)", self.source)
