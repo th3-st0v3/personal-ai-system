@@ -16,7 +16,9 @@ def test_development_workflow_uses_desktop_runner_for_live_automation() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
     assert "runs-on: [self-hosted, linux, x64, pasi-desktop]" in source
     assert "scripts/pasi_desktop_preflight.py" in source
-    assert "scripts/start_pasi_168h.sh --roadmap" in source
+    assert 'PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}' in source
+    assert 'PASI_ROADMAP_PATH: ${{ inputs.roadmap }}' in source
+    assert 'bash scripts/start_pasi_168h_service.sh "${{ steps.ref.outputs.ref }}"' in source
     assert "scripts/status_pasi_overnight.sh" in source
     assert "scripts/stop_pasi_overnight.sh" in source
 
