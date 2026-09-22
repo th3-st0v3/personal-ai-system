@@ -15,7 +15,7 @@ jobs:
     concurrency:
       group: pasi-free-validation-${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: false
-    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
