@@ -7,11 +7,13 @@ cd "$REPO_ROOT"
 PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 EVIDENCE_DIR="$REPO_ROOT/.runtime/acceptance"
+SESSION_STATE_PATH="$REPO_ROOT/.runtime/chatgpt/session.json"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 mkdir -p "$EVIDENCE_DIR"
 export PYTHONPATH="$REPO_ROOT:$PYTHONPATH"
 
+export SESSION_STATE_PATH
 TOKEN_FILE="$HOME/.pasi/bridge-token"
 [[ -s "$TOKEN_FILE" ]] || { echo "error: bridge token is missing: $TOKEN_FILE" >&2; exit 1; }
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
@@ -85,6 +87,7 @@ p=json.load(open(path,encoding="utf-8"))
 token=os.environ["PASI_BRIDGE_TOKEN"]
 headers={"Authorization":"Bearer "+token}
 opid=p["operation_id"]
+session_path=os.environ.get("SESSION_STATE_PATH")
 def get(path):
     req=urllib.request.Request("http://127.0.0.1:8765"+path,headers=headers,method="GET")
     with urllib.request.urlopen(req,timeout=5) as response:
@@ -92,6 +95,11 @@ def get(path):
 p["latest_operation"]=get("/operation?operation_id="+urllib.parse.quote(opid,safe="")).get("operation")
 p["latest_health"]=get("/browser/health").get("observation")
 p["latest_state"]=get("/browser/state").get("observation")
+try:
+    handoff=json.load(open(os.environ.get("SESSION_STATE_PATH"),encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    handoff={}
+p["latest_handoff"]=handoff if isinstance(handoff,dict) else {}
 p["checked_at"]=time.time()
 open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
 PY
@@ -100,11 +108,33 @@ PY
 echo "Waiting for the exact M2 operation to be claimed/generating..."
 wait_for_active || { echo "error: M2 operation was not claimed within 180 seconds" >&2; exit 2; }
 update_evidence
+"$PYTHON" - "$OUT" "$operation_id" <<'PY'
+import json, sys
+p=json.load(open(sys.argv[1],encoding="utf-8"))
+opid=sys.argv[2]
+op=p.get("latest_operation") or {}
+handoff=p.get("latest_handoff") or {}
+if op.get("operation_id") != opid:
+    raise SystemExit("M2 operation identity changed before recovery")
+if op.get("status") not in {"claimed","generating"}:
+    raise SystemExit(f"M2 recovery was not started while the exact operation was active: {op.get('status')!r}")
+if handoff.get("active_operation_id") != opid:
+    raise SystemExit("M2 durable ChatGPT handoff did not checkpoint the exact operation ID")
+print("M2 checkpoint: exact operation is active and durably handed off")
+PY
 
 echo
 echo "MANUAL STEP: close OR reload the exact ChatGPT tab recorded in $OUT."
 echo "Do not substitute another ChatGPT tab. Press Enter after that exact tab is closed/reloaded."
 read -r
+python3 - "$OUT" <<'PY'
+import json, sys, time
+path=sys.argv[1]
+p=json.load(open(path,encoding="utf-8"))
+p["manual_tab_recovery_recorded"]=True
+p["manual_tab_recovery_recorded_at"]=time.time()
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
+PY
 
 if [[ ! -s "$BRIDGE_PID_FILE" ]]; then
   echo "error: managed bridge PID file is missing: $BRIDGE_PID_FILE" >&2
@@ -133,6 +163,20 @@ done
 (( bridge_recovered == 1 )) || { echo "error: supervised bridge did not recover" >&2; exit 4; }
 
 update_evidence
+"$PYTHON" - "$OUT" "$operation_id" <<'PY'
+import json, sys
+p=json.load(open(sys.argv[1],encoding="utf-8"))
+opid=sys.argv[2]
+op=p.get("latest_operation") or {}
+handoff=p.get("latest_handoff") or {}
+if op.get("operation_id") != opid:
+    raise SystemExit("M2 operation identity changed after bridge restart")
+if op.get("status") not in {"claimed","generating"}:
+    raise SystemExit(f"M2 operation reached terminal state before runner restart: {op.get('status')!r}")
+if handoff.get("active_operation_id") != opid:
+    raise SystemExit("M2 handoff identity did not survive bridge restart")
+print("M2 checkpoint: exact active operation survived browser/manual recovery and bridge restart")
+PY
 
 if [[ ! -s "$RUNNER_PID_FILE" ]]; then
   echo "error: managed runner PID file is missing: $RUNNER_PID_FILE" >&2
@@ -162,6 +206,22 @@ for _ in {1..30}; do
   sleep 1
 done
 [[ -n "$NEW_RUNNER_PID" ]] || { echo "error: resumed runner did not become live" >&2; exit 6; }
+
+update_evidence
+"$PYTHON" - "$OUT" "$operation_id" <<'PY'
+import json, sys
+p=json.load(open(sys.argv[1],encoding="utf-8"))
+opid=sys.argv[2]
+op=p.get("latest_operation") or {}
+handoff=p.get("latest_handoff") or {}
+if op.get("operation_id") != opid:
+    raise SystemExit("M2 operation identity changed after runner resume")
+if op.get("status") not in {"claimed","generating","completed"}:
+    raise SystemExit(f"M2 resumed operation is not recoverable: {op.get('status')!r}")
+if handoff.get("active_operation_id") != opid:
+    raise SystemExit("M2 durable handoff did not preserve the exact operation across runner restart")
+print("M2 checkpoint: exact operation and handoff survived runner restart")
+PY
 
 echo "Waiting for the original operation to complete after runner restart..."
 deadline=$((SECONDS + 900))
@@ -208,8 +268,19 @@ if not before_url or not after_url:
     raise SystemExit("M2 requires both pre- and post-restart exact chat URLs")
 if before_url != after_url:
     raise SystemExit("conversation identity changed during M2 recovery")
+handoff_after = {}
+if session_path:
+    try:
+        loaded = json.load(open(session_path, encoding="utf-8"))
+        handoff_after = loaded if isinstance(loaded, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        handoff_after = {}
+if handoff_after.get("active_operation_id") == opid:
+    raise SystemExit("active operation checkpoint was not cleared after terminal completion")
 p.update({
     "status":"PASS",
+    "durable_operation_identity": opid,
+    "handoff_cleared_after_completion": True,
     "latest_operation":op,
     "latest_state":state,
     "completed_at":time.time(),
