@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 STOP = False
+MAX_SAMPLE_FILE_BYTES = 16 * 1024 * 1024
+MAX_RETAINED_SAMPLES = 25_000
 
 
 def on_signal(_signum: int, _frame: object) -> None:
@@ -86,8 +88,22 @@ def process_sample(pid: int | None) -> dict[str, Any]:
 
 def append_record(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(record, ensure_ascii=False) + "\n"
+    if path.exists():
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        if size + len(line.encode("utf-8")) > MAX_SAMPLE_FILE_BYTES:
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()[-(MAX_RETAINED_SAMPLES - 1):]
+                temporary = path.with_suffix(path.suffix + ".tmp")
+                temporary.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+                temporary.replace(path)
+            except OSError:
+                return
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        handle.write(line)
         handle.flush()
         os.fsync(handle.fileno())
 
