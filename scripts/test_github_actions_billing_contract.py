@@ -20,6 +20,24 @@ def job_block(source: str, job_name: str) -> str:
     return match.group(0)
 
 
+
+
+RUNNER_SELECTOR_PATTERN = re.compile(
+    r"runs-on: \$\{\{ inputs\.runner_mode == '([^']+)' "
+    r"&& '([^']+)' \|\| '([^']+)' \}\}"
+)
+
+
+def runner_mapping_from_workflow(source: str) -> tuple[str, str, str]:
+    matches = RUNNER_SELECTOR_PATTERN.findall(source)
+    if not matches:
+        raise AssertionError("runner_mode runs-on expression not found")
+    unique = list(dict.fromKeys(matches))
+    if len(unique) != 1:
+        raise AssertionError(f"expected one consistent runner mapping, found {unique}")
+    return unique[0]
+
+
 class TestGitHubActionsBillingContract(unittest.TestCase):
     def test_test_workflow_defaults_every_test_job_to_self_hosted(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
@@ -41,6 +59,20 @@ class TestGitHubActionsBillingContract(unittest.TestCase):
             r"options:\n\s+- self-hosted\n\s+- github-hosted",
         )
         self.assertIn("actions/checkout@v7", source)
+
+    def test_runner_mode_maps_exactly_to_each_runner(self) -> None:
+        source = TEST_WORKFLOW.read_text(encoding="utf-8")
+        condition_value, github_runner, default_runner = runner_mapping_from_workflow(source)
+
+        self.assertEqual(condition_value, "github-hosted")
+        self.assertEqual(github_runner, "ubuntu-latest")
+        self.assertEqual(default_runner, "pasi-wsl")
+
+        def resolve(mode: str) -> str:
+            return github_runner if mode == condition_value else default_runner
+
+        self.assertEqual(resolve("github-hosted"), "ubuntu-latest")
+        self.assertEqual(resolve("self-hosted"), "pasi-wsl")
 
     def test_self_hosted_preflight_is_part_of_required_test_gate(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
