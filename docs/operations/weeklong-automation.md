@@ -99,6 +99,15 @@ python scripts/capture_pasi_long_run_evidence.py \
   --pr-url <accepted-pr-url>
 ```
 
-The resulting `p0.4-long-run-evidence.json` correlates the durable run identity, 168-hour deadline, task throughput, recovery events, retry/failure signatures, Git branch and HEAD, PR provenance, configured resource boundary, and point-in-time process snapshots. It explicitly records limitations rather than presenting a point-in-time resource snapshot as a historical peak measurement.
+The resulting `p0.4-long-run-evidence.json` correlates the durable run identity, 168-hour deadline, task throughput, recovery events, retry/failure signatures, Git branch and HEAD, PR provenance bound to the exact final Git HEAD, configured resource boundary, and historical periodic resource samples plus final process snapshots. The supervisor records resource samples at a bounded interval to `resource-samples.jsonl`; retention is capped so telemetry cannot grow without limit.
 
-The artifact must report `"status": "PASS"` only when the configured window is exactly 168 hours, the deadline has been reached, and the run terminated for the expected `deadline_reached` reason. Early roadmap completion, manual stop, or another terminal reason remains a P0.4 failure.
+The artifact must report `"status": "PASS"` only when the configured window is exactly 168 hours, the deadline has been reached, the run terminated for the expected `deadline_reached` reason, historical resource samples exist, the persisted run branch matches the final worktree branch, the worktree is clean, and the accepted PR is machine-verified with a head SHA equal to the final Git HEAD. Early roadmap completion, manual stop, or another terminal reason remains a P0.4 failure.
+
+
+Validate the complete live evidence set after the run:
+
+```bash
+python scripts/validate_p0_acceptance_artifacts.py \
+  --runtime-dir "$HOME/.pasi/overnight" \
+  --require-live-gates
+```
