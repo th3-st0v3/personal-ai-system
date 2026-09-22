@@ -73,6 +73,74 @@ class TestEngineeringWebApplication(unittest.TestCase):
         decision_items = cast(list[dict[str, object]], decisions)
         self.assertEqual(as_int(decision_items[0]["id"]), decision_id)
 
+    def test_requirement_history_is_project_scoped_and_tracks_verification_events(self):
+        status, requirement = self.request(
+            "POST",
+            f"/api/engineering/projects/{self.project_id}/requirements",
+            {"description": "Pressure must remain within the qualified envelope"},
+        )
+        self.assertEqual(status, 201)
+        requirement_id = as_int(requirement["id"])
+
+        status, source = self.request(
+            "POST",
+            f"/api/engineering/projects/{self.project_id}/sources",
+            {"title": "Pressure datasheet", "source_type": "datasheet", "version": "2.0"},
+        )
+        self.assertEqual(status, 201)
+        source_id = as_int(source["id"])
+
+        status, evidence = self.request(
+            "POST",
+            f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}/evidence",
+            {
+                "result": "Measured pressure is within envelope",
+                "supports_status": "Verified",
+                "source": "Pressure datasheet",
+                "source_id": source_id,
+                "location": "Table 4",
+                "evidence_type": "test_result",
+            },
+        )
+        self.assertEqual(status, 201)
+        evidence_id = as_int(evidence["id"])
+
+        status, decision = self.request(
+            "POST",
+            f"/api/engineering/projects/{self.project_id}/decisions",
+            {
+                "title": "Retain qualified pressure limit",
+                "decision": "Use the qualified pressure limit",
+                "requirement_id": requirement_id,
+                "rationale": "Measured evidence supports the limit.",
+            },
+        )
+        self.assertEqual(status, 201)
+        decision_id = as_int(decision["id"])
+
+        status, history = self.request(
+            "GET",
+            f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}/history",
+        )
+        self.assertEqual(status, 200)
+        events = cast(list[dict[str, object]], history)
+        event_types = {str(item["event_type"]) for item in events}
+        self.assertIn("requirement_record", event_types)
+        self.assertIn("evidence_recorded", event_types)
+        self.assertIn("decision_recorded", event_types)
+        evidence_event = next(item for item in events if item["event_type"] == "evidence_recorded")
+        self.assertEqual(as_int(evidence_event["entity_id"]), evidence_id)
+        self.assertEqual(as_int(cast(dict[str, object], evidence_event["source"])["id"]), source_id)
+        decision_event = next(item for item in events if item["event_type"] == "decision_recorded")
+        self.assertEqual(as_int(decision_event["entity_id"]), decision_id)
+
+        status, other = self.request(
+            "GET",
+            f"/api/engineering/projects/{self.project_id}/requirements/999999/history",
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Requirement not found", str(other["error"]))
+
     def test_cross_project_requirement_and_source_access_is_rejected(self):
         other_project = as_int(self.workspace.create_project("Other"))
         status, created = self.request("POST", f"/api/engineering/projects/{self.project_id}/requirements", {"description": "Private"})
