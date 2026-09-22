@@ -109,7 +109,9 @@ print(f"Roadmap: {path} ({len(tasks)} tasks; dependency graph valid)")
 PY
 
 TOKEN_FILE="$HOME/.pasi/bridge-token"
-EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
+EXTENSION_SOURCE_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
+EXTENSION_BUNDLE_DIR="${PASI_BROWSER_EXTENSION_DIR:-$REPO_ROOT/.runtime/chromium/pasi-chatgpt}"
+EXTENSION_TOKEN_FILE="$EXTENSION_BUNDLE_DIR/.bridge-token"
 mkdir -p "$HOME/.pasi"
 bridge_already_healthy=0
 if curl -fsS --max-time 3 'http://127.0.0.1:8765/health' >/dev/null 2>&1; then
@@ -125,8 +127,14 @@ elif [[ ! -s "$TOKEN_FILE" ]]; then
     printf 'error: bridge is already healthy but its managed token file is missing; stop the bridge and restart via this launcher.\n' >&2
     exit 3
 fi
+if [[ ! -d "$EXTENSION_BUNDLE_DIR" ]]; then
+    printf 'error: native PASI extension staging directory is missing: %s\n' "$EXTENSION_BUNDLE_DIR" >&2
+    printf 'Build it with scripts/build_chromium_extension.py and load that directory in Chromium.\n' >&2
+    exit 3
+fi
+cp "$TOKEN_FILE" "$EXTENSION_SOURCE_TOKEN_FILE"
 cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
-chmod 600 "$EXTENSION_TOKEN_FILE"
+chmod 600 "$EXTENSION_SOURCE_TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 
 printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
