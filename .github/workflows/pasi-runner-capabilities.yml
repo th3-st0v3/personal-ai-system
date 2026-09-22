@@ -42,6 +42,11 @@ jobs:
           ref: ${{ steps.ref.outputs.ref }}
           fetch-depth: 1
 
+      - name: Prepare PASI Python environment
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+
       - name: Reconcile runner capabilities
         env:
           APPLY: ${{ inputs.apply }}
@@ -50,7 +55,7 @@ jobs:
           args=(--spec config/runner/capabilities.json --report "$HOME/.pasi/runner/capabilities.json" --json)
           if [[ "$APPLY" == "true" ]]; then args+=(--apply); fi
           if [[ "$APPLY_OPTIONAL" == "true" ]]; then args+=(--apply-optional); fi
-          python3 scripts/reconcile_runner_capabilities.py "${args[@]}"
+          .venv/bin/python scripts/reconcile_runner_capabilities.py "${args[@]}"
 
       - name: Verify runner resource boundary
         run: |
