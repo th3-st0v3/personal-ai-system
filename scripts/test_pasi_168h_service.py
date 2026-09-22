@@ -33,6 +33,9 @@ class TestPasi168HourDurableServiceContract(unittest.TestCase):
         self.assertIn("refusing to reset potentially unpushed work", source)
         self.assertIn("PASI 168-hour service verified live", source)
         self.assertIn("service_identity_matches", source)
+        self.assertIn("service_processes_are_live", source)
+        self.assertIn("no live supervisor/runner PIDs", source)
+        self.assertIn('refusing to treat stale state as healthy', source)
         self.assertIn("different branch or roadmap", source)
         self.assertIn("START_LOCK_FILE", source)
 
