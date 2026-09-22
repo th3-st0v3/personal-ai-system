@@ -29,8 +29,15 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Install JavaScript DOM fixture dependency
         run: npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
-      - name: Install validation sandbox
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Validate validation sandbox
+        run: |
+          if command -v bwrap >/dev/null 2>&1; then
+            bwrap --version
+          else
+            echo "bubblewrap (bwrap) is required on the self-hosted runner." >&2
+            echo "Provision it outside GitHub Actions with the PASI runner capability reconciler." >&2
+            exit 1
+          fi
       - name: Validate browser acceptance prerequisites
         run: |
           if command -v google-chrome-stable >/dev/null 2>&1; then
@@ -42,9 +49,9 @@ jobs:
           elif command -v chromium-browser >/dev/null 2>&1; then
             chromium-browser --version
           else
-            sudo apt-get update
-            sudo apt-get install -y chromium
-            chromium --version
+            echo "A Chromium-family browser is required on the self-hosted runner." >&2
+            echo "Provision it outside GitHub Actions before running CI." >&2
+            exit 1
           fi
           if command -v chromedriver >/dev/null 2>&1; then
             chromedriver --version
