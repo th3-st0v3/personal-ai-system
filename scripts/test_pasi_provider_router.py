@@ -253,6 +253,11 @@ class TestProviderRouter(unittest.TestCase):
         self.assertIn("/chat/completions", second[0])
         self.assertEqual(first[1]["model"], "test-groq")
         self.assertEqual(second[1]["model"], "test-gemini")
+        self.assertEqual(first[1]["max_completion_tokens"], 5000)
+        self.assertEqual(first[1]["reasoning_format"], "hidden")
+        self.assertEqual(first[1]["reasoning_effort"], "low")
+        self.assertNotIn("max_tokens", first[1])
+        self.assertEqual(second[1]["max_tokens"], 5000)
 
     def test_provider_discovery_includes_optional_groq_and_gemini(self) -> None:
         with patch.dict(

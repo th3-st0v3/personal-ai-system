@@ -178,10 +178,24 @@ def call_openrouter(prompt: str, timeout: float) -> str:
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 5000,
     }
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+    }
+    if provider == "groq":
+        # GPT-OSS uses a reasoning budget in addition to final-answer tokens.
+        # Hide reasoning so PASI receives a normal final-answer text payload.
+        payload.update({
+            "max_completion_tokens": 5000,
+            "reasoning_format": "hidden",
+            "reasoning_effort": "low",
+        })
+    else:
+        payload["max_tokens"] = 5000
     data = post_json(
         base_url + "/chat/completions",
         payload,
-        {"Authorization": f"Bearer {key}", "HTTP-Referer": "http://localhost", "X-Title": "Personal AI System"},
+        {"Authorization": f"Bearer {key}"},
         timeout,
     )
     return extract_chat_text(data)
