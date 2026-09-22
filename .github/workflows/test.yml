@@ -15,9 +15,16 @@ jobs:
     concurrency:
       group: pasi-free-validation-${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    # Keep this validation path on the PASI WSL self-hosted runner.
+    # GitHub-hosted runners consume private-repository Actions minutes;
+    # self-hosted runners do not accrue GitHub Actions billable minutes.
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 30
     steps:
+      - name: Assert free self-hosted execution boundary
+        shell: bash
+        run: |
+          test "${RUNNER_ENVIRONMENT:-}" = "self-hosted"
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
