@@ -1,26 +1,18 @@
-# Conditional Tampermonkey Self-Update
+# Conditional Tampermonkey Self-Update (Deprecated)
 
-PASI does not update its ChatGPT browser controller after every model response.
+This document describes a retired compatibility architecture. PASI's supported browser-control path is now the native Chromium extension under `automation/chromium/pasi-chatgpt`.
 
-The controller update path is deliberately conditional:
+The Tampermonkey controller loader and conditional self-update pipeline are migration-only artifacts for historical installations. They are not required by the PASI runner, the authenticated bridge, browser observation, or the 168-hour launcher.
 
-1. ChatGPT is instructed to emit an explicit three-line controller-update signal only when the controller itself needs a code change:
-   - `PASI_CONTROLLER_UPDATE: true`
-   - `PASI_CONTROLLER_UPDATE_VERSION: <exact controller @version>`
-   - `PASI_CONTROLLER_UPDATE_REASON: <technical reason>`
-2. `automation/orchestrator/controller_update.py` parses the signal and refuses to stage an update when the signal is missing, false, missing a version, mismatched with the source version, or already synchronized.
-3. The launcher writes a bounded local update request under `.runtime/chatgpt/controller-update-request.json` when the request is eligible.
-4. A controller change is still developed and tested like normal PASI code. The model signal is a trigger, not permission to execute arbitrary code.
-5. After the controller change is merged to `main`, `scripts/publish_controller_release.py` can publish a versioned `automation/legacy/tampermonkey/controller-sync.json` manifest containing the controller SHA-256 digest.
-6. The one-time-installed `automation/tampermonkey/chatgpt-controller-loader.user.js` checks that manifest. It only loads a controller when `enabled` is true and the published version/hash differ from its last verified release.
-7. Before execution, the loader restricts the source URL to this repository's `main` raw GitHub path and verifies the downloaded controller against the manifest SHA-256 digest.
+Do not use this architecture for new installations. Native Chromium controller updates must follow the repository's normal source review, validation, version, and integrity checks.
 
-## One-time browser setup
+The legacy Tampermonkey distribution service and its local release endpoints are retired. The deprecated loader remains only as a visible migration notice so older installations do not silently appear healthy.
 
-Install `chatgpt-controller-loader.user.js` in Tampermonkey and disable the older directly-installed ChatGPT controller so the two controllers do not poll the bridge simultaneously. The loader then becomes the stable browser-side bootstrap; future controller changes are delivered through the versioned release manifest.
+## Migration
 
-Tampermonkey supports `@updateURL` and `@downloadURL`, but the PASI loader uses its own explicit release manifest so a normal ChatGPT response cannot directly cause a script replacement. Tampermonkey's current documentation requires an `@version` tag for update checks and documents `@updateURL` / `@downloadURL`; this PASI design adds an application-level gate and digest verification on top. 
+1. Disable or remove the legacy Tampermonkey controller and loader.
+2. Install and enable `automation/chromium/pasi-chatgpt` as the native Chromium extension.
+3. Verify `http://127.0.0.1:8765/health` and authenticated browser health.
+4. Confirm browser observation reports `native_controller: true` and the expected native controller version.
 
-## Failure behavior
-
-A missing directive means no update. A false directive means no update. A malformed or mismatched version means no update. A repeated request for the already-synchronized version means no update. A manifest with an invalid source URL or invalid digest is rejected. A downloaded controller whose SHA-256 does not match the manifest is never executed.
+Future controller changes are shipped through the native extension source and normal repository verification rather than through the retired Tampermonkey distribution flow.
