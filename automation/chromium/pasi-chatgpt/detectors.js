@@ -52,6 +52,7 @@
   const CONNECTION_MARKERS = [
     'network error',
     'connection lost',
+    'connection interrupted',
     'failed to fetch',
     'reconnecting'
   ];
