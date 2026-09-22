@@ -248,7 +248,19 @@ async function reloadBoundedTab(tab) {
 
 async function inspect() {
   const status = await bridgeJson('/status');
-  if (!status) return;
+  if (!status) {
+    const chatTabs = await chrome.tabs.query({ url: ['https://chatgpt.com/c/*', 'https://www.chatgpt.com/c/*'] });
+    // When the loopback bridge itself is temporarily unavailable, wake the
+    // existing native controllers. The ping performs no queue/claim operation;
+    // their normal heartbeat will publish fresh state once the bridge recovers.
+    for (const tab of chatTabs) {
+      if (typeof tab.id !== 'number') continue;
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
+      } catch (_) {}
+    }
+    return;
+  }
 
   const payload = await bridgeJson('/browser/observation');
   const health = healthData(payload);
