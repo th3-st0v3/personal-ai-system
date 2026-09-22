@@ -71,7 +71,7 @@ def process_sample(pid: int | None) -> dict[str, Any]:
 
     try:
         result["command"] = (
-            __import__("subprocess").run(
+            subprocess.run(
                 ["ps", "-p", str(pid), "-o", "args="],
                 capture_output=True,
                 text=True,
@@ -79,7 +79,7 @@ def process_sample(pid: int | None) -> dict[str, Any]:
                 check=False,
             ).stdout.strip()
         )
-    except (OSError, __import__("subprocess").TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired):
         result["command"] = ""
     return result
 
