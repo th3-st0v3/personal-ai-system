@@ -304,9 +304,13 @@ async function inspect() {
     return;
   }
   await chrome.storage.local.remove(`create:${targetChatUrl}`);
-  // Only actively reload when the observation itself is stale. A connection
-  // failure on an otherwise fresh idle page is just a wake-up signal.
-  if (observationStale) await reloadBoundedTab(matchingTab);
+  // A connection failure during an active operation is actionable even when
+  // the heartbeat itself is fresh. Reload the exact verified conversation
+  // through the existing bounded budget so recovery.js can preserve or retry
+  // the operation without creating duplicate work.
+  if (observationStale || (connectionFailure && activeOperation)) {
+    await reloadBoundedTab(matchingTab);
+  }
 }
 
 async function applyTimeoutPolicy() {
