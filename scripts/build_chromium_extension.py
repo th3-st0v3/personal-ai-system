@@ -21,7 +21,6 @@ EXTENSION_FILES = (
     "content.js",
     "recovery_progress.js",
     "recovery.js",
-    "activity.js",
 )
 
 
