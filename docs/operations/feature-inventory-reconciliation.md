@@ -47,9 +47,9 @@ This document reconciles the current PASI feature inventory against the reposito
 
 These are useful future work, but they should follow live M0/M1/M2 acceptance rather than precede it.
 
-- **Idempotency replay simulation** — existing bridge tests cover response-loss/idempotent replay behavior; a dedicated live M2 harness remains a runtime acceptance task.
-- **Visual telemetry barometer** — the panel now consumes authenticated runner RAM/capability telemetry; richer historical charts remain optional after live acceptance.
-- **Dissection progress UI** — the current side panel can display roadmap/task state, but authoritative multi-pass cloud dissection progress should not be fabricated before a stable dissection service exists.
+- **Idempotency replay simulation** — deterministic crash/replay simulation now verifies stable idempotency keys do not create duplicate user messages; the existing live M2 acceptance path remains the authoritative end-to-end test.
+- **Visual telemetry barometer** — the panel now shows response→next-prompt timing, RAM usage, fallback provider, and an amber warning at 90%; historical charts remain optional.
+- **Dissection progress UI** — a deterministic three-pass dissection adapter now exposes deconstruct/dependency/JSON stages, and the Control Center displays persisted progress without inventing remote/cloud completion evidence.
 - **Speculative branching and large in-memory vector caches** — intentionally postponed until higher-memory profiles are real, measured, and justified by a demonstrated workload.
 
 ## Operator-owned
@@ -69,6 +69,18 @@ These settings are real environment controls rather than native extension capabi
 - **Automatic browser tab destruction/suspension as a core correctness mechanism** — tab lifecycle recovery exists, but discarding the authoritative ChatGPT page would undermine the continuity the controller is designed to preserve.
 - **NVIDIA NIM as a permanent free provider** — not part of the accepted provider plan.
 - **Multi-browser/headless speculative parallelism** — not part of the unattended control-plane design because it increases resource pressure and complicates state ownership.
+
+## Inventory completion follow-up
+
+The follow-up inventory branch adds three durable engineering primitives without changing the primary browser-control boundary:
+
+- `scripts/pasi_dissection_adapter.py` provides deterministic deconstruction, dependency mapping, and JSON compilation for raw roadmaps, with an optional AI-enrichment hook that must preserve the deterministic task identity set.
+- `scripts/pasi_evidence_vault.py` provides an SQLite/WAL evidence store for crash-resistant task provenance alongside the existing JSON state/ledger.
+- `scripts/pasi_idempotency_replay.py` provides a deterministic replay harness for response-loss/idempotency verification.
+- `scripts/pasi_semver.py` provides deterministic SemVer bumping and changelog entry generation from Conventional Commit subjects.
+- `docs/operations/pasi-feature-inventory.json` makes the complete inventory machine-readable for future automation and VS Code reconciliation.
+
+API credentials remain environment-only. The extension does not gain host-process, browser-network interception, SharedArrayBuffer, full-DOM mirroring, or arbitrary resource-control privileges.
 
 ## Current implementation priority
 

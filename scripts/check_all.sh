@@ -158,6 +158,9 @@ printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript
 pull_origin_main
 
 run_check "Beta smoke test" python scripts/smoke_test_beta.py
+run_check "Roadmap dissection adapter" python -m pytest -q scripts/test_pasi_dissection_adapter.py
+run_check "Idempotency replay simulation" python scripts/pasi_idempotency_replay.py --json
+run_check "Evidence vault" python -m pytest -q scripts/test_pasi_evidence_vault.py scripts/test_pasi_idempotency_replay.py
 run_check "All discovered Python tests" python -m pytest -q "${PYTHON_TEST_FILES[@]}"
 
 if ! python -c 'import browser_use' >/dev/null 2>&1; then
