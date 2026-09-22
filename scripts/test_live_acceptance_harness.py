@@ -6,8 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_m1_acceptance_persists_failure_evidence() -> None:
     source = (ROOT / "scripts" / "run_m1_live_acceptance.py").read_text(encoding="utf-8")
-    assert 'evidence["status"] = "STARTED"' in source
-    assert 'evidence["status"] = "FAIL"' in source
+    assert '"status": "STARTED"' in source
+    assert '"status": "FAIL"' in source
     assert 'write_evidence(evidence_path, evidence)' in source
     assert '"completed_count": len(results)' in source
 
