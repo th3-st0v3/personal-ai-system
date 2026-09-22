@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sys
 from pathlib import Path
 from unittest.mock import patch
+
+import scripts.pasi_overnight_engine as engine
 
 from scripts.pasi_overnight_engine import (
     RunnerState,
@@ -17,6 +20,26 @@ from scripts.pasi_overnight_hardening import validate_patch_paths
 
 
 class TestPasiOvernightEngine(unittest.TestCase):
+    def test_ensure_services_manages_only_the_authenticated_bridge(self) -> None:
+        process = object()
+        with (
+            patch.object(engine, "healthy", side_effect=[False, True]) as healthy,
+            patch.object(engine.time, "monotonic", side_effect=[0.0, 1.0]),
+            patch.object(engine.time, "sleep") as sleep,
+            patch.object(engine.subprocess, "Popen", return_value=process) as popen,
+            patch.object(engine, "log_event"),
+        ):
+            children = engine.ensure_services()
+
+        self.assertEqual(children, [process])
+        popen.assert_called_once_with(
+            [sys.executable, "-m", "automation.orchestrator.bridge"],
+            cwd=engine.REPO_ROOT,
+        )
+        self.assertEqual(healthy.call_count, 2)
+        self.assertEqual(healthy.call_args.args[0], engine.BRIDGE_HEALTH)
+        sleep.assert_not_called()
+
     def test_completion_requires_explicit_evidence_contract(self) -> None:
         values = {
             "requirements": "complete",
