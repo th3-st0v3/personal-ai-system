@@ -26,7 +26,7 @@ jobs:
           else
             base="main"
           fi
-          git fetch --no-tags --depth=1 origin "+refs/heads/${base}:refs/remotes/origin/${base}"
+          git fetch --no-tags origin "+refs/heads/${base}:refs/remotes/origin/${base}"
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
