@@ -111,6 +111,7 @@ systemd-run \
     --setenv=PASI_OVERNIGHT_BRANCH="$REF" \
     --setenv=PASI_RUNTIME_DIR="$RUNTIME_DIR" \
     --setenv=PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}" \
+    --setenv=PASI_ROADMAP_PATH="${PASI_ROADMAP_PATH:-roadmaps/pasi-default.json}" \
     --setenv=PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}" \
     --setenv=PATH="$PATH" \
     bash "$SERVICE_ROOT/scripts/start_pasi_168h.sh" --foreground-supervisor
