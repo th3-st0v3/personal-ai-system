@@ -146,7 +146,7 @@
               <div class="engineering-panel-head">
                 <div><span class="engineering-kicker">KNOWLEDGE BASE</span><h2>Sources</h2></div>
                 <div class="engineering-panel-actions">
-                  <button class="quiet-button" data-engineering-action="search-sources">Search</button>
+                  <button class="quiet-button" data-engineering-action="search-sources">Search sources</button>
                   <button class="outline-button" data-engineering-action="source">Add source</button>
                   <button class="outline-button" data-engineering-action="ingest-source">Ingest</button>
                 </div>
