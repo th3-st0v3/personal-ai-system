@@ -186,8 +186,6 @@ def validate(runtime_dir: Path, require_live_gates: bool) -> list[str]:
     m2_files = sorted(acceptance.glob("m2-live-*.json"))
     if not m2_files:
         errors.append("M2 artifact is missing")
-    elif require_live_gates:
-        pass
     if required["P0.4"].is_file():
         if require_live_gates:
             errors.extend(validate_p04(required["P0.4"]))
