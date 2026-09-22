@@ -79,7 +79,12 @@ test('native background watchdog wakes existing native tabs when the bridge stat
 });
 
 test('native background watchdog treats a missing observation as unhealthy and wakes existing native tabs', () => {
-  assert.match(background, /const payload = await bridgeJson\('\/browser\/observation'\);/);
+
+
+test('native watchdog freshness uses the dedicated health heartbeat, not generic observations', () => {
+  assert.match(background, /const payload = await bridgeJson\\('\/browser\\/health'\\);/);
+  assert.doesNotMatch(background, /const payload = await bridgeJson\\('\/browser\\/observation'\\);\\s*const health = healthData/);
+});  assert.match(background, /const payload = await bridgeJson\('\/browser\/health'\);/);
   assert.match(background, /const health = healthData\(payload\);/);
   assert.match(background, /if \(!health\) \{/);
   assert.match(background, /https:\/\/chatgpt\.com\/c\/\*/);
