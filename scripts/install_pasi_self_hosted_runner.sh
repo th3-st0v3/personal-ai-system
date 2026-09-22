@@ -64,10 +64,15 @@ if [[ -x ./svc.sh ]] && command -v systemctl >/dev/null 2>&1 && systemctl --user
     sudo ./svc.sh start
     echo 'GitHub Actions runner service installed and started.'
   else
-    echo 'Runner registered. Automatic service installation requires passwordless sudo; run sudo ./svc.sh install && sudo ./svc.sh start for a persistent runner.'
+    echo 'Runner registered. Automatic service installation requires passwordless sudo; starting a headless runner instead.'
+    nohup ./run.sh >>"$RUNNER_ROOT/runner.log" 2>&1 </dev/null &
+    echo "$!" > "$RUNNER_ROOT/runner.pid"
+    echo 'Persistent headless runner started.'
   fi
 else
-  echo 'Runner registered successfully. Start ./run.sh from this directory for a persistent headless runner.'
+  nohup ./run.sh >>"$RUNNER_ROOT/runner.log" 2>&1 </dev/null &
+  echo "$!" > "$RUNNER_ROOT/runner.pid"
+  echo 'Persistent headless runner started.'
 fi
 
 echo "Runner root: $RUNNER_ROOT"
