@@ -249,10 +249,7 @@ def main() -> int:
     )
     now = datetime.now(timezone.utc)
     deadline_reached = deadline_dt is not None and now >= deadline_dt
-    runtime_shape_ok = (
-        configured_seconds is not None
-        and abs(configured_seconds - EXPECTED_RUNTIME_SECONDS) <= RUNTIME_TOLERANCE_SECONDS
-    )
+    result_status = classify_p04_status(configured_seconds, deadline_reached, str(state.get("stop_reason") or "").strip())
 
     pid_files = {
         "runner": runtime_dir / "runner.pid",
