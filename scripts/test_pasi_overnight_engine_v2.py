@@ -99,6 +99,18 @@ PASI_RESULT_PATCH_END
         *_, values = engine.parse_response(response)
         self.assertEqual(values["automation_continue"], "true")
 
+    def test_malformed_response_contract_is_bounded_retry_input(self) -> None:
+        malformed = "PASI_RESULT_STATUS: complete\n"
+        with self.assertRaisesRegex(ValueError, "response contract must contain each marker exactly once"):
+            engine.parse_response(malformed)
+
+        source = Path(engine.__file__).read_text(encoding="utf-8")
+        self.assertIn('except ValueError as exc:', source)
+        self.assertIn('stage="response_contract"', source)
+        self.assertIn('classification="protocol"', source)
+        self.assertIn("RESPONSE CONTRACT INVALID:", source)
+        self.assertIn("attempt += 1", source)
+
     def test_automation_gate_reads_durable_task_evidence(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
