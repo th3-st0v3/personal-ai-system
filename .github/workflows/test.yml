@@ -1,10 +1,10 @@
 name: test
 
 on:
+  # Repository branch pushes are the authoritative validation trigger.
+  # This prevents untrusted fork pull requests from executing on the private PASI runner.
   push:
     branches: [main, beta-foundation, 'pasi/**']
-  pull_request:
-    branches: [main, 'pasi/**']
   workflow_dispatch:
 
 jobs:
