@@ -15,6 +15,7 @@ class TestActionsRunnerLauncher(unittest.TestCase):
         self.assertIn("nohup ./run.sh", source)
         self.assertIn("runner.pid", source)
         self.assertIn("already active", source)
+        self.assertIn("find_listener_pid", source)
         self.assertIn("PASI self-hosted runner started", source)
         self.assertIn("ACTIONS", source)
 
@@ -28,6 +29,7 @@ class TestActionsRunnerLauncher(unittest.TestCase):
         self.assertIn("PASI_ACTIONS_RUNNER: READY", source)
         self.assertIn(".runner", source)
         self.assertIn("systemctl", source)
+        self.assertIn("find_listener_pid", source)
 
     def test_scripts_have_valid_shell_syntax(self) -> None:
         for name in (
