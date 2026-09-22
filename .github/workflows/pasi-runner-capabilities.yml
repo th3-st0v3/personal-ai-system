@@ -1,6 +1,8 @@
 name: pasi-runner-capabilities
 
 on:
+  schedule:
+    - cron: '37 3 * * *'
   workflow_dispatch:
     inputs:
       ref:
@@ -26,7 +28,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  health:
+    if: github.event_name == 'schedule'
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout canonical runner contract
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Detect runner capabilities
+        run: |
+          python3 scripts/reconcile_runner_capabilities.py \
+            --spec config/runner/capabilities.json \
+            --report "$HOME/.pasi/runner/capabilities.json" \
+            --json
+
+      - name: Verify runner health report
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              (Path.home() / ".pasi" / "runner" / "capabilities.json").read_text()
+          )
+          if report.get("required_ok") is not True:
+              raise SystemExit("scheduled runner health check failed")
+          print("Scheduled runner health: PASS")
+          PY
+
+      - name: Stage health evidence
+        run: |
+          mkdir -p "$RUNNER_TEMP/pasi-capabilities-health"
+          cp "$HOME/.pasi/runner/capabilities.json" \
+            "$RUNNER_TEMP/pasi-capabilities-health/capabilities.json"
+
+      - name: Upload health evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: pasi-runner-health
+          path: ${{ runner.temp }}/pasi-capabilities-health/capabilities.json
+          if-no-files-found: error
+
   reconcile:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, x64, pasi-desktop]
     timeout-minutes: 45
     steps:
