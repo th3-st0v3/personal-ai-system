@@ -2,36 +2,62 @@
 
 ## Coverage
 
-The branch-hygiene workflow is a repository-wide lifecycle process. It runs on branch pushes, pull-request lifecycle events, completion of the authoritative test workflow, a daily schedule, and manual dispatch.
+The branch-hygiene workflow is a **single repository-wide reconciler**, not a workflow that must be configured once per branch.
+
+It runs from one workflow definition on:
+- every branch push;
+- pull-request open/synchronize/close/ready-for-review events;
+- completion of the authoritative `test` workflow;
+- the daily schedule;
+- manual dispatch.
+
+The authoritative `test` workflow also runs on **every branch and every pull request**, and uses the PASI self-hosted `linux/x64/pasi-wsl` runner. There are no GitHub-hosted `ubuntu-*` runners in the PASI CI/audit workflows.
+
+## State reconciliation
+
+For the current branch/PR head, hygiene observes the existing GitHub check state. It does not launch another copy of a test that already passed.
+
+The intended state machine is:
+
+`current head -> observe checks -> act on current state`
+
+- **Passed:** do not rerun the same head. A passing eligible PR can proceed to merge.
+- **Failed:** do not repeatedly rerun the failed head. The engineering/patch cycle produces a new commit; the all-branch `test` workflow then validates that new head.
+- **Pending:** leave the PR/branch untouched until the current validation completes.
+- **Open + eligible to merge:** request squash auto-merge. Required reviews and branch protection remain authoritative.
+- **Closed + no unique work beyond main:** delete the unnecessary branch ref.
+- **Closed + unique unmerged work:** reopen the existing PR.
+- **Merged + unique post-merge work:** create a new draft PR for the new branch work.
+- **Branch with unique work + no PR:** create a draft PR so the work is never orphaned.
 
 ## Branch cleanup
 
-Existing cleanup only removes refs that are proven redundant: merged PR heads, branches fully contained in main, duplicate/snapshot refs covered by the cleanup policy, or other explicitly disposable refs. The default branch, active PR heads, and explicit keepers are preserved.
+The reconciler compares each non-protected branch against `main`. A branch with no commits unique beyond `main` can be deleted when it is not an active PR head and is not a system-managed dependency branch.
 
-A closed PR does not by itself prove that its branch is disposable; unmerged work is retained unless the existing cleanup proof establishes that the ref is redundant.
+The existing proven-safe duplicate cleanup remains in place. The default branch, active PR heads, Dependabot/Renovate refs, and explicit keepers remain protected.
 
 ## Pull-request reconciliation
 
-An ahead-of-main branch without an open PR receives a draft PR so work remains visible and reviewable instead of becoming an orphaned branch.
+Ready, same-repository, standard-risk PRs are eligible for automatic squash auto-merge only when GitHub reports them mergeable and the current reported checks pass.
 
-Ready, same-repository, standard-risk PRs are eligible for automatic squash auto-merge only when GitHub reports them mergeable and all currently reported checks pass. Required reviews and branch-protection rules remain authoritative and can still block the merge.
+Draft PRs created by branch hygiene carry explicit machine-readable markers. Once their current head is green and mergeable, hygiene may convert them to ready and request squash auto-merge.
 
-Draft PRs remain drafts unless their description explicitly contains PASI_AUTO_MERGE: true or PASI_AUTO_READY: true. An authorized draft is converted to ready only after it is standard-risk, mergeable, and green, then automatic squash merge is requested.
+High-risk changes—including controller, browser, security-boundary, provider-routing, workflow, and other protected automation paths classified by `scripts/pasi_promote.py`—remain outside automatic merging.
 
-High-risk changes—including controller, browser, security-boundary, provider-routing, workflow, and other protected automation paths classified by scripts/pasi_promote.py—are never auto-merged by branch hygiene.
-
-Fork-owned PRs are never mutated by the branch-hygiene workflow.
+Fork-owned PRs are never mutated.
 
 ## Future branches
 
-Because the workflow receives all branch pushes and also runs on a schedule, a newly created work branch does not require a special branch-name registration to enter the hygiene lifecycle. System-managed dependency branches such as Dependabot and Renovate remain outside the orphan-PR creation path.
+No branch name needs to be added to the workflow. The workflow's unqualified `push:` trigger and the all-branch `test` workflow provide the coverage.
+
+A newly created branch enters the lifecycle on its next push and is also picked up by the scheduled repository-wide sweep, which means stale existing branches do not require a separate manual workflow run per branch.
 
 ## Safety
 
-Branch hygiene never force-merges, bypasses reviews, rewrites another open PR's branch, marks incomplete work complete, or deletes an active PR head.
+Branch hygiene never force-merges, bypasses required reviews, rewrites another open PR's branch, marks incomplete work complete, or deletes an active PR head.
 
-Write-capable workflow-run execution is restricted to runs whose head repository is this repository, preventing untrusted fork code from running with repository write permissions.
+Write-capable `workflow_run` execution is restricted to same-repository heads. The workflow checks the authoritative current GitHub state before every mutation.
 
 ## Operational principle
 
-The goal is not maximum deletion or maximum merging. The goal is a continuously reconciled repository in which active work has a visible PR, completed work does not leave unnecessary refs behind, and protected/high-risk work remains subject to normal human review.
+The objective is a continuously reconciled repository: active work has a visible PR, completed work does not leave unnecessary refs behind, failed heads are not spam-rerun, and protected/high-risk work retains the normal review boundary.
