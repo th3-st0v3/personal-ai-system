@@ -916,7 +916,7 @@ def schedule_background_work(
     *,
     event: str,
     task: str,
-    attempt: int,
+    task_number: int,
 ) -> None:
     def runner() -> None:
         try:
@@ -925,7 +925,7 @@ def schedule_background_work(
             log_event(
                 f"{event}_failed",
                 task_id=task_key(task),
-                task_number=attempt,
+                task_number=task_number,
                 error=str(exc)[-4000:],
             )
 
@@ -1905,11 +1905,15 @@ def run(state: OvernightState, *, push: bool) -> None:
             )
             code, response = invoke_chat(state.current_task, state, failure)
             provider_source = state.last_provider
+            completed_task_for_metrics = state.current_task
+            completed_attempt_for_metrics = attempt
+            completed_response_for_metrics = response
             schedule_background_work(
-                lambda: emit_operation_metrics(state.current_task, attempt, response),
+                lambda task=completed_task_for_metrics, attempt=completed_attempt_for_metrics, output=completed_response_for_metrics:
+                    emit_operation_metrics(task, attempt, output),
                 event="operation_metrics",
-                task=state.current_task,
-                attempt=attempt,
+                task=completed_task_for_metrics,
+                task_number=state.task_number,
             )
             condition = provider_condition(code, response)
             if condition == "auth_required":
