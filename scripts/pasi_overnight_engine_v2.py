@@ -1733,9 +1733,10 @@ def verify_and_commit(
             promote_verified_commit,
             event="promotion",
             task=task,
-            attempt=attempt or 0,
+            task_number=task_number or 0,
         )
-        output = output + "\n\n[PASI PROMOTION SCHEDULED]\n"    return commit, output
+        output = output + "\n\n[PASI PROMOTION SCHEDULED]\n"
+    return commit, output
 
 
 def standby_until_ready(
