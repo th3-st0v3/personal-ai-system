@@ -35,8 +35,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Run branch-hygiene unit tests
-        run: python -m unittest -v scripts.test_cleanup_duplicate_branches
+      - name: Run branch-hygiene regression tests
+        run: |
+          python -m unittest -v \
+            scripts.test_cleanup_duplicate_branches \
+            scripts.test_reconcile_branch_prs
 
   reconcile:
     needs: test
