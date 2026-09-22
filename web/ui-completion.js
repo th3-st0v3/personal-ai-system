@@ -298,7 +298,7 @@
                         </div>
                         <div class="engineering-evidence-actions">\${invalid?'':\`<button type="button" class="quiet-button" data-evidence-action="invalidate" data-id="\${attr(item.id)}">Invalidate</button>\`}</div>
                       </article>\`;
-                    }).join('') : '<div class="engineering-empty"><strong>No evidence linked.</strong><span>Add a result, source, measurement, calculation, or verification artifact.</span><button class="primary-button" data-engineering-action="evidence" data-id="\${attr(requirement.id)}">Add first evidence</button></div>'}
+                    }).join('') : '<div class="engineering-empty"><strong>No evidence linked.</strong><span>Add a result, source, measurement, calculation, or verification artifact.</span><button class="primary-button" data-engineering-action="evidence" data-id="\${attr(requirement.id)}">Add evidence</button></div>'}
                   </div>
                 </section>
 
