@@ -339,9 +339,9 @@
                 <section class="engineering-panel engineering-history-panel">
                   <div class="engineering-panel-head">
                     <div><span class="engineering-kicker">ACTIVITY</span><h2>Verification history</h2></div>
-                    <div class="engineering-panel-actions"><span class="engineering-panel-count">${{history.length} events</span><button type="button" class="quiet-button" data-engineering-history-refresh>Refresh</button></div>
+                    <div class="engineering-panel-actions"><span class="engineering-panel-count">${history.length events</span><button type="button" class="quiet-button" data-engineering-history-refresh>Refresh</button></div>
                   </div>
-                  <div class="engineering-history-state ${{historyError?'error-state':''}">
+                  <div class="engineering-history-state ${{historyError ? 'error-state' : ''}">
                     ${{historyError
                       ? `<span>History unavailable: ${{esc(historyError)}</span><button type="button" class="outline-button" data-engineering-history-refresh>Retry</button>`
                       : history.length
@@ -349,10 +349,10 @@
                         : `<span>No persisted verification activity has been recorded yet.</span>`}
                   </div>
                   <div class="engineering-timeline" aria-live="polite" aria-label="Requirement verification history">
-                    ${{history.length ? history.slice(0,20).map((item,index)=>{
+                    ${{history.length ? history.slice(0,20).map((item)=>{
                       const kind=String(item.event_type||'event');
                       const rejectedReview=kind==='review' && String(item.status||'')==='Rejected';
-                      const state=kind==='evidence_invalidated'||rejectedReview?'invalid':kind==='decision_recorded'||kind==='audit'?'decision':'active';
+                      const state=kind==='evidence_invalidated'||rejectedReview?'invalid':kind==='decision_recorded'||kind==='audit'?'decision':kind==='review'?'review':'active';
                       const label=kind==='evidence_recorded'?'Evidence':kind==='evidence_invalidated'?'Evidence invalidated':kind==='decision_recorded'?'Decision':kind==='review'?'Review':kind==='requirement_record'?'Requirement':'Audit';
                       const source=item.source?.title;
                       const location=item.location;
@@ -362,8 +362,8 @@
                           <div class="engineering-timeline-heading"><strong>${{esc(label)}</strong><span>${{esc(item.status||'Recorded')}</span></div>
                           <small>${{esc(item.occurred_at||'Recorded')}</small>
                           <p>${{esc(item.description||item.title||'Activity recorded.')}</p>
-                          ${{item.result?`<div class="engineering-timeline-result">${{esc(item.result)}</div>`:''}
-                          ${{source||location?`<div class="engineering-timeline-links">${{source?`<span>▧ ${{esc(source)}</span>`:''}${{location?`<span>⌖ ${{esc(location)}</span>`:''}</div>`:''}
+                          ${{item.result ? `<div class="engineering-timeline-result">${{esc(item.result)}</div>` : ''}
+                          ${{source||location ? `<div class="engineering-timeline-links">${{source ? `<span>▧ ${{esc(source)}</span>` : ''}${{location ? `<span>⌖ ${{esc(location)}</span>` : ''}</div>` : ''}
                         </div>
                       </article>`;
                     }).join('') : historyError ? '' : `<div class="engineering-empty compact"><strong>No verification activity.</strong><span>The history will populate as evidence, decisions, reviews, and audit events are persisted.</span></div>`}
