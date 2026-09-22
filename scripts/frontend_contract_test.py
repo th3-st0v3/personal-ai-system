@@ -174,3 +174,35 @@ def test_engineering_workspace_redesign_contract() -> None:
         ".engineering-action-row", ".engineering-detail-modal",
     ):
         assert marker in css, f"Engineering workspace styling contract missing: {marker}"
+
+
+def test_engineering_requirement_detail_contract() -> None:
+    ui = (WEB / "ui-completion.js").read_text(encoding="utf-8")
+    css = (WEB / "styles.css").read_text(encoding="utf-8")
+
+    for marker in (
+        "engineering-requirement-detail",
+        "engineering-detail-health",
+        "engineering-verification-checks",
+        "engineering-detail-evidence-list",
+        "engineering-source-trace",
+        "engineering-linked-decisions",
+        "engineering-trace-list",
+        "engineering-timeline",
+        "engineering-detail-properties",
+        "engineeringRequirementEditForm",
+        "requirement_id=Number(requirementId)",
+    ):
+        assert marker in ui, f"Requirement detail interaction contract missing: {marker}"
+
+    for marker in (
+        ".engineering-requirement-detail",
+        ".engineering-detail-health",
+        ".engineering-evidence-card",
+        ".engineering-source-trace-card",
+        ".engineering-linked-decision",
+        ".engineering-trace-row",
+        ".engineering-timeline-item",
+        ".engineering-detail-properties",
+    ):
+        assert marker in css, f"Requirement detail styling contract missing: {marker}"
