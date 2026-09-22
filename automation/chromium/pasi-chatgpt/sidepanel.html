@@ -23,6 +23,8 @@
       </div>
     </header>
 
+    <div id="ram-warning" class="ram-warning" role="status" aria-live="polite" hidden></div>
+
     <section class="section" aria-labelledby="roadmap-heading">
       <div class="section-head">
         <div>
@@ -74,7 +76,7 @@
           <option value="bare-metal-beast">Bare-Metal Beast · 64 GB+</option>
         </select>
       </label>
-      <p class="muted" id="profile-note">WSL boundary: 3 GB RAM · 2 CPU · no swap. Selection does not change host limits.</p>
+      <p class="muted" id="profile-note">Hardware profile is a local preference; PASI's enforced runtime boundary remains authoritative.</p>
     </section>
 
     <section class="section telemetry-section" aria-labelledby="telemetry-heading">
@@ -88,12 +90,15 @@
       <div class="metric-grid">
         <div class="metric-card"><span>Bridge</span><strong id="bridge-metric">—</strong></div>
         <div class="metric-card"><span>Native controller</span><strong id="native-metric">—</strong></div>
-        <div class="metric-card"><span>Heartbeat age</span><strong id="latency-metric">—</strong></div>
+        <div class="metric-card"><span>Response → next prompt</span><strong id="latency-metric">—</strong></div>
         <div class="metric-card"><span>Composer</span><strong id="composer-metric">—</strong></div>
         <div class="metric-card"><span>Runner</span><strong id="runner-metric">—</strong></div>
         <div class="metric-card"><span>RAM</span><strong id="ram-metric">—</strong></div>
+        <div class="metric-card"><span>Fallback provider</span><strong id="provider-metric">—</strong></div>
+        <div class="metric-card"><span>Safety gate</span><strong id="safety-metric">168h</strong></div>
       </div>
       <p class="muted" id="runner-capability-note">Runner capability report is loading.</p>
+      <p class="muted">Provider credentials remain environment-only; the panel never stores API keys.</p>
     </section>
 
     <section class="section automation-section" aria-labelledby="automation-heading">
@@ -137,7 +142,7 @@
         <span>Or choose a file</span>
         <input id="roadmap-file" type="file" accept=".json,.md,.markdown,.txt,.yaml,.yml,text/plain,application/json,text/markdown">
       </label>
-      <p class="muted" id="import-feedback">Structured JSON tasks can be previewed immediately. Raw text is retained for a later dissection adapter.</p>
+      <p class="muted" id="import-feedback">Structured JSON tasks can be previewed immediately. Raw text is retained; the three-pass adapter can normalize it later.</p>
       <div class="button-row">
         <button class="outline-button" value="cancel" type="submit">Cancel</button>
         <button class="primary-button" id="btn-save-roadmap" value="default" type="button">Import</button>
@@ -145,6 +150,32 @@
     </form>
   </dialog>
 
+  <dialog id="settings-dialog" aria-labelledby="settings-heading">
+    <form method="dialog" class="dialog-card" id="settings-form">
+      <div class="section-head">
+        <div>
+          <p class="section-label">Control Center settings</p>
+          <h2 id="settings-heading">Local refresh settings</h2>
+        </div>
+      </div>
+      <label class="field">
+        <span>Telemetry refresh interval</span>
+        <select id="telemetry-interval">
+          <option value="1000">1 second</option>
+          <option value="5000">5 seconds</option>
+          <option value="10000">10 seconds</option>
+          <option value="30000">30 seconds</option>
+        </select>
+      </label>
+      <p class="muted">This changes only the Control Center's local telemetry refresh interval. It does not alter the PASI runner or browser watchdog cadence.</p>
+      <div class="button-row">
+        <button class="outline-button" value="cancel" type="submit">Cancel</button>
+        <button class="primary-button" id="btn-save-settings" value="default" type="button">Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="sidepanel.js"></script>
+  <script src="inventory-enhancements.js"></script>
 </body>
 </html>

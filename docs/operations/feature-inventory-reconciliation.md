@@ -70,6 +70,18 @@ These settings are real environment controls rather than native extension capabi
 - **NVIDIA NIM as a permanent free provider** — not part of the accepted provider plan.
 - **Multi-browser/headless speculative parallelism** — not part of the unattended control-plane design because it increases resource pressure and complicates state ownership.
 
+## Inventory completion follow-up
+
+The follow-up inventory branch adds durable engineering primitives without changing the primary browser-control boundary:
+
+- `scripts/pasi_dissection_adapter.py` provides deterministic deconstruction, dependency mapping, and JSON compilation for raw roadmaps, with an optional AI-enrichment hook that must preserve task identity.
+- `scripts/pasi_evidence_vault.py` provides an SQLite/WAL evidence store for task provenance alongside the existing JSON state/ledger.
+- `scripts/pasi_idempotency_replay.py` provides a deterministic replay harness for duplicate-submission prevention.
+- `scripts/pasi_semver.py` provides deterministic SemVer bumping and changelog generation from Conventional Commit subjects.
+- `docs/operations/pasi-feature-inventory.json` makes the full inventory machine-readable for automation and VS Code reconciliation.
+
+API credentials remain environment-only. The extension does not gain host-process, browser-network interception, SharedArrayBuffer, full-DOM mirroring, or arbitrary resource-control privileges.
+
 ## Current implementation priority
 
 The repository should now optimize for a small number of hard acceptance gates rather than accumulating architecture:

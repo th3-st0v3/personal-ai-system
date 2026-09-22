@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "status": "reconciled",
+  "features": {
+    "control_center": [
+      {"name":"dark_mode_dashboard","status":"implemented"},
+      {"name":"drag_drop_task_queue","status":"implemented_safe_native_drag"},
+      {"name":"roadmap_importer","status":"implemented"},
+      {"name":"three_pass_dissection","status":"implemented_deterministic_adapter"},
+      {"name":"dissection_retry","status":"implemented_bounded"},
+      {"name":"task_status_badges","status":"implemented"},
+      {"name":"panic_stop","status":"implemented_authenticated_supervised"},
+      {"name":"telemetry_footer","status":"implemented"},
+      {"name":"amber_ram_warning","status":"implemented"},
+      {"name":"settings_modal","status":"implemented_local_settings"},
+      {"name":"hardware_profiles","status":"implemented_preference_only"}
+    ],
+    "backend": [
+      {"name":"persistent_supervisor_state","status":"implemented_safe_persistent_supervisor"},
+      {"name":"completion_event_latency","status":"implemented_bridge_observation"},
+      {"name":"authenticated_state_mirroring","status":"implemented_bounded_observation"},
+      {"name":"claim_leases","status":"implemented_serialized_native_lease"},
+      {"name":"evidence_vault","status":"implemented_sqlite_wal"},
+      {"name":"process_recycling","status":"implemented_short_lived_helpers"},
+      {"name":"completion_effort_guard","status":"implemented"},
+      {"name":"task_churning_guard","status":"implemented_composite_guard"}
+    ],
+    "intelligence": [
+      {"name":"hybrid_planner","status":"implemented"},
+      {"name":"free_tier_provider_router","status":"implemented_bounded"},
+      {"name":"dissection_adapter","status":"implemented"},
+      {"name":"speculative_branching","status":"deferred_until_measured_high_ram"},
+      {"name":"large_vector_cache","status":"deferred_until_measured_high_ram"}
+    ],
+    "security_devops": [
+      {"name":"adversarial_audit","status":"implemented"},
+      {"name":"protected_runtime_boundary","status":"implemented"},
+      {"name":"blast_radius_audit","status":"implemented"},
+      {"name":"storyteller","status":"implemented_deterministic"},
+      {"name":"idempotency_replay_simulation","status":"implemented"},
+      {"name":"manifest_capability_validator","status":"implemented"},
+      {"name":"secret_scanning","status":"implemented"},
+      {"name":"dependency_scanning","status":"implemented"},
+      {"name":"semantic_versioning","status":"implemented_tooling"},
+      {"name":"automatic_pr_autosplitting","status":"not_automatic_by_design"}
+    ],
+    "hardware": [
+      {"name":"wsl_memory_boundary","status":"operator_owned_enforced_environment"},
+      {"name":"opera_ram_limiter","status":"operator_owned"},
+      {"name":"opera_cpu_limiter","status":"operator_owned"},
+      {"name":"battery_saver_disable","status":"operator_owned"},
+      {"name":"inactive_tab_suspension","status":"operator_owned_careful"}
+    ],
+    "not_adopted_privileged": [
+      {"name":"browser_network_stream_interception","reason":"transport-layer interception is not a required control-plane primitive"},
+      {"name":"SharedArrayBuffer_python_chrome_ipc","reason":"localhost authenticated bridge is the supported IPC boundary"},
+      {"name":"MessagePack_full_dom_transfer","reason":"PASI does not transmit full DOM trees"},
+      {"name":"host_resource_enforcement_from_extension","reason":"resource enforcement remains an OS/browser concern"},
+      {"name":"authoritative_tab_destruction","reason":"would undermine continuity and recovery"}
+    ]
+  }
+}
