@@ -252,14 +252,14 @@ async function inspect() {
 
   const payload = await bridgeJson('/browser/observation');
   const health = healthData(payload);
-  const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/c/*', 'https://www.chatgpt.com/c/*'] });
+  const chatTabs = await chrome.tabs.query({ url: ['https://chatgpt.com/c/*', 'https://www.chatgpt.com/c/*'] });
 
   if (!health) {
     // A missing observation is not healthy. Wake existing ChatGPT tabs so their
     // native controller can publish a fresh authenticated health observation.
     // This path only sends a health ping; it never claims, queues, or creates
     // an operation and therefore cannot duplicate ordinary work.
-    for (const tab of tabs) {
+    for (const tab of chatTabs) {
       if (typeof tab.id !== 'number') continue;
       try {
         await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
