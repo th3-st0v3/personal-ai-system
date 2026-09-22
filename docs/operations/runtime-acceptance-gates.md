@@ -46,6 +46,8 @@ The harness creates a fresh ChatGPT conversation and sends exactly 20 uniquely m
 
 M1 passes only when all 20 operations complete, every response contains its unique marker, each operation changes the signature by exactly +1 user message and +1 assistant message, and zero terminal `CHAT_*` verdicts occur.
 
+The evidence file is created at the beginning and updated after every completed operation. A mid-run transport, completion, marker, or signature failure leaves a machine-readable `FAIL` artifact with the completed count and partial results instead of disappearing into terminal output.
+
 Evidence:
 
 ```
@@ -64,13 +66,16 @@ bash scripts/run_m2_live_acceptance.sh
 
 Record the printed `operation_id`. Exercise recovery against that exact operation in this order:
 
-1. Close or reload the exact ChatGPT conversation tab carrying the operation. Never substitute another ChatGPT tab.
-2. Kill the managed bridge process identified by `.runtime/overnight/bridge.pid`, wait for bridge health to return, and verify the same operation ID remains active/recoverable.
-3. Kill the managed runner process identified by `.runtime/overnight/runner.pid`, then resume it with `bash scripts/start_pasi_168h.sh --resume`.
+1. Wait until the exact operation is `claimed` or `generating` and verify `.runtime/chatgpt/session.json` durably names that same operation.
+2. Close or reload the exact ChatGPT conversation tab carrying the operation. Never substitute another ChatGPT tab. Press Enter after the manual action so it is explicitly recorded in the evidence.
+3. Kill the managed bridge process identified by `.runtime/overnight/bridge.pid`, wait for bridge health to return, and verify the same operation ID and durable handoff survived.
+4. Kill the managed runner process identified by `.runtime/overnight/runner.pid`, then resume it with `bash scripts/start_pasi_168h.sh --resume`.
+5. Verify the resumed runner still observes the same operation ID and handoff before waiting for terminal completion.
+6. Verify the final response belongs to that exact operation, the conversation signature moved exactly +1/+1, and the active-operation checkpoint is cleared after terminal completion.
 
-The terminal evidence must show the original operation ID was resumed/reclaimed exactly once, the original prompt was not submitted again, and the final response belongs to that same operation.
+The generated M2 artifact is `.runtime/acceptance/m2-live-*.json`. It records the operation identity, pre/post conversation signatures, exact conversation URL, durable handoff snapshots, manual recovery record, and bridge/runner restart timestamps.
 
-The generated M2 artifact is `.runtime/acceptance/m2-live-*.json`. Append the final operation JSON, before/after conversation signatures, the exact conversation URL, and bridge/runner PID timestamps.
+M2 is invalid when the operation becomes terminal before the bridge/runner recovery sequence begins; this prevents a fast response from being mistaken for a successful restart-recovery test.
 
 If the browser installation has no safe programmatic tab-close mechanism, the exact-tab close/reload is the one manual action in this otherwise scripted sequence; record it explicitly.
 
