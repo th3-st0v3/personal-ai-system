@@ -47,6 +47,7 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn('PASI_RESOURCE_SAMPLE_INTERVAL_SECONDS:-30', self.source)
         self.assertIn("stop_resource_sampler", self.source)
         self.assertIn("start_resource_sampler", self.source)
+        self.assertIn("${BASHPID}", self.source)
 
     def test_chromium_e2e_uses_process_group_cleanup(self) -> None:
         source = (ROOT / "scripts" / "e2e_chromium_response_recovery.py").read_text(encoding="utf-8")
