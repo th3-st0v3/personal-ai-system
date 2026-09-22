@@ -26,7 +26,7 @@ def test_p04_evidence_contains_required_provenance_sections() -> None:
 def test_p04_status_is_strict_about_the_168_hour_deadline() -> None:
     from scripts.capture_pasi_long_run_evidence import EXPECTED_RUNTIME_SECONDS, classify_p04_status
 
-    pass_args = (EXPECTED_RUNTIME_SECONDS, True, "deadline_reached", 10, True, True, True)
+    pass_args = (EXPECTED_RUNTIME_SECONDS, True, "deadline_reached", 10, True, True, True, True)
     incomplete = classify_p04_status(EXPECTED_RUNTIME_SECONDS, False, "", 10, True, True, True)
     early_stop = classify_p04_status(EXPECTED_RUNTIME_SECONDS, True, "roadmap_complete", 10, True, True, True)
     manual_stop = classify_p04_status(EXPECTED_RUNTIME_SECONDS, True, "stopped", 10, True, True, True)
@@ -34,7 +34,8 @@ def test_p04_status_is_strict_about_the_168_hour_deadline() -> None:
     short_runtime = classify_p04_status(EXPECTED_RUNTIME_SECONDS - 60, True, "deadline_reached", 10, True, True, True)
     missing_resource = classify_p04_status(EXPECTED_RUNTIME_SECONDS, True, "deadline_reached", 0, True, True, True)
     dirty_worktree = classify_p04_status(EXPECTED_RUNTIME_SECONDS, True, "deadline_reached", 10, True, False, True)
-    unverified_pr = classify_p04_status(EXPECTED_RUNTIME_SECONDS, True, "deadline_reached", 10, True, True, False)
+    unverified_pr = classify_p04_status(EXPECTED_RUNTIME_SECONDS, True, "deadline_reached", 10, True, True, False, False)
+    mismatched_pr_head = classify_p04_status(EXPECTED_RUNTIME_SECONDS, True, "deadline_reached", 10, True, True, True, False)
 
     assert incomplete[0] == "INCOMPLETE"
     assert early_stop[0] == "FAIL"
@@ -44,6 +45,7 @@ def test_p04_status_is_strict_about_the_168_hour_deadline() -> None:
     assert missing_resource[0] == "FAIL"
     assert dirty_worktree[0] == "FAIL"
     assert unverified_pr[0] == "FAIL"
+    assert mismatched_pr_head[0] == "FAIL"
 
 def test_resource_peak_summary_tracks_observed_peaks() -> None:
     from scripts.capture_pasi_long_run_evidence import resource_peak_summary
