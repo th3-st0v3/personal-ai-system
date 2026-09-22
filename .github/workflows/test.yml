@@ -69,7 +69,7 @@ jobs:
           cat "${RUNNER_TEMP}/actual-runner-labels.txt"
 
           if ! comm -23 "${RUNNER_TEMP}/required-runner-labels.txt" "${RUNNER_TEMP}/actual-runner-labels.txt" | grep -q .; then
-            echo "Runner label preflight: PASS" 
+            echo "Runner label preflight: PASS"
           else
             echo "Runner label preflight: FAIL" >&2
             comm -23 "${RUNNER_TEMP}/required-runner-labels.txt" "${RUNNER_TEMP}/actual-runner-labels.txt" >&2 || true
