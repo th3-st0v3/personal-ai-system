@@ -21,6 +21,27 @@ def validate_m0(path: Path) -> list[str]:
     if not isinstance(value, dict) or value.get("gate") != "M0" or value.get("status") != "PASS":
         errors.append("M0 artifact is not a PASS")
         return errors
+    worktree = value.get("worktree")
+    if not isinstance(worktree, str) or not worktree:
+        errors.append("M0 worktree is missing")
+    else:
+        try:
+            if __import__("subprocess").run(
+                ["git", "-C", worktree, "status", "--porcelain", "--untracked-files=all"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            ).stdout.strip():
+                errors.append("M0 acceptance worktree is not clean")
+        except (OSError, __import__("subprocess").TimeoutExpired):
+            errors.append("M0 acceptance worktree could not be checked")
+    commit = value.get("commit")
+    if not isinstance(commit, str) or len(commit) < 7:
+        errors.append("M0 commit provenance is missing")
+    log_file = value.get("log")
+    if not isinstance(log_file, str) or not Path(log_file).is_file():
+        errors.append("M0 evidence log is missing")
     proof_file = value.get("proof_file")
     if not isinstance(proof_file, str) or not proof_file:
         errors.append("M0 proof_file is missing")
