@@ -5,7 +5,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-PYTHON="$REPO_ROOT/.venv/bin/python"
+if [[ -n "${PASI_PYTHON:-}" ]]; then
+    PYTHON="$PASI_PYTHON"
+elif [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python"
+else
+    PYTHON="${PASI_VENV:-$HOME/.pasi/venv}/bin/python"
+fi
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
