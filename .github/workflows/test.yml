@@ -12,7 +12,7 @@ jobs:
     concurrency:
       group: pasi-test-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: true
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -102,7 +102,7 @@ jobs:
     concurrency:
       group: pasi-browser-use-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: true
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
