@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import os
 from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
@@ -72,7 +73,7 @@ class WebApplication:
         if not source.is_file():
             raise ValueError(f"Roadmap not found: {source}")
 
-        runtime_root = Path(__import__("os").environ.get("PASI_RUNTIME_DIR", str(Path.home() / ".pasi" / "overnight"))).expanduser().resolve()
+        runtime_root = Path(os.environ.get("PASI_RUNTIME_DIR", str(Path.home() / ".pasi" / "overnight"))).expanduser().resolve()
         overlay = runtime_root / "roadmap-decompositions.json"
         tasks = hybrid_planner.load_roadmap_with_overlay(source, overlay if overlay.is_file() else None)
         ledger: dict[str, dict[str, object]] = {}
