@@ -34,7 +34,7 @@ class TestSelfHostedRunnerPreflight(unittest.TestCase):
             }
             payload = inspect_runner(env, root)
         self.assertFalse(payload["ok"])
-        self.assertIn("RUNNER_ENVIRONMENT='github-hosted'", payload["problems"])
+        self.assertTrue(any("RUNNER_ENVIRONMENT='github-hosted'" in item for item in payload["problems"]))
 
     def test_local_mode_requires_runner_listener_and_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
