@@ -33,6 +33,11 @@ def build_extension(output: Path = DEFAULT_OUTPUT) -> Path:
     if output == source or source in output.parents:
         raise ValueError("refusing to place generated extension inside the source tree")
 
+    preserved_bridge_token = None
+    bridge_token_path = output / ".bridge-token"
+    if bridge_token_path.is_file():
+        preserved_bridge_token = bridge_token_path.read_bytes()
+
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
@@ -42,6 +47,13 @@ def build_extension(output: Path = DEFAULT_OUTPUT) -> Path:
         if not source_file.is_file():
             raise FileNotFoundError(source_file)
         shutil.copy2(source_file, output / relative)
+
+    # The bridge token is a host-local runtime secret, not a source-controlled
+    # extension asset. Preserve it across rebuilds so refreshing the generated
+    # bundle does not silently disconnect an already loaded native controller.
+    if preserved_bridge_token is not None:
+        bridge_token_path.write_bytes(preserved_bridge_token)
+        bridge_token_path.chmod(0o600)
 
     return output
 
