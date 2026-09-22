@@ -23,6 +23,15 @@ VS Code is a development/debugging client. It is not a runtime dependency for un
 
 ## One-time runner setup
 
+From an authenticated WSL shell, the repository can bootstrap the runner without manually copying the registration token:
+
+```bash
+gh auth login
+gh auth setup-git
+bash scripts/install_pasi_self_hosted_runner.sh
+```
+
+The installer requests the short-lived repository registration token through the GitHub API when `gh` is authenticated, registers one Linux/x64 runner with `pasi-desktop,pasi-wsl,pasi-capabilities-v1`, and attempts to install the runner as a persistent service. The token is not stored by the script. GitHub's registration token expires after one hour. citeturn256204search0turn256204search5
 In GitHub repository settings, open **Actions → Runners → New self-hosted runner** and select the Linux/x64 instructions GitHub provides for the current runner release. Install the runner inside WSL and assign the label `pasi-desktop`; `pasi-wsl` and `pasi-capabilities-v1` are recommended labels after the first capability reconciliation.
 
 Do not store runner registration tokens in the repository. Use the short-lived token displayed by GitHub during runner setup.
