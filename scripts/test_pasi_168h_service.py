@@ -45,6 +45,13 @@ class TestPasi168HourDurableServiceContract(unittest.TestCase):
         self.assertIn("different branch or roadmap", source)
         self.assertIn("START_LOCK_FILE", source)
 
+    def test_168h_launcher_resumes_persisted_run_state_for_explicit_restart(self) -> None:
+        source = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'pasi_168h_supervisor.sh" --hours 168 --worktree "$WORKTREE" --branch "$BRANCH" --resume',
+            source,
+        )
+
     def test_service_launcher_does_not_depend_on_actions_job_lifetime(self) -> None:
         source = (ROOT / "scripts" / "start_pasi_168h_service.sh").read_text(encoding="utf-8")
         self.assertNotIn("nohup", source)
