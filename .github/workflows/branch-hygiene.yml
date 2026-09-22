@@ -1,17 +1,20 @@
 name: branch-hygiene
 
 on:
+  # Sweep every branch after a push so new and existing work is covered.
   push:
-    branches: [main]
   pull_request:
-    types: [closed]
+    types: [opened, synchronize, closed, converted_to_ready_for_review]
+  workflow_run:
+    workflows: ["test"]
+    types: [completed]
   schedule:
     - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: branch-hygiene
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   test:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 10
     permissions:
@@ -34,21 +38,32 @@ jobs:
       - name: Run branch-hygiene unit tests
         run: python -m unittest -v scripts.test_cleanup_duplicate_branches
 
-  cleanup:
+  reconcile:
     needs: test
+    if: ${{ needs.test.result == 'success' }}
     runs-on: [self-hosted, linux, x64, pasi-wsl]
-    timeout-minutes: 10
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'main' }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Sweep safe duplicate and closed-PR branch refs
+      - name: Sweep safe duplicate and unnecessary branch refs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           python scripts/cleanup_duplicate_branches.py --json
+      - name: Reconcile orphan branches and pull requests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python scripts/reconcile_branch_prs.py --json
