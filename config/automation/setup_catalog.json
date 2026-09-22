@@ -30,16 +30,17 @@
       "name": "PASI native Chromium extension",
       "version": "repository version",
       "source": "https://github.com/th3-st0v3/personal-ai-system",
-      "reason": "Preferred browser-side controller and recovery path; install from automation/chromium/pasi-chatgpt.",
+      "reason": "Canonical and required browser-side controller and recovery path; install from automation/chromium/pasi-chatgpt.",
       "required": true,
       "kind": "pasi-controller"
     },
     {
       "name": "PASI ChatGPT Controller Loader",
-      "version": "repository version",
+      "version": "deprecated",
       "source": "https://github.com/th3-st0v3/personal-ai-system",
-      "reason": "Alternative browser bootstrap for users operating PASI through Tampermonkey; use instead of a duplicate directly-installed controller.",
+      "reason": "Deprecated migration-only bootstrap for legacy Tampermonkey installations. New setups must use the native Chromium extension; this entry is not a supported controller runtime.",
       "required": false,
+      "deprecated": true,
       "kind": "pasi-controller-alternative"
     },
     {
