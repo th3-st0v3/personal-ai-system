@@ -72,7 +72,7 @@ if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
     fi
 fi
 
-printf '%s\n' "$" > "$SUPERVISOR_PID_FILE"
+printf '%s\n' "${BASHPID}" > "$SUPERVISOR_PID_FILE"
 rm -f "$STOP_FILE"
 
 stop_resource_sampler() {
@@ -110,7 +110,7 @@ start_resource_sampler() {
 
 cleanup() {
     stop_resource_sampler
-    if [[ -f "$SUPERVISOR_PID_FILE" ]] && [[ "$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)" == "$" ]]; then
+    if [[ -f "$SUPERVISOR_PID_FILE" ]] && [[ "$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)" == "${BASHPID}" ]]; then
         rm -f "$SUPERVISOR_PID_FILE"
     fi
 }
