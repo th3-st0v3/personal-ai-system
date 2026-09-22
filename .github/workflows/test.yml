@@ -61,6 +61,8 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Install JavaScript DOM fixture dependency
         run: npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
+      - name: Run CI runner and billing contract tests
+        run: python -m pytest -q scripts/test_github_actions_billing_contract.py scripts/test_check_pasi_self_hosted_runner.py
       - name: Install free local Chromium fixture browser
         run: npx --yes playwright@latest install chromium
       - name: Run free deterministic and browser-fixture acceptance
