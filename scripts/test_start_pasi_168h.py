@@ -89,6 +89,10 @@ class TestBranchHygieneWorkflowContract(unittest.TestCase):
         self.assertIn("pull-requests: write", workflow)
         self.assertIn("scripts/reconcile_branch_prs.py --json", workflow)
 
+    def test_branch_hygiene_reconciler_uses_canonical_controller_ref(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
+        self.assertIn("          ref: main", workflow)
+
     def test_branch_hygiene_protects_fork_pull_requests(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
