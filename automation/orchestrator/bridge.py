@@ -728,9 +728,21 @@ class BridgeState:
                         self.persist_timing(active_operation_id, timing)
                     self.state_manager.save_browser_response(observation)
                 elif kind == "chatgpt_health":
-                    self.state_manager.save_browser_health(observation)
+                    current_health = self.state_manager.load_browser_health()
+                    incoming_time = self._browser_observation_time(observation)
+                    current_time = self._browser_observation_time(current_health)
+                    if current_time is None or (
+                        incoming_time is not None and incoming_time >= current_time
+                    ):
+                        self.state_manager.save_browser_health(observation)
                 elif kind == "chatgpt_state":
-                    self.state_manager.save_browser_state(observation)
+                    current_state = self.state_manager.load_browser_state()
+                    incoming_time = self._browser_observation_time(observation)
+                    current_time = self._browser_observation_time(current_state)
+                    if current_time is None or (
+                        incoming_time is not None and incoming_time >= current_time
+                    ):
+                        self.state_manager.save_browser_state(observation)
             if isinstance(data, dict) and data.get("kind") == "chatgpt_recovery":
                 operation_id = data.get("operation_id")
                 if isinstance(operation_id, str):
