@@ -27,11 +27,12 @@ In GitHub repository settings, open **Actions → Runners → New self-hosted ru
 
 Do not store runner registration tokens in the repository. Use the short-lived token displayed by GitHub during runner setup.
 
-Validate the machine with:
+Validate the machine with the PASI virtual environment active:
 
 ```bash
-python3 scripts/reconcile_runner_capabilities.py --json
-python3 scripts/pasi_desktop_preflight.py
+source .venv/bin/activate
+python scripts/reconcile_runner_capabilities.py --json
+python scripts/pasi_desktop_preflight.py
 ```
 
 To reconcile allowlisted dependencies and the optional local model:
