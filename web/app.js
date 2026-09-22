@@ -296,7 +296,7 @@
   function plannerTaskIcon(task, snapshot) {
     const draft = plannerLoadDraft(snapshot.roadmap.path);
     const status = plannerTaskStatus(task, draft);
-    if (task.satisfied) return '✓';
+    if (plannerTaskSatisfied(task, draft)) return '✓';
     if (status === 'blocked') return '!';
     if (status === 'in_progress') return '→';
     if ((snapshot.eligible_ids || []).includes(task.id)) return '●';
@@ -307,7 +307,7 @@
   function plannerStatusClass(task, snapshot) {
     const draft = plannerLoadDraft(snapshot.roadmap.path);
     const status = plannerTaskStatus(task, draft);
-    if (task.satisfied) return 'done';
+    if (plannerTaskSatisfied(task, draft)) return 'done';
     if (status === 'blocked') return 'blocked';
     if (status === 'in_progress' || task.current || task.id === plannerUi.selectedId) return 'active';
     if ((snapshot.eligible_ids || []).includes(task.id)) return 'ready';
@@ -317,7 +317,7 @@
   function plannerStatusLabel(task, snapshot) {
     const draft = plannerLoadDraft(snapshot.roadmap.path);
     const status = plannerTaskStatus(task, draft);
-    if (task.satisfied) return 'Completed';
+    if (plannerTaskSatisfied(task, draft)) return 'Completed';
     if (status === 'in_progress') return 'In progress';
     if (status === 'blocked') return 'Blocked';
     if ((snapshot.eligible_ids || []).includes(task.id)) return 'Ready';
@@ -742,8 +742,13 @@
         const next = await api('/api/planner/roadmap');
         const oldSha = plannerUi.snapshot?.roadmap?.sha256;
         plannerUi.snapshot = next;
-        if (oldSha !== next.roadmap.sha256 || !document.querySelector('.planner-task-card')) plannerRender();
-        else refreshPlannerDynamic(next);
+        if (oldSha !== next.roadmap.sha256 || !document.querySelector('.planner-task-card')) {
+          plannerRender();
+        } else if (document.activeElement?.id !== 'planner-search') {
+          plannerRender();
+        } else {
+          refreshPlannerDynamic(next);
+        }
       } catch (_) {}
     }, 5000);
   }
@@ -760,7 +765,7 @@
     const snapshot = plannerUi.snapshot;
     if (!snapshot) return;
     const eligible = plannerEligible(snapshot);
-    const nextId = eligible.find((id) => id !== plannerUi.selectedId) || eligible[0] || snapshot.deterministic_rank?.[0];
+    const nextId = eligible[0] || snapshot.deterministic_rank?.[0];
     if (!nextId) {
       toast('No eligible task is available to run.', 'error');
       return;
