@@ -31,6 +31,14 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn('[[ "$command_line" == *"--worktree $worktree"* ]]', self.source)
         self.assertIn('[[ "$command_line" == *"--branch $branch"* ]]', self.source)
 
+    def test_launcher_supports_a_persistent_self_hosted_python_environment(self) -> None:
+        source = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        self.assertIn('PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}"', source)
+        self.assertIn('PASI_PYTHON', source)
+        self.assertIn('python3 -m venv "$PASI_VENV"', source)
+        self.assertIn('pip install --disable-pip-version-check --requirement "$REPO_ROOT/requirements.txt"', source)
+        self.assertIn('requirements-dev.txt', source)
+
     def test_supervisor_has_bounded_backoff_and_terminal_stop_controls(self) -> None:
         self.assertIn("PASI_SUPERVISOR_BACKOFF_SECONDS", self.source)
         self.assertIn("PASI_SUPERVISOR_MAX_BACKOFF_SECONDS", self.source)
