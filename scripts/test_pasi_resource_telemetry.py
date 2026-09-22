@@ -16,3 +16,10 @@ def test_resource_sampler_handles_managed_process_disappearance() -> None:
     source = (ROOT / "scripts" / "pasi_resource_telemetry.py").read_text(encoding="utf-8")
     assert 'return {"pid": pid, "status": "not_running"}' in source
     assert '"runner": runtime_dir / "runner.pid"' not in source
+
+
+def test_resource_sampler_enforces_bounded_retention() -> None:
+    source = (ROOT / "scripts" / "pasi_resource_telemetry.py").read_text(encoding="utf-8")
+    assert "MAX_SAMPLE_FILE_BYTES = 16 * 1024 * 1024" in source
+    assert "MAX_RETAINED_SAMPLES = 25_000" in source
+    assert 'if args.interval < 5.0:' in source
