@@ -61,6 +61,7 @@ if [[ ! -x "$PYTHON" ]]; then
     printf 'error: expected executable Python at %s\n' "$PYTHON" >&2
     exit 1
 fi
+export PASI_PYTHON="$PYTHON"
 
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 LOCK_FILE="$RUNTIME_DIR/start.lock"
