@@ -18,6 +18,9 @@ def test_development_workflow_uses_desktop_runner_for_live_automation() -> None:
     assert "scripts/pasi_desktop_preflight.py" in source
     assert 'PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}' in source
     assert 'PASI_ROADMAP_PATH: ${{ inputs.roadmap }}' in source
+    assert 'PASI_PLANNER_MODEL: ${{ inputs.planner_model }}' in source
+    assert 'PASI_PLANNER_AI_RANK: ${{ inputs.planner_ai_rank }}' in source
+    assert 'planner_ai_rank=true requires planner_model' in source
     assert 'bash scripts/start_pasi_168h_service.sh "${{ steps.ref.outputs.ref }}"' in source
     assert "scripts/status_pasi_overnight.sh" in source
     assert "scripts/stop_pasi_overnight.sh" in source
