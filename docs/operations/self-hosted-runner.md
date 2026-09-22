@@ -4,8 +4,8 @@ The supported long-running topology keeps the Windows browser and Linux executio
 
 ```text
 GitHub Actions
-  ├─ hosted CI / security checks
-  └─ self-hosted runner (pasi-desktop)
+  ├─ self-hosted CI / security checks (pasi-wsl)
+  └─ self-hosted live automation (pasi-desktop)
        └─ WSL Ubuntu
             ├─ PASI supervisor + engine
             ├─ authenticated localhost bridge :8765
@@ -51,7 +51,15 @@ bash scripts/start_pasi_168h.sh --roadmap roadmaps/pasi-default.json
 bash scripts/status_pasi_overnight.sh
 ```
 
-The GitHub development workflow starts that launcher on the self-hosted desktop runner only after hosted verification and a local capability/preflight check. The workflow itself is intentionally short-lived; the supervised PASI process owns the 168-hour boundary and durable state.
+The GitHub development workflow runs repository verification on the self-hosted WSL runner and performs live automation on the self-hosted desktop runner. The workflow itself is intentionally short-lived; the supervised PASI process owns the 168-hour boundary and durable state.
+
+For the GitHub-native coding entry point, open a normal issue and comment exactly:
+
+```text
+/pasi run
+```
+
+The `pasi-autocode` workflow accepts that command only from repository collaborators, rejects pull-request conversations, creates an isolated `pasi/autocode/<run-id>` branch, validates the selected roadmap, and hands the run to the durable systemd service. A manual `workflow_dispatch` can select a different base ref or repository-relative roadmap. PASI then owns task selection, ChatGPT execution, verification, PR promotion, and continuation.
 
 The Control Center reads capability and runner-state telemetry through the authenticated bridge. `Retry current` creates a task-bound control request, and `Panic stop` signals only a PID whose `/proc` command line identifies the PASI engine or supervisor. There is no arbitrary command endpoint.
 
@@ -63,7 +71,7 @@ GitHub runner labels are routing metadata, not proof that the machine currently 
 
 ## Security boundary
 
-Treat the self-hosted runner as trusted execution infrastructure. Do not route untrusted public pull requests into the `pasi-desktop` runner. Keep the native extension limited to its declared host permissions and keep bridge commands authenticated and allowlisted.
+Treat the self-hosted runner as trusted execution infrastructure. Do not route untrusted public pull requests into the `pasi-desktop` runner. Keep the native extension limited to its declared host permissions and keep bridge commands authenticated and allowlisted. The `/pasi run` issue-comment trigger requires an OWNER, MEMBER, or COLLABORATOR association.
 
 ## Recovery artifacts
 
