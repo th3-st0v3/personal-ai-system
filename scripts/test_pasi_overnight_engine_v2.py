@@ -450,7 +450,7 @@ branch refs/heads/main
                 ("needs_revision", "first failure", "", "", False, failure_values),
                 ("needs_revision", "second failure", "", "", False, failure_values),
                 ("needs_revision", "third failure", "", "", False, failure_values),
-                ("complete", "next task completed", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
+                ("complete", "Implemented and verified the next task successfully.", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
             ]
         )
 
