@@ -23,6 +23,11 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn("PASI_SUPERVISOR_MAX_RESTARTS", self.source)
         self.assertIn("restart budget exhausted", self.source)
 
+    def test_supervisor_uses_the_launcher_resolved_python_environment(self) -> None:
+        self.assertIn('PASI_PYTHON', self.source)
+        self.assertIn('PYTHON="$PASI_PYTHON"', self.source)
+        self.assertIn('PASI_VENV:-$HOME/.pasi/venv', self.source)
+
     def test_supervisor_adopts_matching_live_engine_after_restart(self) -> None:
         self.assertIn("runner_cmd_matches()", self.source)
         self.assertIn("adopting already-running engine PID", self.source)
