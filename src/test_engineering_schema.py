@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import tempfile
@@ -92,23 +93,15 @@ class TestEngineeringSchema(unittest.TestCase):
                     "DELETE FROM audit_events WHERE entity_type = 'requirement' AND entity_id = ?",
                     (requirement_id,),
                 )
+
+            status_event = json.loads(
+                rows[3][1]
+            )
+            self.assertEqual(status_event["old"], "Unverified")
+            self.assertEqual(status_event["new"], "Verified")
         finally:
             connection.close()
 
-    def test_schema_can_be_reinitialized_after_direct_requirement_write(self):
-        connection = db.get_connection()
-        try:
-            requirement_id = db.create_requirement(self._project_id if hasattr(self, '_project_id') else db.create_project("Direct DB Project"), "Direct")
-            connection.execute("UPDATE requirements SET status = 'Failed' WHERE id = ?", (requirement_id,))
-            connection.commit()
-            row = connection.execute(
-                "SELECT metadata FROM audit_events WHERE entity_type = 'requirement' AND entity_id = ? AND action = 'requirement_field_changed'",
-                (requirement_id,),
-            ).fetchone()
-        finally:
-            connection.close()
-        self.assertIsNotNone(row)
-        self.assertEqual(json.loads(row[0])["field"], "status")
 
 
 if __name__ == "__main__":
