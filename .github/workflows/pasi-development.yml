@@ -124,7 +124,8 @@ jobs:
       - name: Start PASI development automation
         if: ${{ inputs.mode == 'start-automation' }}
         env:
-          PASI_OVERNIGHT_BASE_REF: ${{ steps.ref.outputs.ref }}
+          PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}
+          PASI_ROADMAP_PATH: ${{ inputs.roadmap }}
           ROADMAP: ${{ inputs.roadmap }}
         shell: bash
         run: |
@@ -132,7 +133,7 @@ jobs:
             /*|../*|*/../*|*".."*) echo "roadmap must be repository-relative" >&2; exit 2 ;;
           esac
           test -f "$ROADMAP"
-          bash scripts/start_pasi_168h.sh --roadmap "$ROADMAP"
+          bash scripts/start_pasi_168h_service.sh "${{ steps.ref.outputs.ref }}"
 
       - name: Show PASI status
         if: ${{ inputs.mode == 'status' || inputs.mode == 'start-automation' }}
