@@ -462,7 +462,7 @@ log_file="$RUNTIME_DIR/runner.log"
 nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "${launcher_args[@]}" < /dev/null > /dev/null 2>&1 &
 pid=$!
 
-runner_start_deadline=$((SECONDS + 15))
+runner_start_deadline=$((SECONDS + ${PASI_STARTUP_VERIFY_SECONDS:-90}))
 supervisor_ready=0
 runner_ready=0
 while (( SECONDS < runner_start_deadline )); do
@@ -487,6 +487,9 @@ while (( SECONDS < runner_start_deadline )); do
 done
 
 if (( supervisor_ready == 0 || runner_ready == 0 )); then
+    if (( supervisor_ready == 1 )); then
+        printf '%s\n' 'error: PASI supervisor started, but the extended engine did not publish a live runner PID within the startup verification window.' >&2
+    fi
     printf '%s\n' 'error: detached PASI supervisor/runner did not become live within the startup verification window.' >&2
     printf 'Runner log: %s\n' "$log_file" >&2
     if [[ -s "$log_file" ]]; then
