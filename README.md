@@ -373,6 +373,15 @@ Deterministic calculations are registered by stable keys and expose parameter me
 
 The beta also exposes a deterministic simulation catalog and controlled simulation-run boundary with traceable steps, assumptions, limitations, and policy checks.
 
+### Experiment Lab
+
+The browser workspace now has an **Experiment Lab** for live engineering experimentation. It can observe host utilization and unrelated processes, build deterministic model plans, run bounded seeded fuzz campaigns, show hardware-aware Easy/Standard/Performance/Max workload profiles, and expose provider/model setup in one place.
+
+Host observation is separate from host mutation. RAM/swap profiles require an explicit host-control permission and currently use delegated Linux cgroup v2 where the operating system permits it. PASI does not fall back to arbitrary shell commands when the host cannot safely provide that capability. The selected process does not need to belong to a PASI project.
+
+Local and hosted model routes remain provider-neutral. Ollama/local execution can be used through the existing provider router, while hosted APIs can be registered without putting credentials in browser localStorage. A registered provider is not treated as executable until its execution adapter is actually available.
+
+
 ### Chat and integrations
 
 Persisted project chat supports rename, pin/unpin, move, share-oriented UI actions, delete, retry, branching, and feedback. The integration bridge provides controlled connections/plugins and source retrieval without turning external content into trusted instructions.
