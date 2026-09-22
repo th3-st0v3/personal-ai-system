@@ -4,6 +4,7 @@ const test = require('node:test');
 
 const source = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery.js', 'utf8');
 const detectors = fs.readFileSync('automation/chromium/pasi-chatgpt/detectors.js', 'utf8');
+const progress = require('./recovery_progress.js');
 
 test('recovery uses progress-based stall detection with a hard ceiling instead of age-only reloads', () => {
   assert.match(source, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
@@ -48,6 +49,67 @@ test('recovery clears terminal operations and does not loop on the same failed o
   assert.match(source, /if \(!current\) return/);
 });
 
+
+
+
+test('timeout recovery decision triggers only after observable no-progress while generating', () => {
+  const config = progress.resolveRecoveryConfig({
+    stallMs: 100,
+    hardCeilingMs: 1000,
+    maxReloads: 1
+  });
+  const decision = progress.decideRecovery({
+    nowMs: 250,
+    startedMs: 0,
+    lastProgressMs: 100,
+    generating: true,
+    connectionError: false,
+    securityChallenge: false,
+    reloadCount: 0
+  }, config);
+  assert.equal(decision.recover, true);
+  assert.equal(decision.reason, 'no_progress');
+  assert.equal(decision.idleMs, 150);
+});
+
+test('connection-loss recovery triggers immediately even with a fresh generation heartbeat', () => {
+  const config = progress.resolveRecoveryConfig({
+    stallMs: 1000,
+    hardCeilingMs: 5000,
+    maxReloads: 1
+  });
+  const decision = progress.decideRecovery({
+    nowMs: 250,
+    startedMs: 0,
+    lastProgressMs: 240,
+    generating: true,
+    connectionError: true,
+    securityChallenge: false,
+    reloadCount: 0
+  }, config);
+  assert.equal(decision.recover, true);
+  assert.equal(decision.reason, 'connection_error');
+  assert.equal(decision.idleMs, 10);
+});
+
+test('timeout and connection recovery remain blocked by a security challenge', () => {
+  const config = progress.resolveRecoveryConfig({
+    stallMs: 100,
+    hardCeilingMs: 1000,
+    maxReloads: 1
+  });
+  const decision = progress.decideRecovery({
+    nowMs: 250,
+    startedMs: 0,
+    lastProgressMs: 0,
+    generating: true,
+    connectionError: true,
+    securityChallenge: true,
+    reloadCount: 0
+  }, config);
+  assert.equal(decision.recover, false);
+  assert.equal(decision.reason, 'human_boundary');
+});
 
 test('connection interruption is recognized by both native recovery layers', () => {
   assert.match(detectors, /'connection interrupted'/);
