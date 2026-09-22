@@ -61,14 +61,6 @@ async function bridgeToken(forceRefresh = false) {
   return bridgeTokenPromise;
 }
 
-function allowedRoadmapRequest(method, path) {
-  const normalized = String(method || 'GET').toUpperCase();
-  const value = String(path || '');
-  if (normalized === 'GET') return BRIDGE_ROADMAP_GET_PATHS.has(value);
-  if (normalized === 'POST') return BRIDGE_ROADMAP_POST_PATHS.has(value);
-  return false;
-}
-
 function allowedBridgeRequest(method, path) {
   const normalized = String(method || 'GET').toUpperCase();
   const value = String(path || '');
@@ -134,7 +126,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     const method = String(message.method || 'GET').toUpperCase();
     const path = String(message.path || '');
-    if (!allowedRoadmapRequest(method, path)) {
+    if (!allowedBridgeRequest(method, path)) {
       sendResponse({ ok: false, status: 403, text: '' });
       return undefined;
     }
