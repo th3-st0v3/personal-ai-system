@@ -79,18 +79,18 @@ test('native background watchdog wakes existing native tabs when the bridge stat
 });
 
 test('native background watchdog treats a missing observation as unhealthy and wakes existing native tabs', () => {
-
-
-test('native watchdog freshness uses the dedicated health heartbeat, not generic observations', () => {
-  assert.match(background, /const payload = await bridgeJson\\('\/browser\\/health'\\);/);
-  assert.doesNotMatch(background, /const payload = await bridgeJson\\('\/browser\\/observation'\\);\\s*const health = healthData/);
-});  assert.match(background, /const payload = await bridgeJson\('\/browser\/health'\);/);
+  assert.match(background, /const payload = await bridgeJson\('\/browser\/health'\);/);
   assert.match(background, /const health = healthData\(payload\);/);
   assert.match(background, /if \(!health\) \{/);
   assert.match(background, /https:\/\/chatgpt\.com\/c\/\*/);
   assert.match(background, /https:\/\/www\.chatgpt\.com\/c\/\*/);
   assert.match(background, /await chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}\)/);
   assert.match(background, /This path only sends a health ping; it never claims, queues, or creates/);
+});
+
+test('native watchdog freshness uses the dedicated health heartbeat, not generic observations', () => {
+  assert.match(background, /const payload = await bridgeJson\('\/browser\/health'\);/);
+  assert.doesNotMatch(background, /const payload = await bridgeJson\('\/browser\/observation'\);\s*const health = healthData/);
 });
 
 test('native browser health reports connection failures to the watchdog', () => {
