@@ -28,6 +28,9 @@ class TestPasi168HourDurableServiceContract(unittest.TestCase):
         self.assertIn('--setenv=PASI_ROADMAP_PATH="${PASI_ROADMAP_PATH:-roadmaps/pasi-default.json}"', source)
         self.assertIn("refusing to reset potentially unpushed work", source)
         self.assertIn("PASI 168-hour service verified live", source)
+        self.assertIn("service_identity_matches", source)
+        self.assertIn("different branch or roadmap", source)
+        self.assertIn("START_LOCK_FILE", source)
 
     def test_service_launcher_does_not_depend_on_actions_job_lifetime(self) -> None:
         source = (ROOT / "scripts" / "start_pasi_168h_service.sh").read_text(encoding="utf-8")
