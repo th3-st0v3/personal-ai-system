@@ -167,7 +167,8 @@ def validate(runtime_dir: Path, require_live_gates: bool) -> list[str]:
         errors.append("P0.4 artifact is missing")
 
     if m2_files and require_live_gates:
-        pass
+        latest_m2 = max(m2_files, key=lambda path: path.stat().st_mtime)
+        errors.extend(validate_m2(latest_m2))
     return errors
 
 
