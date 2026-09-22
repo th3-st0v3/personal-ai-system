@@ -213,3 +213,7 @@ def test_requirement_history_frontend_backend_contract() -> None:
     assert "historyError" in ui
     assert "data-engineering-history-refresh" in ui
     assert "Backend-authoritative history" in ui
+    assert "requirement_field_changed" in ui
+    assert "old_value" in ui
+    assert "new_value" in ui
+    assert "engineering-timeline-change" in ui
