@@ -4,6 +4,14 @@ PASI's deterministic validation path must be sufficient to exercise production b
 
 The required `free-validation` CI gate runs on the repository's self-hosted `pasi-wsl` runner. This keeps validation independent of GitHub-hosted Actions minutes, payment status, and spending limits. GitHub documents self-hosted runner execution as free of Actions minutes, while private-repository GitHub-hosted runners consume the account's included minutes and can be blocked when quota/payment requirements are exhausted.
 
+## CI runner selection
+
+The test workflow defaults every test job to the self-hosted `pasi-wsl` runner and runs a runner preflight before the suite. The preflight can be checked locally with:
+
+    python scripts/check_pasi_self_hosted_runner.py
+
+The workflow has one explicit `workflow_dispatch` choice, `runner_mode`: `self-hosted` is the normal/default path and `github-hosted` is the deliberate fallback for the period after GitHub-hosted Actions usage limits or payment restrictions have been cleared. The fallback is never automatic, because an automatic fallback would reintroduce the billing failure this contract is intended to prevent. GitHub supports selecting runners with expressions and self-hosted labels in `runs-on`. citeturn689956search0turn689956search1
+
 ## Required test tiers
 
 1. Static and unit validation — syntax, types, contracts, pure decision logic, parser/guard behavior, and individual controller modules.
