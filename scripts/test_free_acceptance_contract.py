@@ -27,6 +27,11 @@ class FreeAcceptanceContractTests(unittest.TestCase):
         ):
             self.assertIn(marker, source)
 
+    def test_provider_router_exposes_free_mode_network_guard(self) -> None:
+        source = (ROOT / "scripts" / "pasi_provider_router.py").read_text(encoding="utf-8")
+        self.assertIn("PASI_FREE_TEST_MODE", source)
+        self.assertIn("blocks external provider network", source)
+
     def test_fixture_bridge_urls_are_loopback_only(self) -> None:
         self.assertEqual(validate_test_bridge_url("http://127.0.0.1:43123"), "http://127.0.0.1:43123")
         with self.assertRaises(ValueError):
