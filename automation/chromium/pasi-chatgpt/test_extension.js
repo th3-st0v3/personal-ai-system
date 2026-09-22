@@ -71,6 +71,13 @@ test('native content controller reuses a fresh lease for the immediate completio
   assert.match(content, /if \(!finalized\) \{/);
 });
 
+test('native background watchdog wakes existing native tabs when the bridge status is temporarily unavailable', () => {
+  assert.match(background, /const status = await bridgeJson\('\/status'\);/);
+  assert.match(background, /if \(!status\) \{/);
+  assert.match(background, /await chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}\)/);
+  assert.match(background, /their normal heartbeat will publish fresh state once the bridge recovers/);
+});
+
 test('native background watchdog treats a missing observation as unhealthy and wakes existing native tabs', () => {
   assert.match(background, /const payload = await bridgeJson\('\/browser\/observation'\);/);
   assert.match(background, /const health = healthData\(payload\);/);
