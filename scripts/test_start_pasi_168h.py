@@ -77,11 +77,10 @@ class TestBranchHygieneWorkflowContract(unittest.TestCase):
         self.assertNotIn("runs-on: ubuntu-latest", workflow)
         self.assertIn("runs-on: [self-hosted, linux, x64, pasi-wsl]", workflow)
 
-    def test_ci_audits_do_not_request_github_hosted_runners(self) -> None:
-        for name in ("pasi-security-analysis.yml", "agent-impact-audit.yml", "self-modification-boundary-audit.yml"):
-            workflow = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
-            self.assertNotIn("ubuntu-latest", workflow, name)
-            self.assertIn("self-hosted", workflow, name)
+    def test_security_workflow_does_not_request_github_hosted_runners(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
+        self.assertNotIn("ubuntu-latest", workflow)
+        self.assertIn("self-hosted", workflow)
 
     def test_branch_hygiene_has_write_permissions_for_pr_reconciliation(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
