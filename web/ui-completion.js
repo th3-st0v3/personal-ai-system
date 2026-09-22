@@ -30,7 +30,177 @@
   async function openCalculationDetailView(key){const detail=await api(`/api/calculations/${encodeURIComponent(key)}`);st().calcKey=key;setView('calculations');$('page-view').innerHTML=`<div class="page"><div class="calculation-breadcrumb"><button class="breadcrumb-button" data-back-major="${attr(st().calcMajor||'')}">${esc(st().calcMajor||'Calculations')}</button><span>›</span><strong>${esc(detail.model.name)}</strong></div><div class="eyebrow">${esc(detail.model.domain)}</div><h1 class="page-title">${esc(detail.model.name)}</h1><code class="calc-equation">${esc(detail.method.equation)}</code><p class="page-subtitle">${esc(detail.model.description)}</p><form id="calc-form" class="calc-form"><input type="hidden" name="_calculation" value="${attr(key)}">${detail.parameters.map((parameter)=>`<label>${esc(parameter.name)}${parameter.required?'':' (optional)'}<input name="${attr(parameter.name)}" type="number" step="any" ${parameter.required?'required':''} placeholder="${attr(parameter.default_unit||'value')}"><span>${esc(parameter.description)}</span></label>`).join('')}<div class="form-actions"><button type="submit" class="primary-button">Calculate</button><button type="button" class="outline-button" id="save-calc">Calculate & save</button></div></form><div id="calc-result"></div></div>`;$('calc-form').onsubmit=async(event)=>{event.preventDefault();await runCalculation('/api/calculations/run',event,key);};$('save-calc').onclick=async()=>await runCalculation('/api/calculations/run/save',{target:$('calc-form')},key);}
   async function runCalculation(path,event,key){const inputs=Object.fromEntries([...new FormData(event.target)].filter(([name,value])=>name!=='_calculation'&&String(value).trim()!=='').map(([name,value])=>[name,Number(value)]));const buttons=event.target.querySelectorAll('button');buttons.forEach((button)=>button.disabled=true);try{const result=await send(path,{model_key:key,inputs});$('calc-result').innerHTML=`<div class="trace">${result.record_id?`<div class="trace-status">Saved as calculation record #${esc(result.record_id)}</div>`:''}<strong>${esc(result.result)} ${esc(result.result_unit||'')}</strong><ol>${(result.steps||[]).map((step)=>`<li>${esc(step)}</li>`).join('')}</ol><h3>Assumptions</h3><ul>${(result.assumptions||[]).map((item)=>`<li>${esc(item)}</li>`).join('')}</ul><h3>Limitations</h3><ul>${(result.limitations||[]).map((item)=>`<li>${esc(item)}</li>`).join('')}</ul></div>`;}catch(error){$('calc-result').innerHTML=`<div class="error">${esc(error.message)}</div>`;}finally{buttons.forEach((button)=>button.disabled=false);}}
 
-  async function openProjectEngineeringView(){const s=st();if(!s.projectId){toast('Select a project first.');return;}try{const [requirements,sources,decisions]=await Promise.all([api(`/api/engineering/projects/${s.projectId}/requirements`),api(`/api/engineering/projects/${s.projectId}/sources`),api(`/api/engineering/projects/${s.projectId}/decisions`)]);setView('engineering');$('page-view').innerHTML=`<div class="page engineering-page"><div class="page-head"><div><div class="eyebrow">Project engineering</div><h1 class="page-title">${esc(s.project?.name||'Project')}</h1><p class="page-subtitle">Requirements, sources, decisions, evidence, and traceability tools.</p></div><button class="back-button" data-back-chat>Back to chat</button></div><div class="card-grid"><section class="page-card"><h3>Requirements</h3><div class="properties">${requirements.map((item)=>`<div class="property"><strong>${esc(item.title||item.description)}</strong><span>${esc(item.status||'')}</span></div>`).join('')||'<div class="empty-state">No requirements yet.</div>'}</div><div class="inline-actions"><button class="outline-button" data-engineering-action="requirement">Add requirement</button><button class="quiet-button" data-engineering-action="test-plan">Generate test plan</button></div></section><section class="page-card"><h3>Sources</h3><div class="properties">${sources.map((item)=>`<div class="property"><strong>${esc(item.title)}</strong><span>${esc(item.source_type||'')}</span></div>`).join('')||'<div class="empty-state">No sources yet.</div>'}</div><div class="inline-actions"><button class="outline-button" data-engineering-action="source">Add source</button><button class="quiet-button" data-engineering-action="ingest-source">Ingest text</button><button class="quiet-button" data-engineering-action="github-source">Import GitHub</button><button class="quiet-button" data-engineering-action="pdf-source">Import PDF</button><button class="quiet-button" data-engineering-action="search-sources">Search sources</button></div></section><section class="page-card"><h3>Decisions</h3><div class="properties">${decisions.map((item)=>`<div class="property"><strong>${esc(item.title)}</strong><span>${esc(item.decision||'')}</span></div>`).join('')||'<div class="empty-state">No decisions yet.</div>'}</div><button class="outline-button" data-engineering-action="decision">Add decision</button></section><section class="page-card"><h3>Weekly report</h3><p>Summarize requirement status, evidence coverage, sources, decisions, and unclear items.</p><button class="outline-button" data-engineering-action="report">Generate report</button></section></div><section><h2 class="section-title">Evidence coverage</h2><div id="evidence-workspace" class="file-grid"></div></section></div>`;const workspace=$('evidence-workspace');for(const requirement of requirements){const evidence=await api(`/api/engineering/projects/${s.projectId}/requirements/${requirement.id}/evidence`);workspace.insertAdjacentHTML('beforeend',`<div class="file-row evidence-requirement-row"><span>⌁</span><span><span class="file-name">Requirement #${requirement.id}: ${esc(requirement.title||requirement.description)}</span><span class="file-meta">${evidence.length} evidence records · ${esc(requirement.status||'')}</span><span class="evidence-list">${evidence.map((item)=>`<span class="evidence-chip">${esc(item.supports_status||'Unverified')} · ${esc(item.description||item.result||'')}<button type="button" class="quiet-button" data-evidence-action="invalidate" data-id="${item.id}">Invalidate</button></span>`).join('')}</span></span><button class="quiet-button" data-evidence-action="add" data-id="${requirement.id}">Add evidence</button></div>`);}}catch(error){toast(error.message);}}
+  async function openProjectEngineeringView(){
+    const s=st();
+    if(!s.projectId){toast('Select a project first.');return;}
+    try{
+      const [requirements,sources,decisions]=await Promise.all([
+        api(\`/api/engineering/projects/\${s.projectId}/requirements\`),
+        api(\`/api/engineering/projects/\${s.projectId}/sources\`),
+        api(\`/api/engineering/projects/\${s.projectId}/decisions\`)
+      ]);
+      setView('engineering');
+      const evidenceByRequirement = new Map();
+      for(const requirement of requirements){
+        evidenceByRequirement.set(requirement.id, await api(\`/api/engineering/projects/\${s.projectId}/requirements/\${requirement.id}/evidence\`));
+      }
+
+      const verified=requirements.filter((item)=>String(item.status||'').toLowerCase().includes('verif')).length;
+      const atRisk=requirements.filter((item)=>/risk|fail|unclear/i.test(String(item.status||''))).length;
+      const evidenceCount=[...evidenceByRequirement.values()].reduce((sum,items)=>sum+items.length,0);
+      const covered=requirements.filter((item)=>(evidenceByRequirement.get(item.id)||[]).length>0).length;
+      const coverage=requirements.length?Math.round(covered/requirements.length*100):0;
+      const health=atRisk? 'AT RISK' : requirements.length && coverage<100 ? 'NEEDS EVIDENCE' : 'NOMINAL';
+
+      $('page-view').innerHTML=\`<div class="page engineering-control-center">
+        <header class="engineering-hero">
+          <div class="engineering-hero-copy">
+            <div class="engineering-kicker">ENGINEERING / \${esc(s.project?.name||'PROJECT')}</div>
+            <h1 class="page-title">Engineering control center</h1>
+            <p class="page-subtitle">Trace requirements to sources, decisions, verification, and evidence without leaving the project.</p>
+          </div>
+          <div class="engineering-hero-actions">
+            <button class="outline-button" data-back-chat>Back to chat</button>
+            <button class="outline-button" data-engineering-action="report">Weekly report</button>
+            <button class="primary-button" data-engineering-action="requirement">Add requirement</button>
+          </div>
+        </header>
+
+        <section class="engineering-health-strip">
+          <div class="engineering-health-state \${health==='NOMINAL'?'nominal':health==='AT RISK'?'risk':'attention'}">
+            <span></span><div><strong>\${health}</strong><small>traceability state</small></div>
+          </div>
+          <div class="engineering-metric"><strong>\${requirements.length}</strong><span>Requirements</span></div>
+          <div class="engineering-metric"><strong>\${coverage}%</strong><span>Evidence coverage</span></div>
+          <div class="engineering-metric"><strong>\${evidenceCount}</strong><span>Evidence records</span></div>
+          <div class="engineering-metric"><strong>\${sources.length}</strong><span>Sources</span></div>
+          <div class="engineering-metric"><strong>\${decisions.length}</strong><span>Decisions</span></div>
+        </section>
+
+        <div class="engineering-work-grid">
+          <main class="engineering-main-column">
+            <section class="engineering-panel engineering-requirements-panel">
+              <div class="engineering-panel-head">
+                <div><span class="engineering-kicker">TRACEABILITY</span><h2>Requirements</h2></div>
+                <div class="engineering-panel-actions">
+                  <label class="engineering-inline-search"><span>⌕</span><input id="engineering-requirement-search" type="search" placeholder="Filter requirements…"></label>
+                  <select id="engineering-requirement-filter" class="engineering-select">
+                    <option value="all">All</option><option value="verified">Verified</option><option value="open">Open</option><option value="risk">At risk</option>
+                  </select>
+                </div>
+              </div>
+              <div id="engineering-requirement-list" class="engineering-requirement-list">
+                \${requirements.length ? requirements.map((item,index)=>{
+                  const evidence=evidenceByRequirement.get(item.id)||[];
+                  const status=String(item.status||'Open');
+                  const statusClass=/verif/i.test(status)?'verified':/risk|fail|unclear/i.test(status)?'risk':'open';
+                  return \`<article class="engineering-requirement" data-requirement-card data-requirement-id="\${item.id}" data-status="\${statusClass}" data-search="\${attr([item.title,item.description,status].join(' '))}">
+                    <div class="engineering-requirement-index">\${String(index+1).padStart(2,'0')}</div>
+                    <div class="engineering-requirement-body">
+                      <div class="engineering-requirement-line"><span class="engineering-id">REQ-\${item.id}</span><span class="engineering-status \${statusClass}">\${esc(status)}</span></div>
+                      <h3>\${esc(item.title||item.description||'Untitled requirement')}</h3>
+                      <p>\${esc(item.description||'No description recorded.')}</p>
+                      <div class="engineering-requirement-meta"><span>\${evidence.length} evidence record\${evidence.length===1?'':'s'}</span><span>\${evidence.length?'Traceable':'Needs evidence'}</span></div>
+                    </div>
+                    <div class="engineering-requirement-actions">
+                      <button type="button" class="quiet-button" data-engineering-action="evidence" data-id="\${item.id}">+ Evidence</button>
+                      <button type="button" class="outline-button" data-engineering-requirement-detail="\${item.id}">Open</button>
+                    </div>
+                  </article>\`;
+                }).join('') : '<div class="engineering-empty"><strong>No requirements yet.</strong><span>Start the project specification here.</span><button class="primary-button" data-engineering-action="requirement">Add requirement</button></div>'}
+              </div>
+            </section>
+
+            <section class="engineering-panel">
+              <div class="engineering-panel-head">
+                <div><span class="engineering-kicker">KNOWLEDGE BASE</span><h2>Sources</h2></div>
+                <div class="engineering-panel-actions">
+                  <button class="quiet-button" data-engineering-action="search-sources">Search</button>
+                  <button class="outline-button" data-engineering-action="source">Add source</button>
+                  <button class="outline-button" data-engineering-action="ingest-source">Ingest</button>
+                </div>
+              </div>
+              <div class="engineering-source-grid">
+                \${sources.length ? sources.slice(0,8).map((item)=>\`<button type="button" class="engineering-source-card" data-engineering-source-detail="\${attr(item.id)}">
+                  <span class="engineering-source-icon">▧</span><div><strong>\${esc(item.title)}</strong><span>\${esc(item.source_type||'document')} · \${esc(item.version||'unversioned')}</span></div><b>›</b>
+                </button>\`).join('') : '<div class="engineering-empty"><strong>No sources ingested.</strong><span>Add a source or import a public GitHub file.</span><button class="outline-button" data-engineering-action="github-source">Import GitHub</button></div>'}
+              </div>
+              \${sources.length>8?'<div class="engineering-more">Showing 8 of '+sources.length+' sources</div>':''}
+            </section>
+          </main>
+
+          <aside class="engineering-side-column">
+            <section class="engineering-panel engineering-coverage-panel">
+              <div class="engineering-panel-head"><div><span class="engineering-kicker">EVIDENCE</span><h2>Coverage</h2></div><span class="engineering-score">\${coverage}%</span></div>
+              <div class="engineering-coverage-ring" style="--coverage:\${coverage}%"><div><strong>\${coverage}%</strong><span>covered</span></div></div>
+              <div class="engineering-coverage-list">
+                <div><span class="dot verified"></span><strong>\${verified}</strong><small>verified</small></div>
+                <div><span class="dot open"></span><strong>\${requirements.length-covered}</strong><small>open / untraced</small></div>
+                <div><span class="dot risk"></span><strong>\${atRisk}</strong><small>risk flags</small></div>
+              </div>
+              <button class="outline-button full-width" data-engineering-action="test-plan">Generate verification plan</button>
+            </section>
+
+            <section class="engineering-panel engineering-decisions-panel">
+              <div class="engineering-panel-head"><div><span class="engineering-kicker">DECISIONS</span><h2>Recent decisions</h2></div><button class="quiet-button" data-engineering-action="decision">+ Add</button></div>
+              <div class="engineering-decision-list">
+                \${decisions.length?decisions.slice(0,5).map((item)=>\`<article class="engineering-decision-card"><span class="engineering-decision-mark">◆</span><div><strong>\${esc(item.title)}</strong><p>\${esc(item.decision||item.rationale||'No decision text recorded.')}</p></div></article>\`).join(''):'<div class="engineering-empty compact"><strong>No decisions yet.</strong><span>Record design and implementation decisions here.</span></div>'}
+              </div>
+            </section>
+
+            <section class="engineering-panel engineering-actions-panel">
+              <div><span class="engineering-kicker">QUICK ACTIONS</span><h2>Project tools</h2></div>
+              <button type="button" class="engineering-action-row" data-engineering-action="test-plan"><span>✓</span><div><strong>Build verification plan</strong><small>Map requirements to checks</small></div><b>→</b></button>
+              <button type="button" class="engineering-action-row" data-engineering-action="report"><span>▤</span><div><strong>Generate weekly report</strong><small>Status, evidence, decisions</small></div><b>→</b></button>
+              <button type="button" class="engineering-action-row" data-engineering-action="search-sources"><span>⌕</span><div><strong>Search source corpus</strong><small>Find qualified project evidence</small></div><b>→</b></button>
+            </section>
+          </aside>
+        </div>
+
+        <footer class="engineering-footer">
+          <span>Project engineering boundary · evidence is inspectable and inert</span>
+          <span>Requirements \${requirements.length} · Sources \${sources.length} · Decisions \${decisions.length}</span>
+        </footer>
+      </div>\`;
+
+      const reqSearch=$('engineering-requirement-search');
+      const reqFilter=$('engineering-requirement-filter');
+      const applyRequirementFilters=()=>{
+        const query=String(reqSearch?.value||'').trim().toLowerCase();
+        const filter=reqFilter?.value||'all';
+        document.querySelectorAll('[data-requirement-card]').forEach((card)=>{
+          const status=card.dataset.status;
+          const matchesStatus=filter==='all'||(filter==='verified'&&status==='verified')||(filter==='open'&&status==='open')||(filter==='risk'&&status==='risk');
+          card.hidden=!(matchesStatus&&(!query||card.dataset.search.toLowerCase().includes(query)));
+        });
+      };
+      reqSearch?.addEventListener('input',applyRequirementFilters);
+      reqFilter?.addEventListener('change',applyRequirementFilters);
+
+      document.querySelectorAll('[data-engineering-requirement-detail]').forEach((button)=>{
+        button.onclick=()=>{
+          const requirement=requirements.find((item)=>String(item.id)===String(button.dataset.engineeringRequirementDetail));
+          if(!requirement)return;
+          const evidence=evidenceByRequirement.get(requirement.id)||[];
+          modal(\`Requirement · REQ-\${requirement.id}\`,\`<div class="engineering-detail-modal">
+            <div class="engineering-detail-status"><span class="engineering-status \${/verif/i.test(requirement.status||'')?'verified':/risk|fail|unclear/i.test(requirement.status||'')?'risk':'open'}">\${esc(requirement.status||'Open')}</span><span>\${evidence.length} evidence record\${evidence.length===1?'':'s'}</span></div>
+            <h3>\${esc(requirement.title||'Untitled requirement')}</h3>
+            <p>\${esc(requirement.description||'No description recorded.')}</p>
+            <div class="properties"><div class="property"><span>Requirement ID</span><strong>REQ-\${esc(requirement.id)}</strong></div><div class="property"><span>Status</span><strong>\${esc(requirement.status||'Open')}</strong></div><div class="property"><span>Evidence</span><strong>\${evidence.length}</strong></div></div>
+            <div class="form-actions"><button type="button" class="outline-button" data-modal-engineering-action="evidence" data-id="\${attr(requirement.id)}">Add evidence</button><button type="button" class="primary-button" data-modal-engineering-action="close">Close</button></div>
+          </div>\`);
+          document.querySelectorAll('[data-modal-engineering-action]').forEach((actionButton)=>{
+            actionButton.onclick=()=>{if(actionButton.dataset.modalEngineeringAction==='close')return closeModal();closeModal();engineeringForm('evidence',Number(actionButton.dataset.id));};
+          });
+        };
+      });
+      document.querySelectorAll('[data-engineering-source-detail]').forEach((button)=>{
+        button.onclick=()=>{
+          const source=sources.find((item)=>String(item.id)===String(button.dataset.engineeringSourceDetail));
+          if(source) modal(source.title,\`<div class="properties"><div class="property"><span>Type</span><strong>\${esc(source.source_type||'document')}</strong></div><div class="property"><span>Version</span><strong>\${esc(source.version||'Unversioned')}</strong></div><div class="property"><span>Author</span><strong>\${esc(source.author||'—')}</strong></div><div class="property"><span>Publisher</span><strong>\${esc(source.publisher||'—')}</strong></div><div class="property"><span>URL</span><strong>\${esc(source.url||'—')}</strong></div></div>\`);
+        };
+      });
+    }catch(error){toast(error.message);}}
   window.engineeringAction=async(action,id)=>{const projectId=st().projectId;if(!projectId)return;if(['requirement','source','decision','evidence'].includes(action))return engineeringForm(action,id);if(action==='ingest-source')return sourceIngestForm();if(action==='github-source')return githubSourceForm();if(action==='pdf-source')return pdfSourceForm();if(action==='search-sources')return sourceSearchForm();if(action==='test-plan'){const plan=await api(`/api/engineering/projects/${projectId}/requirements/test-plan`);return modal('Engineering test plan',`<div class="properties">${plan.map((item)=>`<div class="property"><span>${esc(item.identifier||`Requirement #${item.requirement_id}`)}</span><strong>${esc(item.title)}</strong><div>${esc(item.verification_method)} · ${esc(item.acceptance_criteria)}</div></div>`).join('')||'<div class="empty-state">No requirements yet.</div>'}</div>`);}if(action==='report'){const report=await api(`/api/engineering/projects/${projectId}/report`);return modal('Weekly engineering report',`<div class="properties"><div class="property"><span>Summary</span><strong>${esc(report.summary)}</strong></div><div class="property"><span>Sources</span><strong>${esc(report.sources)}</strong></div><div class="property"><span>Decisions</span><strong>${esc(report.decisions)}</strong></div><div class="property"><span>Unclear statuses</span><strong>${report.unclear_statuses?.length||0}</strong></div>${(report.unclear_statuses||[]).map((item)=>`<div class="property"><span>Requirement #${item.requirement_id}</span><strong>${esc(item.reason)}</strong></div>`).join('')}</div>`);};};
   async function engineeringForm(kind,requirementId=null){const body={requirement:'<label>Description<textarea name="description" required></textarea></label><label>Title<input name="title"></label>',source:'<label>Title<input name="title" required></label><label>Source type<input name="source_type" value="document"></label><label>Author<input name="author"></label><label>Publisher<input name="publisher"></label><label>URL<input name="url"></label>',decision:'<label>Title<input name="title" required></label><label>Decision<textarea name="decision" required></textarea></label><label>Rationale<textarea name="rationale"></textarea></label>',evidence:'<label>Result<textarea name="result" required></textarea></label><label>Status<select name="supports_status"><option>Verified</option><option>At risk</option><option>Failed</option><option>Unverified</option></select></label><label>Source<textarea name="source" required></textarea></label><label>Description<textarea name="description"></textarea></label>'}[kind];modal(`New ${kind}`,`<form id="engineering-form" class="form-stack">${body}<div class="form-actions"><button type="button" class="outline-button" id="engineering-cancel">Cancel</button><button class="primary-button">Save</button></div></form>`);$('engineering-cancel').onclick=closeModal;$('engineering-form').onsubmit=async(event)=>{event.preventDefault();const values=Object.fromEntries(new FormData(event.target));try{if(kind==='requirement')await send(`/api/engineering/projects/${st().projectId}/requirements`,values);if(kind==='source')await send(`/api/engineering/projects/${st().projectId}/sources`,values);if(kind==='decision')await send(`/api/engineering/projects/${st().projectId}/decisions`,values);if(kind==='evidence')await send(`/api/engineering/projects/${st().projectId}/requirements/${requirementId}/evidence`,values);closeModal();await openProjectEngineeringView();}catch(error){$('engineering-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
   function sourceIngestForm(){modal('Ingest engineering source','<form id="source-ingest-form" class="form-stack"><p class="muted">Paste text or Markdown. It is stored as source data with a checksum and searchable chunks; it is never executed.</p><label>Title<input name="title" required placeholder="requirements.md"></label><label>Version<input name="version"></label><label>Source type<input name="source_type" value="text"></label><label>URL<input name="url" placeholder="optional"></label><label>Content<textarea name="content" required></textarea></label><div class="form-actions"><button type="button" class="outline-button" id="source-ingest-cancel">Cancel</button><button class="primary-button">Ingest</button></div></form>');$('source-ingest-cancel').onclick=closeModal;$('source-ingest-form').onsubmit=async(event)=>{event.preventDefault();try{await send(`/api/engineering/projects/${st().projectId}/sources/ingest`,Object.fromEntries(new FormData(event.target)));closeModal();await openProjectEngineeringView();}catch(error){$('source-ingest-form').insertAdjacentHTML('afterend',`<div class="error">${esc(error.message)}</div>`);}};}
