@@ -46,8 +46,9 @@ jobs:
     concurrency:
       group: pasi-free-validation-${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: false
-    # Keep the required free-validation gate on the local PASI runner so private-repository
-    # validation never depends on GitHub-hosted minutes, payment state, or spending limits.
+    # Keep the required free-validation gate on the local PASI runner by default so private-repository
+    # validation is independent of GitHub-hosted minutes, payment state, and spending limits unless
+    # an operator explicitly selects runner_mode=github-hosted during workflow_dispatch.
     runs-on: ${{ inputs.runner_mode == 'github-hosted' && 'ubuntu-latest' || 'pasi-wsl' }}
     timeout-minutes: 30
     steps:
