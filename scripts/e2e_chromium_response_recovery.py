@@ -27,7 +27,6 @@ if str(ROOT) not in sys.path:
 
 from scripts.build_chromium_extension import build_extension
 BRIDGE_HOST = "127.0.0.1"
-BRIDGE_PORT = 8765
 OPERATION_ID = "pasi-e2e-late-response"
 EXPECTED_RESPONSE = "response recovered by the real Chromium controller"
 CHROMEDRIVER_SESSION_START_TIMEOUT_SECONDS = 45.0
@@ -557,7 +556,9 @@ def main() -> None:
     BridgeHandler.observation_payloads = []
     BridgeHandler.requests = []
 
-    bridge = ThreadingHTTPServer((BRIDGE_HOST, BRIDGE_PORT), BridgeHandler)
+    bridge_port = free_port()
+    bridge_url = f"http://{BRIDGE_HOST}:{bridge_port}"
+    bridge = ThreadingHTTPServer((BRIDGE_HOST, bridge_port), BridgeHandler)
     fixture_port = free_port()
     fixture = ThreadingHTTPServer(("127.0.0.1", fixture_port), FixtureHandler)
     with tempfile.TemporaryDirectory(prefix="pasi-fixture-tls-") as tls_root:
@@ -586,7 +587,7 @@ def main() -> None:
             browser_session: str | None = None
             target_id: str | None = None
             try:
-                extension_dir = build_extension(Path(extension_root) / "pasi-chatgpt")
+                extension_dir = build_extension(Path(extension_root) / "pasi-chatgpt", bridge_url=bridge_url)
                 debug_port = free_port()
                 profile_dir = Path(profile_root) / "profile"
                 profile_dir.mkdir()
