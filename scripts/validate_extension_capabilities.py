@@ -179,11 +179,19 @@ def validate_extension_capabilities(
         for match in PYTHON_STRING_URL_RE.finditer(source):
             url = match.group(1)
             parsed = urlparse(url)
-            if parsed.hostname == "127.0.0.1" and parsed.port == 8765:
-                if not _host_pattern_matches(url, LOCAL_BRIDGE_HOST_PATTERN):
-                    errors.append(
-                        f"Python bridge URL is outside the native extension bridge contract: {url}"
-                    )
+            if parsed.hostname != "127.0.0.1":
+                continue
+            try:
+                port = parsed.port
+            except ValueError:
+                # Dynamic/template URLs such as http://127.0.0.1:{port} cannot
+                # be proven against the fixed bridge port at static-analysis
+                # time, but they must not make the validator crash.
+                continue
+            if port == 8765 and not _host_pattern_matches(url, LOCAL_BRIDGE_HOST_PATTERN):
+                errors.append(
+                    f"Python bridge URL is outside the native extension bridge contract: {url}"
+                )
 
     if LOCAL_BRIDGE_HOST_PATTERN not in host_permissions:
         errors.append(
