@@ -17,6 +17,11 @@ RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 START_LOCK_FILE="${PASI_OVERNIGHT_SERVICE_LOCK:-$HOME/.pasi/overnight-service/start.lock}"
 REQUESTED_ROADMAP="${PASI_ROADMAP_PATH:-roadmaps/pasi-default.json}"
 
+if ! command -v python3 >/dev/null 2>&1; then
+    printf 'error: python3 is required for durable-service identity verification.\n' >&2
+    exit 4
+fi
+
 if ! command -v systemd-run >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
     printf 'error: systemd user services are required for a durable 168-hour launch from GitHub Actions.\n' >&2
     printf 'The Actions job cannot safely own a detached weeklong process; enable WSL systemd and retry.\n' >&2
@@ -37,7 +42,7 @@ fi
 
 service_identity_matches() {
     [[ -f "$RUNTIME_DIR/state.json" ]] || return 1
-    "$REPO_ROOT/.venv/bin/python" - "$RUNTIME_DIR/state.json" "$SERVICE_ROOT" "$REF" "$REQUESTED_ROADMAP" <<'PY'
+    python3 - "$RUNTIME_DIR/state.json" "$SERVICE_ROOT" "$REF" "$REQUESTED_ROADMAP" <<'PY'
 import json
 import sys
 from pathlib import Path
