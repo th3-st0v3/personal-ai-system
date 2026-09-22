@@ -27,6 +27,11 @@ class FreeAcceptanceContractTests(unittest.TestCase):
         ):
             self.assertIn(marker, source)
 
+    def test_chat_guard_blocks_live_execution_in_free_mode(self) -> None:
+        source = (ROOT / "scripts" / "pasi_chat_guard.py").read_text(encoding="utf-8")
+        self.assertIn("PASI_FREE_TEST_MODE", source)
+        self.assertIn("GUARD_EXIT_FREE_TEST_BLOCKED = 93", source)
+
     def test_provider_router_exposes_free_mode_network_guard(self) -> None:
         source = (ROOT / "scripts" / "pasi_provider_router.py").read_text(encoding="utf-8")
         self.assertIn("PASI_FREE_TEST_MODE", source)
