@@ -14,7 +14,8 @@ from scripts import pasi_hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 
 
-class TestPasiOvernightEngineV2(unittest.TestCase):\n    def test_background_work_uses_daemon_worker_and_preserves_task_identity(self) -> None:
+class TestPasiOvernightEngineV2(unittest.TestCase):
+    def test_background_work_uses_daemon_worker_and_preserves_task_identity(self) -> None:
         started = []
         completed = []
 
