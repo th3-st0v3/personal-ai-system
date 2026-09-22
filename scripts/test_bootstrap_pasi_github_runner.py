@@ -16,7 +16,8 @@ def test_runner_bootstrap_is_noninteractive_and_service_aware() -> None:
     source = (ROOT / "scripts" / "bootstrap_pasi_github_runner.sh").read_text(encoding="utf-8")
     assert "--unattended" in source
     assert "--replace" in source
-    assert "systemctl is-system-running" in source
+    assert "[[ -d /run/systemd/system ]]" in source
+    assert "-f \"$RUNNER_DIR/.service\"" in source
     assert "sudo ./svc.sh install" in source
     assert "sudo ./svc.sh start" in source
     assert "sudo ./svc.sh status" in source
