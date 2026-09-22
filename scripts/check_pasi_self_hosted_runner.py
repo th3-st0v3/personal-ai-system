@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-import osfrom pathlib import Path
+import os
+from pathlib import Path
 from typing import Any
 
 
