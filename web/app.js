@@ -176,6 +176,125 @@
   async function search(query){const q=String(query||'').trim();if(!q)return;const result=await api(`/api/search?q=${encodeURIComponent(q)}`);window.renderSearchResults?.(result,q);}
   function shareCurrent(){const payload={title:document.title,text:state.project?.name||'Personal AI System',url:location.href};return navigator.share?navigator.share(payload):navigator.clipboard.writeText(location.href).then(()=>toast('Link copied.','ok'));}
   async function handleMessageAction(target){const article=target.closest('.message');const action=target.dataset.msgAction;if(!article)return;const text=article.querySelector('.content,.user-bubble')?.textContent||'';if(action==='copy')return navigator.clipboard.writeText(text).then(()=>toast('Copied.','ok'));if(action==='share')return navigator.share?navigator.share({text}):navigator.clipboard.writeText(text).then(()=>toast('Copied share text.','ok'));if(action==='edit'){$('chat-input').value=text;$('chat-input').dispatchEvent(new Event('input'));$('chat-input').focus();return;}if(action==='retry'){const promptText=article.dataset.retryPrompt||'';if(promptText)return sendMessage(promptText);return;}if(action==='branch'){const result=await send(`/api/chats/${state.chatId}/branch`,{title:`${$('chat-title').textContent||'Chat'} — branch`});state.chatId=result.id;await loadChats();await loadChat();toast('Chat branched.','ok');return;}if(action==='rate-up'||action==='rate-down'){const index=Number(article.dataset.assistantIndex||-1);const chat=await api(`/api/chats/${state.chatId}`);const assistants=(chat.messages||[]).filter((message)=>message.role==='assistant');const message=assistants[index];if(!message?.id)throw new Error('Assistant message could not be identified.');await api(`/api/chats/${state.chatId}/feedback`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message_id:message.id,rating:action==='rate-up'?'up':'down'})});localStorage.setItem(`pas-rating-${state.chatId}-${index}`,action==='rate-up'?'up':'down');renderMessages(chat.messages||[],[]);toast('Feedback saved.','ok');}}
+  let plannerRefreshTimer = null;
+
+  async function openPlanner() {
+    setView('planner');
+    await renderPlanner();
+    if (plannerRefreshTimer) clearInterval(plannerRefreshTimer);
+    plannerRefreshTimer = setInterval(async () => {
+      if (state.view !== 'planner') { clearInterval(plannerRefreshTimer); plannerRefreshTimer = null; return; }
+      try { await refreshPlannerSilently(); } catch (_) {}
+    }, 5000);
+  }
+
+  function plannerOrderKey(path) { return `pasi-planner-order:${path}`; }
+
+  function plannerOrderedTasks(snapshot) {
+    const tasks = [...(snapshot.tasks || [])];
+    const raw = localStorage.getItem(plannerOrderKey(snapshot.roadmap.path));
+    if (!raw) return tasks;
+    try {
+      const order = JSON.parse(raw);
+      if (!Array.isArray(order)) return tasks;
+      const rank = new Map(order.map((id, index) => [id, index]));
+      return tasks.sort((a, b) => (rank.get(a.id) ?? 999999) - (rank.get(b.id) ?? 999999));
+    } catch (_) { return tasks; }
+  }
+
+  async function renderPlanner() {
+    const page = $('page-view');
+    if (!page) return;
+    page.innerHTML = '<div class="page planner-page"><div class="loading-state">Loading roadmap…</div></div>';
+    try {
+      const snapshot = await api('/api/planner/roadmap');
+      page.innerHTML = plannerMarkup(snapshot);
+      bindPlannerInteractions(snapshot);
+    } catch (error) {
+      page.innerHTML = `<div class="page planner-page"><div class="error-state"><strong>Planner unavailable</strong><span>${escapeHtml(error.message)}</span><button type="button" class="outline-button" data-planner-action="refresh">Retry</button></div></div>`;
+    }
+  }
+
+  async function refreshPlannerSilently() {
+    const snapshot = await api('/api/planner/roadmap');
+    const currentDigest = $('planner-root')?.dataset?.roadmapSha || '';
+    if (currentDigest !== snapshot.roadmap.sha256) {
+      await renderPlanner();
+      toast('Roadmap changed; planner view refreshed.','ok');
+      return;
+    }
+    const currentSelection = $('planner-root')?.querySelector('.planner-task.selected')?.dataset?.taskId || '';
+    $('planner-progress')?.replaceWith(document.createRange().createContextualFragment(plannerProgressMarkup(snapshot)).firstElementChild);
+    if ($('planner-current')) $('planner-current').innerHTML = plannerCurrentMarkup(snapshot);
+    document.querySelectorAll('.planner-task').forEach((node) => {
+      const task = snapshot.tasks.find((item) => item.id === node.dataset.taskId);
+      if (!task) return;
+      node.querySelector('.planner-status')?.replaceWith(document.createRange().createContextualFragment(plannerStatusMarkup(task)).firstElementChild);
+      node.classList.toggle('completed', task.satisfied);
+      node.classList.toggle('current', task.current);
+      node.classList.toggle('selected', task.id === currentSelection);
+    });
+  }
+
+  function plannerProgressMarkup(snapshot) {
+    const p = snapshot.progress || {completed:0,total:0,percent:0};
+    return `<div id="planner-progress" class="planner-progress"><div class="planner-progress-head"><strong>${p.completed}/${p.total} complete</strong><span>${p.percent}%</span></div><div class="planner-progress-track"><span style="width:${Math.max(0, Math.min(100, p.percent))}%"></span></div></div>`;
+  }
+
+  function plannerStatusMarkup(task) {
+    const status = task.runtime_status || 'pending';
+    const label = task.satisfied ? 'Completed' : status.replace('_',' ');
+    const symbol = task.satisfied ? '✓' : task.current ? '→' : status === 'blocked' ? '!' : status === 'cancelled' ? '×' : '○';
+    return `<span class="planner-status status-${escapeHtml(status)}" title="${escapeHtml(label)}">${symbol} ${escapeHtml(label)}</span>`;
+  }
+
+  function plannerCurrentMarkup(snapshot) {
+    const runtime = snapshot.runtime || {};
+    const current = snapshot.tasks.find((task) => task.current) || snapshot.tasks.find((task) => task.id === runtime.current_task_id);
+    if (!current) return '<div class="planner-current-empty">No active task reported by the runtime.</div>';
+    return `<div class="planner-current-task"><div class="eyebrow">Current task</div><h3>${escapeHtml(current.title)}</h3><code>${escapeHtml(current.id)}</code><p>${escapeHtml(current.objective)}</p><div class="inline-actions"><span class="planner-chip">${escapeHtml(runtime.phase || current.phase)}</span><span class="planner-chip">Attempt ${escapeHtml(runtime.current_attempt || 0)}</span></div></div>`;
+  }
+
+  function plannerMarkup(snapshot) {
+    const tasks = plannerOrderedTasks(snapshot);
+    const eligible = new Set(snapshot.eligible_ids || []);
+    const rank = new Map((snapshot.deterministic_rank || []).map((id, index) => [id, index + 1]));
+    const byId = new Map((snapshot.tasks || []).map((task) => [task.id, task]));
+    const taskRows = tasks.map((task) => `<article class="planner-task ${task.satisfied ? 'completed':''} ${task.current ? 'current':''} ${eligible.has(task.id) ? 'eligible':''}" draggable="true" data-task-id="${attr(task.id)}"><div class="planner-task-main"><div class="planner-drag" aria-hidden="true">⋮⋮</div><div class="planner-task-copy"><div class="planner-task-top"><span class="planner-phase">${escapeHtml(task.phase)}</span>${plannerStatusMarkup(task)}</div><h3>${escapeHtml(task.title)}</h3><code>${escapeHtml(task.id)}</code><p>${escapeHtml(task.objective)}</p><div class="planner-meta"><span>Priority ${escapeHtml(task.priority)}</span><span>Size ${escapeHtml(task.estimated_size)}</span>${eligible.has(task.id) ? '<span class="planner-eligible">Eligible</span>':''}${rank.has(task.id) ? `<span>Planner rank ${rank.get(task.id)}</span>`:''}</div></div></div><button type="button" class="outline-button planner-task-details" data-planner-detail="${attr(task.id)}">Details</button></article>`).join('');
+    const graph = tasks.map((task) => {
+      const deps = task.depends_on || [];
+      const blockers = deps.filter((id) => !byId.get(id)?.satisfied);
+      return `<div class="planner-graph-row"><div class="planner-graph-node ${task.satisfied ? 'done':''}"><strong>${escapeHtml(task.title)}</strong><code>${escapeHtml(task.id)}</code></div><div class="planner-graph-links">${deps.length ? deps.map((id) => `<span class="planner-link ${blockers.includes(id)?'blocked':''}">← ${escapeHtml(byId.get(id)?.title || id)}</span>`).join('') : '<span class="planner-link root">No dependencies</span>'}</div></div>`;
+    }).join('');
+    return `<div id="planner-root" class="page planner-page" data-roadmap-sha="${escapeHtml(snapshot.roadmap.sha256)}"><header class="page-head"><div><div class="eyebrow">Roadmap control center</div><h1 class="page-title">Planner</h1><p class="page-subtitle">${escapeHtml(snapshot.roadmap.path)} · deterministic eligibility first</p></div><div class="planner-actions"><button type="button" class="outline-button" data-planner-action="import">Import JSON</button><button type="button" class="outline-button" data-planner-action="reset">Reset order</button><button type="button" class="primary-button" data-planner-action="refresh">Recalculate</button></div></header><div class="planner-grid"><section class="planner-main"><div class="planner-toolbar"><span class="planner-chip">${snapshot.eligible_ids?.length || 0} eligible</span><span class="planner-chip">${snapshot.roadmap.schema_version ? `Schema ${snapshot.roadmap.schema_version}` : ''}</span><span class="planner-help">Drag tasks to change your local viewing order. Dependencies remain authoritative.</span></div>${plannerProgressMarkup(snapshot)}<section class="planner-section"><div class="section-title planner-section-title"><div><div class="eyebrow">Execution sequence</div><h2>Task order</h2></div><span class="muted">Local draft order only</span></div><div id="planner-task-list" class="planner-task-list">${taskRows}</div></section><section class="planner-section"><div class="section-title planner-section-title"><div><div class="eyebrow">Dependencies</div><h2>Roadmap graph</h2></div></div><div class="planner-graph">${graph}</div></section></section><aside class="planner-side"><div id="planner-current" class="planner-current panel-card">${plannerCurrentMarkup(snapshot)}</div><div class="panel-card"><div class="eyebrow">Deterministic planner</div><h3>Next eligible tasks</h3><div class="planner-ranked-list">${(snapshot.deterministic_rank||[]).slice(0,8).map((id,index)=>`<div><span>${index+1}</span><strong>${escapeHtml(byId.get(id)?.title || id)}</strong></div>`).join('') || '<div class="muted">No eligible task.</div>'}</div><p class="muted">AI ranking, when enabled, can only rank this already-eligible set.</p></div></aside></div></div>`;
+  }
+
+  function plannerImportModal() {
+    modal('Import roadmap JSON', '<form id="planner-import-form" class="form-stack"><label>Roadmap JSON<textarea id="planner-import-json" rows="16" placeholder="Paste a schema_version 1 roadmap here"></textarea></label><div class="form-actions"><button type="button" class="outline-button" id="planner-import-cancel">Cancel</button><button class="primary-button">Preview</button></div></form>');
+    $('planner-import-cancel').onclick=closeModal;
+    $('planner-import-form').onsubmit=(event)=>{ event.preventDefault(); try { const data=JSON.parse($('planner-import-json').value); if(!data || !Array.isArray(data.tasks)) throw new Error('Roadmap must contain a tasks array.'); const ids=data.tasks.map((task)=>task.id); if(ids.some((id)=>typeof id!=='string'||!id.trim())) throw new Error('Every task needs a stable string id.'); localStorage.setItem('pasi-planner-import-preview', JSON.stringify(data)); closeModal(); toast(`Loaded ${data.tasks.length} tasks into local preview.`,'ok'); renderPlannerImported(data); } catch(error) { toast(error.message); } };
+  }
+
+  function renderPlannerImported(data) {
+    const normalized = { roadmap:{path:'local import preview',sha256:'local-preview'}, tasks:data.tasks.map((task)=>({...task,runtime_status:task.status||'pending',satisfied:task.status==='completed',current:false})), eligible_ids:[], deterministic_rank:[], progress:{completed:data.tasks.filter((task)=>task.status==='completed').length,total:data.tasks.length,percent:data.tasks.length?Math.round(data.tasks.filter((task)=>task.status==='completed').length/data.tasks.length*100):0}, runtime:{} };
+    if (!$('page-view')) return;
+    $('page-view').innerHTML=plannerMarkup(normalized);
+    bindPlannerInteractions(normalized);
+    toast('Local roadmap preview loaded.','ok');
+  }
+
+  function bindPlannerInteractions(snapshot) {
+    const list=$('planner-task-list'); if(!list || list.dataset.bound==='1') return; list.dataset.bound='1';
+    let draggedId='';
+    list.addEventListener('dragstart',(event)=>{ const task=event.target.closest('.planner-task'); if(!task)return; draggedId=task.dataset.taskId; task.classList.add('dragging'); event.dataTransfer?.setData('text/plain',draggedId); });
+    list.addEventListener('dragend',(event)=>event.target.closest('.planner-task')?.classList.remove('dragging'));
+    list.addEventListener('dragover',(event)=>{const task=event.target.closest('.planner-task'); if(task){event.preventDefault();task.classList.add('drop-target');}});
+    list.addEventListener('dragleave',(event)=>event.target.closest('.planner-task')?.classList.remove('drop-target'));
+    list.addEventListener('drop',(event)=>{const target=event.target.closest('.planner-task'); if(!target || !draggedId || draggedId===target.dataset.taskId)return; event.preventDefault(); const ids=[...list.querySelectorAll('.planner-task')].map((node)=>node.dataset.taskId); const from=ids.indexOf(draggedId), to=ids.indexOf(target.dataset.taskId); ids.splice(from,1); ids.splice(to,0,draggedId); localStorage.setItem(plannerOrderKey(snapshot.roadmap.path),JSON.stringify(ids)); renderPlanner();});
+    list.addEventListener('click',(event)=>{const detail=event.target.closest('[data-planner-detail]'); if(!detail)return; const task=(snapshot.tasks||[]).find((item)=>item.id===detail.dataset.plannerDetail); if(!task)return; const deps=(task.depends_on||[]).map((id)=>escapeHtml(id)).join(', ')||'None'; modal(task.title,`<div class="properties"><div class="property"><span>ID</span><strong>${escapeHtml(task.id)}</strong></div><div class="property"><span>Status</span><strong>${escapeHtml(task.runtime_status||task.status||'pending')}</strong></div><div class="property"><span>Objective</span><strong>${escapeHtml(task.objective)}</strong></div><div class="property"><span>Dependencies</span><strong>${deps}</strong></div><div class="property"><span>Acceptance criteria</span><strong>${(task.acceptance_criteria||[]).map(escapeHtml).join('<br>')||'None'}</strong></div><div class="property"><span>Verification</span><strong>${(task.verification||[]).map(escapeHtml).join('<br>')||'None'}</strong></div></div>`);});
+    document.querySelectorAll('[data-planner-action]').forEach((button)=>{ if(button.dataset.plannerBound==='1')return; button.dataset.plannerBound='1'; button.onclick=async()=>{const action=button.dataset.plannerAction;if(action==='refresh')return renderPlanner();if(action==='reset'){localStorage.removeItem(plannerOrderKey(snapshot.roadmap.path));return renderPlanner();}if(action==='import')return plannerImportModal();};});
+  }
+
   function promptToChat(text){setView('chat');$('chat-input').value=text||'';$('chat-input').dispatchEvent(new Event('input'));$('chat-input').focus();}
 
   function bindEvents(){
@@ -196,6 +315,7 @@
         if(target.matches('.chat-title-menu')){event.preventDefault();const r=target.getBoundingClientRect();openChatMenu(r.right-210,r.bottom+6);return;}
         if(target.matches('.chat-row')){await openChat(Number(target.dataset.chatId));return;}
         if(target.matches('[data-view="projects"]')){await openProjects();return;}
+        if(target.matches('[data-view="planner"]')){await openPlanner();return;}
         if(target.matches('[data-view="education"]')){setView('education');window.renderEducationPage?.();return;}
         if(target.matches('[data-view="simulations"]')){setView('simulations');await window.openSimulationsView?.();return;}
         if(target.matches('[data-view="connections"]')){setView('connections');await window.openConnectionsView?.();return;}
