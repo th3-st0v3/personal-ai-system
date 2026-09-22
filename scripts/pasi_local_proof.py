@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import argparse
-import json
-import subprocess
+import argparseimport subprocess
 import sys
 from pathlib import Path
 
@@ -65,8 +63,10 @@ def main() -> int:
     for file in by_kind.get("python", []):
         run([sys.executable, "-m", "py_compile", file])
 
-    node = shutil_which("node")
     if by_kind.get("javascript"):
+        import shutil
+
+        node = shutil.which("node")
         if not node:
             raise SystemExit("node is required to proof JavaScript files")
         for file in by_kind["javascript"]:
@@ -88,10 +88,6 @@ def main() -> int:
     return 0
 
 
-def shutil_which(command: str) -> str | None:
-    import shutil
-
-    return shutil.which(command)
 
 
 if __name__ == "__main__":
