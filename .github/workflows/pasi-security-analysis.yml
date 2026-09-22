@@ -1,7 +1,11 @@
 name: PASI security analysis
 
 on:
-  pull_request:
+  # PR security runs only after the fast test workflow succeeds, preventing
+  # CodeQL from occupying the sole WSL runner ahead of the primary gate.
+  workflow_run:
+    workflows: ["test"]
+    types: [completed]
   push:
     branches: [main]
   schedule:
@@ -11,7 +15,7 @@ on:
 # A single WSL runner services this workflow. Keep only the newest security run
 # for each ref so obsolete queued scans cannot starve current verification.
 concurrency:
-  group: pasi-security-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: pasi-security-${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -21,7 +25,7 @@ permissions:
 
 jobs:
   codeql:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     name: CodeQL (${{ matrix.language }})
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     strategy:
@@ -31,6 +35,8 @@ jobs:
         language: [python, javascript, actions]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
@@ -52,6 +58,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -61,6 +69,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'

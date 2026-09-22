@@ -1493,13 +1493,19 @@ def choose_next_task(state: OvernightState, suggested: str) -> str:
 
 
 
-def fast_local_gate(worktree: Path) -> str:
-    """Run a bounded changed-file gate for long-running unattended mode."""
-    code, output = command(["git", "diff", "--check"], worktree, 60.0)
+def fast_local_gate(worktree: Path, *, diff_base: str | None = None) -> str:
+    """Run a bounded changed-file gate for unattended work or clean CI checkouts.
+
+    Local task verification inspects the uncommitted patch. CI passes a base ref
+    so the same targeted gate can validate a clean checkout without running the
+    entire repository suite.
+    """
+    diff_suffix = [f"{diff_base}...HEAD"] if diff_base else []
+    code, output = command(["git", "diff", "--check", *diff_suffix], worktree, 60.0)
     if code != 0:
         raise RuntimeError(f"fast local gate diff check failed:\n{output}")
 
-    code, output = command(["git", "diff", "--name-only"], worktree, 30.0)
+    code, output = command(["git", "diff", "--name-only", *diff_suffix], worktree, 30.0)
     if code != 0:
         raise RuntimeError(f"fast local gate could not enumerate changed files:\n{output}")
 

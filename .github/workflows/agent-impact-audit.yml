@@ -1,37 +1,40 @@
 name: agent-impact-audit
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  # Run after the fast validation gate so this report never blocks the hot path.
+  workflow_run:
+    workflows: ["test"]
+    types: [completed]
 
 permissions:
   contents: read
   pull-requests: read
 
 concurrency:
-  group: pasi-agent-impact-${{ github.event.pull_request.number }}
+  group: pasi-agent-impact-${{ github.event.workflow_run.head_branch || github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
 jobs:
   report:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Build commit scope and blast-radius report
         env:
-          BASE_REF: ${{ github.base_ref }}
+          BASE_REF: ${{ github.event.workflow_run.pull_requests[0].base.ref || 'main' }}
         run: |
           set -euo pipefail
           BASE="origin/${BASE_REF}"
           {
             echo "# PASI Agent Impact Audit"
             echo
-            echo "PR: #${{ github.event.pull_request.number }}"
+            echo "PR: #${{ github.event.workflow_run.pull_requests[0].number }}"
             echo
             echo "| Metric | Value |"
             echo "| --- | ---: |"
