@@ -199,10 +199,15 @@ def main() -> int:
         args.pr_number,
         args.pr_url.strip(),
     )
-    result_status = "PASS" if deadline_reached and runtime_shape_ok else "INCOMPLETE"
     stop_reason = str(state.get("stop_reason") or "").strip()
-    if deadline_reached and stop_reason not in {"", "deadline_reached", "roadmap_complete"}:
+    if not deadline_reached:
+        result_status = "INCOMPLETE"
+    elif not runtime_shape_ok:
         result_status = "FAIL"
+    elif stop_reason != "deadline_reached":
+        result_status = "FAIL"
+    else:
+        result_status = "PASS"
 
     limitations: list[str] = []
     if malformed:
