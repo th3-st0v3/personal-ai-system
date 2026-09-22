@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,7 @@ def validate_m0(path: Path) -> list[str]:
         errors.append("M0 worktree is missing")
     else:
         try:
-            if __import__("subprocess").run(
+            if subprocess.run(
                 ["git", "-C", worktree, "status", "--porcelain", "--untracked-files=all"],
                 capture_output=True,
                 text=True,
@@ -34,7 +34,7 @@ def validate_m0(path: Path) -> list[str]:
                 check=False,
             ).stdout.strip():
                 errors.append("M0 acceptance worktree is not clean")
-        except (OSError, __import__("subprocess").TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired):
             errors.append("M0 acceptance worktree could not be checked")
     commit = value.get("commit")
     if not isinstance(commit, str) or len(commit) < 7:
