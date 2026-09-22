@@ -24,9 +24,7 @@ class ProjectState:
     updated_at: str = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["operation_state"] = OperationState.from_chat_operation(payload).to_dict()
-        return payload
+        return asdict(self)
 
 
 @dataclass
@@ -90,4 +88,6 @@ class ChatOperation:
     updated_at: str = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["operation_state"] = OperationState.from_chat_operation(payload).to_dict()
+        return payload
