@@ -2,7 +2,7 @@
 
 PASI's deterministic validation path must be sufficient to exercise production behavior without consuming paid model/provider usage or depending on metered GitHub-hosted runner capacity.
 
-The required `free-validation` CI gate runs on the repository's self-hosted `pasi-wsl` runner. This keeps validation independent of GitHub-hosted Actions minutes, payment status, and spending limits. GitHub documents self-hosted runner execution as free of Actions minutes, while private-repository GitHub-hosted runners consume the account's included minutes and can be blocked when quota/payment requirements are exhausted.
+The required `free-validation` CI gate runs on the repository's self-hosted `pasi-wsl` runner by default. An explicit manual `workflow_dispatch` choice can route the same job to `ubuntu-latest`; normal PR, push, and scheduled validation remains self-hosted. GitHub documents self-hosted runner execution as free of Actions minutes, while private-repository GitHub-hosted runners consume the account's included minutes and can be blocked when quota/payment requirements are exhausted.
 
 ## CI runner selection
 
