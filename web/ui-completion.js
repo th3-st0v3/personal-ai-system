@@ -209,10 +209,17 @@
       reqFilter?.addEventListener('change',applyRequirementFilters);
 
       document.querySelectorAll('[data-engineering-requirement-detail]').forEach((button)=>{
-        button.onclick=()=>{
+        button.onclick=async()=>{
           const requirement=requirements.find((item)=>String(item.id)===String(button.dataset.engineeringRequirementDetail));
           if(!requirement)return;
           const evidence=evidenceByRequirement.get(requirement.id)||[];
+          let history=[];
+          let historyError='';
+          try{
+            history=await api(`/api/engineering/projects/${s.projectId}/requirements/${requirement.id}/history`);
+          }catch(error){
+            historyError=error.message||'Unable to load verification history.';
+          }
           const linkedDecisions=decisions.filter((item)=>String(item.requirement_id||'')===String(requirement.id));
           const status=String(requirement.status||'Unverified');
           const statusClass=/verif/i.test(status)?'verified':/risk|fail/i.test(status)?'risk':'open';
@@ -329,10 +336,37 @@
                   </div>
                 </section>
 
-                <section class="engineering-panel">
-                  <div class="engineering-panel-head"><div><span class="engineering-kicker">ACTIVITY</span><h2>Verification history</h2></div></div>
-                  <div class="engineering-timeline">
-                    ${[...evidence].sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))).slice(-8).reverse().map((item,index)=>`<div class="engineering-timeline-item"><span class="engineering-timeline-dot ${String(item.lifecycle_status||'Active')==='Active'?'active':'invalid'}"></span><div><strong>${esc(item.supports_status||'Evidence recorded')}</strong><small>${esc(item.created_at||'Recorded')}</small><p>${esc(item.result||item.description||'Evidence updated.')}</p></div></div>`).join('') || '<div class="engineering-empty compact"><strong>No verification activity.</strong><span>The history will populate as evidence is recorded.</span></div>'}
+                <section class="engineering-panel engineering-history-panel">
+                  <div class="engineering-panel-head">
+                    <div><span class="engineering-kicker">ACTIVITY</span><h2>Verification history</h2></div>
+                    <div class="engineering-panel-actions"><span class="engineering-panel-count">${{history.length} events</span><button type="button" class="quiet-button" data-engineering-history-refresh>Refresh</button></div>
+                  </div>
+                  <div class="engineering-history-state ${{historyError?'error-state':''}">
+                    ${{historyError
+                      ? `<span>History unavailable: ${{esc(historyError)}</span><button type="button" class="outline-button" data-engineering-history-refresh>Retry</button>`
+                      : history.length
+                        ? `<span>Authoritative activity from the engineering history API · refreshed just now</span>`
+                        : `<span>No persisted verification activity has been recorded yet.</span>`}
+                  </div>
+                  <div class="engineering-timeline" aria-live="polite" aria-label="Requirement verification history">
+                    ${{history.length ? history.slice(0,20).map((item,index)=>{
+                      const kind=String(item.event_type||'event');
+                      const rejectedReview=kind==='review' && String(item.status||'')==='Rejected';
+                      const state=kind==='evidence_invalidated'||rejectedReview?'invalid':kind==='decision_recorded'||kind==='audit'?'decision':'active';
+                      const label=kind==='evidence_recorded'?'Evidence':kind==='evidence_invalidated'?'Evidence invalidated':kind==='decision_recorded'?'Decision':kind==='review'?'Review':kind==='requirement_record'?'Requirement':'Audit';
+                      const source=item.source?.title;
+                      const location=item.location;
+                      return `<article class="engineering-timeline-item">
+                        <span class="engineering-timeline-dot ${{state}"></span>
+                        <div class="engineering-timeline-card">
+                          <div class="engineering-timeline-heading"><strong>${{esc(label)}</strong><span>${{esc(item.status||'Recorded')}</span></div>
+                          <small>${{esc(item.occurred_at||'Recorded')}</small>
+                          <p>${{esc(item.description||item.title||'Activity recorded.')}</p>
+                          ${{item.result?`<div class="engineering-timeline-result">${{esc(item.result)}</div>`:''}
+                          ${{source||location?`<div class="engineering-timeline-links">${{source?`<span>▧ ${{esc(source)}</span>`:''}${{location?`<span>⌖ ${{esc(location)}</span>`:''}</div>`:''}
+                        </div>
+                      </article>`;
+                    }).join('') : historyError ? '' : `<div class="engineering-empty compact"><strong>No verification activity.</strong><span>The history will populate as evidence, decisions, reviews, and audit events are persisted.</span></div>`}
                   </div>
                 </section>
               </aside>
@@ -343,6 +377,7 @@
 
           document.querySelectorAll('[data-engineering-detail-back]').forEach((back)=>back.onclick=()=>openProjectEngineeringView());
           document.querySelectorAll('[data-engineering-detail-edit]').forEach((edit)=>edit.onclick=()=>engineeringRequirementEditForm(requirement));
+          document.querySelectorAll('[data-engineering-history-refresh]').forEach((refresh)=>refresh.onclick=()=>button.click());
         };
       });
       document.querySelectorAll('[data-engineering-source-detail]').forEach((button)=>{
