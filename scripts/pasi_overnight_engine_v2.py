@@ -62,6 +62,10 @@ DEFAULT_HOURS = 10.0
 MIN_HOURS = 8.0
 MAX_HOURS = float("inf")
 MAX_ATTEMPTS = 3
+# Repair-loop guard: repeated failed code-repair cycles trigger a root-cause
+# reset instead of allowing unattended patch accumulation.
+MAX_SAME_FAILURE_CYCLES = 3
+MAX_SAME_ROOT_CAUSE_CYCLES = 2
 TASK_TIMEOUT_SECONDS = 900.0
 WATCHDOG_MAX_AGE_SECONDS = 30.0
 STANDBY_SECONDS = 30.0
@@ -141,6 +145,9 @@ class OvernightState:
     task_retry_cycle: int = 0
     last_failure_signature: str = ""
     same_failure_cycles: int = 0
+    last_failure_root_signature: str = ""
+    same_root_cause_cycles: int = 0
+    repair_reset_count: int = 0
     automation_tasks_since_gate: int = 0
     automation_gates: int = 0
     provider_limit_pauses: int = 0
@@ -171,6 +178,9 @@ class OvernightState:
             "task_retry_cycle": self.task_retry_cycle,
             "last_failure_signature": self.last_failure_signature,
             "same_failure_cycles": self.same_failure_cycles,
+            "last_failure_root_signature": self.last_failure_root_signature,
+            "same_root_cause_cycles": self.same_root_cause_cycles,
+            "repair_reset_count": self.repair_reset_count,
             "automation_tasks_since_gate": self.automation_tasks_since_gate,
             "automation_gates": self.automation_gates,
             "provider_limit_pauses": self.provider_limit_pauses,
@@ -234,6 +244,9 @@ def load_state() -> OvernightState | None:
             task_retry_cycle=int(raw.get("task_retry_cycle", 0)),
             last_failure_signature=str(raw.get("last_failure_signature", "")),
             same_failure_cycles=int(raw.get("same_failure_cycles", 0)),
+            last_failure_root_signature=str(raw.get("last_failure_root_signature", "")),
+            same_root_cause_cycles=int(raw.get("same_root_cause_cycles", 0)),
+            repair_reset_count=int(raw.get("repair_reset_count", 0)),
             automation_tasks_since_gate=int(raw.get("automation_tasks_since_gate", 0)),
             automation_gates=int(raw.get("automation_gates", 0)),
             provider_limit_pauses=int(raw.get("provider_limit_pauses", 0)),
@@ -254,6 +267,72 @@ def load_state() -> OvernightState | None:
 def task_key(task: str) -> str:
     canonical = re.sub(r"\s+", " ", task).strip()[:MAX_TASK_TEXT_CHARS]
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+FAILURE_VOLATILE_PATTERNS = (
+    (re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE), "<sha>"),
+    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE), "<uuid>"),
+    (re.compile(r"\b(?:attempt|cycle|pid|task[_ -]?number|run[_ -]?id)[:= ]+\d+\b", re.IGNORECASE), "<counter>"),
+    (re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\b"), "<timestamp>"),
+    (re.compile(r"/(?:tmp|home)/[^\s:'\"]+"), "<path>"),
+)
+
+
+def failure_root_signature(failure: str) -> str:
+    """Hash a bounded, volatility-normalized failure family for loop detection."""
+    value = failure.replace("\r\n", "\n").replace("\r", "\n")
+    for pattern, replacement in FAILURE_VOLATILE_PATTERNS:
+        value = pattern.sub(replacement, value)
+    lines = [re.sub(r"\s+", " ", line).strip() for line in value.splitlines()]
+    stable = "\n".join(line for line in lines[:8] if line)
+    return hashlib.sha256(stable[:6000].encode("utf-8")).hexdigest()
+
+
+def repair_loop_reset_reason(
+    *,
+    repair_eligible: bool,
+    same_failure_cycles: int,
+    same_root_cause_cycles: int,
+) -> str:
+    """Return the bounded reset reason without weakening required validation."""
+    if not repair_eligible:
+        return ""
+    if same_failure_cycles >= MAX_SAME_FAILURE_CYCLES:
+        return "same_failure_threshold"
+    if same_root_cause_cycles >= MAX_SAME_ROOT_CAUSE_CYCLES:
+        return "same_root_cause_threshold"
+    return ""
+
+
+def reset_repair_counters(state: OvernightState) -> None:
+    state.task_retry_cycle = 0
+    state.current_attempt = 0
+    state.last_failure_signature = ""
+    state.same_failure_cycles = 0
+    state.last_failure_root_signature = ""
+    state.same_root_cause_cycles = 0
+
+
+def record_blocked_repair_task(
+    state: OvernightState,
+    *,
+    task: str,
+    failure: str,
+    reset_reason: str,
+) -> None:
+    evidence = (
+        "PASI forward-progress repair-loop guard triggered. "
+        f"reason={reset_reason}; task remains incomplete and requires explicit re-scope/retry.\n"
+        f"failure_root_signature={state.last_failure_root_signature}\n"
+        f"failure_evidence={failure[-3500:]}"
+    )
+    record_task_ledger(
+        task,
+        "blocked",
+        evidence=evidence,
+        phase=state.phase,
+        task_id=state.current_task_id,
+    )
 
 
 def load_task_ledger() -> dict[str, dict[str, Any]]:
@@ -1918,6 +1997,7 @@ def run(state: OvernightState, *, push: bool) -> None:
         finished = False
         attempt = 1
         while attempt <= MAX_ATTEMPTS:
+            repair_eligible = False
             if STOP or now_utc() >= datetime.fromisoformat(state.deadline_at):
                 return
             state.current_attempt = attempt
@@ -2160,9 +2240,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                 if not state.current_task:
                     save_state(state)
                     return
-                state.task_retry_cycle = 0
-                state.last_failure_signature = ""
-                state.same_failure_cycles = 0
+                reset_repair_counters(state)
                 save_state(state)
                 log_event(
                     "task_completed_no_change",
@@ -2191,6 +2269,7 @@ def run(state: OvernightState, *, push: bool) -> None:
                     promote=provider_source == "chatgpt_browser",
                 )
             except Exception as exc:
+                repair_eligible = True
                 failure = str(exc)
                 classification = classify_failure("verification", 1, failure)
                 log_event(
@@ -2238,9 +2317,7 @@ def run(state: OvernightState, *, push: bool) -> None:
             if not state.current_task:
                 save_state(state)
                 return
-            state.task_retry_cycle = 0
-            state.last_failure_signature = ""
-            state.same_failure_cycles = 0
+            reset_repair_counters(state)
             save_state(state)
             log_event("task_completed", phase=state.phase, task_number=state.task_number, commit=commit, summary=summary[-2000:])
             failure = ""
@@ -2252,14 +2329,56 @@ def run(state: OvernightState, *, push: bool) -> None:
             state.last_result = failure or "bounded retry cycle exhausted"
             normalized_failure = re.sub(r"\s+", " ", state.last_result).strip()
             failure_signature = hashlib.sha256(normalized_failure[:12000].encode("utf-8")).hexdigest()
+            failure_root = failure_root_signature(state.last_result)
             if failure_signature == state.last_failure_signature:
                 state.same_failure_cycles += 1
             else:
                 state.same_failure_cycles = 1
+            if failure_root == state.last_failure_root_signature:
+                state.same_root_cause_cycles += 1
+            else:
+                state.same_root_cause_cycles = 1
             state.last_failure_signature = failure_signature
+            state.last_failure_root_signature = failure_root
             state.task_retry_cycle += 1
             state.recent_tasks = state.recent_tasks[-12:]
             state.current_attempt = 0
+            reset_reason = repair_loop_reset_reason(
+                repair_eligible=repair_eligible,
+                same_failure_cycles=state.same_failure_cycles,
+                same_root_cause_cycles=state.same_root_cause_cycles,
+            )
+            if reset_reason:
+                record_blocked_repair_task(
+                    state,
+                    task=failed_task,
+                    failure=state.last_result,
+                    reset_reason=reset_reason,
+                )
+                state.repair_reset_count += 1
+                state.last_result = (
+                    f"Repair loop reset after repeated failed code repair: {reset_reason}. "
+                    "The task remains blocked/incomplete; the scheduler will select another eligible task. "
+                    "An operator may explicitly retry this task after re-scoping or correcting the underlying issue."
+                )
+                state.current_task = choose_next_task(state, "")
+                state.next_task = ""
+                reset_repair_counters(state)
+                save_state(state)
+                log_event(
+                    "repair_loop_reset",
+                    phase=state.phase,
+                    task_number=state.task_number,
+                    blocked_task=failed_task,
+                    reset_reason=reset_reason,
+                    repair_reset_count=state.repair_reset_count,
+                    failure_root_signature=failure_root,
+                    failure_evidence=normalized_failure[:6000],
+                    selected_next_task=state.current_task,
+                    action="block_current_task_and_replan",
+                )
+                failure = ""
+                continue
             save_state(state)
             log_event(
                 "task_retry_cycle_exhausted",
@@ -2268,13 +2387,15 @@ def run(state: OvernightState, *, push: bool) -> None:
                 failed_task=failed_task,
                 retry_cycle=state.task_retry_cycle,
                 same_failure_cycles=state.same_failure_cycles,
+                same_root_cause_cycles=state.same_root_cause_cycles,
                 error=state.last_result[-6000:],
                 action="retain_current_task",
             )
             failure = (
                 f"RETRY CYCLE {state.task_retry_cycle} EXHAUSTED FOR CURRENT TASK. "
-                "Do not advance to another task. Re-inspect the repository, use the failure evidence, "
-                "and change the implementation strategy before another bounded retry cycle.\n"
+                "Do not advance to another task yet. Re-inspect the repository, use the failure evidence, "
+                "and change the implementation strategy before another bounded retry cycle. "
+                "The repair-loop guard will force a root-cause reset when repeated code-repair cycles stop producing new evidence.\n"
                 + state.last_result
             )
 
@@ -2304,6 +2425,9 @@ def write_handoff_summary(state: OvernightState, *, reason: str) -> None:
         "current_attempt": state.current_attempt,
         "task_retry_cycle": state.task_retry_cycle,
         "same_failure_cycles": state.same_failure_cycles,
+        "last_failure_root_signature": state.last_failure_root_signature,
+        "same_root_cause_cycles": state.same_root_cause_cycles,
+        "repair_reset_count": state.repair_reset_count,
         "last_failure_signature": state.last_failure_signature,
         "last_provider": state.last_provider,
         "provider_limit_pauses": state.provider_limit_pauses,
