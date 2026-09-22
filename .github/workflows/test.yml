@@ -24,7 +24,57 @@ jobs:
       - name: Assert free self-hosted execution boundary
         shell: bash
         run: |
+          set -euo pipefail
           test "${RUNNER_ENVIRONMENT:-}" = "self-hosted"
+          test "${RUNNER_OS:-}" = "Linux"
+          test "${RUNNER_ARCH:-}" = "X64"
+
+          command -v gh >/dev/null 2>&1 || {
+            echo "GitHub CLI is required to verify the selected runner labels." >&2
+            exit 1
+          }
+
+          runner_name="${RUNNER_NAME:-}"
+          repository="${GITHUB_REPOSITORY:-}"
+          test -n "$runner_name"
+          test -n "$repository"
+
+          # The Actions runner context exposes name/OS/arch but not its label set.
+          # Query GitHub's authoritative self-hosted-runner API for this exact runner.
+          # We deliberately unset GITHUB_TOKEN/GH_TOKEN so the check uses the
+          # runner user's pre-provisioned gh credential, which must have
+          # repository administration read access. There is no hosted-runner fallback.
+          labels="$(
+            env -u GITHUB_TOKEN -u GH_TOKEN gh api \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${repository}/actions/runners?per_page=100" \
+              --jq '.runners[] | select(.name == env.RUNNER_NAME) | .labels[].name' \
+              || true
+          )"
+
+          if [ -z "$labels" ]; then
+            echo "Unable to read labels for selected runner: $runner_name" >&2
+            echo "This check fails closed; free-validation will not continue." >&2
+            exit 1
+          fi
+
+          printf '%s\n' "$labels" | sed 's/.*/\L&/' | sort -u > "${RUNNER_TEMP}/actual-runner-labels.txt"
+          printf '%s\n' self-hosted linux x64 pasi-wsl | sort -u > "${RUNNER_TEMP}/required-runner-labels.txt"
+
+          echo "Selected runner: $runner_name"
+          echo "Required labels:"
+          cat "${RUNNER_TEMP}/required-runner-labels.txt"
+          echo "Observed labels:"
+          cat "${RUNNER_TEMP}/actual-runner-labels.txt"
+
+          if ! comm -23 "${RUNNER_TEMP}/required-runner-labels.txt" "${RUNNER_TEMP}/actual-runner-labels.txt" | grep -q .; then
+            echo "Runner label preflight: PASS" 
+          else
+            echo "Runner label preflight: FAIL" >&2
+            comm -23 "${RUNNER_TEMP}/required-runner-labels.txt" "${RUNNER_TEMP}/actual-runner-labels.txt" >&2 || true
+            exit 1
+          fi
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
