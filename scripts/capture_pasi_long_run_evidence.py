@@ -196,6 +196,24 @@ def pr_provenance(branch: str, number: int | None, url: str) -> dict[str, Any]:
     }
 
 
+def classify_p04_status(
+    configured_seconds: float | None,
+    deadline_reached: bool,
+    stop_reason: str,
+) -> str:
+    runtime_shape_ok = (
+        configured_seconds is not None
+        and abs(configured_seconds - EXPECTED_RUNTIME_SECONDS) <= RUNTIME_TOLERANCE_SECONDS
+    )
+    if not deadline_reached:
+        return "INCOMPLETE"
+    if not runtime_shape_ok:
+        return "FAIL"
+    if stop_reason != "deadline_reached":
+        return "FAIL"
+    return "PASS"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Assemble reproducible evidence for a PASI 168-hour runtime.")
     parser.add_argument("--runtime-dir", type=Path, default=Path(os.environ.get("PASI_RUNTIME_DIR", str(Path.home() / ".pasi" / "overnight"))))
@@ -253,14 +271,6 @@ def main() -> int:
         args.pr_url.strip(),
     )
     stop_reason = str(state.get("stop_reason") or "").strip()
-    if not deadline_reached:
-        result_status = "INCOMPLETE"
-    elif not runtime_shape_ok:
-        result_status = "FAIL"
-    elif stop_reason != "deadline_reached":
-        result_status = "FAIL"
-    else:
-        result_status = "PASS"
 
     limitations: list[str] = []
     if malformed:
