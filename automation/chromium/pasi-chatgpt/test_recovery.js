@@ -52,6 +52,171 @@ test('recovery clears terminal operations and does not loop on the same failed o
 
 
 
+
+
+async function runRecoveryScenario({ connectionError = false, lastProgressAgeMs = 100 }) {
+  const vm = require('node:vm');
+  const storage = new Map();
+  const reports = [];
+  let reloads = 0;
+  const now = Date.now();
+  storage.set('pasi:chatgpt-recovery', JSON.stringify({
+    operation_id: 'op-scenario',
+    started_ms: now - 1000,
+    last_progress_ms: now - lastProgressAgeMs,
+    baseline: '',
+    chat_url: 'https://chatgpt.com/c/scenario',
+    reload_count: 0,
+    phase: 'monitoring'
+  }));
+  storage.set('pasi:active-operation', JSON.stringify({
+    operation_id: 'op-scenario',
+    operation_type: 'prompt'
+  }));
+
+  const stopButton = {
+    getClientRects: () => [{ width: 1, height: 1 }],
+    querySelectorAll: () => []
+  };
+  const connectionAlert = {
+    innerText: connectionError ? 'Connection lost. Reconnecting…' : '',
+    textContent: connectionError ? 'Connection lost. Reconnecting…' : '',
+    getClientRects: () => [{ width: 1, height: 1 }],
+    querySelectorAll: () => []
+  };
+
+  const document = {
+    body: { innerText: '' },
+    documentElement: {},
+    querySelector(selector) {
+      return selector.includes('stop-button') || selector.includes('Stop generating') ? stopButton : null;
+    },
+    querySelectorAll(selector) {
+      if (connectionError && selector === '[role="alert"]') return [connectionAlert];
+      return [];
+    }
+  };
+
+  const bridgeRequests = [];
+  const chrome = {
+    runtime: {
+      lastError: null,
+      sendMessage(message, callback) {
+        bridgeRequests.push(message);
+        if (String(message.path || '').startsWith('/operation?operation_id=')) {
+          callback({
+            ok: true,
+            status: 200,
+            text: JSON.stringify({
+              operation: {
+                operation_id: 'op-scenario',
+                operation_type: 'prompt',
+                status: 'running',
+                response_text: '',
+                response_text_available: false,
+                created_at: new Date(now - 1000).toISOString(),
+                updated_at: new Date(now - 1000).toISOString()
+              }
+            })
+          });
+          return;
+        }
+        if (message.path === '/browser/observation') {
+          try {
+            const body = typeof message.body === 'object' ? message.body : {};
+            reports.push(body.observation?.data || {});
+          } catch (_) {}
+          callback({ ok: true, status: 200, text: '{}' });
+          return;
+        }
+        callback({ ok: true, status: 200, text: '{}' });
+      }
+    }
+  };
+
+  class FakeMutationObserver {
+    constructor() {}
+    observe() {}
+    disconnect() {}
+  }
+
+  const context = {
+    console,
+    Date,
+    JSON,
+    Map,
+    Set,
+    Promise,
+    Object,
+    Number,
+    String,
+    Boolean,
+    Array,
+    Math,
+    Error,
+    RegExp,
+    parseInt,
+    isFinite,
+    document,
+    chrome,
+    location: {
+      href: 'https://chatgpt.com/c/scenario',
+      reload() { reloads += 1; }
+    },
+    localStorage: {
+      getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+      setItem(key, value) { storage.set(key, String(value)); },
+      removeItem(key) { storage.delete(key); }
+    },
+    getComputedStyle() {
+      return { display: 'block', visibility: 'visible' };
+    },
+    MutationObserver: FakeMutationObserver,
+    setInterval() { return 1; },
+    clearInterval() {},
+    setTimeout,
+    clearTimeout
+  };
+  context.globalThis = context;
+  context.window = context;
+
+  vm.runInNewContext(fs.readFileSync('automation/chromium/pasi-chatgpt/recovery_progress.js', 'utf8'), context);
+  context.PASI_TIMEOUT_POLICY = {
+    get: () => ({
+      pollMs: 5,
+      generationMs: 1000,
+      recoveryTriggerMs: 1000,
+      recoveryGraceMs: 10,
+      recoveryStallMs: 10,
+      recoveryHardCeilingMs: 5000,
+      recoveryProgressSampleMs: 1,
+      recoveryProgressPollMs: 10
+    })
+  };
+  vm.runInNewContext(source, context);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  const recovery = JSON.parse(storage.get('pasi:chatgpt-recovery') || 'null');
+  return { reloads, recovery, reports, bridgeRequests };
+}
+
+test('timeout recovery reloads a genuinely stalled active operation', async () => {
+  const result = await runRecoveryScenario({ lastProgressAgeMs: 100 });
+  assert.equal(result.reloads, 1);
+  assert.equal(result.recovery?.phase, 'reloaded');
+  assert.equal(result.recovery?.recovery_reason, 'no_progress');
+  assert.ok(result.reports.some((event) => event.phase === 'reloading' && event.recovery_reason === 'no_progress'));
+});
+
+test('connection-loss recovery reloads immediately without waiting for the stall timeout', async () => {
+  const result = await runRecoveryScenario({ connectionError: true, lastProgressAgeMs: 1 });
+  assert.equal(result.reloads, 1);
+  assert.equal(result.recovery?.phase, 'reloaded');
+  assert.equal(result.recovery?.recovery_reason, 'connection_error');
+  assert.ok(result.reports.some((event) => event.phase === 'reloading' && event.recovery_reason === 'connection_error'));
+});
+
 test('timeout recovery decision triggers only after observable no-progress while generating', () => {
   const config = progress.resolveRecoveryConfig({
     stallMs: 100,
