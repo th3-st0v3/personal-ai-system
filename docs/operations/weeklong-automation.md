@@ -84,3 +84,21 @@ The 168-hour runner promotes only after a task has passed repository validation 
 - Auto-merge uses squash merge and requests GitHub branch deletion after a successful merge.
 
 This is repository promotion, not direct unattended modification of main: PASI validates the change locally first, and GitHub remains the final merge authority.
+
+
+## P0.4 acceptance evidence
+
+After M0, M1, and M2 have produced valid live evidence, the seven-day run must reach its recorded 168-hour deadline before it can be considered a P0.4 PASS. Runtime activity and a roadmap completing early are not substitutes for the seven-day acceptance window.
+
+Capture the close-out artifact with:
+
+```bash
+python scripts/capture_pasi_long_run_evidence.py \
+  --runtime-dir "$HOME/.pasi/overnight" \
+  --pr-number <accepted-pr-number> \
+  --pr-url <accepted-pr-url>
+```
+
+The resulting `p0.4-long-run-evidence.json` correlates the durable run identity, 168-hour deadline, task throughput, recovery events, retry/failure signatures, Git branch and HEAD, PR provenance, configured resource boundary, and point-in-time process snapshots. It explicitly records limitations rather than presenting a point-in-time resource snapshot as a historical peak measurement.
+
+The artifact must report `"status": "PASS"` only when the configured window is exactly 168 hours, the deadline has been reached, and the run terminated for the expected `deadline_reached` reason. Early roadmap completion, manual stop, or another terminal reason remains a P0.4 failure.
