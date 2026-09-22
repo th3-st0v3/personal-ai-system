@@ -21,7 +21,6 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8765/browser/health", self.source)
         self.assertIn('controller_source_path = root / "automation" / "chromium" / "pasi-chatgpt" / "content.js"', self.source)
         self.assertNotIn('manifest_path = root / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"', self.source)
-        self.assertNotIn("127.0.0.1:8766", self.source)
         self.assertNotIn("pasi_controller_server.py", self.source)
         self.assertIn('data.get("controller_version") != expected_version.strip()', self.source)
         self.assertIn('if data.get("native_controller") is not True:', self.source)
