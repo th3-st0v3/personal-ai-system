@@ -26,7 +26,6 @@ DEFAULT_HOURS = 10.0
 MIN_HOURS = 8.0
 MAX_HOURS = 12.0
 BRIDGE_HEALTH = "http://127.0.0.1:8765/health"
-CONTROLLER_DISTRIBUTION_HEALTH = "http://127.0.0.1:8766/health"
 MAX_PATCH_BYTES = 250_000
 MAX_OUTPUT_CHARS = 20_000
 MAX_ATTEMPTS = 3
@@ -204,15 +203,12 @@ def ensure_services() -> list[subprocess.Popen[bytes]]:
     if not healthy(BRIDGE_HEALTH):
         log_event("service_start", service="bridge")
         children.append(subprocess.Popen([sys.executable, "-m", "automation.orchestrator.bridge"], cwd=REPO_ROOT))
-    if not healthy(CONTROLLER_DISTRIBUTION_HEALTH):
-        log_event("service_start", service="controller_distribution")
-        children.append(subprocess.Popen([sys.executable, "scripts/pasi_controller_server.py"], cwd=REPO_ROOT))
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
-        if healthy(BRIDGE_HEALTH) and healthy(CONTROLLER_DISTRIBUTION_HEALTH):
+        if healthy(BRIDGE_HEALTH):
             return children
         time.sleep(0.5)
-    raise OvernightError("local PASI bridge/distribution services did not become healthy")
+    raise OvernightError("local PASI bridge did not become healthy")
 
 
 def ensure_worktree(path: Path, branch: str, *, resume: bool) -> None:
