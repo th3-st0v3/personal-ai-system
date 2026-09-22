@@ -27,7 +27,7 @@ The harness creates a dedicated local worktree/branch, submits one real task thr
 
 Required evidence:
 
-```
+```text
 .runtime/acceptance/m0-live.json
 .runtime/acceptance/m0-live.log
 ```
@@ -48,7 +48,7 @@ M1 passes only when all 20 operations complete, every response contains its uniq
 
 Evidence:
 
-```
+```text
 .runtime/acceptance/m1-live.json
 ```
 
@@ -74,6 +74,25 @@ The generated M2 artifact is `.runtime/acceptance/m2-live-*.json`. Append the fi
 
 If the browser installation has no safe programmatic tab-close mechanism, the exact-tab close/reload is the one manual action in this otherwise scripted sequence; record it explicitly.
 
+## Acceptance evidence registry
+
+Every passing live-gate artifact should be registered immediately from the same checked-out code head. The registry is kept outside the repository worktree at `~/.pasi/acceptance/registry.jsonl` so worktree cleanup does not erase the provenance index.
+
+Register M0 using its committed code head from the evidence artifact:
+
+```bash
+python scripts/register_acceptance_evidence.py .runtime/acceptance/m0-live.json --run-id M0 --task-id M0.1
+```
+
+Register M1 and M2 from the exact checkout used for the acceptance run. The registry records the current Git HEAD when the artifact does not embed one:
+
+```bash
+python scripts/register_acceptance_evidence.py .runtime/acceptance/m1-live.json --run-id M1 --task-id M0.2
+python scripts/register_acceptance_evidence.py .runtime/acceptance/m2-live-*.json --run-id M2 --task-id M0.3
+```
+
+The registry records the gate, PASS status, artifact SHA-256, exact code head, native controller version, platform/runtime metadata, runner name/labels, provider, timestamps, and run/task identity. Duplicate registration of the same artifact digest is a no-op.
+
 ## Close-out rule
 
-Do not mark M0, M1, or M2 complete from source inspection, unit tests, or CI alone. Change the remediation checklist to `[x]` only when the corresponding live evidence artifact exists and is internally consistent.
+Do not mark M0, M1, or M2 complete from source inspection, unit tests, or CI alone. Change the remediation checklist to `[x]` only when the corresponding live evidence artifact exists, has been registered, and is internally consistent.
