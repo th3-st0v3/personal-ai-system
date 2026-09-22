@@ -43,7 +43,6 @@ Use the native extension as the only active ChatGPT controller. Keep the existin
 
 Do not run both controllers simultaneously; both can consume the same bridge queue and would create duplicate operations.
 
-
 ## PASI Control Center
 
 The native controller exposes a Chromium Side Panel using the sidePanel permission and sidepanel.html. Click the extension action icon to open it.
