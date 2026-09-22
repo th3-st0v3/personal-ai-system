@@ -23,6 +23,7 @@ DEFAULT_TIMEOUT = 60 * 60
 GUARD_EXIT_USAGE_LIMIT = 90
 GUARD_EXIT_AUTH_REQUIRED = 91
 GUARD_EXIT_CONTROLLER_OFFLINE = 92
+GUARD_EXIT_FREE_TEST_BLOCKED = 93
 MAX_COMPUTER_ROUNDS = 3
 MAX_COMPUTER_REQUESTS_PER_ROUND = 3
 MAX_COMPUTER_REQUEST_BYTES = 8_000
@@ -301,6 +302,12 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto")
     args = parser.parse_args()
+    if os.environ.get("PASI_FREE_TEST_MODE", "").strip().casefold() in {"1", "true", "yes", "on"}:
+        print(
+            "PASI_FREE_TEST_MODE: live ChatGPT execution is disabled during deterministic tests.",
+            file=sys.stderr,
+        )
+        return GUARD_EXIT_FREE_TEST_BLOCKED
     repo_root = args.repo.expanduser().resolve()
     if not repo_root.is_dir():
         raise ValueError(f"PASI target repository does not exist: {repo_root}")
