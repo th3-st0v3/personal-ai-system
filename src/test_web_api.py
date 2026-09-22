@@ -154,6 +154,16 @@ class TestWebApplication(unittest.TestCase):
         status, _, control = self.request("POST", "/api/lab/control", {"enabled": False})
         self.assertEqual((status, control["enabled"]), (200, False))
 
+    def test_experiment_lab_provider_capabilities_do_not_expose_secrets(self):
+        os.environ["OPENROUTER_API_KEY"] = "test-secret-value"
+        try:
+            status, _, payload = self.request("GET", "/api/lab/providers/capabilities")
+        finally:
+            os.environ.pop("OPENROUTER_API_KEY", None)
+        self.assertEqual(status, 200)
+        self.assertTrue(next(item for item in payload["hosted"] if item["provider"] == "openrouter")["configured"])
+        self.assertNotIn("test-secret-value", json.dumps(payload))
+
     def test_experiment_lab_model_and_fuzz_routes(self):
         status, _, model = self.request("POST", "/api/lab/model", {"prompt": "Model pressure loss through a wellbore."})
         self.assertEqual(status, 200)
