@@ -15,7 +15,9 @@ jobs:
     concurrency:
       group: pasi-free-validation-${{ github.workflow }}-${{ github.sha }}
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    # Keep the required free-validation gate on the local PASI runner so private-repository
+    # validation never depends on GitHub-hosted minutes, payment state, or spending limits.
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
