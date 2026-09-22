@@ -41,6 +41,14 @@ if ! flock -n 9; then
     exit 7
 fi
 
+service_processes_are_live() {
+    local state_pid supervisor_pid
+    state_pid="$(cat "$RUNTIME_DIR/runner.pid" 2>/dev/null || true)"
+    supervisor_pid="$(cat "$RUNTIME_DIR/supervisor.pid" 2>/dev/null || true)"
+    [[ "$state_pid" =~ ^[0-9]+$ ]] && kill -0 "$state_pid" 2>/dev/null || return 1
+    [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null || return 1
+}
+
 service_identity_matches() {
     [[ -f "$RUNTIME_DIR/state.json" ]] || return 1
     python3 - "$RUNTIME_DIR/state.json" "$SERVICE_ROOT" "$REF" "$REQUESTED_ROADMAP" <<'PY'
@@ -67,8 +75,12 @@ PY
 
 if systemctl --user is-active --quiet "$UNIT_NAME" 2>/dev/null; then
     if service_identity_matches; then
-        printf 'PASI 168-hour systemd service is already active for branch=%s roadmap=%s.\n' "$REF" "$REQUESTED_ROADMAP"
-        exit 0
+        if service_processes_are_live; then
+            printf 'PASI 168-hour systemd service is already active for branch=%s roadmap=%s.\n' "$REF" "$REQUESTED_ROADMAP"
+            exit 0
+        fi
+        printf 'error: PASI 168-hour systemd service %s has matching state identity but no live supervisor/runner PIDs; refusing to treat stale state as healthy.\n' "$UNIT_NAME" >&2
+        exit 9
     fi
     printf 'error: PASI 168-hour systemd service %s is already active for a different branch or roadmap; refusing to attach another run to the same runtime state.\n' "$UNIT_NAME" >&2
     exit 8
