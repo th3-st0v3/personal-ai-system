@@ -204,11 +204,11 @@
   };
 
   function plannerOrderKey(path) {
-    return \`pasi-planner-order:\${path}\`;
+    return `pasi-planner-order:${path}`;
   }
 
   function plannerDraftKey(path) {
-    return \`pasi-planner-draft:\${path}\`;
+    return `pasi-planner-draft:${path}`;
   }
 
   function plannerLoadDraft(path) {
@@ -290,7 +290,7 @@
     const s = Math.max(0, Number(seconds) || 0);
     const mins = Math.floor(s / 60);
     const secs = Math.floor(s % 60);
-    return \`\${String(mins).padStart(2, '0')}:\${String(secs).padStart(2, '0')}\`;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }
 
   function plannerTaskIcon(task, snapshot) {
@@ -336,17 +336,17 @@
     const completed = plannerUi.progressOverride == null
       ? Number(p.completed || 0)
       : Math.min(Number(p.total || 0), Math.round((percent / 100) * Number(p.total || 0)));
-    return \`<section class="planner-progress-card">
+    return `<section class="planner-progress-card">
       <div class="planner-progress-top">
         <div>
           <span class="planner-kicker">ROADMAP PROGRESS</span>
-          <strong>\${completed} / \${p.total || 0} tasks</strong>
+          <strong>${completed} / ${p.total || 0} tasks</strong>
         </div>
-        <span class="planner-progress-percent">\${percent.toFixed(0)}%</span>
+        <span class="planner-progress-percent">${percent.toFixed(0)}%</span>
       </div>
-      <div class="planner-progress-bar"><span style="width:\${Math.max(0, Math.min(100, percent))}%"></span></div>
-      <div class="planner-progress-meta"><span>Live from PASI planner snapshot</span><span>\${snapshot.eligible_ids?.length || 0} ready · \${snapshot.tasks?.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length || 0} blocked · \${plannerCurrent(snapshot) ? 1 : 0} executing</span></div>
-    </section>\`;
+      <div class="planner-progress-bar"><span style="width:${Math.max(0, Math.min(100, percent))}%"></span></div>
+      <div class="planner-progress-meta"><span>Live from PASI planner snapshot</span><span>${snapshot.eligible_ids?.length || 0} ready · ${snapshot.tasks?.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length || 0} blocked · ${plannerCurrent(snapshot) ? 1 : 0} executing</span></div>
+    </section>`;
   }
 
   function plannerTaskDetailModal(task, snapshot) {
@@ -354,32 +354,32 @@
     const deps = task.depends_on || [];
     const dependents = (snapshot.tasks || []).filter((item) => (item.depends_on || []).includes(task.id));
     const status = plannerTaskStatus(task, draft);
-    const acceptance = (task.acceptance_criteria || []).map((item) => \`<li><span>✓</span>\${escapeHtml(item)}</li>\`).join('') || '<li><span>•</span>No acceptance criteria recorded.</li>';
-    const verification = (task.verification || []).map((item) => \`<li><span>□</span>\${escapeHtml(item)}</li>\`).join('') || '<li><span>•</span>No verification steps recorded.</li>';
-    modal(task.title, \`<div class="planner-detail-modal">
+    const acceptance = (task.acceptance_criteria || []).map((item) => `<li><span>✓</span>${escapeHtml(item)}</li>`).join('') || '<li><span>•</span>No acceptance criteria recorded.</li>';
+    const verification = (task.verification || []).map((item) => `<li><span>□</span>${escapeHtml(item)}</li>`).join('') || '<li><span>•</span>No verification steps recorded.</li>';
+    modal(task.title, `<div class="planner-detail-modal">
       <div class="planner-detail-hero">
-        <div><span class="planner-kicker">\${escapeHtml(task.id)}</span><h3>\${escapeHtml(task.objective || task.title)}</h3></div>
-        <span class="planner-badge \${plannerStatusClass(task, snapshot)}">\${escapeHtml(plannerStatusLabel(task, snapshot))}</span>
+        <div><span class="planner-kicker">${escapeHtml(task.id)}</span><h3>${escapeHtml(task.objective || task.title)}</h3></div>
+        <span class="planner-badge ${plannerStatusClass(task, snapshot)}">${escapeHtml(plannerStatusLabel(task, snapshot))}</span>
       </div>
       <div class="planner-detail-grid">
-        <div class="planner-detail-block"><span>Phase</span><strong>\${escapeHtml(task.phase || '—')}</strong></div>
-        <div class="planner-detail-block"><span>Priority</span><strong>\${escapeHtml(task.priority || '—')}</strong></div>
-        <div class="planner-detail-block"><span>Estimate</span><strong>\${escapeHtml(plannerTimeEstimate(task))}</strong></div>
-        <div class="planner-detail-block"><span>Run attempt</span><strong>\${escapeHtml(snapshot.runtime?.current_attempt || '—')}</strong></div>
+        <div class="planner-detail-block"><span>Phase</span><strong>${escapeHtml(task.phase || '—')}</strong></div>
+        <div class="planner-detail-block"><span>Priority</span><strong>${escapeHtml(task.priority || '—')}</strong></div>
+        <div class="planner-detail-block"><span>Estimate</span><strong>${escapeHtml(plannerTimeEstimate(task))}</strong></div>
+        <div class="planner-detail-block"><span>Run attempt</span><strong>${escapeHtml(snapshot.runtime?.current_attempt || '—')}</strong></div>
       </div>
       <div class="planner-detail-columns">
-        <section><span class="planner-kicker">DEPENDS ON</span><div class="planner-chip-list">\${deps.length ? deps.map((id) => \`<button type="button" class="planner-mini-chip" data-planner-focus="\${attr(id)}">\${escapeHtml(id)}</button>\`).join('') : '<span class="muted">No prerequisites</span>'}</div></section>
-        <section><span class="planner-kicker">DEPENDENTS</span><div class="planner-chip-list">\${dependents.length ? dependents.map((item) => \`<button type="button" class="planner-mini-chip" data-planner-focus="\${attr(item.id)}">\${escapeHtml(item.id)}</button>\`).join('') : '<span class="muted">No downstream tasks</span>'}</div></section>
+        <section><span class="planner-kicker">DEPENDS ON</span><div class="planner-chip-list">${deps.length ? deps.map((id) => `<button type="button" class="planner-mini-chip" data-planner-focus="${attr(id)}">${escapeHtml(id)}</button>`).join('') : '<span class="muted">No prerequisites</span>'}</div></section>
+        <section><span class="planner-kicker">DEPENDENTS</span><div class="planner-chip-list">${dependents.length ? dependents.map((item) => `<button type="button" class="planner-mini-chip" data-planner-focus="${attr(item.id)}">${escapeHtml(item.id)}</button>`).join('') : '<span class="muted">No downstream tasks</span>'}</div></section>
       </div>
-      <section class="planner-detail-list"><span class="planner-kicker">ACCEPTANCE CRITERIA</span><ul>\${acceptance}</ul></section>
-      <section class="planner-detail-list"><span class="planner-kicker">VERIFICATION</span><ul>\${verification}</ul></section>
+      <section class="planner-detail-list"><span class="planner-kicker">ACCEPTANCE CRITERIA</span><ul>${acceptance}</ul></section>
+      <section class="planner-detail-list"><span class="planner-kicker">VERIFICATION</span><ul>${verification}</ul></section>
       <div class="planner-detail-actions">
-        <button type="button" class="outline-button" data-planner-status="pending" data-task-id="\${attr(task.id)}">Mark queued</button>
-        <button type="button" class="outline-button" data-planner-status="blocked" data-task-id="\${attr(task.id)}">Block</button>
-        <button type="button" class="primary-button" data-planner-status="completed" data-task-id="\${attr(task.id)}">\${status === 'completed' ? 'Keep completed' : 'Mark complete'}</button>
+        <button type="button" class="outline-button" data-planner-status="pending" data-task-id="${attr(task.id)}">Mark queued</button>
+        <button type="button" class="outline-button" data-planner-status="blocked" data-task-id="${attr(task.id)}">Block</button>
+        <button type="button" class="primary-button" data-planner-status="completed" data-task-id="${attr(task.id)}">${status === 'completed' ? 'Keep completed' : 'Mark complete'}</button>
       </div>
       <p class="planner-local-note">Draft controls are local-only and never write directly to the unattended PASI runtime.</p>
-    </div>\`);
+    </div>`);
     document.querySelectorAll('[data-planner-status]').forEach((button) => {
       button.onclick = () => {
         plannerSetTaskStatus(button.dataset.taskId, button.dataset.plannerStatus, snapshot);
@@ -391,7 +391,7 @@
         plannerUi.selectedId = button.dataset.plannerFocus;
         closeModal();
         plannerRender();
-        requestAnimationFrame(() => document.querySelector(\`.planner-task-card[data-task-id="\${CSS.escape(plannerUi.selectedId)}"]\`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+        requestAnimationFrame(() => document.querySelector(`.planner-task-card[data-task-id="${CSS.escape(plannerUi.selectedId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
       };
     });
   }
@@ -402,7 +402,7 @@
     draft.statuses[taskId] = status;
     plannerSaveDraft(snapshot.roadmap.path, draft);
     plannerRender();
-    announce(\`\${taskId} set to \${status}\`);
+    announce(`${taskId} set to ${status}`);
   }
 
   function plannerExport(snapshot) {
@@ -428,11 +428,11 @@
   }
 
   function plannerImportModal() {
-    modal('Import roadmap JSON', \`<form id="planner-import-form" class="form-stack planner-import-form">
+    modal('Import roadmap JSON', `<form id="planner-import-form" class="form-stack planner-import-form">
       <div class="planner-import-tabs"><span class="planner-import-tab active">JSON roadmap</span><span class="planner-import-hint">Preview only</span></div>
       <label>Roadmap JSON<textarea id="planner-import-json" rows="15" placeholder='{"schema_version":1,"tasks":[...]}'></textarea></label>
       <div class="form-actions"><button type="button" class="outline-button" id="planner-import-cancel">Cancel</button><button class="primary-button">Preview roadmap</button></div>
-    </form>\`);
+    </form>`);
     $('planner-import-cancel').onclick = closeModal;
     $('planner-import-form').onsubmit = (event) => {
       event.preventDefault();
@@ -442,7 +442,7 @@
         if (data.tasks.some((task) => typeof task.id !== 'string' || !task.id.trim())) throw new Error('Every task needs a stable string id.');
         localStorage.setItem('pasi-planner-import-preview', JSON.stringify(data));
         closeModal();
-        toast(\`Loaded \${data.tasks.length} tasks into local preview.\`, 'ok');
+        toast(`Loaded ${data.tasks.length} tasks into local preview.`, 'ok');
         renderPlannerImported(data);
       } catch (error) {
         toast(error.message);
@@ -473,25 +473,25 @@
     const tasks = plannerOrderedTasks(snapshot);
     const byId = new Map(snapshot.tasks.map((task) => [task.id, task]));
     const focus = plannerUi.graphFocus || plannerUi.selectedId;
-    return \`<div class="planner-graph-canvas" role="list" aria-label="Roadmap dependency graph">
-      \${tasks.map((task, index) => {
+    return `<div class="planner-graph-canvas" role="list" aria-label="Roadmap dependency graph">
+      ${tasks.map((task, index) => {
         const deps = task.depends_on || [];
         const connected = focus && (task.id === focus || deps.includes(focus) || (byId.get(focus)?.depends_on || []).includes(task.id));
         const blockers = deps.filter((id) => !byId.get(id)?.satisfied);
-        return \`<button type="button" class="planner-graph-node planner-graph-\${plannerStatusClass(task, snapshot)} \${connected ? 'connected' : ''}" data-planner-graph-task="\${attr(task.id)}" style="--graph-i:\${index % 5}">
-          <span class="planner-node-status">\${plannerTaskIcon(task, snapshot)}</span>
-          <span><strong>\${escapeHtml(task.title)}</strong><code>\${escapeHtml(task.id)}</code></span>
-          <span class="planner-node-meta">\${deps.length ? \`\${deps.length} dep\${deps.length === 1 ? '' : 's'}\` : 'root'}\${blockers.length ? ' · blocked upstream' : ''}</span>
-        </button>\`;
+        return `<button type="button" class="planner-graph-node planner-graph-${plannerStatusClass(task, snapshot)} ${connected ? 'connected' : ''}" data-planner-graph-task="${attr(task.id)}" style="--graph-i:${index % 5}">
+          <span class="planner-node-status">${plannerTaskIcon(task, snapshot)}</span>
+          <span><strong>${escapeHtml(task.title)}</strong><code>${escapeHtml(task.id)}</code></span>
+          <span class="planner-node-meta">${deps.length ? `${deps.length} dep${deps.length === 1 ? '' : 's'}` : 'root'}${blockers.length ? ' · blocked upstream' : ''}</span>
+        </button>`;
       }).join('')}
-    </div>\`;
+    </div>`;
   }
 
   function plannerQueueMarkup(snapshot) {
     const tasks = plannerDisplayTasks(snapshot);
     const eligible = new Set(plannerEligible(snapshot));
     const selected = plannerUi.selectedId;
-    return \`<section class="planner-panel planner-queue-panel">
+    return `<section class="planner-panel planner-queue-panel">
       <div class="planner-panel-header">
         <div><span class="planner-kicker">TASK QUEUE</span><h2>Execution backlog</h2></div>
         <div class="planner-queue-actions">
@@ -499,28 +499,28 @@
         </div>
       </div>
       <div class="planner-segmented" role="tablist" aria-label="Task queue filters">
-        \${[['all','All'],['ready','Ready'],['blocked','Blocked'],['active','Active'],['done','Done']].map(([value,label]) => \`<button type="button" role="tab" class="\${plannerUi.queueFilter === value ? 'active' : ''}" data-planner-filter="\${value}">\${label}<span>\${value === 'all' ? snapshot.tasks.length : value === 'ready' ? eligible.size : value === 'blocked' ? snapshot.tasks.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length : value === 'done' ? snapshot.tasks.filter((task) => plannerTaskSatisfied(task, plannerLoadDraft(snapshot.roadmap.path))).length : 1}</span></button>\`).join('')}
+        ${[['all','All'],['ready','Ready'],['blocked','Blocked'],['active','Active'],['done','Done']].map(([value,label]) => `<button type="button" role="tab" class="${plannerUi.queueFilter === value ? 'active' : ''}" data-planner-filter="${value}">${label}<span>${value === 'all' ? snapshot.tasks.length : value === 'ready' ? eligible.size : value === 'blocked' ? snapshot.tasks.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length : value === 'done' ? snapshot.tasks.filter((task) => plannerTaskSatisfied(task, plannerLoadDraft(snapshot.roadmap.path))).length : 1}</span></button>`).join('')}
       </div>
       <div class="planner-task-list" id="planner-task-list">
-        \${tasks.length ? tasks.map((task, index) => \`<article class="planner-task-card \${plannerStatusClass(task, snapshot)} \${task.id === selected ? 'selected' : ''}" draggable="true" data-task-id="\${attr(task.id)}" tabindex="0">
+        ${tasks.length ? tasks.map((task, index) => `<article class="planner-task-card ${plannerStatusClass(task, snapshot)} ${task.id === selected ? 'selected' : ''}" draggable="true" data-task-id="${attr(task.id)}" tabindex="0">
           <div class="planner-task-main">
-            <div class="planner-task-index">\${String(index + 1).padStart(2, '0')}</div>
-            <div class="planner-task-status-dot"><span>\${plannerTaskIcon(task, snapshot)}</span></div>
+            <div class="planner-task-index">${String(index + 1).padStart(2, '0')}</div>
+            <div class="planner-task-status-dot"><span>${plannerTaskIcon(task, snapshot)}</span></div>
             <div class="planner-task-copy">
-              <div class="planner-task-line"><span class="planner-task-id">\${escapeHtml(task.id)}</span><span class="planner-badge \${plannerStatusClass(task, snapshot)}">\${plannerStatusLabel(task, snapshot)}</span></div>
-              <h3>\${escapeHtml(task.title)}</h3>
-              <p>\${escapeHtml(task.objective || '')}</p>
-              <div class="planner-task-meta"><span>\${escapeHtml(task.phase || 'Unscoped')}</span><span>\${escapeHtml(task.priority || 'P?')}</span><span>\${plannerTimeEstimate(task)}</span>\${eligible.has(task.id) ? '<span class="planner-ready">Ready to run</span>' : ''}</div>
+              <div class="planner-task-line"><span class="planner-task-id">${escapeHtml(task.id)}</span><span class="planner-badge ${plannerStatusClass(task, snapshot)}">${plannerStatusLabel(task, snapshot)}</span></div>
+              <h3>${escapeHtml(task.title)}</h3>
+              <p>${escapeHtml(task.objective || '')}</p>
+              <div class="planner-task-meta"><span>${escapeHtml(task.phase || 'Unscoped')}</span><span>${escapeHtml(task.priority || 'P?')}</span><span>${plannerTimeEstimate(task)}</span>${eligible.has(task.id) ? '<span class="planner-ready">Ready to run</span>' : ''}</div>
             </div>
           </div>
           <div class="planner-task-row-actions">
-            <button type="button" class="planner-ghost-icon" title="Move up" aria-label="Move task up" data-planner-move="up" data-task-id="\${attr(task.id)}">↑</button>
-            <button type="button" class="planner-ghost-icon" title="Move down" aria-label="Move task down" data-planner-move="down" data-task-id="\${attr(task.id)}">↓</button>
-            <button type="button" class="planner-details-button" data-planner-detail="\${attr(task.id)}">Details</button>
+            <button type="button" class="planner-ghost-icon" title="Move up" aria-label="Move task up" data-planner-move="up" data-task-id="${attr(task.id)}">↑</button>
+            <button type="button" class="planner-ghost-icon" title="Move down" aria-label="Move task down" data-planner-move="down" data-task-id="${attr(task.id)}">↓</button>
+            <button type="button" class="planner-details-button" data-planner-detail="${attr(task.id)}">Details</button>
           </div>
-        </article>\`).join('') : '<div class="planner-empty-state"><strong>No tasks match this view.</strong><span>Adjust the queue filter or search.</span></div>'}
+        </article>`).join('') : '<div class="planner-empty-state"><strong>No tasks match this view.</strong><span>Adjust the queue filter or search.</span></div>'}
       </div>
-    </section>\`;
+    </section>`;
   }
 
   function plannerSelectedMarkup(snapshot) {
@@ -532,32 +532,32 @@
       const dep = snapshot.tasks.find((item) => item.id === id);
       return dep && !plannerTaskSatisfied(dep, draft);
     });
-    return \`<section class="planner-panel planner-focus-panel">
+    return `<section class="planner-panel planner-focus-panel">
       <div class="planner-focus-top">
-        <div><span class="planner-kicker">\${escapeHtml(task.id)} · \${escapeHtml(String(status).toUpperCase())}</span><h2>\${escapeHtml(task.title)}</h2><p>\${escapeHtml(task.objective || '')}</p></div>
-        <button type="button" class="planner-menu-button" aria-label="Task actions" data-planner-menu="\${attr(task.id)}">•••</button>
+        <div><span class="planner-kicker">${escapeHtml(task.id)} · ${escapeHtml(String(status).toUpperCase())}</span><h2>${escapeHtml(task.title)}</h2><p>${escapeHtml(task.objective || '')}</p></div>
+        <button type="button" class="planner-menu-button" aria-label="Task actions" data-planner-menu="${attr(task.id)}">•••</button>
       </div>
       <div class="planner-focus-grid">
         <div><span>Assignee</span><strong>Unattended PASI</strong></div>
-        <div><span>Priority</span><strong>\${escapeHtml(task.priority || '—')}</strong></div>
-        <div><span>Estimate</span><strong>\${escapeHtml(plannerTimeEstimate(task))}</strong></div>
-        <div><span>Phase</span><strong>\${escapeHtml(task.phase || '—')}</strong></div>
+        <div><span>Priority</span><strong>${escapeHtml(task.priority || '—')}</strong></div>
+        <div><span>Estimate</span><strong>${escapeHtml(plannerTimeEstimate(task))}</strong></div>
+        <div><span>Phase</span><strong>${escapeHtml(task.phase || '—')}</strong></div>
       </div>
       <div class="planner-focus-tabs" role="tablist">
-        \${[['overview','Overview'],['eligible','Eligibility'],['ai','AI ranking'],['execution','History']].map(([value,label]) => \`<button type="button" class="\${plannerUi.tab === value ? 'active' : ''}" data-planner-tab="\${value}">\${label}</button>\`).join('')}
+        ${[['overview','Overview'],['eligible','Eligibility'],['ai','AI ranking'],['execution','History']].map(([value,label]) => `<button type="button" class="${plannerUi.tab === value ? 'active' : ''}" data-planner-tab="${value}">${label}</button>`).join('')}
       </div>
       <div class="planner-focus-content">
-        \${plannerUi.tab === 'eligible' ? \`<div class="planner-insight \${blockers.length ? 'warning' : 'success'}"><strong>\${blockers.length ? 'Blocked by prerequisites' : eligibleForTask(snapshot, task) ? 'Eligible now' : 'Not currently eligible'}</strong><span>\${blockers.length ? blockers.join(' · ') : 'All deterministic dependency checks are satisfied.'}</span></div>\` :
+        ${plannerUi.tab === 'eligible' ? `<div class="planner-insight ${blockers.length ? 'warning' : 'success'}"><strong>${blockers.length ? 'Blocked by prerequisites' : eligibleForTask(snapshot, task) ? 'Eligible now' : 'Not currently eligible'}</strong><span>${blockers.length ? blockers.join(' · ') : 'All deterministic dependency checks are satisfied.'}</span></div>` :
           plannerUi.tab === 'ai' ? plannerAiMarkup(snapshot) :
           plannerUi.tab === 'execution' ? plannerExecutionHistoryMarkup(snapshot, task) :
-          \`<div class="planner-checklist">\${(task.acceptance_criteria || []).slice(0, 5).map((item, index) => \`<label><input type="checkbox" disabled \${task.satisfied ? 'checked' : ''}><span>\${escapeHtml(item)}</span></label>\`).join('') || '<div class="muted">No acceptance criteria supplied.</div>'}</div>\`}
+          `<div class="planner-checklist">${(task.acceptance_criteria || []).slice(0, 5).map((item, index) => `<label><input type="checkbox" disabled ${task.satisfied ? 'checked' : ''}><span>${escapeHtml(item)}</span></label>`).join('') || '<div class="muted">No acceptance criteria supplied.</div>'}</div>`}
       </div>
       <div class="planner-focus-actions">
-        <button type="button" class="outline-button" data-planner-status="blocked" data-task-id="\${attr(task.id)}">Block</button>
-        <button type="button" class="outline-button" data-planner-status="pending" data-task-id="\${attr(task.id)}">Queue</button>
-        <button type="button" class="primary-button" data-planner-status="completed" data-task-id="\${attr(task.id)}">\${task.satisfied ? 'Completed' : 'Mark complete'}</button>
+        <button type="button" class="outline-button" data-planner-status="blocked" data-task-id="${attr(task.id)}">Block</button>
+        <button type="button" class="outline-button" data-planner-status="pending" data-task-id="${attr(task.id)}">Queue</button>
+        <button type="button" class="primary-button" data-planner-status="completed" data-task-id="${attr(task.id)}">${task.satisfied ? 'Completed' : 'Mark complete'}</button>
       </div>
-    </section>\`;
+    </section>`;
   }
 
   function eligibleForTask(snapshot, task) {
@@ -567,21 +567,21 @@
   function plannerAiMarkup(snapshot) {
     const ranking = snapshot.deterministic_rank || [];
     const enabled = localStorage.getItem('pasi-planner-ai') === '1';
-    return \`<div class="planner-ai-card">
-      <div class="planner-ai-header"><div><span class="planner-kicker">OPTIONAL</span><strong>AI ranking</strong><p>Ranks only tasks PASI has already deemed eligible.</p></div><label class="planner-switch"><input id="planner-ai-toggle" type="checkbox" \${enabled ? 'checked' : ''}><span></span></label></div>
-      <div class="planner-ai-list">\${ranking.slice(0, 5).map((id, index) => \`<div><span>\${index + 1}</span><strong>\${escapeHtml(id)}</strong><em>\${enabled ? (0.96 - index * 0.08).toFixed(2) : '—'}</em></div>\`).join('') || '<div class="muted">No eligible tasks to rank.</div>'}</div>
-      <div class="planner-local-note">\${enabled ? 'AI mode is enabled as a local UX preview.' : 'AI mode is off. Deterministic ordering remains the source of truth.'}</div>
-    </div>\`;
+    return `<div class="planner-ai-card">
+      <div class="planner-ai-header"><div><span class="planner-kicker">OPTIONAL</span><strong>AI ranking</strong><p>Ranks only tasks PASI has already deemed eligible.</p></div><label class="planner-switch"><input id="planner-ai-toggle" type="checkbox" ${enabled ? 'checked' : ''}><span></span></label></div>
+      <div class="planner-ai-list">${ranking.slice(0, 5).map((id, index) => `<div><span>${index + 1}</span><strong>${escapeHtml(id)}</strong><em>${enabled ? (0.96 - index * 0.08).toFixed(2) : '—'}</em></div>`).join('') || '<div class="muted">No eligible tasks to rank.</div>'}</div>
+      <div class="planner-local-note">${enabled ? 'AI mode is enabled as a local UX preview.' : 'AI mode is off. Deterministic ordering remains the source of truth.'}</div>
+    </div>`;
   }
 
   function plannerExecutionHistoryMarkup(snapshot, task) {
     const runtime = snapshot.runtime || {};
     const events = [
-      runtime.started_at ? \`Run started \${runtime.started_at}\` : 'Planner runtime history is local to this snapshot.',
-      task.current ? \`Executing \${task.id}\` : \`Task status: \${plannerStatusLabel(task, snapshot)}\`,
+      runtime.started_at ? `Run started ${runtime.started_at}` : 'Planner runtime history is local to this snapshot.',
+      task.current ? `Executing ${task.id}` : `Task status: ${plannerStatusLabel(task, snapshot)}`,
       task.satisfied ? 'Verification satisfied' : 'Awaiting completion evidence',
     ];
-    return \`<div class="planner-history">\${events.map((event, index) => \`<div><span>\${String(index + 1).padStart(2, '0')}</span><p>\${escapeHtml(event)}</p></div>\`).join('')}</div>\`;
+    return `<div class="planner-history">${events.map((event, index) => `<div><span>${String(index + 1).padStart(2, '0')}</span><p>${escapeHtml(event)}</p></div>`).join('')}</div>`;
   }
 
   function plannerRightRailMarkup(snapshot) {
@@ -591,33 +591,33 @@
     const blockedCount = snapshot.tasks.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length;
     const recent = plannerOrderedTasks(snapshot).slice(0, 5);
     const selected = snapshot.tasks.find((task) => task.id === plannerUi.selectedId);
-    return \`<aside class="planner-right-rail">
+    return `<aside class="planner-right-rail">
       <section class="planner-rail-card">
-        <div class="planner-rail-head"><span class="planner-kicker">LIVE EXECUTION</span><span class="planner-live-dot">\${plannerUi.running ? 'PREVIEW RUN' : current ? 'LIVE' : 'IDLE'}</span></div>
-        \${current || plannerUi.running ? \`<div class="planner-run-task">
-          <div class="planner-run-title"><span class="planner-status-ring \${plannerUi.running ? 'running' : ''}">\${plannerUi.running ? '→' : '•'}</span><div><strong>\${escapeHtml((plannerUi.running && selected) ? selected.title : current?.title || selected?.title || 'Current task')}</strong><span>\${escapeHtml((plannerUi.running && selected) ? selected.id : current?.id || '—')}</span></div></div>
-          <p>\${plannerUi.running ? 'Previewing planner selection without touching unattended execution.' : escapeHtml(current?.objective || 'Runtime reports no active task.')}</p>
-          <div class="planner-run-meter"><span style="width:\${plannerUi.running ? Math.min(94, 24 + plannerUi.runElapsed * 2) : 62}%"></span></div>
-          <div class="planner-run-metrics"><span>\${plannerUi.running ? plannerFormatElapsed(plannerUi.runElapsed) : 'Connected'}</span><span>\${plannerUi.running ? 'preview' : \`attempt \${runtime.current_attempt || 0}\`}</span></div>
-          <div class="planner-run-actions">\${plannerUi.running
-            ? \`<button type="button" class="outline-button" data-planner-run-control="pause">\${plannerUi.paused ? 'Resume' : 'Pause'}</button><button type="button" class="danger-button" data-planner-run-control="stop">Stop</button>\`
+        <div class="planner-rail-head"><span class="planner-kicker">LIVE EXECUTION</span><span class="planner-live-dot">${plannerUi.running ? 'PREVIEW RUN' : current ? 'LIVE' : 'IDLE'}</span></div>
+        ${current || plannerUi.running ? `<div class="planner-run-task">
+          <div class="planner-run-title"><span class="planner-status-ring ${plannerUi.running ? 'running' : ''}">${plannerUi.running ? '→' : '•'}</span><div><strong>${escapeHtml((plannerUi.running && selected) ? selected.title : current?.title || selected?.title || 'Current task')}</strong><span>${escapeHtml((plannerUi.running && selected) ? selected.id : current?.id || '—')}</span></div></div>
+          <p>${plannerUi.running ? 'Previewing planner selection without touching unattended execution.' : escapeHtml(current?.objective || 'Runtime reports no active task.')}</p>
+          <div class="planner-run-meter"><span style="width:${plannerUi.running ? Math.min(94, 24 + plannerUi.runElapsed * 2) : 62}%"></span></div>
+          <div class="planner-run-metrics"><span>${plannerUi.running ? plannerFormatElapsed(plannerUi.runElapsed) : 'Connected'}</span><span>${plannerUi.running ? 'preview' : `attempt ${runtime.current_attempt || 0}`}</span></div>
+          <div class="planner-run-actions">${plannerUi.running
+            ? `<button type="button" class="outline-button" data-planner-run-control="pause">${plannerUi.paused ? 'Resume' : 'Pause'}</button><button type="button" class="danger-button" data-planner-run-control="stop">Stop</button>`
             : '<button type="button" class="outline-button" data-planner-action="refresh">Refresh state</button><button type="button" class="primary-button" data-planner-run-control="run">Run planner</button>'}
           </div>
-        </div>\` : \`<div class="planner-idle-run"><strong>No active runtime task</strong><span>Use Run planner to preview deterministic selection.</span><button type="button" class="primary-button" data-planner-run-control="run">Run planner</button></div>\`}
+        </div>` : `<div class="planner-idle-run"><strong>No active runtime task</strong><span>Use Run planner to preview deterministic selection.</span><button type="button" class="primary-button" data-planner-run-control="run">Run planner</button></div>`}
       </section>
       <section class="planner-rail-card">
         <div class="planner-rail-head"><span class="planner-kicker">RUNTIME METRICS</span><span>LIVE</span></div>
         <div class="planner-metric-grid">
-          <div><strong>\${snapshot.tasks.length}</strong><span>Tasks</span></div>
-          <div><strong>\${readyCount}</strong><span>Ready</span></div>
-          <div><strong>\${blockedCount}</strong><span>Blocked</span></div>
-          <div><strong>\${runtime.current_attempt || 0}</strong><span>Attempt</span></div>
+          <div><strong>${snapshot.tasks.length}</strong><span>Tasks</span></div>
+          <div><strong>${readyCount}</strong><span>Ready</span></div>
+          <div><strong>${blockedCount}</strong><span>Blocked</span></div>
+          <div><strong>${runtime.current_attempt || 0}</strong><span>Attempt</span></div>
         </div>
       </section>
       <section class="planner-rail-card">
         <div class="planner-rail-head"><span class="planner-kicker">EVENT STREAM</span><span>AUTO-REFRESH 5s</span></div>
         <div class="planner-event-stream">
-          \${recent.map((task, index) => \`<button type="button" data-planner-stream-task="\${attr(task.id)}"><span>\${String(index + 1).padStart(2, '0')}</span><span>\${escapeHtml(plannerStatusLabel(task, snapshot).toLowerCase())} · \${escapeHtml(task.id)}</span><em>\${escapeHtml(task.phase || '')}</em></button>\`).join('')}
+          ${recent.map((task, index) => `<button type="button" data-planner-stream-task="${attr(task.id)}"><span>${String(index + 1).padStart(2, '0')}</span><span>${escapeHtml(plannerStatusLabel(task, snapshot).toLowerCase())} · ${escapeHtml(task.id)}</span><em>${escapeHtml(task.phase || '')}</em></button>`).join('')}
         </div>
       </section>
       <section class="planner-rail-card">
@@ -627,16 +627,16 @@
           <button type="button" data-planner-integration="bridge"><span>◎</span><div><strong>PASI Bridge</strong><small>Authenticated localhost control plane</small></div><b>●</b></button>
         </div>
       </section>
-    </aside>\`;
+    </aside>`;
   }
 
   function plannerSidebarMarkup(snapshot) {
     const runtime = snapshot.runtime || {};
-    return \`<aside class="planner-sidebar">
+    return `<aside class="planner-sidebar">
       <div class="planner-brand"><div class="planner-brand-mark">⌁</div><div><strong>PASI Planner</strong><span>Engineering workspace · v0.9</span></div></div>
       <div class="planner-workspace-switch"><span>WORKSPACE</span><button type="button" data-planner-workspace>Core Platform <b>⌄</b></button></div>
       <nav class="planner-nav" aria-label="Planner navigation">
-        \${[['planner','Planner','◇'],['executions','Executions','◉'],['artifacts','Artifacts','□'],['dependencies','Dependencies','⌘'],['environments','Environments','◈']].map(([id,label,icon]) => \`<button type="button" class="\${id === 'planner' ? 'active' : ''}" data-planner-nav="\${id}"><span>\${icon}</span>\${label}\${id === 'planner' ? '<b>3</b>' : ''}</button>\`).join('')}
+        ${[['planner','Planner','◇'],['executions','Executions','◉'],['artifacts','Artifacts','□'],['dependencies','Dependencies','⌘'],['environments','Environments','◈']].map(([id,label,icon]) => `<button type="button" class="${id === 'planner' ? 'active' : ''}" data-planner-nav="${id}"><span>${icon}</span>${label}${id === 'planner' ? '<b>3</b>' : ''}</button>`).join('')}
       </nav>
       <div class="planner-side-section"><span>PROJECT</span>
         <button type="button" data-planner-nav="overview"><span>◌</span>Overview</button>
@@ -645,18 +645,18 @@
         <button type="button" data-planner-nav="settings"><span>⚙</span>Settings</button>
       </div>
       <div class="planner-branch-card">
-        <span class="planner-branch-dot"></span><div><strong>feature/planner-v2</strong><small>\${escapeHtml(snapshot.roadmap.sha256?.slice(0, 7) || 'local')} · synced now</small></div>
+        <span class="planner-branch-dot"></span><div><strong>feature/planner-v2</strong><small>${escapeHtml(snapshot.roadmap.sha256?.slice(0, 7) || 'local')} · synced now</small></div>
       </div>
-      <div class="planner-side-status"><span></span><div><strong>PASI Bridge</strong><small>127.0.0.1:8765 · \${runtime.phase || 'ready'}</small></div></div>
-    </aside>\`;
+      <div class="planner-side-status"><span></span><div><strong>PASI Bridge</strong><small>127.0.0.1:8765 · ${runtime.phase || 'ready'}</small></div></div>
+    </aside>`;
   }
 
   function plannerTopbarMarkup(snapshot) {
-    return \`<header class="planner-topbar">
+    return `<header class="planner-topbar">
       <div class="planner-topbar-left"><button class="planner-mobile-menu" type="button" data-planner-action="toggle-sidebar">☰</button><span class="planner-topbar-context">PLANNER / ROADMAP <b>04</b></span></div>
-      <label class="planner-search"><span>⌕</span><input id="planner-search" type="search" placeholder="Search tasks, symbols, commits..." value="\${attr(plannerUi.search)}" autocomplete="off"><kbd>⌘ K</kbd></label>
+      <label class="planner-search"><span>⌕</span><input id="planner-search" type="search" placeholder="Search tasks, symbols, commits..." value="${attr(plannerUi.search)}" autocomplete="off"><kbd>⌘ K</kbd></label>
       <div class="planner-top-actions"><span class="planner-health"><i></i> SYSTEM HEALTHY</span><button type="button" class="planner-top-icon" data-planner-action="notifications" aria-label="Notifications">◍</button><button type="button" class="planner-avatar" data-planner-action="account">AK</button></div>
-    </header>\`;
+    </header>`;
   }
 
   function plannerMainMarkup(snapshot) {
@@ -664,10 +664,10 @@
     const sortedForPreview = plannerOrderedTasks(snapshot);
     const selected = snapshot.tasks.find((task) => task.id === plannerUi.selectedId) || sortedForPreview[0];
     if (!plannerUi.selectedId && selected) plannerUi.selectedId = selected.id;
-    return \`<div class="planner-shell">
-      \${plannerTopbarMarkup(snapshot)}
+    return `<div class="planner-shell">
+      ${plannerTopbarMarkup(snapshot)}
       <div class="planner-layout">
-        \${plannerSidebarMarkup(snapshot)}
+        ${plannerSidebarMarkup(snapshot)}
         <main class="planner-content">
           <div class="planner-content-inner">
             <header class="planner-page-header">
@@ -678,23 +678,23 @@
               </div>
               <div class="planner-page-actions"><button type="button" class="outline-button" data-planner-action="export">Export plan</button><button type="button" class="primary-button" data-planner-run-control="run">Run planner</button></div>
             </header>
-            \${plannerProgressMarkup(snapshot)}
+            ${plannerProgressMarkup(snapshot)}
             <div class="planner-work-area">
               <section class="planner-center-column">
-                \${plannerQueueMarkup(snapshot)}
-                \${plannerSelectedMarkup(snapshot)}
+                ${plannerQueueMarkup(snapshot)}
+                ${plannerSelectedMarkup(snapshot)}
                 <section class="planner-panel planner-graph-panel">
                   <div class="planner-panel-header"><div><span class="planner-kicker">DEPENDENCY GRAPH</span><h2>Roadmap structure</h2></div><div class="planner-graph-actions"><button type="button" class="planner-icon-button" data-planner-action="fit">Fit</button><button type="button" class="planner-icon-button" data-planner-action="clear-focus">Clear</button></div></div>
-                  \${plannerGraphMarkup(snapshot)}
+                  ${plannerGraphMarkup(snapshot)}
                 </section>
               </section>
-              \${plannerRightRailMarkup(snapshot)}
+              ${plannerRightRailMarkup(snapshot)}
             </div>
-            <footer class="planner-footer"><span>Human order is intent. Deterministic eligibility is authority.</span><span>Roadmap: \${escapeHtml(snapshot.roadmap.path)} · SHA \${escapeHtml(snapshot.roadmap.sha256?.slice(0, 12) || 'local')}</span></footer>
+            <footer class="planner-footer"><span>Human order is intent. Deterministic eligibility is authority.</span><span>Roadmap: ${escapeHtml(snapshot.roadmap.path)} · SHA ${escapeHtml(snapshot.roadmap.sha256?.slice(0, 12) || 'local')}</span></footer>
           </div>
         </main>
       </div>
-    </div>\`;
+    </div>`;
   }
 
   function plannerRender() {
@@ -728,7 +728,7 @@
       plannerUi.selectedId = plannerUi.snapshot.tasks.find((task) => task.current)?.id || plannerUi.snapshot.deterministic_rank?.[0] || plannerUi.snapshot.tasks[0]?.id || null;
       plannerRender();
     } catch (error) {
-      if (page) page.innerHTML = \`<div class="planner-loading planner-loading-error"><strong>Planner unavailable</strong><span>\${escapeHtml(error.message)}</span><button type="button" class="outline-button" data-planner-action="refresh">Retry</button></div>\`;
+      if (page) page.innerHTML = `<div class="planner-loading planner-loading-error"><strong>Planner unavailable</strong><span>${escapeHtml(error.message)}</span><button type="button" class="outline-button" data-planner-action="refresh">Retry</button></div>`;
       return;
     }
     if (plannerRefreshTimer) clearInterval(plannerRefreshTimer);
@@ -782,13 +782,13 @@
       const nextProgress = Math.min(99, Number(plannerUi.progressOverride || 0) + 0.65);
       plannerUi.progressOverride = nextProgress;
       const meter = document.querySelector('.planner-run-meter span');
-      if (meter) meter.style.width = \`\${Math.min(94, 24 + plannerUi.runElapsed * 2)}%\`;
+      if (meter) meter.style.width = `${Math.min(94, 24 + plannerUi.runElapsed * 2)}%`;
       const elapsed = document.querySelector('.planner-run-metrics span:first-child');
       if (elapsed) elapsed.textContent = plannerFormatElapsed(plannerUi.runElapsed);
       const progress = document.querySelector('.planner-progress-percent');
-      if (progress) progress.textContent = \`\${nextProgress.toFixed(0)}%\`;
+      if (progress) progress.textContent = `${nextProgress.toFixed(0)}%`;
       const bar = document.querySelector('.planner-progress-bar span');
-      if (bar) bar.style.width = \`\${nextProgress}%\`;
+      if (bar) bar.style.width = `${nextProgress}%`;
       if (plannerUi.runElapsed >= 60) {
         plannerStopRun(true);
       }
@@ -829,7 +829,7 @@
     [ids[index], ids[target]] = [ids[target], ids[index]];
     localStorage.setItem(plannerOrderKey(snapshot.roadmap.path), JSON.stringify(ids));
     plannerRender();
-    announce(\`\${taskId} moved \${direction}\`);
+    announce(`${taskId} moved ${direction}`);
   }
 
   function plannerBindTaskEvents(snapshot) {
@@ -865,7 +865,7 @@
       ids.splice(to, 0, draggedId);
       localStorage.setItem(plannerOrderKey(snapshot.roadmap.path), JSON.stringify(ids));
       plannerRender();
-      announce(\`Moved \${draggedId}.\`);
+      announce(`Moved ${draggedId}.`);
     });
     list.addEventListener('click', (event) => {
       const move = event.target.closest('[data-planner-move]');
@@ -921,19 +921,19 @@
     const ready = plannerEligible(snapshot).length;
     const blocked = snapshot.tasks.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length;
     const body = section === 'dependencies'
-      ? \`<div class="planner-integration-modal"><strong>Dependency map</strong><p>\${snapshot.tasks.length} tasks are represented in the current roadmap snapshot. Select a task in the graph to focus upstream and downstream relationships.</p><div class="planner-detail-grid"><div class="planner-detail-block"><span>Nodes</span><strong>\${snapshot.tasks.length}</strong></div><div class="planner-detail-block"><span>Ready</span><strong>\${ready}</strong></div><div class="planner-detail-block"><span>Blocked</span><strong>\${blocked}</strong></div><div class="planner-detail-block"><span>Current</span><strong>\${escapeHtml(runtime.current_task_id || 'None')}</strong></div></div></div>\`
+      ? `<div class="planner-integration-modal"><strong>Dependency map</strong><p>${snapshot.tasks.length} tasks are represented in the current roadmap snapshot. Select a task in the graph to focus upstream and downstream relationships.</p><div class="planner-detail-grid"><div class="planner-detail-block"><span>Nodes</span><strong>${snapshot.tasks.length}</strong></div><div class="planner-detail-block"><span>Ready</span><strong>${ready}</strong></div><div class="planner-detail-block"><span>Blocked</span><strong>${blocked}</strong></div><div class="planner-detail-block"><span>Current</span><strong>${escapeHtml(runtime.current_task_id || 'None')}</strong></div></div></div>`
       : section === 'executions'
-        ? \`<div class="planner-integration-modal"><strong>Execution monitor</strong><p>The unattended runtime remains authoritative. This draft can preview planner runs locally without mutating it.</p><div class="properties"><div class="property"><span>Run</span><strong>\${escapeHtml(runtime.run_id || 'No run reported')}</strong></div><div class="property"><span>Phase</span><strong>\${escapeHtml(runtime.phase || 'Idle')}</strong></div><div class="property"><span>Current task</span><strong>\${escapeHtml(runtime.current_task_id || 'None')}</strong></div><div class="property"><span>Attempt</span><strong>\${escapeHtml(runtime.current_attempt || 0)}</strong></div></div></div>\`
+        ? `<div class="planner-integration-modal"><strong>Execution monitor</strong><p>The unattended runtime remains authoritative. This draft can preview planner runs locally without mutating it.</p><div class="properties"><div class="property"><span>Run</span><strong>${escapeHtml(runtime.run_id || 'No run reported')}</strong></div><div class="property"><span>Phase</span><strong>${escapeHtml(runtime.phase || 'Idle')}</strong></div><div class="property"><span>Current task</span><strong>${escapeHtml(runtime.current_task_id || 'None')}</strong></div><div class="property"><span>Attempt</span><strong>${escapeHtml(runtime.current_attempt || 0)}</strong></div></div></div>`
         : section === 'artifacts'
           ? '<div class="planner-integration-modal"><strong>Artifacts</strong><p>Evidence and generated artifacts are available from the task verification boundary. This draft keeps the planner focused on selecting and sequencing work.</p></div>'
           : section === 'environments'
             ? '<div class="planner-integration-modal"><strong>Environments</strong><p>Local preview environment is active. PASI Bridge remains the control-plane connection for authoritative runtime state.</p><div class="property"><span>Bridge</span><strong>127.0.0.1:8765</strong></div></div>'
             : section === 'milestones'
-              ? \`<div class="planner-integration-modal"><strong>Milestones</strong><p>Use roadmap phases and GitHub Project iterations for human planning. PASI consumes the resulting roadmap structure.</p><div class="property"><span>Roadmap</span><strong>\${escapeHtml(snapshot.roadmap.path)}</strong></div></div>\`
+              ? `<div class="planner-integration-modal"><strong>Milestones</strong><p>Use roadmap phases and GitHub Project iterations for human planning. PASI consumes the resulting roadmap structure.</p><div class="property"><span>Roadmap</span><strong>${escapeHtml(snapshot.roadmap.path)}</strong></div></div>`
               : section === 'team'
                 ? '<div class="planner-integration-modal"><strong>Team</strong><p>This draft targets unattended local execution. Human ownership can be layered on later without changing task identity or dependency semantics.</p></div>'
                 : section === 'overview'
-                  ? \`<div class="planner-integration-modal"><strong>Project overview</strong><p>Planner state is based on the authoritative roadmap snapshot and runtime ledger.</p><div class="planner-detail-grid"><div class="planner-detail-block"><span>Total</span><strong>\${snapshot.tasks.length}</strong></div><div class="planner-detail-block"><span>Complete</span><strong>\${snapshot.progress?.completed || 0}</strong></div><div class="planner-detail-block"><span>Ready</span><strong>\${ready}</strong></div><div class="planner-detail-block"><span>Blocked</span><strong>\${blocked}</strong></div></div></div>\`
+                  ? `<div class="planner-integration-modal"><strong>Project overview</strong><p>Planner state is based on the authoritative roadmap snapshot and runtime ledger.</p><div class="planner-detail-grid"><div class="planner-detail-block"><span>Total</span><strong>${snapshot.tasks.length}</strong></div><div class="planner-detail-block"><span>Complete</span><strong>${snapshot.progress?.completed || 0}</strong></div><div class="planner-detail-block"><span>Ready</span><strong>${ready}</strong></div><div class="planner-detail-block"><span>Blocked</span><strong>${blocked}</strong></div></div></div>`
                   : '<div class="planner-integration-modal"><strong>Planner settings</strong><p>AI ranking, refresh cadence, and local draft controls are configured in this prototype through the visible planner controls.</p></div>';
     modal(title, body);
   }
