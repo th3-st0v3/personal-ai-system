@@ -55,7 +55,7 @@ jobs:
         env:
           PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}
         run: |
-          bash scripts/start_pasi_168h.sh
+          bash scripts/start_pasi_168h_service.sh "${{ steps.ref.outputs.ref }}"
 
       - name: Record launch mode
         if: ${{ (inputs.mode == 'launch-168h') || (github.event.client_payload.mode == 'launch-168h') }}
