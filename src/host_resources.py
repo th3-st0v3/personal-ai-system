@@ -124,7 +124,7 @@ def capabilities() -> dict[str, object]:
         "platform": system,
         "hostname": platform.node(),
         "process_observation": True,
-        "resource_profiles": system == "linux",
+        "resource_profiles": False,
         "requires_explicit_grant_for_mutation": True,
         "backend": "procfs+cgroup-v2" if system == "linux" else "observation-only",
         "features": {},
@@ -138,6 +138,32 @@ def capabilities() -> dict[str, object]:
     }
     return cap
 
+
+def workload_profiles() -> dict[str, object]:
+    """Return hardware-aware workload budgets without claiming to resize the host."""
+    snapshot = host_snapshot()
+    total_gb = float(snapshot["memory"]["total_bytes"]) / (1024 ** 3)
+    cpu_count = int(snapshot["cpu_count"])
+    requirements = {
+        "Easy": {"min_ram_gb": 4, "min_cpu": 2, "fuzz_max_iterations": 1000},
+        "Standard": {"min_ram_gb": 16, "min_cpu": 6, "fuzz_max_iterations": 5000},
+        "Performance": {"min_ram_gb": 32, "min_cpu": 8, "fuzz_max_iterations": 25000},
+        "Max": {"min_ram_gb": 64, "min_cpu": 16, "fuzz_max_iterations": 100000},
+    }
+    profiles = {
+        name: {**limits, "available": total_gb >= limits["min_ram_gb"] and cpu_count >= limits["min_cpu"]}
+        for name, limits in requirements.items()
+    }
+    detected = "Easy"
+    for name in ("Standard", "Performance", "Max"):
+        if profiles[name]["available"]:
+            detected = name
+    return {
+        "detected_tier": detected,
+        "host_ram_gb": round(total_gb, 2),
+        "cpu_count": cpu_count,
+        "profiles": profiles,
+    }
 
 def host_snapshot() -> dict[str, object]:
     sampled_at = time.time()
