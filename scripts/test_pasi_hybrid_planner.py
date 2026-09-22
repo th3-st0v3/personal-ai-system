@@ -390,9 +390,9 @@ class TestHybridPlanner(unittest.TestCase):
 
         self.assertEqual(ranked, ("b", "a"))
         self.assertFalse(captured["think"])
-        self.assertEqual(captured["num_ctx"], 8192)
+        self.assertEqual(captured["num_ctx"], 4096)
         self.assertTrue(captured["json_mode"])
-        self.assertEqual(captured["timeout_seconds"], 15.0)
+        self.assertEqual(captured["timeout_seconds"], 30.0)
 
     def test_ollama_ranker_validates_structured_response(self) -> None:
         candidates = (task("a"), task("b"))
