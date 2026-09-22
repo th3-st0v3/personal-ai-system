@@ -10,7 +10,7 @@ It runs from one workflow definition on:
 - the daily schedule;
 - manual dispatch.
 
-The authoritative `test` workflow also runs on **every branch and every pull request**, and uses the PASI self-hosted `linux/x64/pasi-wsl` runner. There are no GitHub-hosted `ubuntu-*` runners in the PASI CI/audit workflows.
+The authoritative `test` workflow runs once per repository branch push and uses the PASI self-hosted `linux/x64/pasi-wsl` runner. Same-repository pull requests are therefore validated through their branch push without a duplicate PR-triggered run. Fork pull-request code is not sent to the trusted self-hosted runner. There are no GitHub-hosted `ubuntu-*` runners in the PASI CI/audit workflows.
 
 ## State reconciliation
 
@@ -47,7 +47,7 @@ Fork-owned PRs are never mutated.
 
 ## Future branches
 
-No branch name needs to be added to the workflow. The all-branch `test` workflow provides validation coverage, and its completion triggers repository-wide reconciliation.
+No branch name needs to be added to the workflow. The all-branch `test` workflow provides validation coverage on every repository branch push, and its completion triggers repository-wide reconciliation.
 
 A newly created branch enters the lifecycle when its all-branch `test` run completes and is also picked up by the scheduled repository-wide sweep, so stale existing branches do not require a separate manual workflow run per branch.
 
