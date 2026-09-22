@@ -31,7 +31,37 @@ while (( $# )); do
 done
 export PASI_ROADMAP_PATH
 
-PYTHON="$REPO_ROOT/.venv/bin/python"
+PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}"
+if [[ -n "${PASI_PYTHON:-}" ]]; then
+    PYTHON="$PASI_PYTHON"
+elif [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python"
+else
+    PYTHON="$PASI_VENV/bin/python"
+    if [[ ! -x "$PYTHON" ]]; then
+        if ! command -v python3 >/dev/null 2>&1; then
+            printf 'error: python3 is required to create the persistent PASI environment at %s\n' "$PASI_VENV" >&2
+            exit 1
+        fi
+        mkdir -p "$(dirname -- "$PASI_VENV")"
+        printf 'PASI Python environment: creating %s\n' "$PASI_VENV"
+        python3 -m venv "$PASI_VENV" || {
+            printf 'error: failed to create persistent PASI Python environment at %s\n' "$PASI_VENV" >&2
+            exit 1
+        }
+    fi
+    printf 'PASI Python environment: using persistent %s\n' "$PASI_VENV"
+    "$PYTHON" -m pip install --disable-pip-version-check --requirement "$REPO_ROOT/requirements.txt" >/dev/null
+    if [[ -f "$REPO_ROOT/requirements-dev.txt" ]]; then
+        "$PYTHON" -m pip install --disable-pip-version-check --requirement "$REPO_ROOT/requirements-dev.txt" >/dev/null
+    fi
+fi
+
+if [[ ! -x "$PYTHON" ]]; then
+    printf 'error: expected executable Python at %s\n' "$PYTHON" >&2
+    exit 1
+fi
+
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 LOCK_FILE="$RUNTIME_DIR/start.lock"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
