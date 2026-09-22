@@ -238,7 +238,9 @@ class WebApplication:
                 policy.require(connection, actor_id, "observe_host_resources")
             finally:
                 connection.close()
-            return 200, host_resources.capabilities()
+            result = host_resources.capabilities()
+            result["workload_profiles"] = host_resources.workload_profiles()
+            return 200, result
         if method == "GET" and path == "/api/lab/host":
             connection = db.get_connection()
             try:
