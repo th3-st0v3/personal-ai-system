@@ -609,6 +609,48 @@ def test_older_native_observation_cannot_replace_newer_native_heartbeat(tmp_path
     assert latest["data"]["kind"] == "chatgpt_health"
 
 
+def test_older_native_health_cannot_replace_newer_health_heartbeat(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    newer = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-19T02:11:00Z",
+        "data": {"kind": "chatgpt_health", "controller_version": "2.4.11"},
+    }
+    older = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-19T02:10:00Z",
+        "data": {"kind": "chatgpt_health", "controller_version": "2.4.11"},
+    }
+
+    bridge.save_browser_observation(newer)
+    bridge.save_browser_observation(older)
+
+    latest = bridge.get_browser_health()
+    assert latest is not None
+    assert latest["captured_at"] == "2026-09-19T02:11:00Z"
+
+
+def test_older_native_state_cannot_replace_newer_state_observation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    newer = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-19T02:11:00Z",
+        "data": {"kind": "chatgpt_state", "controller_version": "2.4.11"},
+    }
+    older = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-19T02:10:00Z",
+        "data": {"kind": "chatgpt_state", "controller_version": "2.4.11"},
+    }
+
+    bridge.save_browser_observation(newer)
+    bridge.save_browser_observation(older)
+
+    latest = bridge.get_browser_state()
+    assert latest is not None
+    assert latest["captured_at"] == "2026-09-19T02:11:00Z"
+
+
 def test_completed_empty_response_is_not_available(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("test", "empty")
