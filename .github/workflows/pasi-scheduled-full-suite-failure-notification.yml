@@ -1,0 +1,91 @@
+name: PASI scheduled full-suite failure notification
+
+on:
+  workflow_run:
+    workflows: ["test"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  notify:
+    if: ${{ github.event.workflow_run.event == 'schedule' && github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    timeout-minutes: 5
+    steps:
+      - name: Find or create the scheduled full-suite failure notification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          title="Scheduled full-suite validation failure"
+          api="https://api.github.com/repos/${REPOSITORY}"
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+
+          issues_json="$(curl -fsSL "${auth[@]}" "${api}/issues?state=open&per_page=100")"
+
+          existing_number="$(python - "${title}" "${issues_json}" <<'PY'
+          import json
+          import sys
+
+          title = sys.argv[1]
+          payload = json.loads(sys.argv[2])
+          for item in payload:
+              if isinstance(item, dict) and item.get("title") == title and "pull_request" not in item:
+                  print(item["number"])
+                  break
+          PY
+          )"
+
+          message="$(cat <<EOF
+          ## Scheduled full-suite validation failed
+
+          The scheduled canonical PASI validation run failed.
+
+          - Run: [#${RUN_NUMBER}](${RUN_URL})
+          - Workflow run ID: `${RUN_ID}`
+          - Commit: `${HEAD_SHA}`
+          - Conclusion: `${CONCLUSION}`
+
+          Review the failed Actions run and repair the underlying validation failure before treating the scheduled validation window as healthy.
+          EOF
+          )"
+
+          if [[ -n "${existing_number}" ]]; then
+            curl -fsSL -X POST "${auth[@]}" -H "Content-Type: application/json" \
+              -d "$(python - "${message}" <<'PY'
+          import json
+          import sys
+          print(json.dumps({"body": sys.argv[1]}))
+          PY
+          )" \
+              "${api}/issues/${existing_number}/comments" >/dev/null
+            echo "Updated existing failure notification issue #${existing_number}."
+          else
+            response="$(curl -fsSL -X POST "${auth[@]}" -H "Content-Type: application/json" \
+              -d "$(python - "${title}" "${message}" <<'PY'
+          import json
+          import sys
+          print(json.dumps({"title": sys.argv[1], "body": sys.argv[2], "labels": ["ci", "failure"]}))
+          PY
+          )" \
+              "${api}/issues")"
+            number="$(python - "${response}" <<'PY'
+          import json
+          import sys
+          print(json.loads(sys.argv[1])["number"])
+          PY
+          )"
+            echo "Created failure notification issue #${number}."
+          fi

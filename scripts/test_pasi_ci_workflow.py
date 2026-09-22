@@ -43,5 +43,15 @@ class TestPasiCIWorkflow(unittest.TestCase):
         self.assertIn("security-events: write", security)
         self.assertIn("upload: never", security)
 
+    def test_scheduled_full_suite_has_a_deduplicated_failure_notification(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pasi-scheduled-full-suite-failure-notification.yml").read_text(encoding="utf-8")
+        self.assertIn('workflows: ["test"]', workflow)
+        self.assertIn("github.event.workflow_run.event == 'schedule'", workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'failure'", workflow)
+        self.assertIn("issues: write", workflow)
+        self.assertIn("state=open", workflow)
+        self.assertIn("Scheduled full-suite validation failure", workflow)
+        self.assertIn("/comments", workflow)
+
 if __name__ == "__main__":
     unittest.main()
