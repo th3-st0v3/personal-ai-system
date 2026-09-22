@@ -39,7 +39,7 @@ def runner_mapping_from_workflow(source: str) -> tuple[str, str, str]:
 
 
 class TestGitHubActionsBillingContract(unittest.TestCase):
-    def test_test_workflow_defaults_every_test_job_to_self_hosted(self) -> None:
+    def test_test_workflow_uses_shared_runner_selector_for_all_jobs(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
         expected_selector = (
             "runs-on: ${{ inputs.runner_mode == 'github-hosted' "
@@ -74,6 +74,15 @@ class TestGitHubActionsBillingContract(unittest.TestCase):
         self.assertEqual(resolve("github-hosted"), "ubuntu-latest")
         self.assertEqual(resolve("self-hosted"), "pasi-wsl")
 
+    def test_runner_contract_tests_are_wired_only_into_preflight(self) -> None:
+        source = TEST_WORKFLOW.read_text(encoding="utf-8")
+        contract_command = (
+            "python -m pytest -q scripts/test_github_actions_billing_contract.py "
+            "scripts/test_check_pasi_self_hosted_runner.py"
+        )
+        self.assertIn(contract_command, job_block(source, "runner-preflight"))
+        self.assertNotIn(contract_command, job_block(source, "free-validation"))
+
     def test_self_hosted_preflight_is_part_of_required_test_gate(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
         preflight = job_block(source, "runner-preflight")
@@ -95,7 +104,7 @@ class TestGitHubActionsBillingContract(unittest.TestCase):
             condition = source[if_pos:end]
             self.assertIn("inputs.runner_mode != 'github-hosted'", condition)
 
-    def test_required_free_validation_stays_local_and_free(self) -> None:
+    def test_free_validation_keeps_local_fixture_contract(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
         job = job_block(source, "free-validation")
         self.assertIn("scripts/run_free_acceptance.py", job)
