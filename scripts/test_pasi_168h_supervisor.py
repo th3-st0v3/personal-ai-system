@@ -41,6 +41,13 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn('"roadmap_complete"', self.source)
         self.assertIn('"roadmap_blocked_or_no_eligible_task"', self.source)
 
+    def test_supervisor_starts_and_cleans_periodic_resource_sampler(self) -> None:
+        self.assertIn('RESOURCE_SAMPLER_PID_FILE=', self.source)
+        self.assertIn('pasi_resource_telemetry.py', self.source)
+        self.assertIn('PASI_RESOURCE_SAMPLE_INTERVAL_SECONDS:-30', self.source)
+        self.assertIn("stop_resource_sampler", self.source)
+        self.assertIn("start_resource_sampler", self.source)
+
     def test_chromium_e2e_uses_process_group_cleanup(self) -> None:
         source = (ROOT / "scripts" / "e2e_chromium_response_recovery.py").read_text(encoding="utf-8")
         self.assertIn("start_new_session=True", source)
