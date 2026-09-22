@@ -5,13 +5,14 @@ import sqlite3
 import time
 
 ACTIONS = {
-    "read_project", "ingest_source", "run_calculation", "run_simulation",
-    "modify_project_data", "execute_code", "remote_execution", "external_api_cost",
+    "read_project", "ingest_source", "run_calculation", "run_simulation", "observe_host_resources", "run_model_plan", "run_fuzz",
+    "modify_project_data", "control_host_resources", "execute_code", "remote_execution", "external_api_cost",
 }
-DEFAULT_SAFE_ACTIONS = {"read_project", "ingest_source", "run_calculation", "run_simulation"}
+DEFAULT_SAFE_ACTIONS = {"read_project", "ingest_source", "run_calculation", "run_simulation", "observe_host_resources", "run_model_plan", "run_fuzz"}
 RATE_LIMITS = {
     "read_project": (120, 60), "ingest_source": (20, 60), "run_calculation": (120, 60),
-    "run_simulation": (60, 60), "modify_project_data": (60, 60), "execute_code": (10, 60),
+    "run_simulation": (60, 60), "observe_host_resources": (240, 60), "run_model_plan": (60, 60), "run_fuzz": (30, 60),
+    "modify_project_data": (60, 60), "control_host_resources": (20, 60), "execute_code": (10, 60),
     "remote_execution": (5, 60), "external_api_cost": (5, 60),
 }
 
