@@ -107,7 +107,7 @@ jobs:
       - name: Install JavaScript DOM fixture dependency
         run: npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
       - name: Validate validation sandbox
-        if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
+        if: ${{ inputs.runner_mode != 'github-hosted' && (github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation') }}
         run: |
           if command -v bwrap >/dev/null 2>&1; then
             bwrap --version
@@ -117,7 +117,7 @@ jobs:
             exit 1
           fi
       - name: Validate browser acceptance prerequisites
-        if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
+        if: ${{ inputs.runner_mode != 'github-hosted' && (github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation') }}
         run: |
           if command -v google-chrome-stable >/dev/null 2>&1; then
             google-chrome-stable --version
