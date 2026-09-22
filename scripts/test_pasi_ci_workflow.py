@@ -12,7 +12,7 @@ class TestPasiCIWorkflow(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("branches: [main, beta-foundation, 'pasi/**']", workflow)
         self.assertIn("pull_request:\n    branches: [main, 'pasi/**']", workflow)
-        self.assertIn("runs-on: [self-hosted, linux, x64, pasi-wsl]", workflow)
+        self.assertIn("runs-on: ${{ inputs.runner_mode == 'github-hosted' && 'ubuntu-latest' || 'pasi-wsl' }}", workflow)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
 
     def test_168h_desktop_gate_hands_off_to_host_service_manager(self) -> None:
