@@ -122,6 +122,20 @@ class ExtensionCapabilityValidationTests(unittest.TestCase):
             )
         )
 
+    def test_python_templated_loopback_port_does_not_crash(self) -> None:
+        temp, extension, py = self._fixture()
+        py.write_text(
+            "BRIDGE = 'http://127.0.0.1:{port}/json/version'\n",
+            encoding="utf-8",
+        )
+        errors = validator.validate_extension_capabilities(
+            manifest_path=extension / "manifest.json",
+            extension_root=extension,
+            python_files=[py],
+        )
+        self.assertEqual(errors, [])
+        temp.joinpath("keep").touch()
+
 
 if __name__ == "__main__":
     unittest.main()
