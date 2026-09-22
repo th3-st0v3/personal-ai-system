@@ -39,7 +39,7 @@ jobs:
       - name: Verify self-hosted runner readiness
         run: python scripts/check_pasi_self_hosted_runner.py
       - name: Run local proofing hooks
-        run: pre-commit run --all-files
+        run: pre-commit run pasi-local-proofing --all-files
 
   coverage:
     needs: local-proofing
