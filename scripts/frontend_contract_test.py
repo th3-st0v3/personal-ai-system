@@ -53,7 +53,7 @@ def test_frontend_contract() -> None:
     assert "ui-completion.js" not in app, "app.js should not load the completion layer itself."
 
     for capability in (
-        "renderSettingsPage", "renderProjectsPage", "openSimulationsView",
+        "renderSettingsPage", "renderProjectsPage", "openSimulationsView", "openExperimentLabView",
         "openConnectionsView", "data-customize",
     ):
         assert capability in ui, f"Frontend completion capability missing: {capability}"
@@ -63,7 +63,7 @@ def test_frontend_contract() -> None:
         "/api/auth/logout", "/api/auth/me", "/api/chats", "/api/projects", "/api/manifest",
         "/api/search", "/api/calculations/catalog", "/api/calculations/run",
         "/api/calculations/run/save", "/api/connections", "/api/plugins", "/api/digest",
-        "/api/simulations", "/api/simulations/run", "/api/engineering/projects/",
+        "/api/simulations", "/api/simulations/run", "/api/lab/host", "/api/lab/processes", "/api/lab/fuzz", "/api/lab/model", "/api/lab/control", "/api/engineering/projects/",
     )
     for endpoint in required_api_prefixes:
         assert endpoint in combined, f"Frontend does not reference backend endpoint: {endpoint}"
@@ -75,7 +75,7 @@ def test_frontend_contract() -> None:
 
     for capability in (
         "Import GitHub file", "Search sources", "Add evidence", "Invalidate",
-        "Run simulation", "Add connection", "Register plugin",
+        "Run simulation", "Experiment Lab", "Run fuzz campaign", "Allow host resource changes", "Add connection", "Register plugin",
     ):
         assert capability in combined, f"Feature capability missing: {capability}"
 
