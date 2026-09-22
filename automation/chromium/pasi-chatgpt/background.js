@@ -248,10 +248,26 @@ async function reloadBoundedTab(tab) {
 
 async function inspect() {
   const status = await bridgeJson('/status');
+  if (!status) return;
+
   const payload = await bridgeJson('/browser/observation');
-  if (!status || !payload) return;
   const health = healthData(payload);
-  if (!health) return;
+  const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/c/*', 'https://www.chatgpt.com/c/*'] });
+
+  if (!health) {
+    // A missing observation is not healthy. Wake existing ChatGPT tabs so their
+    // native controller can publish a fresh authenticated health observation.
+    // This path only sends a health ping; it never claims, queues, or creates
+    // an operation and therefore cannot duplicate ordinary work.
+    for (const tab of tabs) {
+      if (typeof tab.id !== 'number') continue;
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
+      } catch (_) {}
+    }
+    return;
+  }
+
   if (health.data.auth_required === true) return;
   if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
   const activeOperation = typeof health.data.active_operation_id === 'string' && Boolean(health.data.active_operation_id.trim());
