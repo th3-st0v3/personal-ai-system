@@ -113,7 +113,7 @@ systemd-run \
     --setenv=PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}" \
     --setenv=PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}" \
     --setenv=PATH="$PATH" \
-    "$SERVICE_ROOT/scripts/start_pasi_168h.sh" --foreground-supervisor
+    bash "$SERVICE_ROOT/scripts/start_pasi_168h.sh" --foreground-supervisor
 
 printf 'Started durable PASI 168-hour systemd service: %s\n' "$UNIT_NAME"
 printf 'Service checkout: %s\n' "$SERVICE_ROOT"
