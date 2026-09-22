@@ -118,11 +118,17 @@ jobs:
           ref: ${{ steps.ref.outputs.ref }}
           fetch-depth: 1
 
+      - name: Prepare PASI Python environment
+        if: ${{ inputs.mode == 'start-automation' }}
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+
       - name: Verify native desktop boundary
         if: ${{ inputs.mode == 'start-automation' }}
         run: |
-          python3 scripts/reconcile_runner_capabilities.py --spec config/runner/capabilities.json --report "$HOME/.pasi/runner/capabilities.json" --json
-          python3 scripts/pasi_desktop_preflight.py
+          .venv/bin/python scripts/reconcile_runner_capabilities.py --spec config/runner/capabilities.json --report "$HOME/.pasi/runner/capabilities.json" --json
+          .venv/bin/python scripts/pasi_desktop_preflight.py
 
       - name: Start PASI development automation
         if: ${{ inputs.mode == 'start-automation' }}
