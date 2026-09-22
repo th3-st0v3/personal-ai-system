@@ -15,6 +15,9 @@ import ingestion_service
 import policy
 import project_service
 import simulation_library
+import engineering_modeler
+import fuzzing_service
+import host_resources
 import workspace_browser
 from calculation_application import CalculationApplication
 from workspace_application import WorkspaceApplication
@@ -107,6 +110,13 @@ class WebApplication:
                 "categories": list(categories),
                 "count": len(self.calculations.list_models()),
             },
+            "lab": {
+                "capabilities_endpoint": "/api/lab/capabilities",
+                "host_endpoint": "/api/lab/host",
+                "processes_endpoint": "/api/lab/processes",
+                "fuzz_endpoint": "/api/lab/fuzz",
+                "model_endpoint": "/api/lab/model",
+            },
             "simulations": [
                 {
                     "key": simulation.key,
@@ -117,7 +127,7 @@ class WebApplication:
                 }
                 for simulation in simulation_library.list_simulations()
             ],
-            "navigation": ["Chat", "Projects", "Education", "Simulations", "Calculations", "Connections"],
+            "navigation": ["Chat", "Projects", "Education", "Simulations", "Experiment Lab", "Calculations", "Connections"],
             "models": [
                 {"key": key, "model": model} for key, model in chat_service.MODEL_PROFILES.items()
             ],
@@ -219,6 +229,70 @@ class WebApplication:
             finally:
                 connection.close()
             return 200, simulation_library.run_simulation(data["simulation_key"], data.get("inputs", {}))
+
+        if method == "GET" and path == "/api/lab/capabilities":
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "observe_host_resources")
+            finally:
+                connection.close()
+            return 200, host_resources.capabilities()
+        if method == "GET" and path == "/api/lab/host":
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "observe_host_resources")
+            finally:
+                connection.close()
+            return 200, host_resources.host_snapshot()
+        if method == "GET" and path == "/api/lab/processes":
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "observe_host_resources")
+            finally:
+                connection.close()
+            return 200, host_resources.list_processes(query.get("query", ""), int(query.get("limit", "100")))
+        if method == "GET" and path.startswith("/api/lab/processes/") and path.count("/") == 4:
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "observe_host_resources")
+            finally:
+                connection.close()
+            return 200, host_resources.process_snapshot(int(path.rsplit("/", 1)[-1]))
+        if method == "POST" and path == "/api/lab/model":
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "run_model_plan")
+            finally:
+                connection.close()
+            return 200, engineering_modeler.build_model_plan(str(data.get("prompt", "")))
+        if method == "POST" and path == "/api/lab/fuzz":
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "run_fuzz")
+            finally:
+                connection.close()
+            return 200, fuzzing_service.run_fuzz(
+                str(data.get("target_kind", "simulation")),
+                str(data["target_key"]),
+                data.get("base_inputs"),
+                iterations=int(data.get("iterations", 100)),
+                seed=int(data.get("seed", 1)),
+            )
+        if method == "POST" and path.startswith("/api/lab/processes/") and path.endswith("/profile"):
+            connection = db.get_connection()
+            try:
+                policy.require(connection, actor_id, "control_host_resources")
+            finally:
+                connection.close()
+            pid = int(path.split("/")[4])
+            mode = str(data.get("mode", "preview"))
+            if mode == "preview":
+                return 200, host_resources.preview_profile(pid, data.get("memory_limit_mb"), data.get("swap_limit_mb"))
+            if mode == "apply":
+                return 200, host_resources.apply_profile(pid, data.get("memory_limit_mb"), data.get("swap_limit_mb"))
+            if mode == "clear":
+                return 200, host_resources.clear_profile(pid)
+            raise ValueError("Profile mode must be preview, apply, or clear.")
         return None
 
     def _handle_chat_routes(
