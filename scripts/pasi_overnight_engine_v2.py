@@ -621,6 +621,7 @@ def select_planner_task(
     state: OvernightState,
     *,
     phase: str | None = None,
+    allow_ai: bool = True,
 ) -> hybrid_planner.PlannerDecision:
     # Fresh runs persist an explicit roadmap path. Legacy state fixtures and
     # resumed pre-planner runs intentionally keep their compatibility path.
@@ -631,10 +632,16 @@ def select_planner_task(
         tasks,
         load_task_ledger(),
         phase=phase,
-        ai_ranker=planner_ai_ranker(),
+        ai_ranker=planner_ai_ranker() if allow_ai else None,
     )
     selected = decision.selected
-    if selected is not None and selected.splittable and selected.estimated_size in {"large", "very_large"} and planner_ai_decompose_enabled():
+    if (
+        allow_ai
+        and selected is not None
+        and selected.splittable
+        and selected.estimated_size in {"large", "very_large"}
+        and planner_ai_decompose_enabled()
+    ):
         try:
             children = hybrid_planner.ai_decompose_with_ollama(
                 selected,
@@ -657,7 +664,7 @@ def select_planner_task(
                 tasks,
                 load_task_ledger(),
                 phase=phase,
-                ai_ranker=planner_ai_ranker(),
+                ai_ranker=planner_ai_ranker() if allow_ai else None,
             )
         except (hybrid_planner.PlannerError, OSError, TimeoutError):
             log_event(
@@ -1443,7 +1450,9 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
 def choose_next_task(state: OvernightState, suggested: str) -> str:
     # The executor response is intentionally not authoritative about sequencing.
     del suggested
-    decision = select_planner_task(state, phase=state.phase)
+    # Keep the completion -> next-prompt path deterministic and local.
+    # Optional planner AI must never add network/model latency to the hot handoff.
+    decision = select_planner_task(state, phase=state.phase, allow_ai=False)
     if decision.selected is not None:
         state.current_task_id = decision.selected.id
         return decision.selected.execution_text()
