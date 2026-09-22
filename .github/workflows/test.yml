@@ -20,7 +20,7 @@ jobs:
         with:
           # The PR event uses a synthetic merge checkout. Keep the full graph so
           # base...HEAD has a real merge base for the bounded fast gate.
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Fetch fast-validation comparison base
         if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name != 'main' && github.ref_name != 'beta-foundation') }}
         shell: bash

@@ -22,7 +22,7 @@ def main() -> int:
     parser.add_argument(
         "--base-ref",
         required=True,
-        help="Git ref used as the three-dot comparison base.",
+        help="Git ref naming the base tree to compare directly against HEAD.",
     )
     args = parser.parse_args()
 

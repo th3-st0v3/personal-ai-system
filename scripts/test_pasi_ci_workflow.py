@@ -26,5 +26,13 @@ class TestPasiCIWorkflow(unittest.TestCase):
         self.assertIn("Run targeted computer-use regression suites", workflow)
 
 
+    def test_pull_requests_use_fast_changed_file_gate_and_keep_full_gate_for_main(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("Run changed-file fast validation", workflow)
+        self.assertIn("scripts/pasi_fast_validation.py", workflow)
+        self.assertIn("run: bash scripts/check_all.sh", workflow)
+        self.assertIn("browser-use-compat:", workflow)
+        self.assertIn("fetch-depth: 1", workflow)
+
 if __name__ == "__main__":
     unittest.main()

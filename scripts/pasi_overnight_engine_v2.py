@@ -1500,7 +1500,10 @@ def fast_local_gate(worktree: Path, *, diff_base: str | None = None) -> str:
     so the same targeted gate can validate a clean checkout without running the
     entire repository suite.
     """
-    diff_suffix = [f"{diff_base}...HEAD"] if diff_base else []
+    # Clean CI checkouts may expose the PR merge ref without a connected local
+    # ancestry graph. A two-tree comparison needs only the base and HEAD objects
+    # and still matches the base-to-head file delta when the base is an ancestor.
+    diff_suffix = [diff_base, "HEAD"] if diff_base else []
     code, output = command(["git", "diff", "--check", *diff_suffix], worktree, 60.0)
     if code != 0:
         raise RuntimeError(f"fast local gate diff check failed:\n{output}")

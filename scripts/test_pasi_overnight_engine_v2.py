@@ -1216,11 +1216,11 @@ branch refs/heads/main
         self.assertIn("changed=1 files", result)
         self.assertEqual(
             calls[0],
-            ["git", "diff", "--check", "origin/main...HEAD"],
+            ["git", "diff", "--check", "origin/main", "HEAD"],
         )
         self.assertEqual(
             calls[1],
-            ["git", "diff", "--name-only", "origin/main...HEAD"],
+            ["git", "diff", "--name-only", "origin/main", "HEAD"],
         )
 
 
