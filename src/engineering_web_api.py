@@ -353,10 +353,10 @@ class EngineeringWebApplication:
         if len(parts) == 5 and method == "POST":
             return 201, {"id": db.create_requirement(project_id, str(data["description"]))}
         if len(parts) == 6 and parts[5] == "test-plan" and method == "GET":
+            return 200, engineering_plans.build_test_plan(self.engineering.list_requirements(project_id))
         if len(parts) == 7 and parts[6] == "history" and method == "GET":
             requirement_id = self._as_int(parts[5], "requirement_id")
             return 200, self._requirement_history(project_id, requirement_id)
-            return 200, engineering_plans.build_test_plan(self.engineering.list_requirements(project_id))
         if len(parts) == 6 and method == "PATCH":
             requirement_id = self._as_int(parts[5], "requirement_id")
             self._require_requirement(project_id, requirement_id)
