@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -72,8 +73,15 @@ def make_prompt(task: str, repo: Path) -> str:
     return bounded_text(prompt, MAX_PROMPT_CHARS)
 
 
-def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
-    request = urllib.request.Request(
+def ensure_free_test_network(url: str) -> None:
+    if os.environ.get("PASI_FREE_TEST_MODE", "").strip().casefold() not in {"1", "true", "yes", "on"}:
+        return
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1":
+        raise RuntimeError("PASI_FREE_TEST_MODE blocks external provider network access")
+
+
+def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:    request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "PASI-provider-router/1.0", **headers},
@@ -93,6 +101,7 @@ def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeou
 
 
 def get_json(url: str, timeout: float) -> dict[str, Any]:
+    ensure_free_test_network(url)
     request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read(MAX_RESPONSE_BYTES + 1)
