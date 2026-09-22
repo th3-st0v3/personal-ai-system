@@ -36,6 +36,11 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn('[[ "$command_line" == *"--worktree $worktree"* ]]', self.source)
         self.assertIn('[[ "$command_line" == *"--branch $branch"* ]]', self.source)
 
+    def test_launcher_allows_a_bounded_extended_engine_startup_window(self) -> None:
+        source = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
+        self.assertIn('PASI_STARTUP_VERIFY_SECONDS:-90', source)
+        self.assertIn('supervisor started, but the extended engine did not publish a live runner PID', source)
+
     def test_launcher_supports_a_persistent_self_hosted_python_environment(self) -> None:
         source = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         self.assertIn('PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}"', source)
