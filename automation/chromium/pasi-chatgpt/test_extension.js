@@ -573,6 +573,42 @@ test('native generating detection uses one grouped selector', () => {
   assert.doesNotMatch(source, /firstVisible\(\['button\[data-testid="stop-button"/);
 });
 
+
+test('native extension has no legacy working indicator implementation or references', () => {
+  assert.ok(!fs.existsSync(path.join(root, 'activity.js')));
+  const productionFiles = [
+    'manifest.json',
+    'timeout-config.js',
+    'timeout-policy.json',
+    'background.js',
+    'detectors.js',
+    'content.js',
+    'recovery_progress.js',
+    'recovery.js',
+    'sidepanel.html',
+    'sidepanel.js',
+    'sidepanel.css',
+  ];
+  const legacyMarkers = [
+    'activity.js',
+    'pasi-activity-indicator',
+    'PASI · Thinking',
+    'PASI · Finishing',
+    'PASI · Working',
+    'pasi-activity',
+  ];
+  for (const relative of productionFiles) {
+    const sourceText = fs.readFileSync(path.join(root, relative), 'utf8');
+    for (const markerText of legacyMarkers) {
+      assert.equal(
+        sourceText.includes(markerText),
+        false,
+        relative + ' contains legacy working-indicator marker ' + markerText,
+      );
+    }
+  }
+});
+
 test('native response completion reuses the extracted assistant text for fingerprinting', () => {
   const start = content.indexOf('async function waitForResponse(');
   const end = content.indexOf('  function rememberContextRecovery(', start);
