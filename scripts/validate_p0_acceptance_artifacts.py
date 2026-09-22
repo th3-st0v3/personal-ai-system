@@ -105,8 +105,9 @@ def validate_m2(path: Path) -> list[str]:
         errors.append("M2 did not preserve exact conversation identity")
     response_text = str(latest_operation.get("response_text") or "")
     prompt = str(value.get("prompt") or "")
-    marker = prompt.split("reply exactly ", 1)[-1] if "reply exactly " in prompt else ""
-    marker = marker.strip()
+    import re
+    match = re.search(r"M2-LIVE-[0-9]{8}-[0-9]{6}-[0-9]+", prompt)
+    marker = match.group(0) if match else ""
     if marker and marker not in response_text:
         errors.append("M2 final response does not contain its original marker")
     if value.get("handoff_cleared_after_completion") is not True:
