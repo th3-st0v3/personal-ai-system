@@ -82,6 +82,20 @@ class TestEngineeringWebApplication(unittest.TestCase):
         self.assertEqual(status, 201)
         requirement_id = as_int(requirement["id"])
 
+        status, updated = self.request(
+            "PATCH",
+            f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}",
+            {
+                "identifier": "REQ-TRACE",
+                "title": "Qualified pressure envelope",
+                "acceptance_criteria": "Pressure remains within the approved envelope",
+                "priority": "High",
+                "status": "Verified",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["status"], "Verified")
+
         status, source = self.request(
             "POST",
             f"/api/engineering/projects/{self.project_id}/sources",
@@ -132,6 +146,18 @@ class TestEngineeringWebApplication(unittest.TestCase):
         self.assertEqual(status, 200)
         events = cast(list[dict[str, object]], history)
         event_types = {str(item["event_type"]) for item in events}
+        field_events = [
+            item for item in events
+            if item["event_type"] == "requirement_field_changed"
+        ]
+        self.assertGreaterEqual(len(field_events), 5)
+        field_names = {str(item.get("field")) for item in field_events}
+        self.assertTrue(
+            {"identifier", "title", "acceptance_criteria", "priority", "status"}.issubset(field_names)
+        )
+        status_change = next(item for item in field_events if item.get("field") == "status")
+        self.assertEqual(status_change["old_value"], "Unverified")
+        self.assertEqual(status_change["new_value"], "Verified")
         self.assertIn("requirement_record", event_types)
         self.assertIn("evidence_recorded", event_types)
         self.assertIn("decision_recorded", event_types)
