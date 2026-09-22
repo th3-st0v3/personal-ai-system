@@ -9,10 +9,11 @@ import time
 from typing import Any
 
 import simulation_library
+import host_resources
 from calculation_application import CalculationApplication
 
 
-_MAX_ITERATIONS = 5000
+_MAX_ITERATIONS = 100000
 _MAX_SAMPLE_CASES = 60
 _POSITIVE_NAMES = {
     "area", "diameter", "depth", "density", "thickness", "velocity", "viscosity", "conductivity",
@@ -46,10 +47,20 @@ def run_fuzz(
     *,
     iterations: int = 100,
     seed: int = 1,
+    tier: str | None = None,
 ) -> dict[str, object]:
     iterations = int(iterations)
-    if not 1 <= iterations <= _MAX_ITERATIONS:
-        raise ValueError(f"iterations must be between 1 and {_MAX_ITERATIONS}.")
+    budgets = host_resources.workload_profiles()
+    selected_tier = str(tier or budgets["detected_tier"])
+    profiles = budgets["profiles"]
+    if selected_tier not in profiles:
+        raise ValueError("Unknown workload tier.")
+    selected = profiles[selected_tier]
+    if not selected["available"]:
+        raise ValueError(f"Workload tier '{selected_tier}' is not available on this host.")
+    max_iterations = int(selected["fuzz_max_iterations"])
+    if not 1 <= iterations <= min(_MAX_ITERATIONS, max_iterations):
+        raise ValueError(f"iterations must be between 1 and {max_iterations} for workload tier '{selected_tier}'.")
     if target_kind not in {"simulation", "calculation"}:
         raise ValueError("target_kind must be 'simulation' or 'calculation'.")
     rng = random.Random(int(seed))
@@ -104,6 +115,7 @@ def run_fuzz(
         "schema_version": "1",
         "target": {"kind": target_kind, "key": target_key},
         "seed": int(seed),
+        "tier": selected_tier,
         "iterations": iterations,
         "successes": successes,
         "failures": len(failures),
