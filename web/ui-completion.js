@@ -387,7 +387,6 @@
           document.querySelectorAll('[data-engineering-detail-back]').forEach((back)=>back.onclick=()=>openProjectEngineeringView());
           document.querySelectorAll('[data-engineering-detail-edit]').forEach((edit)=>edit.onclick=()=>engineeringRequirementEditForm(requirement));
           document.querySelectorAll('[data-engineering-history-refresh]').forEach((refresh)=>refresh.onclick=()=>button.click());
-          document.querySelectorAll('[data-engineering-history-refresh]').forEach((refresh)=>refresh.onclick=()=>button.click());
         };
       });
       document.querySelectorAll('[data-engineering-source-detail]').forEach((button)=>{
