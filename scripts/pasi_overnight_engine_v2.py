@@ -41,7 +41,16 @@ PROTECTED_UNATTENDED_PATHS = frozenset({
     "scripts/check_offline.sh",
     "scripts/pasi_overnight_hardening.py",
     "scripts/pasi_overnight_engine_v2.py",
+    "scripts/pasi_extended_runtime_entrypoint.py",
+    "scripts/start_pasi_168h.sh",
+    "scripts/pasi_168h_supervisor.sh",
+    "scripts/pasi_timeout_policy.py",
+    "scripts/pasi_chat_guard.py",
+    "scripts/pasi_provider_router.py",
+    "scripts/pasi_setup.py",
+    "scripts/pasi_promote.py",
     "automation/chromium/pasi-chatgpt/manifest.json",
+    "automation/chromium/pasi-chatgpt/timeout-policy.json",
 })
 PROTECTED_UNATTENDED_PREFIXES = (
     ".github/",
