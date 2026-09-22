@@ -242,6 +242,15 @@ def free_port() -> int:
 
 
 def find_chrome() -> str:
+    configured = os.environ.get("PASI_E2E_CHROME_BINARY", "").strip()
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise RuntimeError(
+                f"PASI_E2E_CHROME_BINARY is not an executable file: {path}"
+            )
+        return str(path.resolve())
+
     for candidate in (
         "google-chrome-stable",
         "google-chrome",
@@ -251,7 +260,10 @@ def find_chrome() -> str:
         path = shutil.which(candidate)
         if path:
             return path
-    raise RuntimeError("Chrome/Chromium binary not found")
+    raise RuntimeError(
+        "Chrome/Chromium binary not found; set PASI_E2E_CHROME_BINARY to an "
+        "executable Chrome/Chromium binary"
+    )
 
 
 def find_chromedriver() -> str:
