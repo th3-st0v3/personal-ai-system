@@ -25,6 +25,7 @@ hours="168"
 worktree=""
 branch=""
 passthrough=()
+resume=0
 while (($#)); do
     case "$1" in
         --hours)
@@ -41,6 +42,10 @@ while (($#)); do
             [[ $# -ge 2 ]] || { printf 'error: --branch requires a value\n' >&2; exit 2; }
             branch="$2"
             shift 2
+            ;;
+        --resume)
+            resume=1
+            shift
             ;;
         --)
             shift
@@ -177,11 +182,11 @@ fi
 
 restart_count=0
 backoff="$BASE_BACKOFF_SECONDS"
-resume=0
 
 while true; do
     if [[ -f "$STOP_FILE" ]] ||
-       { state_matches_identity && (state_deadline_reached || state_is_terminal); }; then
+       { state_matches_identity && state_deadline_reached; } ||
+       { state_matches_identity && state_is_terminal && (( resume == 0 )); }; then
         exit 0
     fi
 
