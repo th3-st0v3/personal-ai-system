@@ -327,19 +327,20 @@ class EngineeringWebApplication:
                     "metadata": metadata,
                 })
 
-            requirement_row = db.get_requirement(requirement_id)
-            requirement_event = []
-            if requirement_row is not None:
-                requirement_event.append({
-                    "id": f"requirement-{requirement_id}-updated",
-                    "entity_type": "requirement",
-                    "entity_id": requirement_id,
-                    "event_type": "requirement_record",
-                    "occurred_at": requirement_row[9] or requirement_row[4],
-                    "status": requirement_row[3],
-                    "title": "Requirement record",
-                    "description": "Current persisted requirement record.",
-                })
+            requirement_record = next(
+                item for item in self.engineering.list_requirements(project_id)
+                if int(item["id"]) == requirement_id
+            )
+            requirement_event = [{
+                "id": f"requirement-{requirement_id}-updated",
+                "entity_type": "requirement",
+                "entity_id": requirement_id,
+                "event_type": "requirement_record",
+                "occurred_at": requirement_record.get("updated_at") or requirement_record.get("created_at"),
+                "status": requirement_record.get("status"),
+                "title": "Requirement record",
+                "description": "Current persisted requirement record.",
+            }]
 
             events = [*requirement_event, *evidence_events, *decision_events, *review_events, *audit_events]
             events.sort(key=lambda item: (str(item.get("occurred_at") or ""), str(item.get("id") or "")), reverse=True)
