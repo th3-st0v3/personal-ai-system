@@ -1733,11 +1733,18 @@
         clearMonitoringStateFor(operation.operation_id);
       }
       if (finalized) {
-        // Schedule the next operation before any health telemetry so the
-        // completion -> prompt critical path wins the event loop immediately.
+        // State-changing operations must publish their post-operation health
+        // before completion is observed by callers. Keep prompt completion on
+        // the existing zero-delay telemetry path so chained prompts stay fast.
+        if (operation.operation_type === 'new_chat') {
+          await reportHealth();
+        } else {
+          setTimeout(() => { void reportHealth(); }, 0);
+        }
+        // Schedule the next operation after the state-changing health report.
+        // The prompt completion path remains a microtask/zero-delay handoff.
         if (chainedOperation?.operation_id) scheduleImmediateOperation(chainedOperation);
         else scheduleImmediatePoll();
-        setTimeout(() => { void reportHealth(); }, 0);
       } else {
         void reportHealth();
       }
