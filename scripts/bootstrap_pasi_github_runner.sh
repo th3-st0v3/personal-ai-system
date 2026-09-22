@@ -38,9 +38,13 @@ else
     ./config.sh         --unattended         --url "$REPO_URL"         --token "$TOKEN"         --name "$RUNNER_NAME"         --labels "$RUNNER_LABELS"         --work "$WORK_DIR"         --replace
 fi
 
-if [[ -x "$RUNNER_DIR/svc.sh" ]] && command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
-    log "Installing/updating the systemd runner service"
-    sudo ./svc.sh install
+if [[ -x "$RUNNER_DIR/svc.sh" ]] && command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+    if [[ -f "$RUNNER_DIR/.service" ]]; then
+        log "Starting existing systemd runner service"
+    else
+        log "Installing the systemd runner service"
+        sudo ./svc.sh install
+    fi
     sudo ./svc.sh start
     sudo ./svc.sh status
     log "Runner service is managed by systemd."
