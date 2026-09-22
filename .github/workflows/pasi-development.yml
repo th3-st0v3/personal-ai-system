@@ -32,7 +32,7 @@ concurrency:
 jobs:
   verify:
     if: ${{ inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 20
     steps:
       - name: Resolve requested ref
@@ -124,7 +124,7 @@ jobs:
       - name: Start PASI development automation
         if: ${{ inputs.mode == 'start-automation' }}
         env:
-          PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}
+          PASI_OVERNIGHT_BASE_REF: ${{ steps.ref.outputs.ref }}
           ROADMAP: ${{ inputs.roadmap }}
         shell: bash
         run: |
