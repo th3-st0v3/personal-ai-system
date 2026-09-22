@@ -62,6 +62,8 @@ def test_frontend_contract() -> None:
     assert 'data-view="planner"' in index, "Planner navigation entry is missing."
     assert "openPlanner" in app, "Planner view controller is missing."
     assert "pasi-planner-order:" in app, "Planner local order state is missing."
+    assert "data-planner-move" in app, "Keyboard Planner ordering controls are missing."
+    assert "planner-task-list" in app, "Planner task list is missing."
 
     required_api_prefixes = (
         "/api/planner/roadmap", "/api/auth/logout", "/api/auth/me", "/api/chats", "/api/projects", "/api/manifest",
