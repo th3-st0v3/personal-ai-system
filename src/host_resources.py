@@ -146,7 +146,7 @@ def workload_profiles() -> dict[str, object]:
     total_gb = float(snapshot["memory"]["total_bytes"]) / (1024 ** 3)
     cpu_count = int(snapshot["cpu_count"])
     requirements = {
-        "Easy": {"min_ram_gb": 4, "min_cpu": 2, "fuzz_max_iterations": 1000},
+        "Easy": {"min_ram_gb": 1, "min_cpu": 1, "fuzz_max_iterations": 1000},
         "Standard": {"min_ram_gb": 16, "min_cpu": 6, "fuzz_max_iterations": 5000},
         "Performance": {"min_ram_gb": 32, "min_cpu": 8, "fuzz_max_iterations": 25000},
         "Max": {"min_ram_gb": 64, "min_cpu": 16, "fuzz_max_iterations": 100000},
