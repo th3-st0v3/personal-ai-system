@@ -120,6 +120,31 @@ except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
 PY
 }
 
+state_matches_identity() {
+    [[ -f "$RUNTIME_DIR/state.json" ]] || return 1
+    "$PYTHON" - "$RUNTIME_DIR/state.json" "$worktree" "$branch" <<'PY'
+import json
+import os
+import sys
+
+try:
+    state = json.loads(open(sys.argv[1], encoding="utf-8").read())
+    state_branch = state.get("branch")
+    state_worktree = state.get("worktree")
+    expected_worktree = os.path.realpath(sys.argv[2])
+    expected_branch = sys.argv[3]
+    if not isinstance(state_branch, str) or not isinstance(state_worktree, str):
+        raise SystemExit(1)
+    raise SystemExit(
+        0
+        if state_branch == expected_branch and os.path.realpath(state_worktree) == expected_worktree
+        else 1
+    )
+except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(1)
+PY
+}
+
 log_supervisor() {
     printf '[PASI supervisor] %s\n' "$*" >&2
 }
@@ -155,7 +180,8 @@ backoff="$BASE_BACKOFF_SECONDS"
 resume=0
 
 while true; do
-    if [[ -f "$STOP_FILE" ]] || state_deadline_reached || state_is_terminal; then
+    if [[ -f "$STOP_FILE" ]] ||
+       { state_matches_identity && (state_deadline_reached || state_is_terminal); }; then
         exit 0
     fi
 
