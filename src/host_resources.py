@@ -280,9 +280,9 @@ def apply_profile(pid: int, memory_limit_mb: object, swap_limit_mb: object) -> d
 def clear_profile(pid: int) -> dict[str, object]:
     pid = int(pid)
     record = _PROFILE_STATE.get(pid)
-    if not record:
-        return {"mode": "clear", "cleared": False, "pid": pid, "reason": "No PASI-managed profile is recorded for this PID."}
-    target = Path(str(record["cgroup"]))
+    target = Path(str(record["cgroup"])) if record else Path("/sys/fs/cgroup/pasi") / f"process-{pid}"
+    if not target.exists():
+        return {"mode": "clear", "cleared": False, "pid": pid, "reason": "No PASI-managed profile is present for this PID."}
     parent = target.parent
     try:
         parent.joinpath("cgroup.procs").write_text(str(pid))
