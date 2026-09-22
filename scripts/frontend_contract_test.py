@@ -123,3 +123,28 @@ def test_foundation_ux_contracts() -> None:
     assert "gpt: 'profile:gpt-5.4'" in app
     assert "gemini: 'profile:gemini-3.1-pro'" in app
     assert "free: 'profile:free'" in app
+
+
+def test_planner_interactive_workspace_contract() -> None:
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    app = (WEB / "app.js").read_text(encoding="utf-8")
+    css = (WEB / "styles.css").read_text(encoding="utf-8")
+
+    for marker in (
+        "planner-shell", "planner-sidebar", "planner-topbar", "planner-task-list",
+        "planner-right-rail", "planner-graph-canvas", "planner-focus-panel",
+        "data-planner-filter", "data-planner-tab", "data-planner-graph-task",
+        "data-planner-run-control", "data-planner-integration", "data-planner-nav",
+        "planner-sidebar-collapsed", "pasi-planner-draft:", "pasi-planner-order:",
+    ):
+        assert marker in app, f"Planner interaction contract missing: {marker}"
+
+    for marker in (
+        ".planner-shell", ".planner-sidebar", ".planner-task-card",
+        ".planner-focus-panel", ".planner-graph-node", ".planner-right-rail",
+        ".planner-rail-card", ".planner-detail-modal", ".planner-loading",
+        ".planner-sidebar-collapsed",
+    ):
+        assert marker in css, f"Planner styling contract missing: {marker}"
+
+    assert 'data-view="planner"' in index
