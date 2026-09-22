@@ -1,0 +1,107 @@
+name: pasi-autocode
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Branch, tag, or commit to use as the automation starting point"
+        required: false
+        default: "main"
+      roadmap:
+        description: "Repository-relative roadmap path"
+        required: false
+        default: "roadmaps/pasi-default.json"
+
+permissions:
+  contents: write
+  issues: read
+
+concurrency:
+  group: pasi-autocode
+  cancel-in-progress: false
+
+jobs:
+  start:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'issue_comment' &&
+           github.event.issue.pull_request == null &&
+           github.event.comment.body == '/pasi run' &&
+           (github.event.comment.author_association == 'OWNER' ||
+            github.event.comment.author_association == 'MEMBER' ||
+            github.event.comment.author_association == 'COLLABORATOR')) }}
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 15
+    steps:
+      - name: Resolve automation inputs
+        id: input
+        shell: bash
+        env:
+          INPUT_BASE_REF: ${{ inputs.base_ref || '' }}
+          INPUT_ROADMAP: ${{ inputs.roadmap || '' }}
+        run: |
+          base_ref="${INPUT_BASE_REF:-main}"
+          roadmap="${INPUT_ROADMAP:-roadmaps/pasi-default.json}"
+          case "$roadmap" in
+            /*|../*|*/../*|*".."*) echo "roadmap must be repository-relative" >&2; exit 2 ;;
+          esac
+          printf 'base_ref=%s\n' "$base_ref" >> "$GITHUB_OUTPUT"
+          printf 'roadmap=%s\n' "$roadmap" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.input.outputs.base_ref }}
+          fetch-depth: 1
+
+      - name: Validate native desktop boundary
+        run: |
+          python3 scripts/reconcile_runner_capabilities.py --spec config/runner/capabilities.json --report "$HOME/.pasi/runner/capabilities.json" --json
+          python3 scripts/pasi_desktop_preflight.py
+
+      - name: Validate roadmap
+        env:
+          ROADMAP: ${{ steps.input.outputs.roadmap }}
+        run: |
+          python3 - "$ROADMAP" <<'PY'
+          import sys
+          from pathlib import Path
+          from scripts.pasi_hybrid_planner import PlannerError, load_roadmap
+
+          root = Path.cwd().resolve()
+          candidate = (root / sys.argv[1]).resolve()
+          if root not in candidate.parents:
+              raise SystemExit("roadmap must remain inside the checked-out repository")
+          if not candidate.is_file():
+              raise SystemExit(f"roadmap not found: {candidate}")
+          try:
+              tasks = load_roadmap(candidate)
+          except PlannerError as exc:
+              raise SystemExit(f"invalid roadmap: {exc}") from exc
+          print(f"Roadmap valid: {candidate} ({len(tasks)} tasks)")
+
+          if not tasks:
+              raise SystemExit("roadmap is empty")
+          PY
+
+      - name: Create isolated automation branch
+        id: branch
+        shell: bash
+        run: |
+          automation_branch="pasi/autocode/${GITHUB_RUN_ID}"
+          git push origin "HEAD:refs/heads/$automation_branch"
+          printf 'branch=%s\n' "$automation_branch" >> "$GITHUB_OUTPUT"
+          echo "Created automation branch $automation_branch from ${{ steps.input.outputs.base_ref }}"
+
+      - name: Start durable PASI automation
+        env:
+          PASI_OVERNIGHT_BRANCH: ${{ steps.branch.outputs.branch }}
+          PASI_OVERNIGHT_BASE_REF: ${{ steps.input.outputs.base_ref }}
+          PASI_ROADMAP_PATH: ${{ steps.input.outputs.roadmap }}
+        shell: bash
+        run: |
+          bash scripts/start_pasi_168h_service.sh "${{ steps.branch.outputs.branch }}"
+
+      - name: Show automation status
+        run: bash scripts/status_pasi_overnight.sh
