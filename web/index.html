@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Engineering-focused AI workspace, calculations, simulations, projects, and evidence">
-  <meta name="theme-color" content="#f7f8fa">
-  <title>Engineering AI Workspace</title>
+  <meta name="theme-color" content="#050b18">
+  <title>PASI Engineering Workspace</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Manrope:wght@400;500;650&display=swap">
@@ -26,16 +26,16 @@
 </head>
 <body>
   <header class="topbar">
-    <button id="brand-home" class="brand-home" type="button" aria-label="Go to Personal AI home">Engineering AI Workspace</button>
+    <button id="brand-home" class="brand-home" type="button" aria-label="Go to PASI Engineering home">PASI Engineering</button>
     <button id="menu-toggle" class="icon-button" type="button" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="false">☰</button>
     <label class="global-search" aria-label="Search"><span aria-hidden="true">⌕</span><input id="global-search" type="search" placeholder="Search chats, projects, notes, calculations…" autocomplete="off"></label>
     <div class="top-actions"><button id="share-current" class="icon-button" type="button" title="Share" aria-label="Share current workspace">↗</button><button id="chat-files-top" class="icon-button top-file-button" type="button" title="Chat files" aria-label="View files attached to this chat">▣</button><button id="login-button" class="text-button" type="button">Log in</button><button id="signup-button" class="primary-button" type="button">Sign up</button><button id="account-button" class="account-button" type="button" hidden></button></div>
   </header>
   <div id="layout" class="layout">
     <aside id="sidebar" class="sidebar" aria-label="Main navigation">
-      <button id="new-chat" class="primary-button sidebar-new" type="button">＋ New chat <span class="shortcut-hint">Ctrl+O</span></button>
+      <button id="new-chat" class="primary-button sidebar-new" type="button">＋ New engineering session <span class="shortcut-hint">Ctrl+O</span></button>
       <nav class="nav-stack" aria-label="Workspace">
-        <button class="nav-item active" data-view="chat" type="button"><span aria-hidden="true">◉</span> Chat</button><button class="nav-item" data-view="planner" type="button"><span aria-hidden="true">◇</span> Planner</button>
+        <button class="nav-item active" data-view="chat" type="button"><span aria-hidden="true">◉</span> Engineering chat</button><button class="nav-item" data-view="planner" type="button"><span aria-hidden="true">◇</span> Planner</button>
         <button class="nav-item" data-view="projects" type="button"><span aria-hidden="true">▣</span> Projects</button>
         <button class="nav-item" data-view="education" type="button"><span aria-hidden="true">▤</span> Education</button>
         <button class="nav-item" data-view="simulations" type="button"><span aria-hidden="true">◒</span> Simulations</button>
@@ -47,7 +47,7 @@
     </aside>
     <main id="main" class="main">
       <section id="home-view" class="view chat-view">
-        <div id="chat-header" class="chat-header"><div><div id="chat-context" class="eyebrow">Personal AI</div><div class="chat-title-line"><h1 id="chat-title">New chat</h1></div></div><div class="header-actions"><button id="new-chat-header" class="outline-button" type="button">New chat</button><button id="project-chat-button" class="outline-button" type="button" hidden>Project</button></div></div>
+        <div id="chat-header" class="chat-header"><div><div id="chat-context" class="eyebrow">Engineering workspace</div><div class="chat-title-line"><h1 id="chat-title">New chat</h1></div></div><div class="header-actions"><button id="new-chat-header" class="outline-button" type="button">New chat</button><button id="project-chat-button" class="outline-button" type="button" hidden>Project</button></div></div>
         <div id="chat-messages" class="chat-messages" aria-live="polite"><div class="welcome-card"><div class="welcome-mark" aria-hidden="true">✦</div><h2>What are you working on?</h2><p>Ask an engineering question, inspect project material, run a deterministic calculation, or start a simulation.</p><div class="prompt-grid"><button type="button" data-prompt="Build a transparent engineering model for this problem and identify the assumptions.">Model an engineering problem</button><button type="button" data-prompt="Explain this like a tutor, then give me progressively harder practice problems.">Study something</button><button type="button" data-prompt="Digest the information I provide into claims, evidence, assumptions, and open questions.">Digest information</button></div></div></div>
         <form id="chat-form" class="composer" autocomplete="off"><div id="attachment-strip" class="attachment-strip" hidden></div><textarea id="chat-input" rows="1" placeholder="Message…" aria-label="Message"></textarea><div class="composer-row"><div class="composer-left"><button id="attach-button" class="icon-button" type="button" title="Attach files, images, or videos" aria-label="Attach files, images, or videos">＋</button><input id="chat-file-input" type="file" hidden multiple accept="*/*"><select id="ai-mode" class="mode-select" aria-label="AI model"><option value="auto">Auto</option><option value="claude">Claude Opus 5</option><option value="gpt">GPT-5.4</option><option value="gemini">Gemini 3.1 Pro</option><option value="free">Free</option></select></div><button id="send-chat" class="primary-button send-button" type="submit">Send</button></div></form>
       </section>
