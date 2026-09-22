@@ -153,7 +153,7 @@
       '[class*="connection" i]',
       '[class*="network" i]'
     ];
-    const markers = ['network error', 'connection lost', 'failed to fetch', 'websocket error', 'reconnecting', 'connection error'];
+    const markers = ['network error', 'connection lost', 'connection interrupted', 'failed to fetch', 'websocket error', 'reconnecting', 'connection error'];
     for (const selector of selectors) {
       for (const element of document.querySelectorAll(selector)) {
         if (!visibleElement(element)) continue;
