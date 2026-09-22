@@ -63,7 +63,7 @@ def test_frontend_contract() -> None:
         "/api/auth/logout", "/api/auth/me", "/api/chats", "/api/projects", "/api/manifest",
         "/api/search", "/api/calculations/catalog", "/api/calculations/run",
         "/api/calculations/run/save", "/api/connections", "/api/plugins", "/api/digest",
-        "/api/simulations", "/api/simulations/run", "/api/lab/host", "/api/lab/processes", "/api/lab/fuzz", "/api/lab/model", "/api/lab/control", "/api/engineering/projects/",
+        "/api/simulations", "/api/simulations/run", "/api/lab/host", "/api/lab/processes", "/api/lab/fuzz", "/api/lab/model", "/api/lab/control", "/api/lab/providers/capabilities", "/api/engineering/projects/",
     )
     for endpoint in required_api_prefixes:
         assert endpoint in combined, f"Frontend does not reference backend endpoint: {endpoint}"
