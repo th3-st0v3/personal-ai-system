@@ -18,6 +18,18 @@ class ExperimentLabTests(unittest.TestCase):
         rows = host_resources.list_processes(limit=9999)
         self.assertLessEqual(len(rows), 250)
 
+    def test_workload_profiles_are_hardware_aware(self):
+        profiles = host_resources.workload_profiles()
+        self.assertIn(profiles["detected_tier"], profiles["profiles"])
+        self.assertLessEqual(
+            profiles["profiles"]["Easy"]["fuzz_max_iterations"],
+            profiles["profiles"]["Standard"]["fuzz_max_iterations"],
+        )
+        self.assertLessEqual(
+            profiles["profiles"]["Standard"]["fuzz_max_iterations"],
+            profiles["profiles"]["Performance"]["fuzz_max_iterations"],
+        )
+
     def test_fuzzer_is_seeded_and_bounded(self):
         first = fuzzing_service.run_fuzz(
             "simulation",
