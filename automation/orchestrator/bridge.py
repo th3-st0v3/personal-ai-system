@@ -253,6 +253,9 @@ class BridgeState:
         prompt: str,
         idempotency_key: str | None = None,
         completion_markers: list[str] | None = None,
+        *,
+        roadmap_id: str | None = None,
+        roadmap_task_id: str | None = None,
     ) -> ChatOperation:
         if completion_markers is not None:
             if (
@@ -276,6 +279,13 @@ class BridgeState:
         if idempotency_key is not None:
             if not isinstance(idempotency_key, str) or not idempotency_key.strip() or len(idempotency_key) > MAX_IDEMPOTENCY_KEY_CHARS:
                 raise ValueError("idempotency_key must be a nonblank bounded string")
+
+        if roadmap_id is not None and (not isinstance(roadmap_id, str) or not roadmap_id.strip()):
+            raise ValueError("roadmap_id must be a nonblank string")
+        if roadmap_task_id is not None and (not isinstance(roadmap_task_id, str) or not roadmap_task_id.strip()):
+            raise ValueError("roadmap_task_id must be a nonblank string")
+        if (roadmap_id is None) != (roadmap_task_id is None):
+            raise ValueError("roadmap_id and roadmap_task_id must be supplied together")
 
         with self.lock:
             queue = self._load_queue()
@@ -304,6 +314,9 @@ class BridgeState:
             item["retry_counts"] = {"controller": 0, "response": 0, "context": 0}
             item["expires_at"] = now + QUEUE_TTL_SECONDS
             item["updated_at"] = now
+            if roadmap_id is not None:
+                item["roadmap_id"] = roadmap_id.strip()
+                item["roadmap_task_id"] = roadmap_task_id.strip()
             queue.append(item)
             self._save_queue(queue)
             return operation
@@ -1524,10 +1537,8 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     operation_type="prompt",
                     prompt=result["prompt"],
                     idempotency_key=f"roadmap:{roadmap['id']}:{result['task_id']}",
-                )
-                self.bridge_state.annotate_operation(
-                    operation.operation_id,
-                    {"roadmap_id": roadmap["id"], "roadmap_task_id": result["task_id"]},
+                    roadmap_id=roadmap["id"],
+                    roadmap_task_id=result["task_id"],
                 )
                 self._send_json(
                     {"roadmap_id": roadmap["id"], "operation": operation.to_dict(), **result},
@@ -1591,20 +1602,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"error": "unsupported roadmap action"}, HTTPStatus.BAD_REQUEST)
 
-    def annotate_operation(self, operation_id: str, metadata: Mapping[str, Any]) -> dict[str, Any] | None:
-        with self.lock:
-            queue = self._load_queue()
-            for item in queue:
-                if item.get('operation_id') != operation_id:
-                    continue
-                for key in ('roadmap_id', 'roadmap_task_id'):
-                    value = metadata.get(key)
-                    if isinstance(value, str) and value.strip():
-                        item[key] = value.strip()
-                item['updated_at'] = time.time()
-                self._save_queue(queue)
-                return dict(item)
-        return None
     def _claim(
         self,
         payload: dict[str, Any],
