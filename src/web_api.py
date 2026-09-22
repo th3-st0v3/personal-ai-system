@@ -191,7 +191,7 @@ class WebApplication:
                 }
                 for simulation in simulation_library.list_simulations()
             ],
-            "navigation": ["Chat", "Projects", "Education", "Simulations", "Calculations", "Connections"],
+            "navigation": ["Chat", "Planner", "Projects", "Education", "Simulations", "Calculations", "Connections"],
             "models": [
                 {"key": key, "model": model} for key, model in chat_service.MODEL_PROFILES.items()
             ],
