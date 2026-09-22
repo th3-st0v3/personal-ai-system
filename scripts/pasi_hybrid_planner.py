@@ -17,6 +17,8 @@ MAX_TEXT_CHARS = 8000
 MAX_CRITERIA = 32
 MAX_CHILDREN = 16
 DEFAULT_AI_TIMEOUT_SECONDS = 1.5
+DEFAULT_RANKER_TIMEOUT_SECONDS = 15.0
+DEFAULT_RANKER_NUM_CTX = 8192
 
 Ranker = Callable[[Sequence["TaskSpec"]], Sequence[str]]
 
@@ -564,6 +566,9 @@ def _ollama_call(
     timeout_seconds: float,
     base_url: str | None = None,
     model: str | None = None,
+    think: bool | None = None,
+    num_ctx: int | None = None,
+    json_mode: bool = False,
 ) -> Any:
     selected_model = (
         model
@@ -583,7 +588,7 @@ def _ollama_call(
     if not is_local and os.environ.get("PASI_PLANNER_ALLOW_REMOTE", "").strip().casefold() not in {"1", "true", "yes", "on"}:
         raise PlannerError("planner AI endpoint must be local unless PASI_PLANNER_ALLOW_REMOTE is enabled")
     url = candidate_url + "/api/chat"
-    payload = {
+    payload: dict[str, Any] = {
         "model": selected_model,
         "stream": False,
         "options": {"temperature": 0},
@@ -592,6 +597,12 @@ def _ollama_call(
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
     }
+    if think is not None:
+        payload["think"] = think
+    if num_ctx is not None:
+        payload["options"]["num_ctx"] = num_ctx
+    if json_mode:
+        payload["format"] = "json"
     return _model_json(
         _extract_ollama_content(_http_json(url, payload, timeout_seconds))
     )
@@ -600,7 +611,7 @@ def _ollama_call(
 def ollama_ranker(
     candidates: Sequence[TaskSpec],
     *,
-    timeout_seconds: float = DEFAULT_AI_TIMEOUT_SECONDS,
+    timeout_seconds: float = DEFAULT_RANKER_TIMEOUT_SECONDS,
     base_url: str | None = None,
     model: str | None = None,
 ) -> tuple[str, ...]:
@@ -622,6 +633,9 @@ def ollama_ranker(
         timeout_seconds=timeout_seconds,
         base_url=base_url,
         model=model,
+        think=False,
+        num_ctx=int(os.environ.get("PASI_PLANNER_NUM_CTX", str(DEFAULT_RANKER_NUM_CTX))),
+        json_mode=True,
     )
     if isinstance(raw, dict):
         raw = raw.get("ranked_ids")

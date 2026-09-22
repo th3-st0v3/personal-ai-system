@@ -377,6 +377,23 @@ class TestHybridPlanner(unittest.TestCase):
             )
 
 
+    def test_ollama_ranker_uses_resource_safe_non_thinking_json_settings(self) -> None:
+        candidates = (task("a"), task("b"))
+        captured = {}
+
+        def fake_call(**kwargs):
+            captured.update(kwargs)
+            return {"ranked_ids": ["b", "a"]}
+
+        with mock.patch.object(planner, "_ollama_call", side_effect=fake_call):
+            ranked = planner.ollama_ranker(candidates)
+
+        self.assertEqual(ranked, ("b", "a"))
+        self.assertFalse(captured["think"])
+        self.assertEqual(captured["num_ctx"], 8192)
+        self.assertTrue(captured["json_mode"])
+        self.assertEqual(captured["timeout_seconds"], 15.0)
+
     def test_ollama_ranker_validates_structured_response(self) -> None:
         candidates = (task("a"), task("b"))
         with mock.patch.object(
