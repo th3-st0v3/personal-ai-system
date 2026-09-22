@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from scripts import pasi_hybrid_planner as hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
@@ -910,6 +911,31 @@ def embedded_operation_metrics(output: str) -> dict[str, Any] | None:
     return dict(payload) if isinstance(payload, dict) else None
 
 
+def schedule_background_work(
+    work: Callable[[], None],
+    *,
+    event: str,
+    task: str,
+    attempt: int,
+) -> None:
+    def runner() -> None:
+        try:
+            work()
+        except Exception as exc:
+            log_event(
+                f"{event}_failed",
+                task_id=task_key(task),
+                task_number=attempt,
+                error=str(exc)[-4000:],
+            )
+
+    threading.Thread(
+        target=runner,
+        name=f"pasi-{event}",
+        daemon=True,
+    ).start()
+
+
 def emit_operation_metrics(task: str, attempt: int, output: str) -> None:
     operation_id = extract_operation_id(output)
     if not operation_id:
@@ -1671,27 +1697,45 @@ def verify_and_commit(
     if status.strip():
         raise RuntimeError(f"post-commit hygiene check found uncommitted files:\n{status}")
     if push and promote:
-        promotion = command(
-            [
-                sys.executable,
-                str(control_script("pasi_promote.py")),
-                "--commit",
-                commit,
-                "--branch",
-                branch,
-                "--task",
-                task,
-                "--json",
-            ],
-            REPO_ROOT,
-            90.0,
+        def promote_verified_commit() -> None:
+            result = command(
+                [
+                    sys.executable,
+                    str(control_script("pasi_promote.py")),
+                    "--commit",
+                    commit,
+                    "--branch",
+                    branch,
+                    "--task",
+                    task,
+                    "--json",
+                    "--no-auto-merge-standard",
+                ],
+                REPO_ROOT,
+                90.0,
+            )
+            if result[0] == 0:
+                log_event(
+                    "promotion_completed",
+                    commit=commit,
+                    branch=branch,
+                    result=result[1][-4000:],
+                )
+            else:
+                log_event(
+                    "promotion_deferred",
+                    commit=commit,
+                    branch=branch,
+                    error=result[1][-4000:],
+                )
+
+        schedule_background_work(
+            promote_verified_commit,
+            event="promotion",
+            task=task,
+            attempt=attempt or 0,
         )
-        if promotion[0] == 0:
-            output = output + "\n\n[PASI PROMOTION]\n" + promotion[1]
-        else:
-            log_event("promotion_deferred", commit=commit, branch=branch, error=promotion[1][-4000:])
-            output = output + "\n\n[PASI PROMOTION DEFERRED]\n" + promotion[1][-4000:]
-    return commit, output
+        output = output + "\n\n[PASI PROMOTION SCHEDULED]\n"    return commit, output
 
 
 def standby_until_ready(
@@ -1861,7 +1905,12 @@ def run(state: OvernightState, *, push: bool) -> None:
             )
             code, response = invoke_chat(state.current_task, state, failure)
             provider_source = state.last_provider
-            emit_operation_metrics(state.current_task, attempt, response)
+            schedule_background_work(
+                lambda: emit_operation_metrics(state.current_task, attempt, response),
+                event="operation_metrics",
+                task=state.current_task,
+                attempt=attempt,
+            )
             condition = provider_condition(code, response)
             if condition == "auth_required":
                 log_event("auth_recovery_required", reason="ChatGPT authentication challenge", task_number=state.task_number)
