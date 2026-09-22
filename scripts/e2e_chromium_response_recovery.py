@@ -257,14 +257,31 @@ def find_chrome() -> str:
         "chromium-browser",
     ):
         path = shutil.which(candidate)
-        if path:
-            return path
-    raise RuntimeError(
-        "Chrome/Chromium binary not found; set PASI_E2E_CHROME_BINARY to an "
-        "executable Chrome/Chromium binary"
+        if not path:
+            continue
+        resolved = Path(path).resolve()
+        if str(resolved).startswith("/snap/") or path.startswith("/snap/"):
+            continue
+        return path
+
+    cache_roots = (Path.home() / ".cache" / "ms-playwright", Path.home() / ".cache" / "pasi")
+    cached = []
+    for root in cache_roots:
+        if root.is_dir():
+            cached.extend(root.glob("chromium-*/chrome-linux*/chrome"))
+            cached.extend(root.glob("**/chrome-linux*/chrome"))
+    cached = sorted(
+        {item.resolve() for item in cached if item.is_file() and os.access(item, os.X_OK)},
+        key=lambda item: item.stat().st_mtime_ns,
+        reverse=True,
     )
+    if cached:
+        return str(cached[0])
 
-
+    raise RuntimeError(
+        "No non-Snap Chromium-family binary found. Install a local Playwright Chromium "
+        "or set PASI_E2E_CHROME_BINARY to an executable Chrome/Chromium binary."
+    )
 def find_chromedriver() -> str:
     env_path = os.environ.get("CHROMEWEBDRIVER", "").strip()
     candidates = [
