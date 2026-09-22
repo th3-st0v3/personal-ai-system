@@ -2,9 +2,7 @@ name: PASI quality proofing
 
 on:
   push:
-    branches: [main, beta-foundation, 'pasi/**']
-  pull_request:
-    branches: [main, 'pasi/**']
+    branches: [main, beta-foundation]
   schedule:
     - cron: '47 4 * * 1'
   workflow_dispatch:
