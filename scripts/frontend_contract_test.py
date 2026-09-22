@@ -212,4 +212,4 @@ def test_requirement_history_frontend_backend_contract() -> None:
     assert "/api/engineering/projects/${s.projectId}/requirements/${requirement.id}/history" in ui
     assert "historyError" in ui
     assert "data-engineering-history-refresh" in ui
-    assert "Authoritative activity from the engineering history API" in ui
+    assert "Backend-authoritative history" in ui
