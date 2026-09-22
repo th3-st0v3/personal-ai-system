@@ -36,10 +36,10 @@ jobs:
           python-version: '3.12'
       - name: Install local proofing dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Validate local hook configuration
+      - name: Verify self-hosted runner readiness
+        run: python scripts/check_pasi_self_hosted_runner.py
+      - name: Run local proofing hooks
         run: pre-commit run --all-files
-      - name: Validate runner-free proofing contract
-        run: python scripts/pasi_local_proof.py --all
 
   coverage:
     needs: local-proofing
