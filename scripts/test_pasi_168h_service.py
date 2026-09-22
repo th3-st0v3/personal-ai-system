@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -8,6 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestPasi168HourDurableServiceContract(unittest.TestCase):
+    def test_launcher_scripts_have_valid_shell_syntax(self) -> None:
+        for relative_path in ("scripts/start_pasi_168h.sh", "scripts/start_pasi_168h_service.sh"):
+            result = subprocess.run(["bash", "-n", str(ROOT / relative_path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_service_launcher_uses_host_systemd_and_persistent_checkout(self) -> None:
         source = (ROOT / "scripts" / "start_pasi_168h_service.sh").read_text(encoding="utf-8")
         self.assertIn("systemd-run", source)
