@@ -21,6 +21,9 @@ EXTENSION_FILES = (
     "content.js",
     "recovery_progress.js",
     "recovery.js",
+    "sidepanel.html",
+    "sidepanel.css",
+    "sidepanel.js",
 )
 
 
