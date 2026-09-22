@@ -17,7 +17,7 @@ def test_runner_bootstrap_is_noninteractive_and_service_aware() -> None:
     assert "--unattended" in source
     assert "--replace" in source
     assert "[[ -d /run/systemd/system ]]" in source
-    assert "-f \"$RUNNER_DIR/.service\"" in source
+    assert '-f "$RUNNER_DIR/.service"' in source
     assert "sudo ./svc.sh install" in source
     assert "sudo ./svc.sh start" in source
     assert "sudo ./svc.sh status" in source
@@ -39,3 +39,14 @@ def test_authoritative_ci_stays_self_hosted_and_fork_safe() -> None:
     assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in security_workflow
     assert "untrusted fork pull requests" in test_workflow
     assert "github.event.pull_request.head.repo.full_name == github.repository" in security_workflow
+
+
+def test_obsolete_hosted_pr_audits_are_not_present() -> None:
+    assert not (ROOT / ".github" / "workflows" / "agent-impact-audit.yml").exists()
+    assert not (ROOT / ".github" / "workflows" / "self-modification-boundary-audit.yml").exists()
+
+
+def test_security_runs_cancel_stale_heads() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
+    assert "group: pasi-security-${{ github.event.pull_request.number || github.ref }}" in workflow
+    assert "cancel-in-progress: true" in workflow
