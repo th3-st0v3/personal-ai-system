@@ -55,6 +55,22 @@ class TestWebApplication(unittest.TestCase):
         self.assertGreaterEqual(manifest["calculations"]["count"], 28)
         self.assertGreaterEqual(len(manifest["simulations"]), 2)
         self.assertIn("Education", manifest["navigation"])
+        self.assertIn("Planner", manifest["navigation"])
+
+    def test_planner_roadmap_endpoint_exposes_validated_runtime_snapshot(self):
+        status, _, payload = self.request("GET", "/api/planner/roadmap")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["roadmap"]["schema_version"], 1)
+        self.assertEqual(payload["roadmap"]["path"], "roadmaps/pasi-default.json")
+        self.assertGreaterEqual(len(payload["tasks"]), 1)
+        self.assertIn("eligible_ids", payload)
+        self.assertIn("deterministic_rank", payload)
+        self.assertIn("progress", payload)
+        self.assertIn("runtime", payload)
+        task = payload["tasks"][0]
+        self.assertIn("id", task)
+        self.assertIn("runtime_status", task)
+        self.assertIn("satisfied", task)
 
     def test_auth_signup_login_and_me_are_optional(self):
         status, headers, payload = self.request("POST", "/api/auth/signup", {"email": "riley@example.com", "password": "safe-pass-123", "display_name": "Riley"})
