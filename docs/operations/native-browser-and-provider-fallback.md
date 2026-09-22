@@ -26,6 +26,20 @@ Fallback providers are evidence/model sources only. The unattended runner still 
 
 `python scripts/pasi_research.py --read "https://example.com"` uses the existing bounded HTTPS research adapter. HTTPS, public-address, content-type, response-size, and content-length protections remain active.
 
+## Ollama context policy
+
+Ollama is an optional local fallback, not the primary PASI execution surface. The Windows/macOS Ollama app can provide a server-level context-length default; set that baseline to **32K tokens** for PASI's current local `qwen3:8b` fallback.
+
+PASI also sends an explicit `options.num_ctx` value on every Ollama chat request so unattended behavior does not depend on a GUI default. The default is `32768` and can be deliberately overridden with:
+
+```text
+PASI_OLLAMA_CONTEXT_TOKENS=<tokens>
+```
+
+The currently installed `qwen3:8b` Ollama tag provides a **40K-token** context window, so configuring the app to 256K does not turn this model into a 256K model. The 32K PASI default leaves headroom below the model ceiling for output and runtime memory.
+
+Do not silently raise PASI to the maximum context merely because the Ollama UI offers a larger global value. Larger contexts consume more memory; use a larger-context model/tag and a measured hardware budget before increasing this default.
+
 ## Failure behavior
 
 PASI distinguishes provider usage limits, authentication challenges, browser-runtime loss, and conversation-context exhaustion. A provider-wide usage limit does not cause a new-chat rollover. A stale browser controller can place the runner in bounded standby until the browser recovers, while fallback providers can continue work when configured.
