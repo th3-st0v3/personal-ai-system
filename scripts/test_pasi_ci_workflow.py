@@ -13,6 +13,11 @@ class TestPasiCIWorkflow(unittest.TestCase):
         self.assertIn("branches: [main, beta-foundation, 'pasi/**']", workflow)
         self.assertIn("pull_request:\n    branches: [main, 'pasi/**']", workflow)
 
+    def test_168h_desktop_gate_hands_off_to_host_service_manager(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pasi-desktop-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("bash scripts/start_pasi_168h_service.sh", workflow)
+        self.assertNotIn("bash scripts/start_pasi_168h.sh", workflow)
+
     def test_canonical_validation_is_present(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("bash scripts/check_all.sh", workflow)
