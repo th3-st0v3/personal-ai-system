@@ -81,9 +81,11 @@ def test_p04_validator_requires_verified_acceptance_checks(tmp_path: Path) -> No
                 "worktree_clean": True,
                 "resource_sample_count": 12,
                 "pr_verified": False,
+                "pr_head_matches": False,
             },
         },
     )
     errors = validate_p04(path)
     assert "P0.4 branch identity is not verified" in errors
     assert "P0.4 PR provenance is not verified" in errors
+    assert "P0.4 PR head does not match final Git HEAD" in errors
