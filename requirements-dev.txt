@@ -1,2 +1,2 @@
-pytest==8.4.2
+pytest==9.0.3
 websockets==15.0.1
