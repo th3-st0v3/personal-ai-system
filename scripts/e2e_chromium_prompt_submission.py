@@ -33,7 +33,6 @@ from scripts.e2e_chromium_response_recovery import (
 )
 
 BRIDGE_HOST = "127.0.0.1"
-BRIDGE_PORT = 8765
 CHAT_PATH = "/c/pasi-prompt-submission"
 OPERATIONS = [
     {
@@ -321,7 +320,9 @@ def main() -> None:
     BridgeHandler.reset()
     FixtureHandler.reset()
 
-    bridge = ThreadingHTTPServer((BRIDGE_HOST, BRIDGE_PORT), BridgeHandler)
+    bridge_port = free_port()
+    bridge_url = f"http://{BRIDGE_HOST}:{bridge_port}"
+    bridge = ThreadingHTTPServer((BRIDGE_HOST, bridge_port), BridgeHandler)
     fixture_port = free_port()
     fixture = ThreadingHTTPServer(("127.0.0.1", fixture_port), FixtureHandler)
 
@@ -349,7 +350,7 @@ def main() -> None:
                 tempfile.TemporaryDirectory(prefix="pasi-prompt-submission-extension-") as extension_root,
                 tempfile.NamedTemporaryFile(prefix="pasi-prompt-submission-", suffix=".log", delete=False) as log_file,
             ):
-                extension_dir = build_extension(Path(extension_root) / "pasi-chatgpt")
+                extension_dir = build_extension(Path(extension_root) / "pasi-chatgpt", bridge_url=bridge_url)
                 debug_port = free_port()
                 profile_dir = Path(profile_root) / "profile"
                 profile_dir.mkdir()
