@@ -42,8 +42,6 @@ class TestProviderRouter(unittest.TestCase):
         self.assertEqual(result, "PASI_RESULT_STATUS: complete")
 
     def test_opencode_fallback_runs_from_read_only_scrubbed_snapshot(self) -> None:
-        import os
-
         source = Path(pasi_provider_router.__file__).read_text(encoding="utf-8")
         self.assertIn('shutil.copytree(repo, sandbox', source)
         self.assertIn('directory.chmod(0o555)', source)
@@ -195,9 +193,39 @@ class TestProviderRouter(unittest.TestCase):
         sleep.assert_not_called()
         ollama.assert_called_once()
 
+    def test_free_test_mode_blocks_external_provider_network(self) -> None:
+        with patch.dict("os.environ", {"PASI_FREE_TEST_MODE": "1"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "blocks external provider network access"):
+                pasi_provider_router.post_json(
+                    "https://example.invalid/test",
+                    {"x": 1},
+                    {},
+                    3.0,
+                )
+
+    def test_free_test_mode_allows_loopback_provider_network(self) -> None:
+        import urllib.request
+
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, _limit):
+                return b'{"ok": true}'
+
+        with patch.dict("os.environ", {"PASI_FREE_TEST_MODE": "1"}, clear=True):
+            with patch.object(urllib.request, "urlopen", return_value=Response()):
+                result = pasi_provider_router.post_json(
+                    "http://127.0.0.1:8765/test",
+                    {"x": 1},
+                    {},
+                    3.0,
+                )
+
+        self.assertEqual(result, {"ok": True})
 
     def test_post_json_sets_a_non_default_user_agent(self) -> None:
-        import json
         import urllib.request
 
         captured = {}
@@ -215,13 +243,14 @@ class TestProviderRouter(unittest.TestCase):
             captured["timeout"] = timeout
             return Response()
 
-        with patch.object(urllib.request, "urlopen", side_effect=fake_urlopen):
-            result = pasi_provider_router.post_json(
-                "https://example.invalid/test",
-                {"x": 1},
-                {"Authorization": "Bearer secret"},
-                3.0,
-            )
+        with patch.dict("os.environ", {"PASI_FREE_TEST_MODE": ""}):
+            with patch.object(urllib.request, "urlopen", side_effect=fake_urlopen):
+                result = pasi_provider_router.post_json(
+                    "https://example.invalid/test",
+                    {"x": 1},
+                    {"Authorization": "Bearer secret"},
+                    3.0,
+                )
 
         self.assertEqual(result, {"ok": True})
         self.assertEqual(captured["request"].headers["User-agent"], "PASI-provider-router/1.0")
