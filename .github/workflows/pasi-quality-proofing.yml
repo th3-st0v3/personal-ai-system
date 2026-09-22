@@ -29,6 +29,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - name: Verify self-hosted runner readiness
+        run: python scripts/check_pasi_self_hosted_runner.py
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
