@@ -69,6 +69,19 @@ if [[ -f "$REPO_ROOT/.venv/bin/activate" ]]; then
     source "$REPO_ROOT/.venv/bin/activate"
 fi
 
+# Isolated Git worktrees intentionally do not carry the ignored .venv directory.
+# Bootstrap the same dependency set used by local/CI validation before running
+# tests so a fresh worktree does not fall back to an unrelated system Python.
+if ! python -c 'import pytest' >/dev/null 2>&1; then
+    printf '\n==> Bootstrap validation Python environment\n'
+    if [[ ! -f "$REPO_ROOT/.venv/bin/activate" ]]; then
+        python3 -m venv "$REPO_ROOT/.venv"
+        # shellcheck disable=SC1091
+        source "$REPO_ROOT/.venv/bin/activate"
+    fi
+    python -m pip install -r requirements.txt -r requirements-dev.txt
+fi
+
 export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
 run_check() {
