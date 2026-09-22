@@ -416,6 +416,40 @@ branch refs/heads/main
                     self.assertEqual(repeats, 0)
                 self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
 
+    def test_next_task_selection_disables_planner_ai_for_latency(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="planner-hot-path",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task="current task",
+        )
+        selected = pasi_hybrid_planner.TaskSpec(
+            id="next.task",
+            title="Next task",
+            objective="Proceed immediately to the next eligible task.",
+            acceptance_criteria=("The next task is selected.",),
+            verification=("Run the targeted test.",),
+            phase="automation",
+        )
+        with mock.patch.object(
+            engine,
+            "select_planner_task",
+            return_value=pasi_hybrid_planner.PlannerDecision(
+                selected=selected,
+                eligible_ids=("next.task",),
+                mode="deterministic",
+                reason="latency hot path",
+            ),
+        ) as planner:
+            result = engine.choose_next_task(state, "")
+        self.assertEqual(result, selected.execution_text())
+        self.assertEqual(planner.call_args.kwargs["allow_ai"], False)
+
     def test_scheduler_ignores_model_task_suggestion(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
