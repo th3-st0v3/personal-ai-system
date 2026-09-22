@@ -20,6 +20,12 @@ def job_block(source: str, job_name: str) -> str:
 
 
 class TestQualityProofingWorkflow(unittest.TestCase):
+    def test_quality_workflow_is_post_merge_and_not_a_pr_hot_path(self) -> None:
+        source = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("  push:\n    branches: [main, beta-foundation]", source)
+        self.assertNotIn("  pull_request:", source)
+        self.assertIn("  workflow_dispatch:", source)
+
     def test_all_quality_jobs_are_self_hosted(self) -> None:
         source = WORKFLOW.read_text(encoding="utf-8")
         selectors = re.findall(r"(?m)^\s*runs-on:\s*(.+)$", source)
