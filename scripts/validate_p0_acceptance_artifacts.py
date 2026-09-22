@@ -89,6 +89,8 @@ def validate_m2(path: Path) -> list[str]:
         return errors
     if not isinstance(latest_operation, dict) or latest_operation.get("operation_id") != operation_id:
         errors.append("M2 final operation identity does not match")
+    if isinstance(latest_operation, dict) and latest_operation.get("status") != "completed":
+        errors.append("M2 final operation is not completed")
     if value.get("bridge_restart_verified") is not True or value.get("runner_restart_verified") is not True:
         errors.append("M2 did not verify both bridge and runner restart")
     if value.get("duplicate_user_message_delta") != 0:
@@ -110,6 +112,8 @@ def validate_m2(path: Path) -> list[str]:
     marker = match.group(0) if match else ""
     if marker and marker not in response_text:
         errors.append("M2 final response does not contain its original marker")
+    if value.get("manual_tab_recovery_recorded") is not True:
+        errors.append("M2 manual tab recovery was not explicitly recorded")
     if value.get("handoff_cleared_after_completion") is not True:
         errors.append("M2 did not verify active-operation handoff clearance")
     return errors
