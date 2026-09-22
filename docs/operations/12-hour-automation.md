@@ -16,7 +16,7 @@ Use one Chromium/Chrome profile dedicated to PASI. Open `https://chatgpt.com/` a
 
 Install **one** PASI browser-controller path:
 
-- Preferred: load the unpacked native extension from `automation/chromium/pasi-chatgpt` in Chromium/Chrome.
+- Preferred: build the cache-free native extension with `python scripts/build_chromium_extension.py`, then load the generated `.runtime/chromium/pasi-chatgpt` directory in Chromium/Chrome. Do not load the Python source directory directly because local tooling can create `__pycache__` entries that Chromium rejects.
 - Alternative: install `automation/tampermonkey/chatgpt-controller-loader.user.js` in Tampermonkey. Do not run a second directly-installed PASI ChatGPT controller at the same time.
 
 The GitHub account/app is only needed when account-scoped GitHub access or the connected ChatGPT GitHub fallback is required. The public PASI repository is the default repository context.
