@@ -168,12 +168,194 @@ class EngineeringWebApplication:
         result["bytes"] = len(payload)
         return result
 
+    def _requirement_history(self, project_id: int, requirement_id: int) -> list[dict[str, object]]:
+        """Build a backend-authoritative requirement verification timeline.
+
+        The timeline is derived from persisted engineering records only:
+        requirement timestamps/status, evidence lifecycle timestamps, linked
+        decisions, reviews, and audit records. No synthetic client state is
+        accepted as history.
+        """
+        self._require_requirement(project_id, requirement_id)
+        connection = db.get_connection()
+        try:
+            rows = connection.execute(
+                """
+                SELECT
+                    e.id,
+                    e.result,
+                    e.supports_status,
+                    e.lifecycle_status,
+                    e.source,
+                    e.location,
+                    e.source_id,
+                    e.calculation_record_id,
+                    e.description,
+                    e.evidence_type,
+                    e.created_at,
+                    e.invalidated_at,
+                    e.invalidation_reason
+                FROM evidence e
+                WHERE e.requirement_id = ?
+                ORDER BY e.created_at ASC, e.id ASC
+                """,
+                (requirement_id,),
+            ).fetchall()
+
+            evidence_events: list[dict[str, object]] = []
+            for row in rows:
+                source = None
+                if row[6] is not None:
+                    source_row = connection.execute(
+                        """
+                        SELECT id, title, source_type, version, url
+                        FROM sources
+                        WHERE id = ? AND project_id = ?
+                        """,
+                        (row[6], project_id),
+                    ).fetchone()
+                    if source_row is not None:
+                        source = {
+                            "id": source_row[0],
+                            "title": source_row[1],
+                            "source_type": source_row[2],
+                            "version": source_row[3],
+                            "url": source_row[4],
+                        }
+
+                evidence_events.append({
+                    "id": f"evidence-{row[0]}",
+                    "entity_type": "evidence",
+                    "entity_id": row[0],
+                    "event_type": "evidence_recorded",
+                    "occurred_at": row[10],
+                    "status": row[2],
+                    "lifecycle_status": row[3],
+                    "title": "Evidence recorded",
+                    "description": row[8] or row[1] or "Evidence was recorded.",
+                    "result": row[1],
+                    "location": row[5],
+                    "evidence_type": row[9],
+                    "calculation_record_id": row[7],
+                    "source": source or ({"title": row[4], "external": True} if row[4] else None),
+                })
+                if row[11]:
+                    evidence_events.append({
+                        "id": f"evidence-{row[0]}-invalidated",
+                        "entity_type": "evidence",
+                        "entity_id": row[0],
+                        "event_type": "evidence_invalidated",
+                        "occurred_at": row[11],
+                        "status": "Invalidated",
+                        "lifecycle_status": "Invalidated",
+                        "title": "Evidence invalidated",
+                        "description": row[12] or "Evidence was invalidated.",
+                        "result": row[1],
+                        "source": source or ({"title": row[4], "external": True} if row[4] else None),
+                    })
+
+            decision_rows = connection.execute(
+                """
+                SELECT id, title, decision, rationale, status, created_at, updated_at
+                FROM decisions
+                WHERE project_id = ? AND requirement_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (project_id, requirement_id),
+            ).fetchall()
+
+            decision_events = [{
+                "id": f"decision-{row[0]}",
+                "entity_type": "decision",
+                "entity_id": row[0],
+                "event_type": "decision_recorded",
+                "occurred_at": row[5],
+                "status": row[4],
+                "title": row[1] or "Decision recorded",
+                "description": row[2] or "A decision was linked to this requirement.",
+                "rationale": row[3],
+                "updated_at": row[6],
+            } for row in decision_rows]
+
+            review_rows = connection.execute(
+                """
+                SELECT id, status, comments, created_at, completed_at
+                FROM reviews
+                WHERE entity_type = 'requirement' AND entity_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (requirement_id,),
+            ).fetchall()
+            review_events = [{
+                "id": f"review-{row[0]}",
+                "entity_type": "review",
+                "entity_id": row[0],
+                "event_type": "review",
+                "occurred_at": row[4] or row[3],
+                "status": row[1],
+                "title": "Requirement review",
+                "description": row[2] or f"Review status: {row[1]}.",
+            } for row in review_rows]
+
+            audit_rows = connection.execute(
+                """
+                SELECT id, action, metadata, created_at
+                FROM audit_events
+                WHERE entity_type = 'requirement' AND entity_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (requirement_id,),
+            ).fetchall()
+
+            audit_events: list[dict[str, object]] = []
+            for row in audit_rows:
+                metadata: object = None
+                if row[2]:
+                    try:
+                        metadata = json.loads(row[2])
+                    except (TypeError, json.JSONDecodeError):
+                        metadata = {"raw": row[2]}
+                audit_events.append({
+                    "id": f"audit-{row[0]}",
+                    "entity_type": "audit",
+                    "entity_id": requirement_id,
+                    "event_type": "audit",
+                    "occurred_at": row[3],
+                    "status": None,
+                    "title": row[1],
+                    "description": row[1],
+                    "metadata": metadata,
+                })
+
+            requirement_row = db.get_requirement(requirement_id)
+            requirement_event = []
+            if requirement_row is not None:
+                requirement_event.append({
+                    "id": f"requirement-{requirement_id}-updated",
+                    "entity_type": "requirement",
+                    "entity_id": requirement_id,
+                    "event_type": "requirement_record",
+                    "occurred_at": requirement_row[9] or requirement_row[4],
+                    "status": requirement_row[3],
+                    "title": "Requirement record",
+                    "description": "Current persisted requirement record.",
+                })
+
+            events = [*requirement_event, *evidence_events, *decision_events, *review_events, *audit_events]
+            events.sort(key=lambda item: (str(item.get("occurred_at") or ""), str(item.get("id") or "")), reverse=True)
+            return events
+        finally:
+            connection.close()
+
     def _handle_requirements(self, method: str, parts: list[str], project_id: int, data: dict[str, object]) -> tuple[int, object] | None:
         if len(parts) == 5 and method == "GET":
             return 200, self.engineering.list_requirements(project_id)
         if len(parts) == 5 and method == "POST":
             return 201, {"id": db.create_requirement(project_id, str(data["description"]))}
         if len(parts) == 6 and parts[5] == "test-plan" and method == "GET":
+        if len(parts) == 7 and parts[6] == "history" and method == "GET":
+            requirement_id = self._as_int(parts[5], "requirement_id")
+            return 200, self._requirement_history(project_id, requirement_id)
             return 200, engineering_plans.build_test_plan(self.engineering.list_requirements(project_id))
         if len(parts) == 6 and method == "PATCH":
             requirement_id = self._as_int(parts[5], "requirement_id")
