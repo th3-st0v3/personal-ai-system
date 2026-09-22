@@ -10,6 +10,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  free-validation:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    concurrency:
+      group: pasi-free-validation-${{ github.workflow }}-${{ github.sha }}
+      cancel-in-progress: false
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+      - name: Install JavaScript DOM fixture dependency
+        run: npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
+      - name: Install free local Chromium fixture browser
+        run: npx --yes playwright@latest install chromium
+      - name: Run free deterministic and browser-fixture acceptance
+        env:
+          PASI_FREE_TEST_MODE: '1'
+        run: python scripts/run_free_acceptance.py
+
   test:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     concurrency:
