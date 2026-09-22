@@ -1594,3 +1594,133 @@ def test_runner_capability_report_is_sanitized(tmp_path: Path, monkeypatch: pyte
     assert payload["required_ok"] is True
     assert payload["resources"]["memory_used_mib"] == 100
     assert "secret" not in payload
+
+def test_roadmap_store_http_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = bridge_module.RoadmapStore(tmp_path / "roadmaps.json")
+    monkeypatch.setattr(bridge_module, "ROADMAP_STORE", store)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = make_bridge(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        def request(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
+            connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+            payload = json.dumps(body or {}).encode("utf-8")
+            connection.request(method, path, body=payload, headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-bridge-token",
+            })
+            response = connection.getresponse()
+            data = json.loads(response.read().decode("utf-8"))
+            connection.close()
+            return response.status, data
+
+        status, created = request("POST", "/roadmaps", {"action": "create", "name": "Core"})
+        assert status == 201
+        first_id = created["roadmap"]["id"]
+        status, created2 = request("POST", "/roadmaps", {"action": "create", "name": "UI"})
+        assert status == 201
+        second_id = created2["roadmap"]["id"]
+        status, listed = request("GET", "/roadmaps")
+        assert status == 200
+        assert len(listed["roadmaps"]) == 2
+        status, selected = request("POST", "/roadmap/select", {"roadmap_id": first_id})
+        assert status == 200
+        assert selected["roadmap"]["id"] == first_id
+        status, archived = request("POST", "/roadmap/archive", {"roadmap_id": first_id})
+        assert status == 200
+        assert archived["roadmap"]["archived"] is True
+        status, deleted = request("POST", "/roadmap/delete", {"roadmap_id": second_id})
+        assert status == 200
+        assert deleted["deleted"] == second_id
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_bridge_rejects_unauthorized_roadmap_request(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request("GET", "/roadmaps")
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        assert response.status == 401
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+def test_headless_next_operation_advances_selected_roadmap_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = bridge_module.RoadmapStore(tmp_path / "roadmaps.json")
+    roadmap = store.create(
+        "Core",
+        tasks=[{
+            "id": "task-1",
+            "title": "Build bridge",
+            "objective": "Build bridge",
+            "depends_on": [],
+            "acceptance_criteria": ["bridge works"],
+            "verification": ["run tests"],
+            "phase": "automation",
+            "status": "pending",
+        }],
+    )
+    monkeypatch.setattr(bridge_module, "ROADMAP_STORE", store)
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/roadmap/next-operation",
+            body=b"{}",
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
+        )
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        assert response.status == 201
+        operation_id = body["operation"]["operation_id"]
+        assert body["roadmap_id"] == roadmap["id"]
+        assert body["task_id"] == "task-1"
+        assert "PASI TASK task-1" in body["prompt"]
+
+        claimed = bridge.claim_operation(operation_id)
+        assert claimed is not None
+        bridge.heartbeat(operation_id)
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        payload = json.dumps({
+            "operation_id": operation_id,
+            "response_text": "verified implementation complete",
+            "response_text_available": True,
+        }).encode("utf-8")
+        connection.request(
+            "POST",
+            "/chat/finished",
+            body=payload,
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-bridge-token"},
+        )
+        response = connection.getresponse()
+        json.loads(response.read().decode("utf-8"))
+        connection.close()
+        assert response.status == 200
+
+        updated = store.get(roadmap["id"])
+        assert updated["tasks"][0]["status"] == "completed"
+
+        assert updated["tasks"][0]["status"] == "completed"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

@@ -38,6 +38,8 @@ const BRIDGE_ROUTES = new Set([
   'GET /next-operation'
 ]);
 const BRIDGE_OPERATION_RE = /^\/operation\?operation_id=[^&]{1,200}$/;
+const BRIDGE_ROADMAP_GET_PATHS = new Set(['/roadmaps', '/roadmap/active']);
+const BRIDGE_ROADMAP_POST_PATHS = new Set(['/roadmaps', '/roadmap/select', '/roadmap/archive', '/roadmap/delete', '/roadmap/combine', '/roadmap/tasks', '/roadmap/dissect', '/roadmap/next-prompt', '/roadmap/next-operation']);
 
 async function bridgeToken(forceRefresh = false) {
   if (!forceRefresh && cachedBridgeToken) return cachedBridgeToken;
@@ -57,6 +59,14 @@ async function bridgeToken(forceRefresh = false) {
     }
   })();
   return bridgeTokenPromise;
+}
+
+function allowedRoadmapRequest(method, path) {
+  const normalized = String(method || 'GET').toUpperCase();
+  const value = String(path || '');
+  if (normalized === 'GET') return BRIDGE_ROADMAP_GET_PATHS.has(value);
+  if (normalized === 'POST') return BRIDGE_ROADMAP_POST_PATHS.has(value);
+  return false;
 }
 
 function allowedBridgeRequest(method, path) {
@@ -115,6 +125,23 @@ async function bridgeJson(path) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'pasi-roadmap-request') {
+    const senderUrl = String(sender?.url || sender?.origin || '');
+    const extensionPrefix = 'chrome-extension://' + chrome.runtime.id + '/';
+    if (!senderUrl.startsWith(extensionPrefix) && sender?.id !== chrome.runtime.id) {
+      sendResponse({ ok: false, status: 403, text: '' });
+      return undefined;
+    }
+    const method = String(message.method || 'GET').toUpperCase();
+    const path = String(message.path || '');
+    if (!allowedRoadmapRequest(method, path)) {
+      sendResponse({ ok: false, status: 403, text: '' });
+      return undefined;
+    }
+    bridgeFetch(path, method, message.body ?? null, Number(message.timeout) || 60000).then(sendResponse);
+    return true;
+  }
+
   if (message?.type === 'pasi-controller-claim') {
     const tabId = sender?.tab?.id;
     if (typeof tabId !== 'number') {

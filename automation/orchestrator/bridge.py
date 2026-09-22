@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import parse_qs, urlparse
 
 from .config import CONFIG, ensure_runtime_directories
@@ -17,6 +17,8 @@ from .models import ChatOperation
 from .operation_lifecycle import InvalidOperationTransition, validate_transition
 from .state import TERMINAL_QUEUE_STATUSES, StateManager
 from scripts.pasi_timeout_policy import load_timeout_policy
+from scripts.pasi_roadmap_store import RoadmapError, RoadmapStore
+from scripts.pasi_multi_ai_planner import MultiAIError, next_prompt as roadmap_next_prompt, plan as plan_roadmap
 
 
 HOST = "127.0.0.1"
@@ -48,6 +50,7 @@ RUNNER_RUNTIME_DIR = Path(os.environ.get("PASI_RUNTIME_DIR", str(Path.home() / "
 RUNNER_STATE_PATH = RUNNER_RUNTIME_DIR / "state.json"
 RUNNER_CONTROL_PATH = RUNNER_RUNTIME_DIR / "control.json"
 MAX_RUNNER_CAPABILITIES_BYTES = 256_000
+ROADMAP_STORE = RoadmapStore()
 _TRANSIENT_BROWSER_ERROR_PREFIXES = (
     "Could not find ChatGPT composer.",
     "Composer disappeared before submission.",
@@ -1302,6 +1305,22 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/roadmaps":
+            self._send_json(ROADMAP_STORE.list(include_archived=False))
+            return
+
+        if path == "/roadmap":
+            roadmap_id = parse_qs(parsed.query).get("roadmap_id", [""])[0].strip()
+            if not roadmap_id:
+                self._send_json({"error": "roadmap_id is required."}, HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"roadmap": ROADMAP_STORE.get(roadmap_id)})
+            return
+
+        if path == "/roadmap/active":
+            self._send_json({"roadmap": ROADMAP_STORE.active()})
+            return
+
         if path == "/runner/capabilities":
             self._send_json(load_runner_capabilities())
             return
@@ -1435,6 +1454,87 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 self._browser_observation(payload)
                 return
 
+            if path == "/roadmaps":
+                self._roadmaps(payload)
+                return
+
+            if path == "/roadmap/select":
+                roadmap = ROADMAP_STORE.select(str(payload.get("roadmap_id", "")).strip())
+                self._send_json({"roadmap": roadmap})
+                return
+
+            if path == "/roadmap/archive":
+                roadmap = ROADMAP_STORE.archive(str(payload.get("roadmap_id", "")).strip())
+                self._send_json({"roadmap": roadmap})
+                return
+
+            if path == "/roadmap/delete":
+                roadmap_id = str(payload.get("roadmap_id", "")).strip()
+                ROADMAP_STORE.delete(roadmap_id)
+                self._send_json({"deleted": roadmap_id})
+                return
+
+            if path == "/roadmap/combine":
+                ids = payload.get("roadmap_ids")
+                name = payload.get("name", "Combined roadmap")
+                if not isinstance(ids, list) or not all(isinstance(item, str) and item.strip() for item in ids):
+                    self._send_json({"error": "roadmap_ids must be a non-empty string list."}, HTTPStatus.BAD_REQUEST)
+                    return
+                roadmap = ROADMAP_STORE.combine(ids, str(name))
+                self._send_json({"roadmap": roadmap}, HTTPStatus.CREATED)
+                return
+
+            if path == "/roadmap/tasks":
+                roadmap_id = str(payload.get("roadmap_id", "")).strip()
+                tasks = payload.get("tasks")
+                if not roadmap_id or not isinstance(tasks, list):
+                    self._send_json({"error": "roadmap_id and tasks are required."}, HTTPStatus.BAD_REQUEST)
+                    return
+                roadmap = ROADMAP_STORE.replace_tasks(roadmap_id, tasks, raw_text=payload.get("raw_text"))
+                self._send_json({"roadmap": roadmap})
+                return
+
+            if path == "/roadmap/dissect":
+                roadmap_id = str(payload.get("roadmap_id", "")).strip()
+                raw_text = payload.get("raw_text")
+                if not roadmap_id or not isinstance(raw_text, str):
+                    self._send_json({"error": "roadmap_id and raw_text are required."}, HTTPStatus.BAD_REQUEST)
+                    return
+                result = plan_roadmap(raw_text, use_cloud=payload.get("use_cloud", True) is not False)
+                roadmap = ROADMAP_STORE.replace_tasks(roadmap_id, result["tasks"], raw_text=raw_text)
+                self._send_json({"roadmap": roadmap, "planning": result.get("planning", {}), "dissection": result.get("dissection", {})})
+                return
+
+            if path == "/roadmap/next-prompt":
+                roadmap = ROADMAP_STORE.active()
+                if roadmap is None:
+                    self._send_json({"error": "no active roadmap"}, HTTPStatus.NOT_FOUND)
+                    return
+                result = roadmap_next_prompt(roadmap.get("tasks", []))
+                self._send_json({"roadmap_id": roadmap["id"], **result})
+                return
+
+            if path == "/roadmap/next-operation":
+                roadmap = ROADMAP_STORE.active()
+                if roadmap is None:
+                    self._send_json({"error": "no active roadmap"}, HTTPStatus.NOT_FOUND)
+                    return
+                result = roadmap_next_prompt(roadmap.get("tasks", []))
+                operation = self.bridge_state.queue_operation(
+                    operation_type="prompt",
+                    prompt=result["prompt"],
+                    idempotency_key=f"roadmap:{roadmap['id']}:{result['task_id']}",
+                )
+                self.bridge_state.annotate_operation(
+                    operation.operation_id,
+                    {"roadmap_id": roadmap["id"], "roadmap_task_id": result["task_id"]},
+                )
+                self._send_json(
+                    {"roadmap_id": roadmap["id"], "operation": operation.to_dict(), **result},
+                    HTTPStatus.CREATED,
+                )
+                return
+
             if path == "/runner/control":
                 action = payload.get("action")
                 if not isinstance(action, str):
@@ -1467,12 +1567,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
 
         except InvalidOperationTransition as exc:
-            self._send_json(
-                {
-                    "error": str(exc)
-                },
-                HTTPStatus.CONFLICT,
-            )
+            self._send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+        except (RoadmapError, MultiAIError, ValueError) as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         except Exception:
             self._send_json(
                 {
@@ -1481,6 +1578,39 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
+    def _roadmaps(self, payload: dict[str, Any]) -> None:
+        action = str(payload.get("action", "")).strip().casefold()
+        if action == "create":
+            name = payload.get("name", "Untitled roadmap")
+            roadmap = ROADMAP_STORE.create(
+                str(name),
+                raw_text=str(payload.get("raw_text", "")),
+                tasks=payload.get("tasks", []) if isinstance(payload.get("tasks", []), list) else [],
+            )
+            self._send_json({"roadmap": roadmap}, HTTPStatus.CREATED)
+            return
+        if action == "select":
+            self._send_json({"roadmap": ROADMAP_STORE.select(str(payload.get("roadmap_id", "")).strip())})
+            return
+        if action == "archive":
+            self._send_json({"roadmap": ROADMAP_STORE.archive(str(payload.get("roadmap_id", "")).strip())})
+            return
+        self._send_json({"error": "unsupported roadmap action"}, HTTPStatus.BAD_REQUEST)
+
+    def annotate_operation(self, operation_id: str, metadata: Mapping[str, Any]) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self._load_queue()
+            for item in queue:
+                if item.get('operation_id') != operation_id:
+                    continue
+                for key in ('roadmap_id', 'roadmap_task_id'):
+                    value = metadata.get(key)
+                    if isinstance(value, str) and value.strip():
+                        item[key] = value.strip()
+                item['updated_at'] = time.time()
+                self._save_queue(queue)
+                return dict(item)
+        return None
     def _claim(
         self,
         payload: dict[str, Any],
@@ -1904,6 +2034,25 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.NOT_FOUND,
             )
             return
+
+        if operation.get("status") == "completed" and operation.get("roadmap_id") and operation.get("roadmap_task_id"):
+            try:
+                roadmap = ROADMAP_STORE.get(str(operation["roadmap_id"]))
+                tasks = []
+                for task in roadmap.get("tasks", []):
+                    if not isinstance(task, dict):
+                        continue
+                    clone = dict(task)
+                    if clone.get("id") == operation["roadmap_task_id"]:
+                        clone["status"] = "completed"
+                        clone["completed_at"] = time.time()
+                    tasks.append(clone)
+                ROADMAP_STORE.replace_tasks(str(operation["roadmap_id"]), tasks)
+            except RoadmapError:
+                # A roadmap can be archived while a task is still running.
+                # Completion of the ChatGPT operation remains authoritative;
+                # archived roadmap metadata no longer controls execution.
+                pass
 
         if ack_only:
             payload = {

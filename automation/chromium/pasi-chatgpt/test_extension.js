@@ -702,3 +702,65 @@ test('native response settle fallback remains aligned with the 10ms latency targ
   assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 10;/);
 });
 
+
+test('native background exposes authenticated multi-roadmap operations without the side panel', () => {
+  assert.match(background, /type === 'pasi-roadmap-request'/);
+  assert.match(background, /BRIDGE_ROADMAP_GET_PATHS/);
+  assert.match(background, /BRIDGE_ROADMAP_POST_PATHS/);
+  for (const path of [
+    '/roadmaps',
+    '/roadmap/select',
+    '/roadmap/archive',
+    '/roadmap/delete',
+    '/roadmap/combine',
+    '/roadmap/tasks',
+    '/roadmap/dissect',
+    '/roadmap/next-prompt'
+  ]) assert.match(background, new RegExp(path.replace(/[.*+?^$()|[\]\\]/g, '\\$&')));
+});
+
+test('native roadmap API client exposes lifecycle and execution operations without UI state', () => {
+  const api = fs.readFileSync(path.join(root, 'roadmap-api.js'), 'utf8');
+  assert.match(api, /PASI_ROADMAP_API/);
+  assert.match(api, /list:/);
+  assert.match(api, /create:/);
+  assert.match(api, /select:/);
+  assert.match(api, /archive:/);
+  assert.match(api, /remove:/);
+  assert.match(api, /combine:/);
+  assert.match(api, /saveTasks:/);
+  assert.match(api, /dissect:/);
+  assert.match(api, /nextPrompt:/);
+});
+
+test('native background exposes authenticated multi-roadmap operations without the side panel', () => {
+  assert.match(background, /pasi-roadmap-request/);
+  assert.match(background, /BRIDGE_ROADMAP_GET_PATHS/);
+  assert.match(background, /BRIDGE_ROADMAP_POST_PATHS/);
+  for (const pathName of [
+    '/roadmaps',
+    '/roadmap/select',
+    '/roadmap/archive',
+    '/roadmap/delete',
+    '/roadmap/combine',
+    '/roadmap/tasks',
+    '/roadmap/dissect',
+    '/roadmap/next-prompt',
+    '/roadmap/next-operation'
+  ]) assert.ok(background.includes(`'${pathName}'`));
+});
+
+test('native roadmap API client exposes lifecycle and execution operations without UI state', () => {
+  const api = fs.readFileSync(path.join(root, 'roadmap-api.js'), 'utf8');
+  assert.match(api, /PASI_ROADMAP_API/);
+  for (const method of ['list', 'active', 'create', 'select', 'archive', 'remove', 'combine', 'saveTasks', 'dissect', 'nextPrompt', 'enqueueNext']) {
+    assert.match(api, new RegExp(method + '\\s*:'));
+  }
+});
+
+test('native background remains least privilege while adding roadmap routes', () => {
+  assert.ok(!manifest.permissions.includes('webRequest'));
+  assert.ok(!manifest.permissions.includes('webRequestBlocking'));
+  assert.ok(!manifest.permissions.includes('nativeMessaging'));
+  assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
+});
