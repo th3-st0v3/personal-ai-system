@@ -26,12 +26,15 @@ def _read_cwd(pid: int) -> str:
         return ""
 
 
-def listener_ancestor_present(runner_root: Path) -> bool:
+def listener_process_present(runner_root: Path) -> bool:
     root = str(runner_root.resolve())
-    pid = os.getppid()
-    seen: set[int] = set()
-    while pid > 1 and pid not in seen:
-        seen.add(pid)
+    if os.name != "posix":
+        return False
+    try:
+        pids = [int(entry) for entry in os.listdir("/proc") if entry.isdigit()]
+    except OSError:
+        return False
+    for pid in pids:
         cmdline = _read_cmdline(pid)
         cwd = _read_cwd(pid)
         if (
@@ -39,12 +42,6 @@ def listener_ancestor_present(runner_root: Path) -> bool:
             or "run-helper" in cmdline
         ) and (root in cmdline or cwd == root or cwd.startswith(root + os.sep)):
             return True
-        try:
-            with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
-                fields = handle.read().split()
-            pid = int(fields[3])
-        except (OSError, ValueError, IndexError):
-            break
     return False
 
 
@@ -59,7 +56,7 @@ def inspect_runner(environ: dict[str, str] | None = None, runner_root: Path | No
         "runner_os": env.get("RUNNER_OS", ""),
         "runner_arch": env.get("RUNNER_ARCH", ""),
         "runner_config_present": (root / ".runner").is_file(),
-        "runner_listener_ancestor": listener_ancestor_present(root) if os.name == "posix" else False,
+        "runner_listener_process": listener_process_present(root),
     }
 
     problems: list[str] = []
@@ -77,8 +74,8 @@ def inspect_runner(environ: dict[str, str] | None = None, runner_root: Path | No
     else:
         if not checks["runner_config_present"]:
             problems.append(f"runner configuration missing: {root / '.runner'}")
-        if not checks["runner_listener_ancestor"]:
-            problems.append("no GitHub Actions runner listener was found in the current process ancestry")
+        if not checks["runner_listener_process"]:
+            problems.append("no GitHub Actions runner listener process was found for the configured runner root")
 
     return {
         "ok": not problems,
