@@ -91,6 +91,57 @@ def load_proc_status(path: Path) -> dict[str, Any]:
     return values
 
 
+def load_resource_samples(path: Path, run_id: str) -> tuple[list[dict[str, Any]], int]:
+    samples: list[dict[str, Any]] = []
+    malformed = 0
+    if not path.is_file():
+        return samples, 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return samples, 0
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            malformed += 1
+            continue
+        if not isinstance(value, dict):
+            malformed += 1
+            continue
+        observed_run_id = str(value.get("run_id") or "")
+        if run_id and observed_run_id != run_id:
+            continue
+        samples.append(value)
+    return samples, malformed
+
+
+def resource_peak_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    summary: dict[str, Any] = {"samples": len(samples), "processes": {}}
+    for process_name in ("runner", "supervisor", "bridge"):
+        rss_values: list[int] = []
+        cpu_values: list[float] = []
+        for sample in samples:
+            processes = sample.get("processes")
+            process = processes.get(process_name) if isinstance(processes, dict) else None
+            if not isinstance(process, dict):
+                continue
+            rss = process.get("rss_kib")
+            cpu = process.get("cpu_percent")
+            if isinstance(rss, int) and rss >= 0:
+                rss_values.append(rss)
+            if isinstance(cpu, (int, float)) and not isinstance(cpu, bool) and cpu >= 0:
+                cpu_values.append(float(cpu))
+        summary["processes"][process_name] = {
+            "sample_count_with_process": max(len(rss_values), len(cpu_values)),
+            "peak_rss_kib": max(rss_values) if rss_values else None,
+            "peak_cpu_percent": max(cpu_values) if cpu_values else None,
+        }
+    return summary
+
+
 def configured_resource_limits(root: Path) -> dict[str, Any]:
     path = root / "config" / "runner" / "capabilities.json"
     payload = load_json(path, {})
@@ -166,6 +217,8 @@ def main() -> int:
     worktree = (args.worktree or Path(worktree_text or ".")).expanduser().resolve()
     events, malformed = load_events(event_path)
     report = analyze(events, malformed)
+    run_id = str(state.get("run_id") or "")
+    resource_samples, malformed_resource = load_resource_samples(runtime_dir / "resource-samples.jsonl", run_id)
 
     started_at = state.get("started_at")
     deadline_at = state.get("deadline_at")
@@ -212,7 +265,10 @@ def main() -> int:
     limitations: list[str] = []
     if malformed:
         limitations.append(f"{malformed} malformed event-log lines were ignored")
-    limitations.append("Resource evidence is configured-capability data plus point-in-time process snapshots; it is not a historical peak-resource series.")
+    if malformed_resource:
+        limitations.append(f"{malformed_resource} malformed resource-sample lines were ignored")
+    if not resource_samples:
+        limitations.append("No historical periodic resource samples were available for this run.")
     if pr.get("status") == "unavailable":
         limitations.append("PR provenance was not observed automatically; provide --pr-number/--pr-url for an explicit immutable association.")
 
@@ -259,6 +315,7 @@ def main() -> int:
         "pr": pr,
         "resources": {
             "configured": configured_resource_limits(Path(__file__).resolve().parents[1]),
+            "historical_periodic_samples": resource_peak_summary(resource_samples),
             "process_snapshots": pids,
         },
         "limitations": limitations,
