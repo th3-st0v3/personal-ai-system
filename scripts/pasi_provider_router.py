@@ -178,20 +178,6 @@ def call_openrouter(prompt: str, timeout: float) -> str:
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 5000,
     }
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-    }
-    if provider == "groq":
-        # GPT-OSS uses a reasoning budget in addition to final-answer tokens.
-        # Hide reasoning so PASI receives a normal final-answer text payload.
-        payload.update({
-            "max_completion_tokens": 5000,
-            "reasoning_format": "hidden",
-            "reasoning_effort": "low",
-        })
-    else:
-        payload["max_tokens"] = 5000
     data = post_json(
         base_url + "/chat/completions",
         payload,
@@ -199,8 +185,6 @@ def call_openrouter(prompt: str, timeout: float) -> str:
         timeout,
     )
     return extract_chat_text(data)
-
-
 def call_openai_compatible(
     prompt: str,
     timeout: float,
@@ -215,19 +199,27 @@ def call_openai_compatible(
         raise RuntimeError(f"{api_key_env} is not configured")
     base_url = os.environ.get(f"{provider.upper()}_BASE_URL", default_url).rstrip("/")
     model = os.environ.get(f"{provider.upper()}_MODEL", default_model).strip() or default_model
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+    }
+    if provider == "groq":
+        # GPT-OSS uses a reasoning budget in addition to final-answer tokens.
+        # Hide reasoning so PASI receives the model's final answer as message content.
+        payload.update({
+            "max_completion_tokens": 5000,
+            "reasoning_format": "hidden",
+            "reasoning_effort": "low",
+        })
+    else:
+        payload["max_tokens"] = 5000
     data = post_json(
         base_url + "/chat/completions",
-        {
-            "model": model,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-            "max_tokens": 5000,
-        },
+        payload,
         {"Authorization": f"Bearer {key}"},
         timeout,
     )
     return extract_chat_text(data)
-
-
 def call_groq(prompt: str, timeout: float) -> str:
     return call_openai_compatible(
         prompt,
