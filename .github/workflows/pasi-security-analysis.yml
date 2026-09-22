@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   codeql:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: CodeQL (${{ matrix.language }})
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     strategy:
@@ -41,6 +42,7 @@ jobs:
           fail-on-severity: high
 
   secret-scan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     steps:
       - uses: actions/checkout@v7
@@ -50,6 +52,7 @@ jobs:
       - run: python scripts/scan_repository_secrets.py
 
   dependency-audit:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     steps:
       - uses: actions/checkout@v7
