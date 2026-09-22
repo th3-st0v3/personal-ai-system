@@ -112,6 +112,21 @@ class ExtensionCapabilityValidationTests(unittest.TestCase):
         self.assertEqual(errors, [])
         temp.joinpath("keep").touch()
 
+    def test_templated_localhost_port_does_not_crash_static_validation(self) -> None:
+        temp, extension, _ = self._fixture()
+        py = temp / "templated.py"
+        py.write_text(
+            "URL = 'http://127.0.0.1:{port}/json/version'\n",
+            encoding="utf-8",
+        )
+        errors = validator.validate_extension_capabilities(
+            manifest_path=extension / "manifest.json",
+            extension_root=extension,
+            python_files=[py],
+        )
+        self.assertEqual(errors, [])
+        temp.joinpath("keep").touch()
+
     def test_bridge_origin_without_trailing_slash_matches_wildcard_host(self) -> None:
         pattern = validator.LOCAL_BRIDGE_HOST_PATTERN
         self.assertTrue(validator._host_pattern_matches("http://127.0.0.1:8765", pattern))
