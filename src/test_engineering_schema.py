@@ -94,8 +94,10 @@ class TestEngineeringSchema(unittest.TestCase):
                     (requirement_id,),
                 )
 
-            status_event = json.loads(
-                rows[3][1]
+            status_event = next(
+                json.loads(row[1])
+                for row in rows[1:]
+                if json.loads(row[1])["field"] == "status"
             )
             self.assertEqual(status_event["old"], "Unverified")
             self.assertEqual(status_event["new"], "Verified")
