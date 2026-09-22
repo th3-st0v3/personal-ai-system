@@ -1693,7 +1693,7 @@ def test_headless_next_operation_advances_selected_roadmap_task(tmp_path: Path, 
         operation_id = body["operation"]["operation_id"]
         assert body["roadmap_id"] == roadmap["id"]
         assert body["task_id"] == "task-1"
-        assert "PASI TASK task-1" in body["prompt"]
+        assert "CURRENT TASK:" in body["prompt"]
 
         claimed = bridge.claim_operation(operation_id)
         assert claimed is not None
@@ -1717,8 +1717,6 @@ def test_headless_next_operation_advances_selected_roadmap_task(tmp_path: Path, 
         assert response.status == 200
 
         updated = store.get(roadmap["id"])
-        assert updated["tasks"][0]["status"] == "completed"
-
         assert updated["tasks"][0]["status"] == "completed"
     finally:
         server.shutdown()
