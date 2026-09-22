@@ -705,8 +705,9 @@ test('native response settle fallback remains aligned with the 10ms latency targ
 
 test('native background exposes authenticated multi-roadmap operations without the side panel', () => {
   assert.match(background, /pasi-roadmap-request/);
-  assert.match(background, /BRIDGE_ROADMAP_GET_PATHS/);
-  assert.match(background, /BRIDGE_ROADMAP_POST_PATHS/);
+  assert.match(background, /'GET \/roadmaps'/);
+  assert.match(background, /'GET \/roadmap\/active'/);
+  assert.match(background, /'POST \/roadmap\/next-operation'/);
   for (const pathName of [
     '/roadmaps',
     '/roadmap/select',
