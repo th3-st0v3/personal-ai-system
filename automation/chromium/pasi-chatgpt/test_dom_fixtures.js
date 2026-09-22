@@ -74,6 +74,26 @@ test('native fingerprint collapses whitespace without altering extraction', () =
   dom.window.close();
 });
 
+
+
+test('native detector recognizes a visible connection-loss alert without scanning ordinary message text', () => {
+  const dom = loadController(
+    '<main><div data-message-author-role="assistant">This answer discusses a connection lost message as an example.</div><div role="alert">Connection lost. Reconnecting…</div></main>'
+  );
+  const state = dom.window.PASI_NATIVE_TEST_API.detectorState();
+  assert.equal(state.connection_failure, true);
+  dom.window.close();
+});
+
+test('native detector does not classify hidden connection-loss text as an active failure', () => {
+  const dom = loadController(
+    '<main><div role="alert" style="display:none">Connection lost. Reconnecting…</div></main>'
+  );
+  const state = dom.window.PASI_NATIVE_TEST_API.detectorState();
+  assert.equal(state.connection_failure, false);
+  dom.window.close();
+});
+
 test('scoped detector ignores hostile phrases in messages and navigation', () => {
   const dom = loadController(
     '<nav><a href="#">New Chat — captcha context limit rate limit</a></nav><aside>Cloudflare verification and session has expired</aside><div data-message-author-role="assistant">Explain why a context limit message may mention captcha.</div>'
