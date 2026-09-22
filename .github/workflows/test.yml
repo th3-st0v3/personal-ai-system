@@ -9,6 +9,7 @@ on:
 
 jobs:
   test:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     concurrency:
       group: pasi-test-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: true
@@ -99,6 +100,7 @@ jobs:
           if-no-files-found: ignore
 
   browser-use-compat:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     concurrency:
       group: pasi-browser-use-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: true
