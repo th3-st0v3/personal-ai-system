@@ -10,10 +10,11 @@
     "node": {"min_major": 20},
     "npm": {"min_major": 9},
     "python3": {"min_major": 3, "min_minor": 11},
-    "bwrap": {}
+    "bwrap": {},
+    "chromedriver": {}
   },
   "required_python_modules": ["pytest"],
-  "required_system_packages": ["git", "curl", "bubblewrap"],
+  "required_system_packages": ["git", "curl", "bubblewrap", "chromium-chromedriver"],
   "optional_tools": {"ollama": {"model": "qwen3:8b"}},
   "runtime_checks": {
     "bridge_health_url": "http://127.0.0.1:8765/health",
