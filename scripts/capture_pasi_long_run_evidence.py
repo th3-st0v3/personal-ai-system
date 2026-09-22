@@ -236,6 +236,7 @@ def classify_p04_status(
     branch_matches: bool,
     worktree_clean: bool,
     pr_verified: bool,
+    pr_head_matches: bool,
 ) -> tuple[str, list[str]]:
     failures: list[str] = []
     runtime_shape_ok = (
@@ -256,6 +257,8 @@ def classify_p04_status(
         failures.append("acceptance worktree is not clean at close-out")
     if not pr_verified:
         failures.append("PR provenance was not machine-verified")
+    if not pr_head_matches:
+        failures.append("verified PR head does not match the final Git HEAD")
     return ("PASS" if not failures else "FAIL"), failures
 
 def main() -> int:
@@ -313,6 +316,10 @@ def main() -> int:
         args.pr_url.strip(),
     )
     stop_reason = str(state.get("stop_reason") or "").strip()
+    pr_verified = pr.get("status") == "observed"
+    pr_head_matches = pr_verified and bool(
+        str(pr.get("head_sha") or "") and str(pr.get("head_sha")) == str(git.get("head_sha") or "")
+    )
     result_status, gate_failures = classify_p04_status(
         configured_seconds,
         deadline_reached,
@@ -320,7 +327,8 @@ def main() -> int:
         len(resource_samples),
         branch_matches,
         worktree_clean,
-        pr.get("status") == "observed",
+        pr_verified,
+        pr_head_matches,
     )
 
     limitations: list[str] = []
@@ -384,7 +392,8 @@ def main() -> int:
             "branch_matches": branch_matches,
             "worktree_clean": worktree_clean,
             "resource_sample_count": len(resource_samples),
-            "pr_verified": pr.get("status") == "observed",
+            "pr_verified": pr_verified,
+            "pr_head_matches": pr_head_matches,
         },
         "limitations": limitations,
     }
