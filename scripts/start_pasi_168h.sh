@@ -16,8 +16,13 @@ export PASI_ROADMAP_PATH="${PASI_ROADMAP_PATH:-$REPO_ROOT/roadmaps/pasi-default.
 # The launcher owns --roadmap so it can validate the exact selected file before
 # the detached supervisor starts. All other arguments pass through unchanged.
 launcher_args=()
+foreground_supervisor=0
 while (( $# )); do
     case "$1" in
+        --foreground-supervisor)
+            foreground_supervisor=1
+            shift
+            ;;
         --roadmap)
             [[ $# -ge 2 ]] || { printf 'error: --roadmap requires a path\n' >&2; exit 2; }
             PASI_ROADMAP_PATH="$2"
@@ -459,7 +464,11 @@ printf 'Native PASI ChatGPT browser: healthy and controller-compatible\n'
 
 log_file="$RUNTIME_DIR/runner.log"
 # The 168-hour supervisor owns restart/recovery of the extended runtime. Its engine handoff target is scripts/pasi_extended_runtime_entrypoint.py.
-nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "${launcher_args[@]}" < /dev/null > /dev/null 2>&1 &
+if (( foreground_supervisor == 1 )); then
+    bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh" --hours 168 --worktree "$WORKTREE" --branch "$BRANCH" -- "${launcher_args[@]}" < /dev/null > /dev/null 2>&1 &
+else
+    nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh" --hours 168 --worktree "$WORKTREE" --branch "$BRANCH" -- "${launcher_args[@]}" < /dev/null > /dev/null 2>&1 &
+fi
 pid=$!
 
 runner_start_deadline=$((SECONDS + ${PASI_STARTUP_VERIFY_SECONDS:-90}))
@@ -520,3 +529,9 @@ printf 'Log: %s\n' "$log_file"
 printf 'State: %s\n' "$RUNTIME_DIR/state.json"
 printf 'Action list: %s\n' "$REPO_ROOT/.runtime/automation/action-list.md"
 printf 'Setup checklist: %s\n' "$REPO_ROOT/.runtime/automation/setup-requirements.md"
+
+if (( foreground_supervisor == 1 )); then
+    # In durable service mode, keep the supervisor attached to the host service manager.
+    wait "$pid"
+    exit $?
+fi
