@@ -16,7 +16,9 @@ SERVICE_ROOT="${PASI_OVERNIGHT_SERVICE_ROOT:-$HOME/.pasi/overnight-service/perso
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 START_LOCK_FILE="${PASI_OVERNIGHT_SERVICE_LOCK:-$HOME/.pasi/overnight-service/start.lock}"
 REQUESTED_ROADMAP="${PASI_ROADMAP_PATH:-roadmaps/pasi-default.json}"
-SERVICE_PATH="${PASI_SERVICE_PATH:-$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin}"
+SERVICE_PATH="${PASI_SERVICE_PATH:-$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+PLANNER_MODEL="${PASI_PLANNER_MODEL:-}"
+PLANNER_AI_RANK="${PASI_PLANNER_AI_RANK:-}"
 
 if ! command -v python3 >/dev/null 2>&1; then
     printf 'error: python3 is required for durable-service identity verification.\n' >&2
@@ -172,6 +174,8 @@ systemd-run \
     --setenv=PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}" \
     --setenv=PASI_ROADMAP_PATH="$REQUESTED_ROADMAP" \
     --setenv=PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}" \
+    --setenv=PASI_PLANNER_MODEL="$PLANNER_MODEL" \
+    --setenv=PASI_PLANNER_AI_RANK="$PLANNER_AI_RANK" \
     --setenv=PATH="$SERVICE_PATH" \
     bash "$SERVICE_ROOT/scripts/start_pasi_168h.sh" --foreground-supervisor
 
