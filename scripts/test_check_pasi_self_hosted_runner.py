@@ -41,7 +41,7 @@ class TestSelfHostedRunnerPreflight(unittest.TestCase):
             root = Path(temp_dir)
             env = {}
             with patch(
-                "scripts.check_pasi_self_hosted_runner.listener_ancestor_present",
+                "scripts.check_pasi_self_hosted_runner.listener_process_present",
                 return_value=False,
             ):
                 payload = inspect_runner(env, root)
