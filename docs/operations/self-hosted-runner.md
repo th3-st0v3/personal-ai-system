@@ -51,6 +51,23 @@ python3 scripts/reconcile_runner_capabilities.py --apply --apply-optional --json
 
 The same operation is exposed by the `pasi-runner-capabilities` GitHub workflow. It writes an atomic capability report at `~/.pasi/runner/capabilities.json` and uploads sanitized evidence. The runner state/control files follow `PASI_RUNTIME_DIR` when set; the default runtime directory is `~/.pasi/overnight`.
 
+## CI runner fallback and readiness check
+
+The repository test workflow selects the self-hosted `pasi-wsl` runner by default for pull requests, pushes, scheduled runs, and manual runs. Before the test jobs start, a runner preflight verifies that the job is actually executing on the expected self-hosted Linux/x64 environment.
+
+For a local readiness check:
+
+```bash
+python scripts/check_pasi_self_hosted_runner.py
+```
+
+A manual `workflow_dispatch` exposes `runner_mode` with two choices:
+
+- `self-hosted` — normal/default path; keeps validation independent of GitHub-hosted usage limits and payment state.
+- `github-hosted` — explicit fallback/switch for use after GitHub-hosted Actions limits or payment restrictions have been cleared.
+
+The workflow does not automatically fall back to GitHub-hosted runners. That prevents an offline or unhealthy self-hosted runner from silently recreating the billing-gated failure mode.
+
 ## Automation operation
 
 The 168-hour launcher remains the process owner:
