@@ -8,6 +8,12 @@ class TestPasi168HourLauncherContract(unittest.TestCase):
     def setUp(self) -> None:
         self.source = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
 
+    def test_launcher_supports_host_service_foreground_mode(self) -> None:
+        self.assertIn("foreground_supervisor=0", self.source)
+        self.assertIn("--foreground-supervisor", self.source)
+        self.assertIn("if (( foreground_supervisor == 1 )); then", self.source)
+        self.assertIn('wait "$pid"', self.source)
+
     def test_launcher_verifies_native_browser_before_detaching_runner(self) -> None:
         preflight = self.source.index("=== VERIFYING NATIVE CHATGPT BROWSER ===")
         runner = self.source.index("$REPO_ROOT/scripts/pasi_168h_supervisor.sh", preflight)
