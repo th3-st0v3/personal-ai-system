@@ -65,6 +65,24 @@ class TestBranchHygieneWorkflowContract(unittest.TestCase):
         self.assertIn("  schedule:", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
 
+    def test_branch_hygiene_uses_only_self_hosted_execution(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
+        self.assertIn("runs-on: [self-hosted, linux, x64, pasi-wsl]", workflow)
+        self.assertNotIn("ubuntu-latest", workflow)
+
+    def test_authoritative_test_workflow_runs_on_all_branches_and_self_hosted(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("  push:\n  pull_request:\n", workflow)
+        self.assertNotIn("branches: [main, beta-foundation, 'pasi/**']", workflow)
+        self.assertNotIn("runs-on: ubuntu-latest", workflow)
+        self.assertIn("runs-on: [self-hosted, linux, x64, pasi-wsl]", workflow)
+
+    def test_ci_audits_do_not_request_github_hosted_runners(self) -> None:
+        for name in ("pasi-security-analysis.yml", "agent-impact-audit.yml", "self-modification-boundary-audit.yml"):
+            workflow = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            self.assertNotIn("ubuntu-latest", workflow, name)
+            self.assertIn("self-hosted", workflow, name)
+
     def test_branch_hygiene_has_write_permissions_for_pr_reconciliation(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
         self.assertIn("contents: write", workflow)
