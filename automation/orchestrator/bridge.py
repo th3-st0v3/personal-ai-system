@@ -1589,12 +1589,6 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             self._send_json({"roadmap": roadmap}, HTTPStatus.CREATED)
             return
-        if action == "select":
-            self._send_json({"roadmap": ROADMAP_STORE.select(str(payload.get("roadmap_id", "")).strip())})
-            return
-        if action == "archive":
-            self._send_json({"roadmap": ROADMAP_STORE.archive(str(payload.get("roadmap_id", "")).strip())})
-            return
         self._send_json({"error": "unsupported roadmap action"}, HTTPStatus.BAD_REQUEST)
 
     def annotate_operation(self, operation_id: str, metadata: Mapping[str, Any]) -> dict[str, Any] | None:
