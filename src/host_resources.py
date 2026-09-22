@@ -136,6 +136,7 @@ def capabilities() -> dict[str, object]:
         "swap_limit": False,
         "cpu_affinity": False,
     }
+    cap["resource_profiles"] = bool(cap["features"].get("memory_limit"))
     return cap
 
 
