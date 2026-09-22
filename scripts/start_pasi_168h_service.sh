@@ -102,6 +102,7 @@ mkdir -p "$RUNTIME_DIR"
 
 systemd-run \
     --user \
+    --collect \
     --unit="$UNIT_NAME" \
     --description="PASI 168-hour unattended automation" \
     --property=KillMode=control-group \
