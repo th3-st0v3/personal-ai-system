@@ -466,6 +466,14 @@ runner_start_deadline=$((SECONDS + ${PASI_STARTUP_VERIFY_SECONDS:-90}))
 supervisor_ready=0
 runner_ready=0
 while (( SECONDS < runner_start_deadline )); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+        printf '%s\n' 'error: PASI supervisor/log-router exited before the detached 168-hour runner became live.' >&2
+        printf 'Runner log: %s\n' "$log_file" >&2
+        if [[ -s "$log_file" ]]; then
+            tail -80 "$log_file" >&2 || true
+        fi
+        exit 6
+    fi
     supervisor_pid=""
     runner_pid=""
     if [[ -f "$SUPERVISOR_PID_FILE" ]]; then
