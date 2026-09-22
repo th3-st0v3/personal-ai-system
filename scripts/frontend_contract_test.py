@@ -59,8 +59,12 @@ def test_frontend_contract() -> None:
         assert capability in ui, f"Frontend completion capability missing: {capability}"
 
     combined = app + ui
+    assert 'data-view="planner"' in index, "Planner navigation entry is missing."
+    assert "openPlanner" in app, "Planner view controller is missing."
+    assert "pasi-planner-order:" in app, "Planner local order state is missing."
+
     required_api_prefixes = (
-        "/api/auth/logout", "/api/auth/me", "/api/chats", "/api/projects", "/api/manifest",
+        "/api/planner/roadmap", "/api/auth/logout", "/api/auth/me", "/api/chats", "/api/projects", "/api/manifest",
         "/api/search", "/api/calculations/catalog", "/api/calculations/run",
         "/api/calculations/run/save", "/api/connections", "/api/plugins", "/api/digest",
         "/api/simulations", "/api/simulations/run", "/api/engineering/projects/",
