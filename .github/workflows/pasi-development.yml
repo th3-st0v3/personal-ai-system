@@ -21,6 +21,15 @@ on:
         description: "Repository-relative roadmap path"
         required: false
         default: "roadmaps/pasi-default.json"
+      planner_model:
+        description: "Optional local planner model (for example nemotron-3-nano:4b)"
+        required: false
+        default: ""
+      planner_ai_rank:
+        description: "Enable AI ranking of already-eligible roadmap tasks"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -127,12 +136,18 @@ jobs:
           PASI_OVERNIGHT_BRANCH: ${{ steps.ref.outputs.ref }}
           PASI_ROADMAP_PATH: ${{ inputs.roadmap }}
           ROADMAP: ${{ inputs.roadmap }}
+          PASI_PLANNER_MODEL: ${{ inputs.planner_model }}
+          PASI_PLANNER_AI_RANK: ${{ inputs.planner_ai_rank }}
         shell: bash
         run: |
           case "$ROADMAP" in
             /*|../*|*/../*|*".."*) echo "roadmap must be repository-relative" >&2; exit 2 ;;
           esac
           test -f "$ROADMAP"
+          if [[ "$PASI_PLANNER_AI_RANK" == "true" && -z "$PASI_PLANNER_MODEL" ]]; then
+            echo "planner_ai_rank=true requires planner_model" >&2
+            exit 2
+          fi
           bash scripts/start_pasi_168h_service.sh "${{ steps.ref.outputs.ref }}"
 
       - name: Show PASI status
