@@ -49,6 +49,13 @@ class TestPasi168HourSupervisorContract(unittest.TestCase):
         self.assertIn('pip install --disable-pip-version-check --requirement "$REPO_ROOT/requirements.txt"', source)
         self.assertIn('requirements-dev.txt', source)
 
+    def test_supervisor_ignores_terminal_state_from_a_different_run_identity(self) -> None:
+        self.assertIn("state_matches_identity()", self.source)
+        self.assertIn("state_matches_identity && (state_deadline_reached || state_is_terminal)", self.source)
+        self.assertIn('state.get("branch")', self.source)
+        self.assertIn('state.get("worktree")', self.source)
+        self.assertIn("os.path.realpath(state_worktree)", self.source)
+
     def test_supervisor_has_bounded_backoff_and_terminal_stop_controls(self) -> None:
         self.assertIn("PASI_SUPERVISOR_BACKOFF_SECONDS", self.source)
         self.assertIn("PASI_SUPERVISOR_MAX_BACKOFF_SECONDS", self.source)
