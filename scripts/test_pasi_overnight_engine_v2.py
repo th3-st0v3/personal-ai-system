@@ -1188,6 +1188,42 @@ branch refs/heads/main
             self.assertFalse(control.exists())
 
 
+
+    def test_fast_local_gate_uses_comparison_base_for_clean_ci_checkouts(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worktree = Path(temp_dir)
+            source = worktree / "example.py"
+            source.write_text("value = 1\n", encoding="utf-8")
+            calls = []
+
+            def fake_command(argv, cwd, timeout, **kwargs):
+                calls.append(list(argv))
+                if argv[:3] == ["git", "diff", "--check"]:
+                    return 0, ""
+                if argv[:3] == ["git", "diff", "--name-only"]:
+                    return 0, "example.py\n"
+                if argv[:3] == [sys.executable, "-m", "py_compile"]:
+                    return 0, ""
+                if argv[:3] == ["npx", "--yes", "pyright@1.1.411"]:
+                    return 0, ""
+                raise AssertionError(f"unexpected command: {argv!r}")
+
+            with mock.patch.object(engine, "command", side_effect=fake_command):
+                result = engine.fast_local_gate(worktree, diff_base="origin/main")
+
+        self.assertIn("changed=1 files", result)
+        self.assertEqual(
+            calls[0],
+            ["git", "diff", "--check", "origin/main...HEAD"],
+        )
+        self.assertEqual(
+            calls[1],
+            ["git", "diff", "--name-only", "origin/main...HEAD"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 
