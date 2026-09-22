@@ -643,6 +643,7 @@
         chat_url: currentUrl,
         provider_usage_limited: limited,
         auth_required: auth,
+        connection_failure: detected.connection_failure === true,
         conversation_context_exhausted: exhausted,
         thinking_enabled: thinking,
         thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
