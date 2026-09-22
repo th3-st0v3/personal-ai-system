@@ -82,3 +82,17 @@ If the browser installation has no safe programmatic tab-close mechanism, the ex
 ## Close-out rule
 
 Do not mark M0, M1, or M2 complete from source inspection, unit tests, or CI alone. Change the remediation checklist to `[x]` only when the corresponding live evidence artifact exists and is internally consistent.
+
+## Final artifact validation
+
+Before changing any P0 checklist item to `[x]`, validate the live evidence set with:
+
+```bash
+python scripts/validate_p0_acceptance_artifacts.py \
+  --runtime-dir "$HOME/.pasi/overnight" \
+  --require-live-gates
+```
+
+The validator fails closed when M0/M1/M2 evidence is missing, when M1 does not contain exactly 20 unique complete operations with +1/+1 deltas, when M2 loses exact operation/conversation identity or restart proof, or when P0.4 lacks a strict 168-hour PASS with verified branch, clean worktree, historical resource samples, and PR provenance.
+
+M0/M1/M2/P0.4 remain live-runtime acceptance gates. Passing the artifact validator alone does not create missing evidence.
