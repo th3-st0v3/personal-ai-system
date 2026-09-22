@@ -5,7 +5,7 @@ calculations, and users remain compatible while traceability and ingestion
 metadata grow around them.
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 EVIDENCE_TYPES = {"document", "test_result", "calculation", "simulation_run", "manual_entry"}
 
 
@@ -198,6 +198,105 @@ def initialize(connection):
     """)
     connection.execute("CREATE INDEX IF NOT EXISTS idx_audit_events_workspace ON audit_events(workspace_id, created_at)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON audit_events(entity_type, entity_id, created_at)")
+
+    # Requirement history is event-backed at the database boundary so direct
+    # SQLite writes and application-service writes cannot silently bypass it.
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_requirement_audit_created
+        AFTER INSERT ON requirements
+        BEGIN
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            VALUES (
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_created',
+                json_object('description', NEW.description, 'status', NEW.status)
+            );
+        END
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_requirement_audit_field_changes
+        AFTER UPDATE ON requirements
+        BEGIN
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            SELECT
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_field_changed',
+                json_object('field', 'project_id', 'old', OLD.project_id, 'new', NEW.project_id)
+            WHERE OLD.project_id IS NOT NEW.project_id;
+
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            SELECT
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_field_changed',
+                json_object('field', 'description', 'old', OLD.description, 'new', NEW.description)
+            WHERE OLD.description IS NOT NEW.description;
+
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            SELECT
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_field_changed',
+                json_object('field', 'status', 'old', OLD.status, 'new', NEW.status)
+            WHERE OLD.status IS NOT NEW.status;
+
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            SELECT
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_field_changed',
+                json_object('field', 'identifier', 'old', OLD.identifier, 'new', NEW.identifier)
+            WHERE OLD.identifier IS NOT NEW.identifier;
+
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            SELECT
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_field_changed',
+                json_object('field', 'title', 'old', OLD.title, 'new', NEW.title)
+            WHERE OLD.title IS NOT NEW.title;
+
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            SELECT
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_field_changed',
+                json_object('field', 'acceptance_criteria', 'old', OLD.acceptance_criteria, 'new', NEW.acceptance_criteria)
+            WHERE OLD.acceptance_criteria IS NOT NEW.acceptance_criteria;
+
+            INSERT INTO audit_events (
+                workspace_id, entity_type, entity_id, action, metadata
+            )
+            SELECT
+                (SELECT workspace_id FROM projects WHERE id = NEW.project_id),
+                'requirement', NEW.id, 'requirement_field_changed',
+                json_object('field', 'priority', 'old', OLD.priority, 'new', NEW.priority)
+            WHERE OLD.priority IS NOT NEW.priority;
+        END
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_audit_events_immutable_update
+        BEFORE UPDATE ON audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'Audit events are immutable.');
+        END
+    """)
+    connection.execute("""
+        CREATE TRIGGER IF NOT EXISTS trg_audit_events_immutable_delete
+        BEFORE DELETE ON audit_events
+        BEGIN
+            SELECT RAISE(ABORT, 'Audit events are immutable.');
+        END
+    """)
 
     if row is None or row[0] < SCHEMA_VERSION:
         connection.execute("DELETE FROM engineering_schema_version")
