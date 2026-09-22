@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import signal
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,7 +58,7 @@ def process_sample(pid: int | None) -> dict[str, Any]:
 
     try:
         result["cpu_percent"] = float(
-            __import__("subprocess").run(
+            subprocess.run(
                 ["ps", "-p", str(pid), "-o", "%cpu="],
                 capture_output=True,
                 text=True,
@@ -65,7 +66,7 @@ def process_sample(pid: int | None) -> dict[str, Any]:
                 check=False,
             ).stdout.strip()
         )
-    except (OSError, ValueError, __import__("subprocess").TimeoutExpired):
+    except (OSError, ValueError, subprocess.TimeoutExpired):
         result["cpu_percent"] = None
 
     try:
