@@ -13,7 +13,7 @@ curl -fsS http://127.0.0.1:8765/health
 curl -fsS -H "Authorization: Bearer $(cat ~/.pasi/bridge-token)" http://127.0.0.1:8765/browser/health
 ```
 
-The browser-health observation must identify the native controller and match the extension version in `automation/chromium/pasi-chatgpt/manifest.json`.
+The browser-health observation must identify the native controller and match the extension version in `automation/chromium/pasi-chatgpt/manifest.json`. The deprecated Tampermonkey Controller Loader is migration-only and is not a runtime prerequisite; the retired controller-distribution service is not part of any acceptance gate.
 
 ## M0 — real task through response → parser → apply → validation → commit
 
