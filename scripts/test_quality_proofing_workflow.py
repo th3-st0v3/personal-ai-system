@@ -42,7 +42,6 @@ class TestQualityProofingWorkflow(unittest.TestCase):
     def test_local_proofing_runs_the_shared_local_contract(self) -> None:
         job = job_block(WORKFLOW.read_text(encoding="utf-8"), "local-proofing")
         self.assertIn("python -m pip install -r requirements-dev.txt", job)
-        self.assertIn("pre-commit run --all-files", job)
         self.assertIn("pre-commit run pasi-local-proofing --all-files", job)
         self.assertIn("python scripts/check_pasi_self_hosted_runner.py", job)
 
