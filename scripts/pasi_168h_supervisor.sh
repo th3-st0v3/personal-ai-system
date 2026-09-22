@@ -10,6 +10,8 @@ RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 STOP_FILE="$RUNTIME_DIR/supervisor.stop"
+RESOURCE_SAMPLER_PID_FILE="$RUNTIME_DIR/resource-telemetry.pid"
+RESOURCE_SAMPLER_LOG="$RUNTIME_DIR/resource-telemetry.log"
 MAX_RESTARTS="${PASI_SUPERVISOR_MAX_RESTARTS:-8}"
 RESET_AFTER_SECONDS="${PASI_SUPERVISOR_RESET_AFTER_SECONDS:-60}"
 BASE_BACKOFF_SECONDS="${PASI_SUPERVISOR_BACKOFF_SECONDS:-5}"
@@ -72,9 +74,44 @@ fi
 
 printf '%s\n' "$$" > "$SUPERVISOR_PID_FILE"
 rm -f "$STOP_FILE"
+start_resource_sampler
+
+stop_resource_sampler() {
+    if [[ ! -f "$RESOURCE_SAMPLER_PID_FILE" ]]; then
+        return
+    fi
+    local sampler_pid
+    sampler_pid="$(cat "$RESOURCE_SAMPLER_PID_FILE" 2>/dev/null || true)"
+    if [[ "$sampler_pid" =~ ^[0-9]+$ ]] && kill -0 "$sampler_pid" 2>/dev/null; then
+        kill -TERM "$sampler_pid" 2>/dev/null || true
+        for _ in {1..10}; do
+            kill -0 "$sampler_pid" 2>/dev/null || break
+            sleep 1
+        done
+    fi
+    rm -f "$RESOURCE_SAMPLER_PID_FILE"
+}
+
+start_resource_sampler() {
+    if [[ -f "$RESOURCE_SAMPLER_PID_FILE" ]]; then
+        local existing
+        existing="$(cat "$RESOURCE_SAMPLER_PID_FILE" 2>/dev/null || true)"
+        if [[ "$existing" =~ ^[0-9]+$ ]] && kill -0 "$existing" 2>/dev/null; then
+            return 0
+        fi
+        rm -f "$RESOURCE_SAMPLER_PID_FILE"
+    fi
+
+    nohup "$PYTHON" "$REPO_ROOT/scripts/pasi_resource_telemetry.py" \
+        --runtime-dir "$RUNTIME_DIR" \
+        --interval "${PASI_RESOURCE_SAMPLE_INTERVAL_SECONDS:-30}" \
+        </dev/null >>"$RESOURCE_SAMPLER_LOG" 2>&1 &
+    printf "%s\n" "$!" > "$RESOURCE_SAMPLER_PID_FILE"
+}
 
 cleanup() {
-    if [[ -f "$SUPERVISOR_PID_FILE" ]] && [[ "$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)" == "$$" ]]; then
+    stop_resource_sampler
+    if [[ -f "$SUPERVISOR_PID_FILE" ]] && [[ "$(cat "$SUPERVISOR_PID_FILE" 2>/dev/null || true)" == "$" ]]; then
         rm -f "$SUPERVISOR_PID_FILE"
     fi
 }
