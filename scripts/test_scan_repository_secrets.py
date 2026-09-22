@@ -20,7 +20,7 @@ class SecretScannerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             path = root / 'binary.bin'
-            path.write_bytes(b'gsk_' + b'A' * 30 + b'\\x00')
+            path.write_bytes(b'gsk_' + b'A' * 30 + b'\x00')
             with mock.patch.object(scanner, 'tracked_files', return_value=[path]):
                 findings = scanner.scan(root)
         self.assertEqual(findings, [])
