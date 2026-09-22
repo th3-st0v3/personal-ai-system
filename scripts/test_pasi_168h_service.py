@@ -34,6 +34,8 @@ class TestPasi168HourDurableServiceContract(unittest.TestCase):
         self.assertIn('PLANNER_AI_RANK="${PASI_PLANNER_AI_RANK:-}"', source)
         self.assertIn('--setenv=PASI_PLANNER_MODEL="$PLANNER_MODEL"', source)
         self.assertIn('--setenv=PASI_PLANNER_AI_RANK="$PLANNER_AI_RANK"', source)
+        self.assertIn('BROWSER_EXTENSION_DIR="${PASI_BROWSER_EXTENSION_DIR:-$REPO_ROOT/.runtime/chromium/pasi-chatgpt}"', source)
+        self.assertIn('--setenv=PASI_BROWSER_EXTENSION_DIR="$BROWSER_EXTENSION_DIR"', source)
         self.assertIn("refusing to reset potentially unpushed work", source)
         self.assertIn("PASI 168-hour service verified live", source)
         self.assertIn("service_identity_matches", source)
