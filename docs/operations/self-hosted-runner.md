@@ -95,7 +95,6 @@ gh run list --repo th3-st0v3/personal-ai-system --workflow test.yml --limit 1
 gh run watch RUN_ID --repo th3-st0v3/personal-ai-system
 ```
 
-
 ## Automation operation
 
 The 168-hour launcher remains the process owner:
