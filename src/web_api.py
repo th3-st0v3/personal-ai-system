@@ -5,6 +5,7 @@ import base64
 import binascii
 import json
 from http.cookies import SimpleCookie
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -52,6 +53,78 @@ class WebApplication:
         if extra_headers:
             headers.extend(extra_headers)
         return status, headers, payload
+
+    def _planner_snapshot(self, requested_path: str | None = None) -> dict[str, object]:
+        from scripts import pasi_hybrid_planner as hybrid_planner
+
+        repo_root = Path(__file__).resolve().parents[1]
+        roadmap_root = (repo_root / "roadmaps").resolve()
+        default_path = roadmap_root / "pasi-default.json"
+        source = default_path
+        if requested_path:
+            candidate = Path(requested_path)
+            source = candidate if candidate.is_absolute() else repo_root / candidate
+        source = source.expanduser().resolve()
+        try:
+            source.relative_to(roadmap_root)
+        except ValueError as exc:
+            raise ValueError("Planner roadmaps must be inside the repository roadmaps directory.") from exc
+        if not source.is_file():
+            raise ValueError(f"Roadmap not found: {source}")
+
+        runtime_root = Path(__import__("os").environ.get("PASI_RUNTIME_DIR", str(Path.home() / ".pasi" / "overnight"))).expanduser().resolve()
+        overlay = runtime_root / "roadmap-decompositions.json"
+        tasks = hybrid_planner.load_roadmap_with_overlay(source, overlay if overlay.is_file() else None)
+        ledger: dict[str, dict[str, object]] = {}
+        ledger_path = runtime_root / "task-ledger.json"
+        if ledger_path.is_file():
+            raw_ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+            if isinstance(raw_ledger, dict) and isinstance(raw_ledger.get("tasks"), dict):
+                ledger = {str(key): value for key, value in raw_ledger["tasks"].items() if isinstance(value, dict)}
+
+        state: dict[str, object] = {}
+        state_path = runtime_root / "state.json"
+        if state_path.is_file():
+            raw_state = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(raw_state, dict):
+                state = raw_state
+
+        enriched = []
+        for task in tasks:
+            status = hybrid_planner.ledger_task_status(ledger, task) or task.status
+            enriched.append({
+                **task.to_dict(),
+                "runtime_status": status,
+                "satisfied": hybrid_planner.task_satisfied(task.id, tasks, ledger),
+                "current": str(state.get("current_task_id", "")) == task.id,
+            })
+        eligible = hybrid_planner.eligible_tasks(tasks, ledger, phase=None)
+        ranked = hybrid_planner.deterministic_rank(eligible, tasks, ledger)
+        digest = hybrid_planner.roadmap_sha256(source)
+        completed = sum(1 for task in tasks if hybrid_planner.task_satisfied(task.id, tasks, ledger))
+        total = len(tasks)
+        return {
+            "roadmap": {
+                "path": str(source.relative_to(repo_root)),
+                "sha256": digest,
+                "schema_version": 1,
+            },
+            "tasks": enriched,
+            "eligible_ids": [task.id for task in eligible],
+            "deterministic_rank": [task.id for task in ranked],
+            "progress": {"completed": completed, "total": total, "percent": round((completed / total) * 100, 1) if total else 0},
+            "runtime": {
+                "run_id": state.get("run_id", ""),
+                "phase": state.get("phase", ""),
+                "current_task_id": state.get("current_task_id", ""),
+                "current_task": state.get("current_task", ""),
+                "task_number": state.get("task_number", 0),
+                "completed_tasks": state.get("completed_tasks", 0),
+                "failed_tasks": state.get("failed_tasks", 0),
+                "current_attempt": state.get("current_attempt", 0),
+                "stop_reason": state.get("stop_reason", ""),
+            },
+        }
 
     @staticmethod
     def _item(item) -> dict[str, object]:
@@ -144,6 +217,8 @@ class WebApplication:
             return 200, {"status": "ok"}
         if method == "GET" and path == "/api/manifest":
             return 200, self._manifest(user)
+        if method == "GET" and path == "/api/planner/roadmap":
+            return 200, self._planner_snapshot(query.get("path"))
         if method == "GET" and path == "/api/auth/me":
             return 200, {"user": user}
         if method == "POST" and path == "/api/auth/signup":
