@@ -82,9 +82,20 @@
   }
 
   const setView = (view) => {
-    state.view = view; $('home-view').hidden=view!=='chat'; $('page-view').hidden=view==='chat';
-    document.querySelectorAll('.nav-item[data-view]').forEach((button)=>button.classList.toggle('active',button.dataset.view===view));
-    if (view!=='chat') $('project-tools').hidden=true; syncAccessibility();
+    if (state.view === 'planner' && view !== 'planner') {
+      document.body.classList.remove('planner-focus');
+      document.title = 'Engineering AI Workspace';
+    }
+    state.view = view;
+    $('home-view').hidden = view !== 'chat';
+    $('page-view').hidden = view === 'chat';
+    document.querySelectorAll('.nav-item[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
+    if (view !== 'chat') $('project-tools').hidden = true;
+    if (view === 'planner') {
+      document.body.classList.add('planner-focus');
+      document.title = 'PASI Planner · Engineering Workspace';
+    }
+    syncAccessibility();
   };
   const modal = (title, body) => { $('modal-title').textContent=title; $('modal-body').innerHTML=body; $('modal').hidden=false; };
   const closeModal = () => { $('modal').hidden=true; };
@@ -177,18 +188,41 @@
   function shareCurrent(){const payload={title:document.title,text:state.project?.name||'Personal AI System',url:location.href};return navigator.share?navigator.share(payload):navigator.clipboard.writeText(location.href).then(()=>toast('Link copied.','ok'));}
   async function handleMessageAction(target){const article=target.closest('.message');const action=target.dataset.msgAction;if(!article)return;const text=article.querySelector('.content,.user-bubble')?.textContent||'';if(action==='copy')return navigator.clipboard.writeText(text).then(()=>toast('Copied.','ok'));if(action==='share')return navigator.share?navigator.share({text}):navigator.clipboard.writeText(text).then(()=>toast('Copied share text.','ok'));if(action==='edit'){$('chat-input').value=text;$('chat-input').dispatchEvent(new Event('input'));$('chat-input').focus();return;}if(action==='retry'){const promptText=article.dataset.retryPrompt||'';if(promptText)return sendMessage(promptText);return;}if(action==='branch'){const result=await send(`/api/chats/${state.chatId}/branch`,{title:`${$('chat-title').textContent||'Chat'} — branch`});state.chatId=result.id;await loadChats();await loadChat();toast('Chat branched.','ok');return;}if(action==='rate-up'||action==='rate-down'){const index=Number(article.dataset.assistantIndex||-1);const chat=await api(`/api/chats/${state.chatId}`);const assistants=(chat.messages||[]).filter((message)=>message.role==='assistant');const message=assistants[index];if(!message?.id)throw new Error('Assistant message could not be identified.');await api(`/api/chats/${state.chatId}/feedback`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message_id:message.id,rating:action==='rate-up'?'up':'down'})});localStorage.setItem(`pas-rating-${state.chatId}-${index}`,action==='rate-up'?'up':'down');renderMessages(chat.messages||[],[]);toast('Feedback saved.','ok');}}
   let plannerRefreshTimer = null;
+  let plannerRunTimer = null;
 
-  async function openPlanner() {
-    setView('planner');
-    await renderPlanner();
-    if (plannerRefreshTimer) clearInterval(plannerRefreshTimer);
-    plannerRefreshTimer = setInterval(async () => {
-      if (state.view !== 'planner') { clearInterval(plannerRefreshTimer); plannerRefreshTimer = null; return; }
-      try { await refreshPlannerSilently(); } catch (_) {}
-    }, 5000);
+  const plannerUi = {
+    snapshot: null,
+    selectedId: null,
+    queueFilter: 'all',
+    search: '',
+    tab: 'overview',
+    graphFocus: null,
+    running: false,
+    paused: false,
+    runElapsed: 0,
+    progressOverride: null,
+  };
+
+  function plannerOrderKey(path) {
+    return \`pasi-planner-order:\${path}\`;
   }
 
-  function plannerOrderKey(path) { return `pasi-planner-order:${path}`; }
+  function plannerDraftKey(path) {
+    return \`pasi-planner-draft:\${path}\`;
+  }
+
+  function plannerLoadDraft(path) {
+    try {
+      const value = JSON.parse(localStorage.getItem(plannerDraftKey(path)) || '{}');
+      return value && typeof value === 'object' ? value : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function plannerSaveDraft(path, draft) {
+    localStorage.setItem(plannerDraftKey(path), JSON.stringify(draft));
+  }
 
   function plannerOrderedTasks(snapshot) {
     const tasks = [...(snapshot.tasks || [])];
@@ -199,100 +233,761 @@
       if (!Array.isArray(order)) return tasks;
       const rank = new Map(order.map((id, index) => [id, index]));
       return tasks.sort((a, b) => (rank.get(a.id) ?? 999999) - (rank.get(b.id) ?? 999999));
-    } catch (_) { return tasks; }
-  }
-
-  async function renderPlanner() {
-    const page = $('page-view');
-    if (!page) return;
-    page.innerHTML = '<div class="page planner-page"><div class="loading-state">Loading roadmap…</div></div>';
-    try {
-      const snapshot = await api('/api/planner/roadmap');
-      page.innerHTML = plannerMarkup(snapshot);
-      bindPlannerInteractions(snapshot);
-    } catch (error) {
-      page.innerHTML = `<div class="page planner-page"><div class="error-state"><strong>Planner unavailable</strong><span>${escapeHtml(error.message)}</span><button type="button" class="outline-button" data-planner-action="refresh">Retry</button></div></div>`;
+    } catch (_) {
+      return tasks;
     }
   }
 
-  async function refreshPlannerSilently() {
-    const snapshot = await api('/api/planner/roadmap');
-    const currentDigest = $('planner-root')?.dataset?.roadmapSha || '';
-    if (currentDigest !== snapshot.roadmap.sha256) {
-      await renderPlanner();
-      toast('Roadmap changed; planner view refreshed.','ok');
-      return;
-    }
-    const currentSelection = $('planner-root')?.querySelector('.planner-task.selected')?.dataset?.taskId || '';
-    $('planner-progress')?.replaceWith(document.createRange().createContextualFragment(plannerProgressMarkup(snapshot)).firstElementChild);
-    if ($('planner-current')) $('planner-current').innerHTML = plannerCurrentMarkup(snapshot);
-    document.querySelectorAll('.planner-task').forEach((node) => {
-      const task = snapshot.tasks.find((item) => item.id === node.dataset.taskId);
-      if (!task) return;
-      node.querySelector('.planner-status')?.replaceWith(document.createRange().createContextualFragment(plannerStatusMarkup(task)).firstElementChild);
-      node.classList.toggle('completed', task.satisfied);
-      node.classList.toggle('current', task.current);
-      node.classList.toggle('selected', task.id === currentSelection);
+  function plannerTaskStatus(task, draft) {
+    return String(draft.statuses?.[task.id] || task.runtime_status || task.status || 'pending');
+  }
+
+  function plannerTaskSatisfied(task, draft) {
+    return draft.statuses?.[task.id] === 'completed' || Boolean(task.satisfied);
+  }
+
+  function plannerDisplayTasks(snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    const ordered = plannerOrderedTasks(snapshot).map((task) => ({
+      ...task,
+      runtime_status: plannerTaskStatus(task, draft),
+      satisfied: plannerTaskSatisfied(task, draft),
+      current: plannerUi.running ? task.id === plannerUi.selectedId : Boolean(task.current),
+    }));
+    const query = plannerUi.search.trim().toLowerCase();
+    return ordered.filter((task) => {
+      const status = plannerTaskStatus(task, draft);
+      const eligible = (snapshot.eligible_ids || []).includes(task.id);
+      const matchesFilter =
+        plannerUi.queueFilter === 'all' ||
+        (plannerUi.queueFilter === 'ready' && eligible) ||
+        (plannerUi.queueFilter === 'blocked' && status === 'blocked') ||
+        (plannerUi.queueFilter === 'active' && (task.current || task.id === plannerUi.selectedId || status === 'in_progress')) ||
+        (plannerUi.queueFilter === 'done' && task.satisfied);
+      const haystack = [task.id, task.title, task.objective, task.phase].join(' ').toLowerCase();
+      return matchesFilter && (!query || haystack.includes(query));
     });
   }
 
-  function plannerProgressMarkup(snapshot) {
-    const p = snapshot.progress || {completed:0,total:0,percent:0};
-    return `<div id="planner-progress" class="planner-progress"><div class="planner-progress-head"><strong>${p.completed}/${p.total} complete</strong><span>${p.percent}%</span></div><div class="planner-progress-track"><span style="width:${Math.max(0, Math.min(100, p.percent))}%"></span></div></div>`;
-  }
-
-  function plannerStatusMarkup(task) {
-    const status = task.runtime_status || 'pending';
-    const label = task.satisfied ? 'Completed' : status.replace('_',' ');
-    const symbol = task.satisfied ? '✓' : task.current ? '→' : status === 'blocked' ? '!' : status === 'cancelled' ? '×' : '○';
-    return `<span class="planner-status status-${escapeHtml(status)}" title="${escapeHtml(label)}">${symbol} ${escapeHtml(label)}</span>`;
-  }
-
-  function plannerCurrentMarkup(snapshot) {
-    const runtime = snapshot.runtime || {};
-    const current = snapshot.tasks.find((task) => task.current) || snapshot.tasks.find((task) => task.id === runtime.current_task_id);
-    if (!current) return '<div class="planner-current-empty">No active task reported by the runtime.</div>';
-    return `<div class="planner-current-task"><div class="eyebrow">Current task</div><h3>${escapeHtml(current.title)}</h3><code>${escapeHtml(current.id)}</code><p>${escapeHtml(current.objective)}</p><div class="inline-actions"><span class="planner-chip">${escapeHtml(runtime.phase || current.phase)}</span><span class="planner-chip">Attempt ${escapeHtml(runtime.current_attempt || 0)}</span></div></div>`;
-  }
-
-  function plannerMarkup(snapshot) {
-    const tasks = plannerOrderedTasks(snapshot);
-    const eligible = new Set(snapshot.eligible_ids || []);
-    const rank = new Map((snapshot.deterministic_rank || []).map((id, index) => [id, index + 1]));
+  function plannerEligible(snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
     const byId = new Map((snapshot.tasks || []).map((task) => [task.id, task]));
-    const taskRows = tasks.map((task) => `<article class="planner-task ${task.satisfied ? 'completed':''} ${task.current ? 'current':''} ${eligible.has(task.id) ? 'eligible':''}" draggable="true" data-task-id="${attr(task.id)}"><div class="planner-task-main"><div class="planner-drag" aria-hidden="true">⋮⋮</div><div class="planner-task-copy"><div class="planner-task-top"><span class="planner-phase">${escapeHtml(task.phase)}</span>${plannerStatusMarkup(task)}</div><h3>${escapeHtml(task.title)}</h3><code>${escapeHtml(task.id)}</code><p>${escapeHtml(task.objective)}</p><div class="planner-meta"><span>Priority ${escapeHtml(task.priority)}</span><span>Size ${escapeHtml(task.estimated_size)}</span>${eligible.has(task.id) ? '<span class="planner-eligible">Eligible</span>':''}${rank.has(task.id) ? `<span>Planner rank ${rank.get(task.id)}</span>`:''}</div></div></div><div class="planner-task-actions"><button type="button" class="icon-button planner-move" title="Move task up" aria-label="Move task up" data-planner-move="up" data-task-id="${attr(task.id)}">↑</button><button type="button" class="icon-button planner-move" title="Move task down" aria-label="Move task down" data-planner-move="down" data-task-id="${attr(task.id)}">↓</button><button type="button" class="outline-button planner-task-details" data-planner-detail="${attr(task.id)}">Details</button></div></article>`).join('');
-    const graph = tasks.map((task) => {
-      const deps = task.depends_on || [];
-      const blockers = deps.filter((id) => !byId.get(id)?.satisfied);
-      return `<div class="planner-graph-row"><div class="planner-graph-node ${task.satisfied ? 'done':''}"><strong>${escapeHtml(task.title)}</strong><code>${escapeHtml(task.id)}</code></div><div class="planner-graph-links">${deps.length ? deps.map((id) => `<span class="planner-link ${blockers.includes(id)?'blocked':''}">← ${escapeHtml(byId.get(id)?.title || id)}</span>`).join('') : '<span class="planner-link root">No dependencies</span>'}</div></div>`;
-    }).join('');
-    return `<div id="planner-root" class="page planner-page" data-roadmap-sha="${escapeHtml(snapshot.roadmap.sha256)}"><header class="page-head"><div><div class="eyebrow">Roadmap control center</div><h1 class="page-title">Planner</h1><p class="page-subtitle">${escapeHtml(snapshot.roadmap.path)} · deterministic eligibility first</p></div><div class="planner-actions"><button type="button" class="outline-button" data-planner-action="import">Import JSON</button><button type="button" class="outline-button" data-planner-action="reset">Reset order</button><button type="button" class="primary-button" data-planner-action="refresh">Recalculate</button></div></header><div class="planner-grid"><section class="planner-main"><div class="planner-toolbar"><span class="planner-chip">${snapshot.eligible_ids?.length || 0} eligible</span><span class="planner-chip">${snapshot.roadmap.schema_version ? `Schema ${snapshot.roadmap.schema_version}` : ''}</span><span class="planner-help">Drag tasks to change your local viewing order. Dependencies remain authoritative.</span></div>${plannerProgressMarkup(snapshot)}<section class="planner-section"><div class="section-title planner-section-title"><div><div class="eyebrow">Execution sequence</div><h2>Task order</h2></div><span class="muted">Local draft order only</span></div><div id="planner-task-list" class="planner-task-list">${taskRows}</div></section><section class="planner-section"><div class="section-title planner-section-title"><div><div class="eyebrow">Dependencies</div><h2>Roadmap graph</h2></div></div><div class="planner-graph">${graph}</div></section></section><aside class="planner-side"><div id="planner-current" class="planner-current panel-card">${plannerCurrentMarkup(snapshot)}</div><div class="panel-card"><div class="eyebrow">Deterministic planner</div><h3>Next eligible tasks</h3><div class="planner-ranked-list">${(snapshot.deterministic_rank||[]).slice(0,8).map((id,index)=>`<div><span>${index+1}</span><strong>${escapeHtml(byId.get(id)?.title || id)}</strong></div>`).join('') || '<div class="muted">No eligible task.</div>'}</div><p class="muted">AI ranking, when enabled, can only rank this already-eligible set.</p></div></aside></div></div>`;
+    return (snapshot.eligible_ids || []).filter((id) => {
+      const task = byId.get(id);
+      return task && !plannerTaskSatisfied(task, draft) && plannerTaskStatus(task, draft) !== 'cancelled';
+    });
+  }
+
+  function plannerCurrent(snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    return snapshot.tasks.find((task) => task.current) ||
+      snapshot.tasks.find((task) => task.id === snapshot.runtime?.current_task_id) ||
+      snapshot.tasks.find((task) => plannerTaskStatus(task, draft) === 'in_progress') ||
+      null;
+  }
+
+  function plannerFormatElapsed(seconds) {
+    const s = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(s / 60);
+    const secs = Math.floor(s % 60);
+    return \`\${String(mins).padStart(2, '0')}:\${String(secs).padStart(2, '0')}\`;
+  }
+
+  function plannerTaskIcon(task, snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    const status = plannerTaskStatus(task, draft);
+    if (task.satisfied) return '✓';
+    if (status === 'blocked') return '!';
+    if (status === 'in_progress') return '→';
+    if ((snapshot.eligible_ids || []).includes(task.id)) return '●';
+    if (status === 'cancelled') return '×';
+    return '○';
+  }
+
+  function plannerStatusClass(task, snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    const status = plannerTaskStatus(task, draft);
+    if (task.satisfied) return 'done';
+    if (status === 'blocked') return 'blocked';
+    if (status === 'in_progress' || task.current || task.id === plannerUi.selectedId) return 'active';
+    if ((snapshot.eligible_ids || []).includes(task.id)) return 'ready';
+    return 'queued';
+  }
+
+  function plannerStatusLabel(task, snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    const status = plannerTaskStatus(task, draft);
+    if (task.satisfied) return 'Completed';
+    if (status === 'in_progress') return 'In progress';
+    if (status === 'blocked') return 'Blocked';
+    if ((snapshot.eligible_ids || []).includes(task.id)) return 'Ready';
+    if (status === 'cancelled') return 'Cancelled';
+    return 'Queued';
+  }
+
+  function plannerTimeEstimate(task) {
+    const sizes = { small: '1h', medium: '3h', large: '6h' };
+    return sizes[String(task.estimated_size || '').toLowerCase()] || task.estimated_size || '—';
+  }
+
+  function plannerProgressMarkup(snapshot) {
+    const p = snapshot.progress || { completed: 0, total: 0, percent: 0 };
+    const percent = plannerUi.progressOverride == null ? Number(p.percent || 0) : plannerUi.progressOverride;
+    const completed = plannerUi.progressOverride == null
+      ? Number(p.completed || 0)
+      : Math.min(Number(p.total || 0), Math.round((percent / 100) * Number(p.total || 0)));
+    return \`<section class="planner-progress-card">
+      <div class="planner-progress-top">
+        <div>
+          <span class="planner-kicker">ROADMAP PROGRESS</span>
+          <strong>\${completed} / \${p.total || 0} tasks</strong>
+        </div>
+        <span class="planner-progress-percent">\${percent.toFixed(0)}%</span>
+      </div>
+      <div class="planner-progress-bar"><span style="width:\${Math.max(0, Math.min(100, percent))}%"></span></div>
+      <div class="planner-progress-meta"><span>Live from PASI planner snapshot</span><span>\${snapshot.eligible_ids?.length || 0} ready · \${snapshot.tasks?.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length || 0} blocked · \${plannerCurrent(snapshot) ? 1 : 0} executing</span></div>
+    </section>\`;
+  }
+
+  function plannerTaskDetailModal(task, snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    const deps = task.depends_on || [];
+    const dependents = (snapshot.tasks || []).filter((item) => (item.depends_on || []).includes(task.id));
+    const status = plannerTaskStatus(task, draft);
+    const acceptance = (task.acceptance_criteria || []).map((item) => \`<li><span>✓</span>\${escapeHtml(item)}</li>\`).join('') || '<li><span>•</span>No acceptance criteria recorded.</li>';
+    const verification = (task.verification || []).map((item) => \`<li><span>□</span>\${escapeHtml(item)}</li>\`).join('') || '<li><span>•</span>No verification steps recorded.</li>';
+    modal(task.title, \`<div class="planner-detail-modal">
+      <div class="planner-detail-hero">
+        <div><span class="planner-kicker">\${escapeHtml(task.id)}</span><h3>\${escapeHtml(task.objective || task.title)}</h3></div>
+        <span class="planner-badge \${plannerStatusClass(task, snapshot)}">\${escapeHtml(plannerStatusLabel(task, snapshot))}</span>
+      </div>
+      <div class="planner-detail-grid">
+        <div class="planner-detail-block"><span>Phase</span><strong>\${escapeHtml(task.phase || '—')}</strong></div>
+        <div class="planner-detail-block"><span>Priority</span><strong>\${escapeHtml(task.priority || '—')}</strong></div>
+        <div class="planner-detail-block"><span>Estimate</span><strong>\${escapeHtml(plannerTimeEstimate(task))}</strong></div>
+        <div class="planner-detail-block"><span>Run attempt</span><strong>\${escapeHtml(snapshot.runtime?.current_attempt || '—')}</strong></div>
+      </div>
+      <div class="planner-detail-columns">
+        <section><span class="planner-kicker">DEPENDS ON</span><div class="planner-chip-list">\${deps.length ? deps.map((id) => \`<button type="button" class="planner-mini-chip" data-planner-focus="\${attr(id)}">\${escapeHtml(id)}</button>\`).join('') : '<span class="muted">No prerequisites</span>'}</div></section>
+        <section><span class="planner-kicker">DEPENDENTS</span><div class="planner-chip-list">\${dependents.length ? dependents.map((item) => \`<button type="button" class="planner-mini-chip" data-planner-focus="\${attr(item.id)}">\${escapeHtml(item.id)}</button>\`).join('') : '<span class="muted">No downstream tasks</span>'}</div></section>
+      </div>
+      <section class="planner-detail-list"><span class="planner-kicker">ACCEPTANCE CRITERIA</span><ul>\${acceptance}</ul></section>
+      <section class="planner-detail-list"><span class="planner-kicker">VERIFICATION</span><ul>\${verification}</ul></section>
+      <div class="planner-detail-actions">
+        <button type="button" class="outline-button" data-planner-status="pending" data-task-id="\${attr(task.id)}">Mark queued</button>
+        <button type="button" class="outline-button" data-planner-status="blocked" data-task-id="\${attr(task.id)}">Block</button>
+        <button type="button" class="primary-button" data-planner-status="completed" data-task-id="\${attr(task.id)}">\${status === 'completed' ? 'Keep completed' : 'Mark complete'}</button>
+      </div>
+      <p class="planner-local-note">Draft controls are local-only and never write directly to the unattended PASI runtime.</p>
+    </div>\`);
+    document.querySelectorAll('[data-planner-status]').forEach((button) => {
+      button.onclick = () => {
+        plannerSetTaskStatus(button.dataset.taskId, button.dataset.plannerStatus, snapshot);
+        closeModal();
+      };
+    });
+    document.querySelectorAll('[data-planner-focus]').forEach((button) => {
+      button.onclick = () => {
+        plannerUi.selectedId = button.dataset.plannerFocus;
+        closeModal();
+        plannerRender();
+        requestAnimationFrame(() => document.querySelector(\`.planner-task-card[data-task-id="\${CSS.escape(plannerUi.selectedId)}"]\`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      };
+    });
+  }
+
+  function plannerSetTaskStatus(taskId, status, snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    draft.statuses = { ...(draft.statuses || {}) };
+    draft.statuses[taskId] = status;
+    plannerSaveDraft(snapshot.roadmap.path, draft);
+    plannerRender();
+    announce(\`\${taskId} set to \${status}\`);
+  }
+
+  function plannerExport(snapshot) {
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    const exportPayload = {
+      exported_at: new Date().toISOString(),
+      roadmap: snapshot.roadmap,
+      tasks: snapshot.tasks,
+      local_draft: draft,
+      human_order: plannerOrderedTasks(snapshot).map((task) => task.id),
+      deterministic_rank: snapshot.deterministic_rank || [],
+    };
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'pasi-planner-draft.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast('Planner draft exported.', 'ok');
   }
 
   function plannerImportModal() {
-    modal('Import roadmap JSON', '<form id="planner-import-form" class="form-stack"><label>Roadmap JSON<textarea id="planner-import-json" rows="16" placeholder="Paste a schema_version 1 roadmap here"></textarea></label><div class="form-actions"><button type="button" class="outline-button" id="planner-import-cancel">Cancel</button><button class="primary-button">Preview</button></div></form>');
-    $('planner-import-cancel').onclick=closeModal;
-    $('planner-import-form').onsubmit=(event)=>{ event.preventDefault(); try { const data=JSON.parse($('planner-import-json').value); if(!data || !Array.isArray(data.tasks)) throw new Error('Roadmap must contain a tasks array.'); const ids=data.tasks.map((task)=>task.id); if(ids.some((id)=>typeof id!=='string'||!id.trim())) throw new Error('Every task needs a stable string id.'); localStorage.setItem('pasi-planner-import-preview', JSON.stringify(data)); closeModal(); toast(`Loaded ${data.tasks.length} tasks into local preview.`,'ok'); renderPlannerImported(data); } catch(error) { toast(error.message); } };
+    modal('Import roadmap JSON', \`<form id="planner-import-form" class="form-stack planner-import-form">
+      <div class="planner-import-tabs"><span class="planner-import-tab active">JSON roadmap</span><span class="planner-import-hint">Preview only</span></div>
+      <label>Roadmap JSON<textarea id="planner-import-json" rows="15" placeholder='{"schema_version":1,"tasks":[...]}'></textarea></label>
+      <div class="form-actions"><button type="button" class="outline-button" id="planner-import-cancel">Cancel</button><button class="primary-button">Preview roadmap</button></div>
+    </form>\`);
+    $('planner-import-cancel').onclick = closeModal;
+    $('planner-import-form').onsubmit = (event) => {
+      event.preventDefault();
+      try {
+        const data = JSON.parse($('planner-import-json').value);
+        if (!data || !Array.isArray(data.tasks)) throw new Error('Roadmap must contain a tasks array.');
+        if (data.tasks.some((task) => typeof task.id !== 'string' || !task.id.trim())) throw new Error('Every task needs a stable string id.');
+        localStorage.setItem('pasi-planner-import-preview', JSON.stringify(data));
+        closeModal();
+        toast(\`Loaded \${data.tasks.length} tasks into local preview.\`, 'ok');
+        renderPlannerImported(data);
+      } catch (error) {
+        toast(error.message);
+      }
+    };
   }
 
   function renderPlannerImported(data) {
-    const normalized = { roadmap:{path:'local import preview',sha256:'local-preview'}, tasks:data.tasks.map((task)=>({...task,runtime_status:task.status||'pending',satisfied:task.status==='completed',current:false})), eligible_ids:[], deterministic_rank:[], progress:{completed:data.tasks.filter((task)=>task.status==='completed').length,total:data.tasks.length,percent:data.tasks.length?Math.round(data.tasks.filter((task)=>task.status==='completed').length/data.tasks.length*100):0}, runtime:{} };
-    if (!$('page-view')) return;
-    $('page-view').innerHTML=plannerMarkup(normalized);
-    bindPlannerInteractions(normalized);
-    toast('Local roadmap preview loaded.','ok');
+    const normalized = {
+      roadmap: { path: 'local import preview', sha256: 'local-preview', schema_version: data.schema_version || 1 },
+      tasks: data.tasks.map((task) => ({ ...task, runtime_status: task.status || 'pending', satisfied: task.status === 'completed', current: false })),
+      eligible_ids: data.tasks.filter((task) => !task.depends_on?.length && task.status !== 'completed').map((task) => task.id),
+      deterministic_rank: data.tasks.map((task) => task.id),
+      progress: {
+        completed: data.tasks.filter((task) => task.status === 'completed').length,
+        total: data.tasks.length,
+        percent: data.tasks.length ? Math.round(data.tasks.filter((task) => task.status === 'completed').length / data.tasks.length * 100) : 0,
+      },
+      runtime: {},
+    };
+    plannerUi.snapshot = normalized;
+    plannerUi.selectedId = normalized.tasks.find((task) => task.status !== 'completed')?.id || normalized.tasks[0]?.id || null;
+    plannerRender();
+    toast('Local roadmap preview loaded.', 'ok');
+  }
+
+  function plannerGraphMarkup(snapshot) {
+    const tasks = plannerOrderedTasks(snapshot);
+    const byId = new Map(snapshot.tasks.map((task) => [task.id, task]));
+    const focus = plannerUi.graphFocus || plannerUi.selectedId;
+    return \`<div class="planner-graph-canvas" role="list" aria-label="Roadmap dependency graph">
+      \${tasks.map((task, index) => {
+        const deps = task.depends_on || [];
+        const connected = focus && (task.id === focus || deps.includes(focus) || (byId.get(focus)?.depends_on || []).includes(task.id));
+        const blockers = deps.filter((id) => !byId.get(id)?.satisfied);
+        return \`<button type="button" class="planner-graph-node planner-graph-\${plannerStatusClass(task, snapshot)} \${connected ? 'connected' : ''}" data-planner-graph-task="\${attr(task.id)}" style="--graph-i:\${index % 5}">
+          <span class="planner-node-status">\${plannerTaskIcon(task, snapshot)}</span>
+          <span><strong>\${escapeHtml(task.title)}</strong><code>\${escapeHtml(task.id)}</code></span>
+          <span class="planner-node-meta">\${deps.length ? \`\${deps.length} dep\${deps.length === 1 ? '' : 's'}\` : 'root'}\${blockers.length ? ' · blocked upstream' : ''}</span>
+        </button>\`;
+      }).join('')}
+    </div>\`;
+  }
+
+  function plannerQueueMarkup(snapshot) {
+    const tasks = plannerDisplayTasks(snapshot);
+    const eligible = new Set(plannerEligible(snapshot));
+    const selected = plannerUi.selectedId;
+    return \`<section class="planner-panel planner-queue-panel">
+      <div class="planner-panel-header">
+        <div><span class="planner-kicker">TASK QUEUE</span><h2>Execution backlog</h2></div>
+        <div class="planner-queue-actions">
+          <button type="button" class="planner-icon-button" aria-label="Refresh" title="Refresh" data-planner-action="refresh">↻</button>
+        </div>
+      </div>
+      <div class="planner-segmented" role="tablist" aria-label="Task queue filters">
+        \${[['all','All'],['ready','Ready'],['blocked','Blocked'],['active','Active'],['done','Done']].map(([value,label]) => \`<button type="button" role="tab" class="\${plannerUi.queueFilter === value ? 'active' : ''}" data-planner-filter="\${value}">\${label}<span>\${value === 'all' ? snapshot.tasks.length : value === 'ready' ? eligible.size : value === 'blocked' ? snapshot.tasks.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length : value === 'done' ? snapshot.tasks.filter((task) => plannerTaskSatisfied(task, plannerLoadDraft(snapshot.roadmap.path))).length : 1}</span></button>\`).join('')}
+      </div>
+      <div class="planner-task-list" id="planner-task-list">
+        \${tasks.length ? tasks.map((task, index) => \`<article class="planner-task-card \${plannerStatusClass(task, snapshot)} \${task.id === selected ? 'selected' : ''}" draggable="true" data-task-id="\${attr(task.id)}" tabindex="0">
+          <div class="planner-task-main">
+            <div class="planner-task-index">\${String(index + 1).padStart(2, '0')}</div>
+            <div class="planner-task-status-dot"><span>\${plannerTaskIcon(task, snapshot)}</span></div>
+            <div class="planner-task-copy">
+              <div class="planner-task-line"><span class="planner-task-id">\${escapeHtml(task.id)}</span><span class="planner-badge \${plannerStatusClass(task, snapshot)}">\${plannerStatusLabel(task, snapshot)}</span></div>
+              <h3>\${escapeHtml(task.title)}</h3>
+              <p>\${escapeHtml(task.objective || '')}</p>
+              <div class="planner-task-meta"><span>\${escapeHtml(task.phase || 'Unscoped')}</span><span>\${escapeHtml(task.priority || 'P?')}</span><span>\${plannerTimeEstimate(task)}</span>\${eligible.has(task.id) ? '<span class="planner-ready">Ready to run</span>' : ''}</div>
+            </div>
+          </div>
+          <div class="planner-task-row-actions">
+            <button type="button" class="planner-ghost-icon" title="Move up" aria-label="Move task up" data-planner-move="up" data-task-id="\${attr(task.id)}">↑</button>
+            <button type="button" class="planner-ghost-icon" title="Move down" aria-label="Move task down" data-planner-move="down" data-task-id="\${attr(task.id)}">↓</button>
+            <button type="button" class="planner-details-button" data-planner-detail="\${attr(task.id)}">Details</button>
+          </div>
+        </article>\`).join('') : '<div class="planner-empty-state"><strong>No tasks match this view.</strong><span>Adjust the queue filter or search.</span></div>'}
+      </div>
+    </section>\`;
+  }
+
+  function plannerSelectedMarkup(snapshot) {
+    const task = snapshot.tasks.find((item) => item.id === plannerUi.selectedId) || plannerCurrent(snapshot) || plannerOrderedTasks(snapshot)[0];
+    if (!task) return '<div class="planner-empty-state"><strong>No task selected.</strong></div>';
+    const status = plannerStatusLabel(task, snapshot);
+    const draft = plannerLoadDraft(snapshot.roadmap.path);
+    const blockers = (task.depends_on || []).filter((id) => {
+      const dep = snapshot.tasks.find((item) => item.id === id);
+      return dep && !plannerTaskSatisfied(dep, draft);
+    });
+    return \`<section class="planner-panel planner-focus-panel">
+      <div class="planner-focus-top">
+        <div><span class="planner-kicker">\${escapeHtml(task.id)} · \${escapeHtml(String(status).toUpperCase())}</span><h2>\${escapeHtml(task.title)}</h2><p>\${escapeHtml(task.objective || '')}</p></div>
+        <button type="button" class="planner-menu-button" aria-label="Task actions" data-planner-menu="\${attr(task.id)}">•••</button>
+      </div>
+      <div class="planner-focus-grid">
+        <div><span>Assignee</span><strong>Unattended PASI</strong></div>
+        <div><span>Priority</span><strong>\${escapeHtml(task.priority || '—')}</strong></div>
+        <div><span>Estimate</span><strong>\${escapeHtml(plannerTimeEstimate(task))}</strong></div>
+        <div><span>Phase</span><strong>\${escapeHtml(task.phase || '—')}</strong></div>
+      </div>
+      <div class="planner-focus-tabs" role="tablist">
+        \${[['overview','Overview'],['eligible','Eligibility'],['ai','AI ranking'],['execution','History']].map(([value,label]) => \`<button type="button" class="\${plannerUi.tab === value ? 'active' : ''}" data-planner-tab="\${value}">\${label}</button>\`).join('')}
+      </div>
+      <div class="planner-focus-content">
+        \${plannerUi.tab === 'eligible' ? \`<div class="planner-insight \${blockers.length ? 'warning' : 'success'}"><strong>\${blockers.length ? 'Blocked by prerequisites' : eligibleForTask(snapshot, task) ? 'Eligible now' : 'Not currently eligible'}</strong><span>\${blockers.length ? blockers.join(' · ') : 'All deterministic dependency checks are satisfied.'}</span></div>\` :
+          plannerUi.tab === 'ai' ? plannerAiMarkup(snapshot) :
+          plannerUi.tab === 'execution' ? plannerExecutionHistoryMarkup(snapshot, task) :
+          \`<div class="planner-checklist">\${(task.acceptance_criteria || []).slice(0, 5).map((item, index) => \`<label><input type="checkbox" disabled \${task.satisfied ? 'checked' : ''}><span>\${escapeHtml(item)}</span></label>\`).join('') || '<div class="muted">No acceptance criteria supplied.</div>'}</div>\`}
+      </div>
+      <div class="planner-focus-actions">
+        <button type="button" class="outline-button" data-planner-status="blocked" data-task-id="\${attr(task.id)}">Block</button>
+        <button type="button" class="outline-button" data-planner-status="pending" data-task-id="\${attr(task.id)}">Queue</button>
+        <button type="button" class="primary-button" data-planner-status="completed" data-task-id="\${attr(task.id)}">\${task.satisfied ? 'Completed' : 'Mark complete'}</button>
+      </div>
+    </section>\`;
+  }
+
+  function eligibleForTask(snapshot, task) {
+    return (snapshot.eligible_ids || []).includes(task.id);
+  }
+
+  function plannerAiMarkup(snapshot) {
+    const ranking = snapshot.deterministic_rank || [];
+    const enabled = localStorage.getItem('pasi-planner-ai') === '1';
+    return \`<div class="planner-ai-card">
+      <div class="planner-ai-header"><div><span class="planner-kicker">OPTIONAL</span><strong>AI ranking</strong><p>Ranks only tasks PASI has already deemed eligible.</p></div><label class="planner-switch"><input id="planner-ai-toggle" type="checkbox" \${enabled ? 'checked' : ''}><span></span></label></div>
+      <div class="planner-ai-list">\${ranking.slice(0, 5).map((id, index) => \`<div><span>\${index + 1}</span><strong>\${escapeHtml(id)}</strong><em>\${enabled ? (0.96 - index * 0.08).toFixed(2) : '—'}</em></div>\`).join('') || '<div class="muted">No eligible tasks to rank.</div>'}</div>
+      <div class="planner-local-note">\${enabled ? 'AI mode is enabled as a local UX preview.' : 'AI mode is off. Deterministic ordering remains the source of truth.'}</div>
+    </div>\`;
+  }
+
+  function plannerExecutionHistoryMarkup(snapshot, task) {
+    const runtime = snapshot.runtime || {};
+    const events = [
+      runtime.started_at ? \`Run started \${runtime.started_at}\` : 'Planner runtime history is local to this snapshot.',
+      task.current ? \`Executing \${task.id}\` : \`Task status: \${plannerStatusLabel(task, snapshot)}\`,
+      task.satisfied ? 'Verification satisfied' : 'Awaiting completion evidence',
+    ];
+    return \`<div class="planner-history">\${events.map((event, index) => \`<div><span>\${String(index + 1).padStart(2, '0')}</span><p>\${escapeHtml(event)}</p></div>\`).join('')}</div>\`;
+  }
+
+  function plannerRightRailMarkup(snapshot) {
+    const current = plannerCurrent(snapshot);
+    const runtime = snapshot.runtime || {};
+    const readyCount = plannerEligible(snapshot).length;
+    const blockedCount = snapshot.tasks.filter((task) => plannerTaskStatus(task, plannerLoadDraft(snapshot.roadmap.path)) === 'blocked').length;
+    const recent = plannerOrderedTasks(snapshot).slice(0, 5);
+    const selected = snapshot.tasks.find((task) => task.id === plannerUi.selectedId);
+    return \`<aside class="planner-right-rail">
+      <section class="planner-rail-card">
+        <div class="planner-rail-head"><span class="planner-kicker">LIVE EXECUTION</span><span class="planner-live-dot">\${plannerUi.running ? 'PREVIEW RUN' : current ? 'LIVE' : 'IDLE'}</span></div>
+        \${current || plannerUi.running ? \`<div class="planner-run-task">
+          <div class="planner-run-title"><span class="planner-status-ring \${plannerUi.running ? 'running' : ''}">\${plannerUi.running ? '→' : '•'}</span><div><strong>\${escapeHtml((plannerUi.running && selected) ? selected.title : current?.title || selected?.title || 'Current task')}</strong><span>\${escapeHtml((plannerUi.running && selected) ? selected.id : current?.id || '—')}</span></div></div>
+          <p>\${plannerUi.running ? 'Previewing planner selection without touching unattended execution.' : escapeHtml(current?.objective || 'Runtime reports no active task.')}</p>
+          <div class="planner-run-meter"><span style="width:\${plannerUi.running ? Math.min(94, 24 + plannerUi.runElapsed * 2) : 62}%"></span></div>
+          <div class="planner-run-metrics"><span>\${plannerUi.running ? plannerFormatElapsed(plannerUi.runElapsed) : 'Connected'}</span><span>\${plannerUi.running ? 'preview' : \`attempt \${runtime.current_attempt || 0}\`}</span></div>
+          <div class="planner-run-actions">\${plannerUi.running
+            ? \`<button type="button" class="outline-button" data-planner-run-control="pause">\${plannerUi.paused ? 'Resume' : 'Pause'}</button><button type="button" class="danger-button" data-planner-run-control="stop">Stop</button>\`
+            : '<button type="button" class="outline-button" data-planner-action="refresh">Refresh state</button><button type="button" class="primary-button" data-planner-run-control="run">Run planner</button>'}
+          </div>
+        </div>\` : \`<div class="planner-idle-run"><strong>No active runtime task</strong><span>Use Run planner to preview deterministic selection.</span><button type="button" class="primary-button" data-planner-run-control="run">Run planner</button></div>\`}
+      </section>
+      <section class="planner-rail-card">
+        <div class="planner-rail-head"><span class="planner-kicker">RUNTIME METRICS</span><span>LIVE</span></div>
+        <div class="planner-metric-grid">
+          <div><strong>\${snapshot.tasks.length}</strong><span>Tasks</span></div>
+          <div><strong>\${readyCount}</strong><span>Ready</span></div>
+          <div><strong>\${blockedCount}</strong><span>Blocked</span></div>
+          <div><strong>\${runtime.current_attempt || 0}</strong><span>Attempt</span></div>
+        </div>
+      </section>
+      <section class="planner-rail-card">
+        <div class="planner-rail-head"><span class="planner-kicker">EVENT STREAM</span><span>AUTO-REFRESH 5s</span></div>
+        <div class="planner-event-stream">
+          \${recent.map((task, index) => \`<button type="button" data-planner-stream-task="\${attr(task.id)}"><span>\${String(index + 1).padStart(2, '0')}</span><span>\${escapeHtml(plannerStatusLabel(task, snapshot).toLowerCase())} · \${escapeHtml(task.id)}</span><em>\${escapeHtml(task.phase || '')}</em></button>\`).join('')}
+        </div>
+      </section>
+      <section class="planner-rail-card">
+        <div class="planner-rail-head"><span class="planner-kicker">PLANNER INTEGRATIONS</span></div>
+        <div class="planner-integrations">
+          <button type="button" data-planner-integration="github"><span>◈</span><div><strong>GitHub Projects</strong><small>Roadmap storage / human planning</small></div><b>↗</b></button>
+          <button type="button" data-planner-integration="bridge"><span>◎</span><div><strong>PASI Bridge</strong><small>Authenticated localhost control plane</small></div><b>●</b></button>
+        </div>
+      </section>
+    </aside>\`;
+  }
+
+  function plannerSidebarMarkup(snapshot) {
+    const runtime = snapshot.runtime || {};
+    return \`<aside class="planner-sidebar">
+      <div class="planner-brand"><div class="planner-brand-mark">⌁</div><div><strong>PASI Planner</strong><span>Engineering workspace · v0.9</span></div></div>
+      <div class="planner-workspace-switch"><span>WORKSPACE</span><button type="button" data-planner-workspace>Core Platform <b>⌄</b></button></div>
+      <nav class="planner-nav" aria-label="Planner navigation">
+        \${[['planner','Planner','◇'],['executions','Executions','◉'],['artifacts','Artifacts','□'],['dependencies','Dependencies','⌘'],['environments','Environments','◈']].map(([id,label,icon]) => \`<button type="button" class="\${id === 'planner' ? 'active' : ''}" data-planner-nav="\${id}"><span>\${icon}</span>\${label}\${id === 'planner' ? '<b>3</b>' : ''}</button>\`).join('')}
+      </nav>
+      <div class="planner-side-section"><span>PROJECT</span>
+        <button type="button" data-planner-nav="overview"><span>◌</span>Overview</button>
+        <button type="button" data-planner-nav="milestones"><span>◇</span>Milestones</button>
+        <button type="button" data-planner-nav="team"><span>○</span>Team</button>
+        <button type="button" data-planner-nav="settings"><span>⚙</span>Settings</button>
+      </div>
+      <div class="planner-branch-card">
+        <span class="planner-branch-dot"></span><div><strong>feature/planner-v2</strong><small>\${escapeHtml(snapshot.roadmap.sha256?.slice(0, 7) || 'local')} · synced now</small></div>
+      </div>
+      <div class="planner-side-status"><span></span><div><strong>PASI Bridge</strong><small>127.0.0.1:8765 · \${runtime.phase || 'ready'}</small></div></div>
+    </aside>\`;
+  }
+
+  function plannerTopbarMarkup(snapshot) {
+    return \`<header class="planner-topbar">
+      <div class="planner-topbar-left"><button class="planner-mobile-menu" type="button" data-planner-action="toggle-sidebar">☰</button><span class="planner-topbar-context">PLANNER / ROADMAP <b>04</b></span></div>
+      <label class="planner-search"><span>⌕</span><input id="planner-search" type="search" placeholder="Search tasks, symbols, commits..." value="\${attr(plannerUi.search)}" autocomplete="off"><kbd>⌘ K</kbd></label>
+      <div class="planner-top-actions"><span class="planner-health"><i></i> SYSTEM HEALTHY</span><button type="button" class="planner-top-icon" data-planner-action="notifications" aria-label="Notifications">◍</button><button type="button" class="planner-avatar" data-planner-action="account">AK</button></div>
+    </header>\`;
+  }
+
+  function plannerMainMarkup(snapshot) {
+    const tabs = [['overview','Overview'],['eligible','Eligible tasks'],['ai','AI ranking'],['execution','Execution order']];
+    const sortedForPreview = plannerOrderedTasks(snapshot);
+    const selected = snapshot.tasks.find((task) => task.id === plannerUi.selectedId) || sortedForPreview[0];
+    if (!plannerUi.selectedId && selected) plannerUi.selectedId = selected.id;
+    return \`<div class="planner-shell">
+      \${plannerTopbarMarkup(snapshot)}
+      <div class="planner-layout">
+        \${plannerSidebarMarkup(snapshot)}
+        <main class="planner-content">
+          <div class="planner-content-inner">
+            <header class="planner-page-header">
+              <div>
+                <span class="planner-breadcrumb">PLANNER / ROADMAP <b>04</b></span>
+                <h1>Execution planner</h1>
+                <p>Orchestrate dependency-aware delivery for the PASI runtime.</p>
+              </div>
+              <div class="planner-page-actions"><button type="button" class="outline-button" data-planner-action="export">Export plan</button><button type="button" class="primary-button" data-planner-run-control="run">Run planner</button></div>
+            </header>
+            \${plannerProgressMarkup(snapshot)}
+            <div class="planner-work-area">
+              <section class="planner-center-column">
+                \${plannerQueueMarkup(snapshot)}
+                \${plannerSelectedMarkup(snapshot)}
+                <section class="planner-panel planner-graph-panel">
+                  <div class="planner-panel-header"><div><span class="planner-kicker">DEPENDENCY GRAPH</span><h2>Roadmap structure</h2></div><div class="planner-graph-actions"><button type="button" class="planner-icon-button" data-planner-action="fit">Fit</button><button type="button" class="planner-icon-button" data-planner-action="clear-focus">Clear</button></div></div>
+                  \${plannerGraphMarkup(snapshot)}
+                </section>
+              </section>
+              \${plannerRightRailMarkup(snapshot)}
+            </div>
+            <footer class="planner-footer"><span>Human order is intent. Deterministic eligibility is authority.</span><span>Roadmap: \${escapeHtml(snapshot.roadmap.path)} · SHA \${escapeHtml(snapshot.roadmap.sha256?.slice(0, 12) || 'local')}</span></footer>
+          </div>
+        </main>
+      </div>
+    </div>\`;
+  }
+
+  function plannerRender() {
+    const page = $('page-view');
+    const snapshot = plannerUi.snapshot;
+    if (!page || !snapshot) return;
+    page.innerHTML = plannerMainMarkup(snapshot);
+    bindPlannerInteractions(snapshot);
+  }
+
+  function plannerBindSearch() {
+    const input = $('planner-search');
+    if (!input) return;
+    input.addEventListener('input', () => {
+      plannerUi.search = input.value;
+      plannerRender();
+      requestAnimationFrame(() => {
+        const next = $('planner-search');
+        next?.focus();
+        if (next) next.setSelectionRange(next.value.length, next.value.length);
+      });
+    });
+  }
+
+  async function openPlanner() {
+    setView('planner');
+    const page = $('page-view');
+    if (page) page.innerHTML = '<div class="planner-loading"><div class="planner-loading-spinner"></div><strong>Loading planner…</strong><span>Reading roadmap, ledger, and runtime state.</span></div>';
+    try {
+      plannerUi.snapshot = await api('/api/planner/roadmap');
+      plannerUi.selectedId = plannerUi.snapshot.tasks.find((task) => task.current)?.id || plannerUi.snapshot.deterministic_rank?.[0] || plannerUi.snapshot.tasks[0]?.id || null;
+      plannerRender();
+    } catch (error) {
+      if (page) page.innerHTML = \`<div class="planner-loading planner-loading-error"><strong>Planner unavailable</strong><span>\${escapeHtml(error.message)}</span><button type="button" class="outline-button" data-planner-action="refresh">Retry</button></div>\`;
+      return;
+    }
+    if (plannerRefreshTimer) clearInterval(plannerRefreshTimer);
+    plannerRefreshTimer = setInterval(async () => {
+      if (state.view !== 'planner') {
+        clearInterval(plannerRefreshTimer);
+        plannerRefreshTimer = null;
+        return;
+      }
+      try {
+        const next = await api('/api/planner/roadmap');
+        const oldSha = plannerUi.snapshot?.roadmap?.sha256;
+        plannerUi.snapshot = next;
+        if (oldSha !== next.roadmap.sha256 || !document.querySelector('.planner-task-card')) plannerRender();
+        else refreshPlannerDynamic(next);
+      } catch (_) {}
+    }, 5000);
+  }
+
+  function refreshPlannerDynamic(snapshot) {
+    if (state.view !== 'planner') return;
+    const current = plannerCurrent(snapshot);
+    const currentNode = document.querySelector('.planner-live-dot');
+    if (currentNode) currentNode.textContent = plannerUi.running ? 'PREVIEW RUN' : current ? 'LIVE' : 'IDLE';
+  }
+
+  function plannerStartRun() {
+    if (plannerUi.running) return;
+    const snapshot = plannerUi.snapshot;
+    if (!snapshot) return;
+    const eligible = plannerEligible(snapshot);
+    const nextId = eligible.find((id) => id !== plannerUi.selectedId) || eligible[0] || snapshot.deterministic_rank?.[0];
+    if (!nextId) {
+      toast('No eligible task is available to run.', 'error');
+      return;
+    }
+    plannerUi.selectedId = nextId;
+    plannerUi.running = true;
+    plannerUi.paused = false;
+    plannerUi.runElapsed = 0;
+    plannerUi.progressOverride = snapshot.progress?.percent || 0;
+    plannerRender();
+    plannerRunTimer = setInterval(() => {
+      if (!plannerUi.running || plannerUi.paused) return;
+      plannerUi.runElapsed += 1;
+      const nextProgress = Math.min(99, Number(plannerUi.progressOverride || 0) + 0.65);
+      plannerUi.progressOverride = nextProgress;
+      const meter = document.querySelector('.planner-run-meter span');
+      if (meter) meter.style.width = \`\${Math.min(94, 24 + plannerUi.runElapsed * 2)}%\`;
+      const elapsed = document.querySelector('.planner-run-metrics span:first-child');
+      if (elapsed) elapsed.textContent = plannerFormatElapsed(plannerUi.runElapsed);
+      const progress = document.querySelector('.planner-progress-percent');
+      if (progress) progress.textContent = \`\${nextProgress.toFixed(0)}%\`;
+      const bar = document.querySelector('.planner-progress-bar span');
+      if (bar) bar.style.width = \`\${nextProgress}%\`;
+      if (plannerUi.runElapsed >= 60) {
+        plannerStopRun(true);
+      }
+    }, 1000);
+    announce('Planner preview started.');
+  }
+
+  function plannerStopRun(autoComplete = false) {
+    if (plannerRunTimer) clearInterval(plannerRunTimer);
+    plannerRunTimer = null;
+    const snapshot = plannerUi.snapshot;
+    if (autoComplete && snapshot && plannerUi.selectedId) {
+      plannerSetTaskStatus(plannerUi.selectedId, 'completed', snapshot);
+    }
+    plannerUi.running = false;
+    plannerUi.paused = false;
+    plannerUi.runElapsed = 0;
+    plannerUi.progressOverride = null;
+    plannerRender();
+    toast(autoComplete ? 'Preview task completed locally.' : 'Planner preview stopped.', 'ok');
+  }
+
+  function plannerTogglePause() {
+    if (!plannerUi.running) return;
+    plannerUi.paused = !plannerUi.paused;
+    plannerRender();
+    toast(plannerUi.paused ? 'Planner preview paused.' : 'Planner preview resumed.', 'ok');
+  }
+
+  function plannerMoveTask(taskId, direction) {
+    const snapshot = plannerUi.snapshot;
+    if (!snapshot) return;
+    const tasks = plannerOrderedTasks(snapshot);
+    const index = tasks.findIndex((task) => task.id === taskId);
+    const target = direction === 'up' ? index - 1 : index + 1;
+    if (index < 0 || target < 0 || target >= tasks.length) return;
+    const ids = tasks.map((task) => task.id);
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    localStorage.setItem(plannerOrderKey(snapshot.roadmap.path), JSON.stringify(ids));
+    plannerRender();
+    announce(\`\${taskId} moved \${direction}\`);
+  }
+
+  function plannerBindTaskEvents(snapshot) {
+    const list = $('planner-task-list');
+    if (!list) return;
+    let draggedId = null;
+    list.addEventListener('dragstart', (event) => {
+      const task = event.target.closest('.planner-task-card');
+      if (!task) return;
+      draggedId = task.dataset.taskId;
+      task.classList.add('dragging');
+      event.dataTransfer?.setData('text/plain', draggedId);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    });
+    list.addEventListener('dragend', (event) => event.target.closest('.planner-task-card')?.classList.remove('dragging'));
+    list.addEventListener('dragover', (event) => {
+      const task = event.target.closest('.planner-task-card');
+      if (!task || task.dataset.taskId === draggedId) return;
+      event.preventDefault();
+      task.classList.add('drop-target');
+    });
+    list.addEventListener('dragleave', (event) => event.target.closest('.planner-task-card')?.classList.remove('drop-target'));
+    list.addEventListener('drop', (event) => {
+      const target = event.target.closest('.planner-task-card');
+      if (!target || !draggedId || target.dataset.taskId === draggedId) return;
+      event.preventDefault();
+      target.classList.remove('drop-target');
+      const ids = plannerOrderedTasks(snapshot).map((task) => task.id);
+      const from = ids.indexOf(draggedId);
+      const to = ids.indexOf(target.dataset.taskId);
+      if (from < 0 || to < 0) return;
+      ids.splice(from, 1);
+      ids.splice(to, 0, draggedId);
+      localStorage.setItem(plannerOrderKey(snapshot.roadmap.path), JSON.stringify(ids));
+      plannerRender();
+      announce(\`Moved \${draggedId}.\`);
+    });
+    list.addEventListener('click', (event) => {
+      const move = event.target.closest('[data-planner-move]');
+      if (move) {
+        event.stopPropagation();
+        plannerMoveTask(move.dataset.taskId, move.dataset.plannerMove);
+        return;
+      }
+      const detail = event.target.closest('[data-planner-detail]');
+      if (detail) {
+        event.stopPropagation();
+        const task = snapshot.tasks.find((item) => item.id === detail.dataset.plannerDetail);
+        if (task) plannerTaskDetailModal(task, snapshot);
+        return;
+      }
+      const taskCard = event.target.closest('.planner-task-card');
+      if (taskCard) {
+        plannerUi.selectedId = taskCard.dataset.taskId;
+        plannerUi.graphFocus = plannerUi.selectedId;
+        plannerUi.tab = 'overview';
+        plannerRender();
+      }
+    });
+    list.addEventListener('keydown', (event) => {
+      const taskCard = event.target.closest('.planner-task-card');
+      if (taskCard && (event.key === 'Enter' || event.key === ' ')) {
+        event.preventDefault();
+        plannerUi.selectedId = taskCard.dataset.taskId;
+        plannerRender();
+      }
+    });
   }
 
   function bindPlannerInteractions(snapshot) {
-    const list=$('planner-task-list'); if(!list || list.dataset.bound==='1') return; list.dataset.bound='1';
-    let draggedId='';
-    list.addEventListener('dragstart',(event)=>{ const task=event.target.closest('.planner-task'); if(!task)return; draggedId=task.dataset.taskId; task.classList.add('dragging'); event.dataTransfer?.setData('text/plain',draggedId); });
-    list.addEventListener('dragend',(event)=>event.target.closest('.planner-task')?.classList.remove('dragging'));
-    list.addEventListener('dragover',(event)=>{const task=event.target.closest('.planner-task'); if(task){event.preventDefault();task.classList.add('drop-target');}});
-    list.addEventListener('dragleave',(event)=>event.target.closest('.planner-task')?.classList.remove('drop-target'));
-    list.addEventListener('drop',(event)=>{const target=event.target.closest('.planner-task'); if(!target || !draggedId || draggedId===target.dataset.taskId)return; event.preventDefault(); const ids=[...list.querySelectorAll('.planner-task')].map((node)=>node.dataset.taskId); const from=ids.indexOf(draggedId), to=ids.indexOf(target.dataset.taskId); ids.splice(from,1); ids.splice(to,0,draggedId); localStorage.setItem(plannerOrderKey(snapshot.roadmap.path),JSON.stringify(ids)); renderPlanner();});
-    list.addEventListener('click',(event)=>{const move=event.target.closest('[data-planner-move]'); if(move){const nodes=[...list.querySelectorAll('.planner-task')];const node=move.closest('.planner-task');const index=nodes.indexOf(node);const target=move.dataset.plannerMove==='up'?index-1:index+1;if(target<0||target>=nodes.length)return;const ids=nodes.map((item)=>item.dataset.taskId);[ids[index],ids[target]]=[ids[target],ids[index]];localStorage.setItem(plannerOrderKey(snapshot.roadmap.path),JSON.stringify(ids));return renderPlanner();} const detail=event.target.closest('[data-planner-detail]'); if(!detail)return; const task=(snapshot.tasks||[]).find((item)=>item.id===detail.dataset.plannerDetail); if(!task)return; const deps=(task.depends_on||[]).map((id)=>escapeHtml(id)).join(', ')||'None'; modal(task.title,`<div class="properties"><div class="property"><span>ID</span><strong>${escapeHtml(task.id)}</strong></div><div class="property"><span>Status</span><strong>${escapeHtml(task.runtime_status||task.status||'pending')}</strong></div><div class="property"><span>Objective</span><strong>${escapeHtml(task.objective)}</strong></div><div class="property"><span>Dependencies</span><strong>${deps}</strong></div><div class="property"><span>Acceptance criteria</span><strong>${(task.acceptance_criteria||[]).map(escapeHtml).join('<br>')||'None'}</strong></div><div class="property"><span>Verification</span><strong>${(task.verification||[]).map(escapeHtml).join('<br>')||'None'}</strong></div></div>`);});
-    document.querySelectorAll('[data-planner-action]').forEach((button)=>{ if(button.dataset.plannerBound==='1')return; button.dataset.plannerBound='1'; button.onclick=async()=>{const action=button.dataset.plannerAction;if(action==='refresh')return renderPlanner();if(action==='reset'){localStorage.removeItem(plannerOrderKey(snapshot.roadmap.path));return renderPlanner();}if(action==='import')return plannerImportModal();};});
+    plannerBindTaskEvents(snapshot);
+    plannerBindSearch();
+    document.querySelectorAll('[data-planner-filter]').forEach((button) => {
+      button.onclick = () => {
+        plannerUi.queueFilter = button.dataset.plannerFilter;
+        plannerRender();
+      };
+    });
+    document.querySelectorAll('[data-planner-tab]').forEach((button) => {
+      button.onclick = () => {
+        plannerUi.tab = button.dataset.plannerTab;
+        plannerRender();
+      };
+    });
+    document.querySelectorAll('[data-planner-graph-task]').forEach((button) => {
+      button.onclick = () => {
+        plannerUi.selectedId = button.dataset.plannerGraphTask;
+        plannerUi.graphFocus = button.dataset.plannerGraphTask;
+        plannerRender();
+      };
+    });
+    document.querySelectorAll('[data-planner-action]').forEach((button) => {
+      button.onclick = async () => {
+        const action = button.dataset.plannerAction;
+        if (action === 'refresh') return renderPlanner();
+        if (action === 'export') return plannerExport(snapshot);
+        if (action === 'import') return plannerImportModal();
+        if (action === 'toggle-sidebar') return document.body.classList.toggle('planner-sidebar-collapsed');
+        if (action === 'fit') {
+          plannerUi.graphFocus = plannerUi.selectedId;
+          plannerRender();
+          return;
+        }
+        if (action === 'clear-focus') {
+          plannerUi.graphFocus = null;
+          plannerRender();
+          return;
+        }
+        if (action === 'notifications') return modal('Notifications', '<div class="empty-state">No new planner notifications.</div>');
+        if (action === 'account') return modal('Planner account', '<div class="property"><span>Workspace</span><strong>Core Platform</strong></div><div class="property"><span>Mode</span><strong>Local draft</strong></div>');
+      };
+    });
+    document.querySelectorAll('[data-planner-run-control]').forEach((button) => {
+      button.onclick = () => {
+        const action = button.dataset.plannerRunControl;
+        if (action === 'run') return plannerStartRun();
+        if (action === 'pause') return plannerTogglePause();
+        if (action === 'stop') return plannerStopRun(false);
+      };
+    });
+    document.querySelectorAll('[data-planner-status]').forEach((button) => {
+      button.onclick = () => plannerSetTaskStatus(button.dataset.taskId, button.dataset.plannerStatus, snapshot);
+    });
+    document.querySelectorAll('[data-planner-stream-task]').forEach((button) => {
+      button.onclick = () => {
+        plannerUi.selectedId = button.dataset.plannerStreamTask;
+        plannerUi.graphFocus = plannerUi.selectedId;
+        plannerRender();
+      };
+    });
+    document.querySelectorAll('[data-planner-integration]').forEach((button) => {
+      button.onclick = () => {
+        if (button.dataset.plannerIntegration === 'github') {
+          modal('GitHub Projects', '<div class="planner-integration-modal"><strong>Human planning layer</strong><p>Use GitHub Projects for backlog, roadmap dates, quarterly planning, and human ordering. PASI will continue to enforce dependency eligibility and execution safety.</p><div class="form-actions"><button type="button" class="outline-button" onclick="window.closeModal()">Close</button></div></div>');
+        } else {
+          modal('PASI Bridge', '<div class="planner-integration-modal"><strong>Authenticated bridge</strong><p>Planner reads the authoritative roadmap, ledger, and runtime state through the PASI web API surface.</p><div class="property"><span>Endpoint</span><strong>127.0.0.1:8765</strong></div></div>');
+        }
+      };
+    });
+    document.querySelectorAll('[data-planner-workspace]').forEach((button) => {
+      button.onclick = () => modal('Workspace', '<div class="form-stack"><label>Workspace<select><option>Core Platform</option><option>Automation</option><option>Operations</option></select></label><p class="muted">Workspace switching is a visual draft control.</p></div>');
+    });
+    document.querySelectorAll('[data-planner-menu]').forEach((button) => {
+      button.onclick = () => {
+        const task = snapshot.tasks.find((item) => item.id === button.dataset.plannerMenu);
+        if (task) plannerTaskDetailModal(task, snapshot);
+      };
+    });
+    document.querySelectorAll('#planner-ai-toggle').forEach((toggle) => {
+      toggle.onchange = () => {
+        localStorage.setItem('pasi-planner-ai', toggle.checked ? '1' : '0');
+        plannerRender();
+      };
+    });
+  }
+
+  function renderPlanner() {
+    if (!plannerUi.snapshot) return;
+    plannerRender();
+  }
+
+  function renderPlannerImportedDeprecated(data) {
+    renderPlannerImported(data);
   }
 
   function promptToChat(text){setView('chat');$('chat-input').value=text||'';$('chat-input').dispatchEvent(new Event('input'));$('chat-input').focus();}
