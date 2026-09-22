@@ -81,6 +81,11 @@ test('native background watchdog treats a missing observation as unhealthy and w
   assert.match(background, /This path only sends a health ping; it never claims, queues, or creates/);
 });
 
+test('native browser health reports connection failures to the watchdog', () => {
+  assert.match(content, /const detected = detectorState\(\);/);
+  assert.match(content, /connection_failure: detected\.connection_failure === true/);
+});
+
 test('native background watchdog reacts to explicit connection failures even with a fresh observation', () => {
   assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
   assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
