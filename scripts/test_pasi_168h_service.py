@@ -23,7 +23,7 @@ class TestPasi168HourDurableServiceContract(unittest.TestCase):
         self.assertIn("--property=KillMode=control-group", source)
         self.assertIn('--working-directory="$SERVICE_ROOT"', source)
         self.assertIn('SERVICE_ROOT="${PASI_OVERNIGHT_SERVICE_ROOT:-$HOME/.pasi/overnight-service/personal-ai-system}"', source)
-        self.assertIn("--foreground-supervisor", source)
+        self.assertIn('bash "$SERVICE_ROOT/scripts/start_pasi_168h.sh" --foreground-supervisor', source)
         self.assertIn('git -C "$SERVICE_ROOT" fetch --no-tags origin "$REF"', source)
         self.assertIn("refusing to reset potentially unpushed work", source)
         self.assertIn("PASI 168-hour service verified live", source)
