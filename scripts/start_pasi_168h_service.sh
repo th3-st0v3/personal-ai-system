@@ -19,6 +19,7 @@ REQUESTED_ROADMAP="${PASI_ROADMAP_PATH:-roadmaps/pasi-default.json}"
 SERVICE_PATH="${PASI_SERVICE_PATH:-$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
 PLANNER_MODEL="${PASI_PLANNER_MODEL:-}"
 PLANNER_AI_RANK="${PASI_PLANNER_AI_RANK:-}"
+BROWSER_EXTENSION_DIR="${PASI_BROWSER_EXTENSION_DIR:-$REPO_ROOT/.runtime/chromium/pasi-chatgpt}"
 
 if ! command -v python3 >/dev/null 2>&1; then
     printf 'error: python3 is required for durable-service identity verification.\n' >&2
@@ -33,6 +34,12 @@ fi
 
 if ! systemctl --user show-environment >/dev/null 2>&1; then
     printf 'error: the current WSL user session does not expose a working systemd user manager.\n' >&2
+    exit 4
+fi
+
+if [[ ! -d "$BROWSER_EXTENSION_DIR" || ! -f "$BROWSER_EXTENSION_DIR/manifest.json" ]]; then
+    printf 'error: native PASI extension staging directory is missing or incomplete: %s\n' "$BROWSER_EXTENSION_DIR" >&2
+    printf 'Build it with: python scripts/build_chromium_extension.py\n' >&2
     exit 4
 fi
 
@@ -176,6 +183,7 @@ systemd-run \
     --setenv=PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}" \
     --setenv=PASI_PLANNER_MODEL="$PLANNER_MODEL" \
     --setenv=PASI_PLANNER_AI_RANK="$PLANNER_AI_RANK" \
+    --setenv=PASI_BROWSER_EXTENSION_DIR="$BROWSER_EXTENSION_DIR" \
     --setenv=PATH="$SERVICE_PATH" \
     bash "$SERVICE_ROOT/scripts/start_pasi_168h.sh" --foreground-supervisor
 
