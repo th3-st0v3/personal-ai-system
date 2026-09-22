@@ -16,6 +16,17 @@ def test_build_uses_an_allowlist_and_excludes_python_cache() -> None:
         )
 
 
+def test_rebuild_preserves_existing_bridge_token() -> None:
+    with TemporaryDirectory() as temporary:
+        output = Path(temporary) / "pasi-chatgpt"
+        output.mkdir()
+        token_path = output / ".bridge-token"
+        token_path.write_text("local-test-token", encoding="utf-8")
+        build_extension(output)
+        assert token_path.read_text(encoding="utf-8") == "local-test-token"
+        assert token_path.stat().st_mode & 0o777 == 0o600
+
+
 def test_staged_extension_contains_every_manifest_content_script() -> None:
     with TemporaryDirectory() as temporary:
         output = build_extension(Path(temporary) / "pasi-chatgpt")
