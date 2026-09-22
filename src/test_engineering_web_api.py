@@ -118,6 +118,13 @@ class TestEngineeringWebApplication(unittest.TestCase):
         self.assertEqual(status, 201)
         decision_id = as_int(decision["id"])
 
+        status, result = self.request(
+            "POST",
+            f"/api/engineering/projects/{self.project_id}/evidence/invalidate",
+            {"id": evidence_id, "reason": "Superseded by revised measurement"},
+        )
+        self.assertEqual((status, result), (200, {"invalidated": True}))
+
         status, history = self.request(
             "GET",
             f"/api/engineering/projects/{self.project_id}/requirements/{requirement_id}/history",
@@ -128,6 +135,7 @@ class TestEngineeringWebApplication(unittest.TestCase):
         self.assertIn("requirement_record", event_types)
         self.assertIn("evidence_recorded", event_types)
         self.assertIn("decision_recorded", event_types)
+        self.assertIn("evidence_invalidated", event_types)
         evidence_event = next(item for item in events if item["event_type"] == "evidence_recorded")
         self.assertEqual(as_int(evidence_event["entity_id"]), evidence_id)
         self.assertEqual(as_int(cast(dict[str, object], evidence_event["source"])["id"]), source_id)
