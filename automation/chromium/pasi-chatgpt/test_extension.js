@@ -72,6 +72,16 @@ test('native content controller reuses a fresh lease for the immediate completio
   assert.match(content, /if \(!finalized\) \{/);
 });
 
+test('native background watchdog treats a missing observation as unhealthy and wakes existing native tabs', () => {
+  assert.match(background, /const payload = await bridgeJson\('\/browser\/observation'\);/);
+  assert.match(background, /const health = healthData\(payload\);/);
+  assert.match(background, /if \(!health\) \{/);
+  assert.match(background, /https:\/\/chatgpt\.com\/c\/\*/);
+  assert.match(background, /https:\/\/www\.chatgpt\.com\/c\/\*/);
+  assert.match(background, /await chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}\)/);
+  assert.match(background, /This path only sends a health ping; it never claims, queues, or creates/);
+});
+
 test('native background watchdog reacts to explicit connection failures even with a fresh observation', () => {
   assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
   assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
