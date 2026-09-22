@@ -1421,3 +1421,12 @@ body:not(.planner-focus) .engineering-timeline-item p { margin:3px 0 0; color:#6
   body:not(.planner-focus) .engineering-evidence-card { grid-template-columns:20px 1fr; }
   body:not(.planner-focus) .engineering-evidence-actions { grid-column:2; }
 }
+
+body:not(.planner-focus) .engineering-timeline-heading { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+body:not(.planner-focus) .engineering-timeline-heading span { color:#607995; font-size:6px; padding:2px 4px; border-radius:4px; background:#0c2038; text-transform:uppercase; }
+body:not(.planner-focus) .engineering-timeline-dot.decision { background:#9a72ff; }
+body:not(.planner-focus) .engineering-detail-side .engineering-panel { position:relative; }
+@media(max-width:560px) {
+  body:not(.planner-focus) .engineering-source-trace { grid-template-columns:1fr; }
+  body:not(.planner-focus) .engineering-detail-health-main { padding:10px; }
+}
