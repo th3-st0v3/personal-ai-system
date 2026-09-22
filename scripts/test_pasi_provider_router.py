@@ -41,6 +41,41 @@ class TestProviderRouter(unittest.TestCase):
                 result = pasi_provider_router.call_ollama("task", 20.0)
         self.assertEqual(result, "PASI_RESULT_STATUS: complete")
 
+    def test_ollama_uses_the_pasi_context_default(self) -> None:
+        with patch.object(
+            pasi_provider_router,
+            "post_json",
+            return_value={"message": {"content": "PASI_RESULT_STATUS: complete"}},
+        ) as post:
+            with patch.dict("os.environ", {"OLLAMA_MODEL": "local-coder"}, clear=True):
+                result = pasi_provider_router.call_ollama("task", 20.0)
+        self.assertEqual(result, "PASI_RESULT_STATUS: complete")
+        self.assertEqual(post.call_args.args[1]["options"]["num_ctx"], 32768)
+
+    def test_ollama_context_can_be_overridden(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"OLLAMA_MODEL": "local-coder", "PASI_OLLAMA_CONTEXT_TOKENS": "16384"},
+            clear=True,
+        ):
+            with patch.object(
+                pasi_provider_router,
+                "post_json",
+                return_value={"message": {"content": "response"}},
+            ) as post:
+                self.assertEqual(pasi_provider_router.call_ollama("task", 20.0), "response")
+        self.assertEqual(post.call_args.args[1]["options"]["num_ctx"], 16384)
+
+    def test_ollama_context_rejects_invalid_values(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"OLLAMA_MODEL": "local-coder", "PASI_OLLAMA_CONTEXT_TOKENS": "not-a-number"},
+            clear=True,
+        ):
+            with patch.object(pasi_provider_router, "post_json", return_value={"message": {"content": "response"}}):
+                with self.assertRaises(RuntimeError):
+                    pasi_provider_router.call_ollama("task", 20.0)
+
     def test_opencode_fallback_runs_from_read_only_scrubbed_snapshot(self) -> None:
         import os
 
