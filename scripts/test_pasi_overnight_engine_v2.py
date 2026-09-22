@@ -256,8 +256,10 @@ new file mode 100644
         source = Path(engine.__file__).read_text(encoding="utf-8")
         failure_block = source.split("        if not finished:", 1)[1].split("\n\ndef finish_reason", 1)[0]
         self.assertIn('action="retain_current_task"', failure_block)
+        self.assertIn('action="block_current_task_and_replan"', failure_block)
+        self.assertIn("repair_loop_reset_reason", failure_block)
         self.assertIn("state.task_retry_cycle += 1", failure_block)
-        self.assertNotIn("state.current_task = choose_next_task(state, "")", failure_block)
+        self.assertIn('record_blocked_repair_task(', failure_block)
 
     def test_retry_cycle_state_round_trips(self) -> None:
         now = datetime.now(timezone.utc)
@@ -284,6 +286,99 @@ new file mode 100644
         self.assertEqual(loaded.task_retry_cycle, 2)
         self.assertEqual(loaded.last_failure_signature, "abc123")
         self.assertEqual(loaded.same_failure_cycles, 2)
+
+    def test_failure_root_signature_normalizes_volatile_values(self) -> None:
+        first = engine.failure_root_signature(
+            "verification failed for commit abcdef1234567890 at 2026-09-22T01:02:03Z "
+            "pid=123 attempt=1 /tmp/pasi-123/result"
+        )
+        second = engine.failure_root_signature(
+            "verification failed for commit fedcba0987654321 at 2026-09-23T04:05:06Z "
+            "pid=987 attempt=4 /tmp/pasi-987/result"
+        )
+        self.assertEqual(first, second)
+
+    def test_repair_loop_reset_thresholds_preserve_non_repair_failures(self) -> None:
+        self.assertEqual(
+            engine.repair_loop_reset_reason(
+                repair_eligible=False,
+                same_failure_cycles=100,
+                same_root_cause_cycles=100,
+            ),
+            "",
+        )
+        self.assertEqual(
+            engine.repair_loop_reset_reason(
+                repair_eligible=True,
+                same_failure_cycles=2,
+                same_root_cause_cycles=2,
+            ),
+            "same_root_cause_threshold",
+        )
+        self.assertEqual(
+            engine.repair_loop_reset_reason(
+                repair_eligible=True,
+                same_failure_cycles=3,
+                same_root_cause_cycles=1,
+            ),
+            "same_failure_threshold",
+        )
+
+    def test_repair_loop_counters_round_trip(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="repair-reset-state",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="pasi/repair-reset",
+            phase="engineering_os",
+            current_task="repair task",
+            last_failure_signature="failure",
+            same_failure_cycles=3,
+            last_failure_root_signature="root",
+            same_root_cause_cycles=2,
+            repair_reset_count=4,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "state.json"
+            with mock.patch.object(engine, "STATE_PATH", state_path):
+                engine.save_state(state)
+                loaded = engine.load_state()
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual(loaded.last_failure_root_signature, "root")
+        self.assertEqual(loaded.same_root_cause_cycles, 2)
+        self.assertEqual(loaded.repair_reset_count, 4)
+
+    def test_repair_loop_reset_records_blocked_task(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="repair-reset-ledger",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="pasi/repair-reset",
+            phase="engineering_os",
+            current_task="stalled task",
+            current_task_id="ENG-1",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock.patch.object(engine, "TASK_LEDGER_PATH", Path(temp_dir) / "ledger.json"):
+                state.last_failure_root_signature = "root-cause"
+                engine.record_blocked_repair_task(
+                    state,
+                    task=state.current_task,
+                    failure="same verification failure",
+                    reset_reason="same_root_cause_threshold",
+                )
+                ledger = engine.load_task_ledger()
+        entry = ledger[engine.task_key("stalled task")]
+        self.assertEqual(entry["status"], "blocked")
+        self.assertIn("same_root_cause_threshold", entry["evidence"])
+        self.assertIn("root-cause", entry["evidence"])
 
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
