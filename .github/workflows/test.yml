@@ -28,6 +28,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install preflight test dependencies
+        run: python -m pip install -r requirements-dev.txt
       - name: Report CI runner mode
         env:
           PASI_CI_RUNNER_MODE: ${{ inputs.runner_mode || 'self-hosted' }}
