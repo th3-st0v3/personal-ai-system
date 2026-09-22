@@ -90,7 +90,10 @@ jobs:
 
       - name: Run controller/frontend contract tests
         run: |
-          node --test automation/chromium/pasi-chatgpt/test_extension.js             automation/chromium/pasi-chatgpt/test_recovery.js             automation/chromium/pasi-chatgpt/test_native_mutation.js             automation/chromium/pasi-chatgpt/test_dom_fixtures.js
+          node --test automation/chromium/pasi-chatgpt/test_dom_fixtures.js \
+            automation/chromium/pasi-chatgpt/test_extension.js \
+            automation/chromium/pasi-chatgpt/test_recovery.js \
+            automation/chromium/pasi-chatgpt/test_native_mutation.js
 
       - name: Run canonical validation
         run: bash scripts/check_all.sh
