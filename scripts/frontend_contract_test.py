@@ -206,3 +206,10 @@ def test_engineering_requirement_detail_contract() -> None:
         ".engineering-detail-properties",
     ):
         assert marker in css, f"Requirement detail styling contract missing: {marker}"
+
+def test_requirement_history_frontend_backend_contract() -> None:
+    ui = (WEB / "ui-completion.js").read_text(encoding="utf-8")
+    assert "/api/engineering/projects/${s.projectId}/requirements/${requirement.id}/history" in ui
+    assert "historyError" in ui
+    assert "data-engineering-history-refresh" in ui
+    assert "Authoritative activity from the engineering history API" in ui
