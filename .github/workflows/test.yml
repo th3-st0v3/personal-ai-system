@@ -21,6 +21,9 @@ on:
 jobs:
   runner-preflight:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    concurrency:
+      group: pasi-runner-preflight-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: true
     runs-on: ${{ inputs.runner_mode == 'github-hosted' && 'ubuntu-latest' || 'pasi-wsl' }}
     timeout-minutes: 10
     steps:
