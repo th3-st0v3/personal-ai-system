@@ -145,6 +145,31 @@
     </form>
   </dialog>
 
+  <dialog id="settings-dialog" aria-labelledby="settings-heading">
+    <form method="dialog" class="dialog-card" id="settings-form">
+      <div class="section-head">
+        <div>
+          <p class="section-label">Control Center settings</p>
+          <h2 id="settings-heading">Local refresh settings</h2>
+        </div>
+      </div>
+      <label class="field">
+        <span>Telemetry refresh interval</span>
+        <select id="telemetry-interval">
+          <option value="1000">1 second</option>
+          <option value="5000">5 seconds</option>
+          <option value="10000">10 seconds</option>
+          <option value="30000">30 seconds</option>
+        </select>
+      </label>
+      <p class="muted">This changes only the Control Center's local telemetry refresh interval. It does not alter the PASI runner or browser watchdog cadence.</p>
+      <div class="button-row">
+        <button class="outline-button" value="cancel" type="submit">Cancel</button>
+        <button class="primary-button" id="btn-save-settings" value="default" type="button">Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="sidepanel.js"></script>
 </body>
 </html>
