@@ -16,7 +16,10 @@ def test_runner_bootstrap_is_noninteractive_and_service_aware() -> None:
     source = (ROOT / "scripts" / "bootstrap_pasi_github_runner.sh").read_text(encoding="utf-8")
     assert "--unattended" in source
     assert "--replace" in source
-    assert "[[ -d /run/systemd/system ]]" in source
+    assert "PASI_GITHUB_RUNNER_FORCE_RECONFIGURE" in source
+    assert "sudo ./svc.sh stop" in source
+    assert "sudo ./svc.sh uninstall" in source
+    assert '[[ -d /run/systemd/system ]]' in source
     assert '-f "$RUNNER_DIR/.service"' in source
     assert "sudo ./svc.sh install" in source
     assert "sudo ./svc.sh start" in source
@@ -48,5 +51,5 @@ def test_obsolete_hosted_pr_audits_are_not_present() -> None:
 
 def test_security_runs_cancel_stale_heads() -> None:
     workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
-    assert "group: pasi-security-${{ github.event.pull_request.number || github.ref }}" in workflow
+    assert "group: pasi-security-\${{ github.event.pull_request.number || github.ref }}" in workflow
     assert "cancel-in-progress: true" in workflow
