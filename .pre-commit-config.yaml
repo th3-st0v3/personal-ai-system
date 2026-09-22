@@ -9,7 +9,7 @@ repos:
         stages: [pre-commit]
       - id: pasi-fast-contracts
         name: PASI fast contract tests
-        entry: python3 -m pytest -q scripts/test_github_actions_billing_contract.py scripts/test_check_pasi_self_hosted_runner.py scripts/test_controller_distribution_retirement.py scripts/test_quality_proofing_workflow.py
+        entry: python3 -m pytest -q scripts/test_github_actions_billing_contract.py scripts/test_check_pasi_self_hosted_runner.py scripts/test_controller_distribution_retirement.py scripts/test_quality_proofing_workflow.py scripts/test_pasi_actions_runner.py
         language: system
         pass_filenames: false
         stages: [pre-commit]
