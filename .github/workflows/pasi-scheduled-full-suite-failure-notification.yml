@@ -77,7 +77,7 @@ jobs:
               -d "$(python - "${title}" "${message}" <<'PY'
           import json
           import sys
-          print(json.dumps({"title": sys.argv[1], "body": sys.argv[2], "labels": ["ci", "failure"]}))
+          print(json.dumps({"title": sys.argv[1], "body": sys.argv[2]}))
           PY
           )" \
               "${api}/issues")"
