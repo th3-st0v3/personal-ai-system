@@ -121,6 +121,48 @@ class TestWebApplication(unittest.TestCase):
         self.assertEqual(chat["messages"][-1]["role"], "assistant")
         self.assertIn("local mode", chat["messages"][-1]["content"])
 
+    def test_experiment_lab_host_and_capabilities(self):
+        status, _, host = self.request("GET", "/api/lab/host")
+        self.assertEqual(status, 200)
+        self.assertIn("memory", host)
+        self.assertIn("swap", host)
+        status, _, capabilities = self.request("GET", "/api/lab/capabilities")
+        self.assertEqual(status, 200)
+        self.assertTrue(capabilities["requires_explicit_grant_for_mutation"])
+
+    def test_experiment_lab_process_observation_is_bounded(self):
+        status, _, rows = self.request("GET", "/api/lab/processes?limit=9999")
+        self.assertEqual(status, 200)
+        self.assertLessEqual(len(rows), 250)
+
+    def test_experiment_lab_preview_is_safe_but_apply_requires_grant(self):
+        pid = os.getpid()
+        status, _, preview = self.request("POST", f"/api/lab/processes/{pid}/profile", {"mode": "preview", "memory_limit_mb": "512", "swap_limit_mb": "512"})
+        self.assertEqual(status, 200)
+        self.assertEqual(preview["mode"], "preview")
+        status, _, payload = self.request("POST", f"/api/lab/processes/{pid}/profile", {"mode": "apply", "memory_limit_mb": "512", "swap_limit_mb": "512"})
+        self.assertEqual(status, 403)
+        self.assertIn("Permission denied", payload["error"])
+
+    def test_experiment_lab_control_toggle_is_explicit(self):
+        status, _, control = self.request("GET", "/api/lab/control")
+        self.assertEqual((status, control["enabled"]), (200, False))
+        status, _, control = self.request("POST", "/api/lab/control", {"enabled": True})
+        self.assertEqual((status, control["enabled"]), (200, True))
+        status, _, control = self.request("GET", "/api/lab/control")
+        self.assertEqual((status, control["enabled"]), (200, True))
+        status, _, control = self.request("POST", "/api/lab/control", {"enabled": False})
+        self.assertEqual((status, control["enabled"]), (200, False))
+
+    def test_experiment_lab_model_and_fuzz_routes(self):
+        status, _, model = self.request("POST", "/api/lab/model", {"prompt": "Model pressure loss through a wellbore."})
+        self.assertEqual(status, 200)
+        self.assertEqual(model["discipline"], "petroleum engineering")
+        status, _, fuzz = self.request("POST", "/api/lab/fuzz", {"target_kind": "simulation", "target_key": "heat_conduction", "base_inputs": {"conductivity": 10, "area": 2, "hot_temperature": 400, "cold_temperature": 300, "thickness": 0.5}, "iterations": 8, "seed": 7})
+        self.assertEqual(status, 200)
+        self.assertEqual(fuzz["iterations"], 8)
+        self.assertEqual(len(fuzz["fingerprint"]), 64)
+
     def test_simulation_endpoint_returns_traceable_result(self):
         status, _, result = self.request("POST", "/api/simulations/run", {"simulation_key": "heat_conduction", "inputs": {"conductivity": 10, "area": 2, "hot_temperature": 400, "cold_temperature": 300, "thickness": 0.5}})
         self.assertEqual(status, 200)
