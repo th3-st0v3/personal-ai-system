@@ -53,7 +53,14 @@ The same operation is exposed by the `pasi-runner-capabilities` GitHub workflow.
 
 ## CI runner fallback and readiness check
 
-The repository test workflow selects the self-hosted `pasi-wsl` runner by default for pull requests, pushes, scheduled runs, and manual runs. Before the test jobs start, a runner preflight verifies that the job is actually executing on the expected self-hosted Linux/x64 environment.
+The repository test workflow selects the self-hosted `pasi-wsl` runner by default for pull requests, pushes, scheduled runs, and manual runs. Start the local runner once and leave it resident while editing so queued PR jobs can claim it:
+
+```bash
+bash scripts/start_pasi_actions_runner.sh
+bash scripts/status_pasi_actions_runner.sh
+```
+
+The launcher is detached from the shell and uses an installed runner service when available. Otherwise it keeps `./run.sh` running with a PID file and log under `~/.pasi/actions-runner/`. Before the test jobs start, a runner preflight verifies that the job is actually executing on the expected self-hosted Linux/x64 environment.
 
 For a local readiness check:
 
