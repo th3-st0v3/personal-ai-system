@@ -45,6 +45,16 @@ class TestPasiCIWorkflow(unittest.TestCase):
         dependency_job = workflow[workflow.index("  dependency-review:"):workflow.index("  secret-scan:")]
         self.assertIn("runs-on: [self-hosted, linux, x64, pasi-wsl]", dependency_job)
 
+    def test_self_hosted_security_jobs_do_not_execute_fork_pr_code(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
+        guard = "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
+        for job in ("  codeql:", "  secret-scan:", "  dependency-audit:"):
+            section = workflow[workflow.index(job):]
+            if job != "  dependency-audit:":
+                next_job = {"  codeql:": "  dependency-review:", "  secret-scan:": "  dependency-audit:"}[job]
+                section = section[:section.index(next_job)]
+            self.assertIn(guard, section)
+
     def test_authoritative_workflows_have_no_hosted_runner_assignments(self) -> None:
         for path in (ROOT / ".github" / "workflows").glob("*.yml"):
             workflow = path.read_text(encoding="utf-8")
