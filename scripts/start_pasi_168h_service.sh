@@ -14,6 +14,8 @@ fi
 UNIT_NAME="${PASI_OVERNIGHT_SYSTEMD_UNIT:-pasi-overnight-168h.service}"
 SERVICE_ROOT="${PASI_OVERNIGHT_SERVICE_ROOT:-$HOME/.pasi/overnight-service/personal-ai-system}"
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
+START_LOCK_FILE="${PASI_OVERNIGHT_SERVICE_LOCK:-$HOME/.pasi/overnight-service/start.lock}"
+REQUESTED_ROADMAP="${PASI_ROADMAP_PATH:-roadmaps/pasi-default.json}"
 
 if ! command -v systemd-run >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
     printf 'error: systemd user services are required for a durable 168-hour launch from GitHub Actions.\n' >&2
@@ -26,9 +28,44 @@ if ! systemctl --user show-environment >/dev/null 2>&1; then
     exit 4
 fi
 
+mkdir -p "$(dirname -- "$START_LOCK_FILE")"
+exec 9>"$START_LOCK_FILE"
+if ! flock -n 9; then
+    printf 'error: another PASI durable-service start is already in progress.\n' >&2
+    exit 7
+fi
+
+service_identity_matches() {
+    [[ -f "$RUNTIME_DIR/state.json" ]] || return 1
+    "$REPO_ROOT/.venv/bin/python" - "$RUNTIME_DIR/state.json" "$SERVICE_ROOT" "$REF" "$REQUESTED_ROADMAP" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+state_path = Path(sys.argv[1])
+service_root = Path(sys.argv[2]).resolve()
+expected_branch = sys.argv[3]
+requested_roadmap = Path(sys.argv[4])
+expected_roadmap = (service_root / requested_roadmap).resolve() if not requested_roadmap.is_absolute() else requested_roadmap.resolve()
+try:
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+except (OSError, ValueError, TypeError):
+    raise SystemExit(1)
+actual_branch = state.get("branch")
+actual_roadmap = state.get("roadmap_path")
+if not isinstance(actual_branch, str) or not isinstance(actual_roadmap, str):
+    raise SystemExit(1)
+raise SystemExit(0 if actual_branch == expected_branch and Path(actual_roadmap).resolve() == expected_roadmap else 1)
+PY
+}
+
 if systemctl --user is-active --quiet "$UNIT_NAME" 2>/dev/null; then
-    printf 'PASI 168-hour systemd service is already active (%s).\n' "$UNIT_NAME"
-    exit 0
+    if service_identity_matches; then
+        printf 'PASI 168-hour systemd service is already active for branch=%s roadmap=%s.\n' "$REF" "$REQUESTED_ROADMAP"
+        exit 0
+    fi
+    printf 'error: PASI 168-hour systemd service %s is already active for a different branch or roadmap; refusing to attach another run to the same runtime state.\n' "$UNIT_NAME" >&2
+    exit 8
 fi
 
 REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
@@ -111,7 +148,7 @@ systemd-run \
     --setenv=PASI_OVERNIGHT_BRANCH="$REF" \
     --setenv=PASI_RUNTIME_DIR="$RUNTIME_DIR" \
     --setenv=PASI_LOCAL_GATE_MODE="${PASI_LOCAL_GATE_MODE:-fast}" \
-    --setenv=PASI_ROADMAP_PATH="${PASI_ROADMAP_PATH:-roadmaps/pasi-default.json}" \
+    --setenv=PASI_ROADMAP_PATH="$REQUESTED_ROADMAP" \
     --setenv=PASI_VENV="${PASI_VENV:-$HOME/.pasi/venv}" \
     --setenv=PATH="$PATH" \
     bash "$SERVICE_ROOT/scripts/start_pasi_168h.sh" --foreground-supervisor
