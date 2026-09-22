@@ -1,8 +1,9 @@
 name: test
 
 on:
+  # Every repository branch push gets one authoritative validation run.
+  # Pull-request heads in this repository are therefore validated without a duplicate PR-triggered run.
   push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
