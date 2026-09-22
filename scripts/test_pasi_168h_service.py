@@ -18,6 +18,7 @@ class TestPasi168HourDurableServiceContract(unittest.TestCase):
         source = (ROOT / "scripts" / "start_pasi_168h_service.sh").read_text(encoding="utf-8")
         self.assertIn("systemd-run", source)
         self.assertIn("--user", source)
+        self.assertIn("--collect", source)
         self.assertIn("--unit=", source)
         self.assertIn("--property=KillMode=control-group", source)
         self.assertIn('--working-directory="$SERVICE_ROOT"', source)
