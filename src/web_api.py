@@ -278,19 +278,47 @@ class WebApplication:
                 iterations=int(data.get("iterations", 100)),
                 seed=int(data.get("seed", 1)),
             )
-        if method == "POST" and path.startswith("/api/lab/processes/") and path.endswith("/profile"):
+        if method == "GET" and path == "/api/lab/control":
             connection = db.get_connection()
             try:
-                policy.require(connection, actor_id, "control_host_resources")
+                enabled = policy.allowed(connection, actor_id, "control_host_resources")
             finally:
                 connection.close()
+            return 200, {"enabled": enabled, "action": "control_host_resources"}
+        if method == "POST" and path == "/api/lab/control":
+            enabled = bool(data.get("enabled", False))
+            connection = db.get_connection()
+            try:
+                if enabled:
+                    policy.grant(connection, actor_id, "control_host_resources")
+                else:
+                    policy.revoke(connection, actor_id, "control_host_resources")
+            finally:
+                connection.close()
+            return 200, {"enabled": enabled, "action": "control_host_resources"}
+        if method == "POST" and path.startswith("/api/lab/processes/") and path.endswith("/profile"):
             pid = int(path.split("/")[4])
             mode = str(data.get("mode", "preview"))
             if mode == "preview":
+                connection = db.get_connection()
+                try:
+                    policy.require(connection, actor_id, "observe_host_resources")
+                finally:
+                    connection.close()
                 return 200, host_resources.preview_profile(pid, data.get("memory_limit_mb"), data.get("swap_limit_mb"))
             if mode == "apply":
+                connection = db.get_connection()
+                try:
+                    policy.require(connection, actor_id, "control_host_resources")
+                finally:
+                    connection.close()
                 return 200, host_resources.apply_profile(pid, data.get("memory_limit_mb"), data.get("swap_limit_mb"))
             if mode == "clear":
+                connection = db.get_connection()
+                try:
+                    policy.require(connection, actor_id, "control_host_resources")
+                finally:
+                    connection.close()
                 return 200, host_resources.clear_profile(pid)
             raise ValueError("Profile mode must be preview, apply, or clear.")
         return None
