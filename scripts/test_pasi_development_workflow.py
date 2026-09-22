@@ -21,10 +21,10 @@ def test_development_workflow_uses_desktop_runner_for_live_automation() -> None:
     assert "scripts/stop_pasi_overnight.sh" in source
 
 
-def test_development_workflow_keeps_verification_on_hosted_runner() -> None:
+def test_development_workflow_keeps_verification_on_self_hosted_runner() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
     hosted = source[source.index("  verify:"):source.index("  desktop:")]
-    assert "runs-on: ubuntu-latest" in hosted
+    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in hosted
     assert "bash scripts/check_all.sh" in hosted
     assert "node --test automation/chromium/pasi-chatgpt/test_dom_fixtures.js" in hosted
 
