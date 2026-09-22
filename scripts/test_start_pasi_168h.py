@@ -60,6 +60,26 @@ class TestBranchHygieneWorkflowContract(unittest.TestCase):
         self.assertIn("concurrency:", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
 
+    def test_branch_hygiene_covers_all_branch_lifecycle_triggers(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
+        self.assertIn("  push:", workflow)
+        self.assertIn("  pull_request:", workflow)
+        self.assertIn("types: [opened, synchronize, closed, converted_to_ready_for_review]", workflow)
+        self.assertIn("  workflow_run:", workflow)
+        self.assertIn('workflows: ["test"]', workflow)
+        self.assertIn("  schedule:", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+
+    def test_branch_hygiene_has_write_permissions_for_pr_reconciliation(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
+        self.assertIn("contents: write", workflow)
+        self.assertIn("pull-requests: write", workflow)
+        self.assertIn("scripts/reconcile_branch_prs.py --json", workflow)
+
+    def test_branch_hygiene_protects_fork_pull_requests(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
