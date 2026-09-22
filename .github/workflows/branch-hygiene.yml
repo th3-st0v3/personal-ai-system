@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
