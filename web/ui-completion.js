@@ -66,14 +66,14 @@
     if(!s.projectId){toast('Select a project first.');return;}
     try{
       const [requirements,sources,decisions]=await Promise.all([
-        api(\`/api/engineering/projects/\${s.projectId}/requirements\`),
-        api(\`/api/engineering/projects/\${s.projectId}/sources\`),
-        api(\`/api/engineering/projects/\${s.projectId}/decisions\`)
+        api(`/api/engineering/projects/${s.projectId}/requirements`),
+        api(`/api/engineering/projects/${s.projectId}/sources`),
+        api(`/api/engineering/projects/${s.projectId}/decisions`)
       ]);
       setView('engineering');
       const evidenceByRequirement = new Map();
       for(const requirement of requirements){
-        evidenceByRequirement.set(requirement.id, await api(\`/api/engineering/projects/\${s.projectId}/requirements/\${requirement.id}/evidence\`));
+        evidenceByRequirement.set(requirement.id, await api(`/api/engineering/projects/${s.projectId}/requirements/${requirement.id}/evidence`));
       }
 
       const verified=requirements.filter((item)=>String(item.status||'').toLowerCase().includes('verif')).length;
@@ -83,10 +83,10 @@
       const coverage=requirements.length?Math.round(covered/requirements.length*100):0;
       const health=atRisk? 'AT RISK' : requirements.length && coverage<100 ? 'NEEDS EVIDENCE' : 'NOMINAL';
 
-      $('page-view').innerHTML=\`<div class="page engineering-control-center">
+      $('page-view').innerHTML=`<div class="page engineering-control-center">
         <header class="engineering-hero">
           <div class="engineering-hero-copy">
-            <div class="engineering-kicker">ENGINEERING / \${esc(s.project?.name||'PROJECT')}</div>
+            <div class="engineering-kicker">ENGINEERING / ${esc(s.project?.name||'PROJECT')}</div>
             <h1 class="page-title">Engineering control center</h1>
             <p class="page-subtitle">Trace requirements to sources, decisions, verification, and evidence without leaving the project.</p>
           </div>
@@ -98,14 +98,14 @@
         </header>
 
         <section class="engineering-health-strip">
-          <div class="engineering-health-state \${health==='NOMINAL'?'nominal':health==='AT RISK'?'risk':'attention'}">
-            <span></span><div><strong>\${health}</strong><small>traceability state</small></div>
+          <div class="engineering-health-state ${health==='NOMINAL'?'nominal':health==='AT RISK'?'risk':'attention'}">
+            <span></span><div><strong>${health}</strong><small>traceability state</small></div>
           </div>
-          <div class="engineering-metric"><strong>\${requirements.length}</strong><span>Requirements</span></div>
-          <div class="engineering-metric"><strong>\${coverage}%</strong><span>Evidence coverage</span></div>
-          <div class="engineering-metric"><strong>\${evidenceCount}</strong><span>Evidence records</span></div>
-          <div class="engineering-metric"><strong>\${sources.length}</strong><span>Sources</span></div>
-          <div class="engineering-metric"><strong>\${decisions.length}</strong><span>Decisions</span></div>
+          <div class="engineering-metric"><strong>${requirements.length}</strong><span>Requirements</span></div>
+          <div class="engineering-metric"><strong>${coverage}%</strong><span>Evidence coverage</span></div>
+          <div class="engineering-metric"><strong>${evidenceCount}</strong><span>Evidence records</span></div>
+          <div class="engineering-metric"><strong>${sources.length}</strong><span>Sources</span></div>
+          <div class="engineering-metric"><strong>${decisions.length}</strong><span>Decisions</span></div>
         </section>
 
         <div class="engineering-work-grid">
@@ -121,23 +121,23 @@
                 </div>
               </div>
               <div id="engineering-requirement-list" class="engineering-requirement-list">
-                \${requirements.length ? requirements.map((item,index)=>{
+                ${requirements.length ? requirements.map((item,index)=>{
                   const evidence=evidenceByRequirement.get(item.id)||[];
                   const status=String(item.status||'Open');
                   const statusClass=/verif/i.test(status)?'verified':/risk|fail|unclear/i.test(status)?'risk':'open';
-                  return \`<article class="engineering-requirement" data-requirement-card data-requirement-id="\${item.id}" data-status="\${statusClass}" data-search="\${attr([item.title,item.description,status].join(' '))}">
-                    <div class="engineering-requirement-index">\${String(index+1).padStart(2,'0')}</div>
+                  return `<article class="engineering-requirement" data-requirement-card data-requirement-id="${item.id}" data-status="${statusClass}" data-search="${attr([item.title,item.description,status].join(' '))}">
+                    <div class="engineering-requirement-index">${String(index+1).padStart(2,'0')}</div>
                     <div class="engineering-requirement-body">
-                      <div class="engineering-requirement-line"><span class="engineering-id">REQ-\${item.id}</span><span class="engineering-status \${statusClass}">\${esc(status)}</span></div>
-                      <h3>\${esc(item.title||item.description||'Untitled requirement')}</h3>
-                      <p>\${esc(item.description||'No description recorded.')}</p>
-                      <div class="engineering-requirement-meta"><span>\${evidence.length} evidence record\${evidence.length===1?'':'s'}</span><span>\${evidence.length?'Traceable':'Needs evidence'}</span></div>
+                      <div class="engineering-requirement-line"><span class="engineering-id">REQ-${item.id}</span><span class="engineering-status ${statusClass}">${esc(status)}</span></div>
+                      <h3>${esc(item.title||item.description||'Untitled requirement')}</h3>
+                      <p>${esc(item.description||'No description recorded.')}</p>
+                      <div class="engineering-requirement-meta"><span>${evidence.length} evidence record${evidence.length===1?'':'s'}</span><span>${evidence.length?'Traceable':'Needs evidence'}</span></div>
                     </div>
                     <div class="engineering-requirement-actions">
-                      <button type="button" class="quiet-button" data-engineering-action="evidence" data-id="\${item.id}">+ Evidence</button>
-                      <button type="button" class="outline-button" data-engineering-requirement-detail="\${item.id}">Open</button>
+                      <button type="button" class="quiet-button" data-engineering-action="evidence" data-id="${item.id}">+ Evidence</button>
+                      <button type="button" class="outline-button" data-engineering-requirement-detail="${item.id}">Open</button>
                     </div>
-                  </article>\`;
+                  </article>`;
                 }).join('') : '<div class="engineering-empty"><strong>No requirements yet.</strong><span>Start the project specification here.</span><button class="primary-button" data-engineering-action="requirement">Add requirement</button></div>'}
               </div>
             </section>
@@ -152,22 +152,22 @@
                 </div>
               </div>
               <div class="engineering-source-grid">
-                \${sources.length ? sources.slice(0,8).map((item)=>\`<button type="button" class="engineering-source-card" data-engineering-source-detail="\${attr(item.id)}">
-                  <span class="engineering-source-icon">▧</span><div><strong>\${esc(item.title)}</strong><span>\${esc(item.source_type||'document')} · \${esc(item.version||'unversioned')}</span></div><b>›</b>
-                </button>\`).join('') : '<div class="engineering-empty"><strong>No sources ingested.</strong><span>Add a source or import a public GitHub file.</span><button class="outline-button" data-engineering-action="github-source">Import GitHub</button></div>'}
+                ${sources.length ? sources.slice(0,8).map((item)=>`<button type="button" class="engineering-source-card" data-engineering-source-detail="${attr(item.id)}">
+                  <span class="engineering-source-icon">▧</span><div><strong>${esc(item.title)}</strong><span>${esc(item.source_type||'document')} · ${esc(item.version||'unversioned')}</span></div><b>›</b>
+                </button>`).join('') : '<div class="engineering-empty"><strong>No sources ingested.</strong><span>Add a source or import a public GitHub file.</span><button class="outline-button" data-engineering-action="github-source">Import GitHub</button></div>'}
               </div>
-              \${sources.length>8?'<div class="engineering-more">Showing 8 of '+sources.length+' sources</div>':''}
+              ${sources.length>8?'<div class="engineering-more">Showing 8 of '+sources.length+' sources</div>':''}
             </section>
           </main>
 
           <aside class="engineering-side-column">
             <section class="engineering-panel engineering-coverage-panel">
-              <div class="engineering-panel-head"><div><span class="engineering-kicker">EVIDENCE</span><h2>Coverage</h2></div><span class="engineering-score">\${coverage}%</span></div>
-              <div class="engineering-coverage-ring" style="--coverage:\${coverage}%"><div><strong>\${coverage}%</strong><span>covered</span></div></div>
+              <div class="engineering-panel-head"><div><span class="engineering-kicker">EVIDENCE</span><h2>Coverage</h2></div><span class="engineering-score">${coverage}%</span></div>
+              <div class="engineering-coverage-ring" style="--coverage:${coverage}%"><div><strong>${coverage}%</strong><span>covered</span></div></div>
               <div class="engineering-coverage-list">
-                <div><span class="dot verified"></span><strong>\${verified}</strong><small>verified</small></div>
-                <div><span class="dot open"></span><strong>\${requirements.length-covered}</strong><small>open / untraced</small></div>
-                <div><span class="dot risk"></span><strong>\${atRisk}</strong><small>risk flags</small></div>
+                <div><span class="dot verified"></span><strong>${verified}</strong><small>verified</small></div>
+                <div><span class="dot open"></span><strong>${requirements.length-covered}</strong><small>open / untraced</small></div>
+                <div><span class="dot risk"></span><strong>${atRisk}</strong><small>risk flags</small></div>
               </div>
               <button class="outline-button full-width" data-engineering-action="test-plan">Generate verification plan</button>
             </section>
@@ -175,7 +175,7 @@
             <section class="engineering-panel engineering-decisions-panel">
               <div class="engineering-panel-head"><div><span class="engineering-kicker">DECISIONS</span><h2>Recent decisions</h2></div><button class="quiet-button" data-engineering-action="decision">+ Add</button></div>
               <div class="engineering-decision-list">
-                \${decisions.length?decisions.slice(0,5).map((item)=>\`<article class="engineering-decision-card"><span class="engineering-decision-mark">◆</span><div><strong>\${esc(item.title)}</strong><p>\${esc(item.decision||item.rationale||'No decision text recorded.')}</p></div></article>\`).join(''):'<div class="engineering-empty compact"><strong>No decisions yet.</strong><span>Record design and implementation decisions here.</span></div>'}
+                ${decisions.length?decisions.slice(0,5).map((item)=>`<article class="engineering-decision-card"><span class="engineering-decision-mark">◆</span><div><strong>${esc(item.title)}</strong><p>${esc(item.decision||item.rationale||'No decision text recorded.')}</p></div></article>`).join(''):'<div class="engineering-empty compact"><strong>No decisions yet.</strong><span>Record design and implementation decisions here.</span></div>'}
               </div>
             </section>
 
@@ -190,9 +190,9 @@
 
         <footer class="engineering-footer">
           <span>Project engineering boundary · evidence is inspectable and inert</span>
-          <span>Requirements \${requirements.length} · Sources \${sources.length} · Decisions \${decisions.length}</span>
+          <span>Requirements ${requirements.length} · Sources ${sources.length} · Decisions ${decisions.length}</span>
         </footer>
-      </div>\`;
+      </div>`;
 
       const reqSearch=$('engineering-requirement-search');
       const reqFilter=$('engineering-requirement-filter');
@@ -222,32 +222,32 @@
           const linkedSources=sources.filter((item)=>linkedSourceIds.has(String(item.id)));
           const plan=engineeringTestPlanForRequirement(requirement);
 
-          $('page-view').innerHTML=\`<div class="page engineering-requirement-detail">
+          $('page-view').innerHTML=`<div class="page engineering-requirement-detail">
             <header class="engineering-detail-header">
               <div class="engineering-detail-header-copy">
                 <button type="button" class="engineering-back-link" data-engineering-detail-back>← Requirements</button>
-                <div class="engineering-kicker">TRACEABILITY / REQ-\${esc(requirement.id)}</div>
+                <div class="engineering-kicker">TRACEABILITY / REQ-${esc(requirement.id)}</div>
                 <div class="engineering-detail-title-row">
-                  <div><h1 class="page-title">\${esc(requirement.title||'Untitled requirement')}</h1><p class="page-subtitle">\${esc(requirement.description||'No requirement description recorded.')}</p></div>
-                  <span class="engineering-status engineering-status-large \${statusClass}">\${esc(status)}</span>
+                  <div><h1 class="page-title">${esc(requirement.title||'Untitled requirement')}</h1><p class="page-subtitle">${esc(requirement.description||'No requirement description recorded.')}</p></div>
+                  <span class="engineering-status engineering-status-large ${statusClass}">${esc(status)}</span>
                 </div>
               </div>
               <div class="engineering-detail-actions">
                 <button type="button" class="outline-button" data-engineering-detail-back>Back</button>
-                <button type="button" class="outline-button" data-engineering-action="evidence" data-id="\${attr(requirement.id)}">+ Evidence</button>
+                <button type="button" class="outline-button" data-engineering-action="evidence" data-id="${attr(requirement.id)}">+ Evidence</button>
                 <button type="button" class="primary-button" data-engineering-detail-edit>Edit requirement</button>
               </div>
             </header>
 
             <section class="engineering-detail-health">
               <div class="engineering-detail-health-main">
-                <span class="engineering-health-icon \${statusClass}">\${statusClass==='verified'?'✓':statusClass==='risk'?'!':'○'}</span>
-                <div><span class="engineering-kicker">VERIFICATION STATE</span><strong>\${esc(status)}</strong><p>\${activeEvidence.length ? activeEvidence.length+' active evidence record'+(activeEvidence.length===1?'':'s')+' support this requirement.' : 'No active evidence is currently linked to this requirement.'}</p></div>
+                <span class="engineering-health-icon ${statusClass}">${statusClass==='verified'?'✓':statusClass==='risk'?'!':'○'}</span>
+                <div><span class="engineering-kicker">VERIFICATION STATE</span><strong>${esc(status)}</strong><p>${activeEvidence.length ? activeEvidence.length+' active evidence record'+(activeEvidence.length===1?'':'s')+' support this requirement.' : 'No active evidence is currently linked to this requirement.'}</p></div>
               </div>
-              <div class="engineering-detail-stat"><strong>\${activeEvidence.length}</strong><span>Active evidence</span></div>
-              <div class="engineering-detail-stat"><strong>\${invalidEvidence.length}</strong><span>Invalidated</span></div>
-              <div class="engineering-detail-stat"><strong>\${linkedDecisions.length}</strong><span>Linked decisions</span></div>
-              <div class="engineering-detail-stat"><strong>\${linkedSources.length}</strong><span>Traceable sources</span></div>
+              <div class="engineering-detail-stat"><strong>${activeEvidence.length}</strong><span>Active evidence</span></div>
+              <div class="engineering-detail-stat"><strong>${invalidEvidence.length}</strong><span>Invalidated</span></div>
+              <div class="engineering-detail-stat"><strong>${linkedDecisions.length}</strong><span>Linked decisions</span></div>
+              <div class="engineering-detail-stat"><strong>${linkedSources.length}</strong><span>Traceable sources</span></div>
             </section>
 
             <div class="engineering-detail-grid">
@@ -255,57 +255,57 @@
                 <section class="engineering-panel">
                   <div class="engineering-panel-head">
                     <div><span class="engineering-kicker">VERIFICATION</span><h2>Acceptance & verification</h2></div>
-                    <span class="engineering-detail-method">\${esc(plan.verification_method)}</span>
+                    <span class="engineering-detail-method">${esc(plan.verification_method)}</span>
                   </div>
                   <div class="engineering-detail-section-body">
                     <div class="engineering-verification-block">
                       <span class="engineering-detail-label">Acceptance criteria</span>
-                      <div class="engineering-acceptance-text">\${esc(plan.acceptance_criteria||'Define explicit acceptance criteria before verification.')}</div>
+                      <div class="engineering-acceptance-text">${esc(plan.acceptance_criteria||'Define explicit acceptance criteria before verification.')}</div>
                     </div>
                     <div class="engineering-verification-checks">
-                      <div class="engineering-check-row \${activeEvidence.length?'met':''}"><span>\${activeEvidence.length?'✓':'○'}</span><div><strong>Evidence coverage</strong><small>\${activeEvidence.length ? 'At least one active evidence record is attached.' : 'Attach active evidence to support verification.'}</small></div></div>
-                      <div class="engineering-check-row \${/verif/i.test(status)?'met':''}"><span>\${/verif/i.test(status)?'✓':'○'}</span><div><strong>Requirement status</strong><small>\${/verif/i.test(status)?'Requirement is marked verified.':'Requirement is not currently marked verified.'}</small></div></div>
-                      <div class="engineering-check-row \${plan.evidence_types?.length?'met':''}"><span>•</span><div><strong>Expected evidence</strong><small>\${esc((plan.evidence_types||[]).join(' · ')||'No evidence type specified')}</small></div></div>
+                      <div class="engineering-check-row ${activeEvidence.length?'met':''}"><span>${activeEvidence.length?'✓':'○'}</span><div><strong>Evidence coverage</strong><small>${activeEvidence.length ? 'At least one active evidence record is attached.' : 'Attach active evidence to support verification.'}</small></div></div>
+                      <div class="engineering-check-row ${/verif/i.test(status)?'met':''}"><span>${/verif/i.test(status)?'✓':'○'}</span><div><strong>Requirement status</strong><small>${/verif/i.test(status)?'Requirement is marked verified.':'Requirement is not currently marked verified.'}</small></div></div>
+                      <div class="engineering-check-row ${plan.evidence_types?.length?'met':''}"><span>•</span><div><strong>Expected evidence</strong><small>${esc((plan.evidence_types||[]).join(' · ')||'No evidence type specified')}</small></div></div>
                     </div>
                   </div>
                 </section>
 
                 <section class="engineering-panel">
-                  <div class="engineering-panel-head"><div><span class="engineering-kicker">EVIDENCE CHAIN</span><h2>Evidence</h2></div><span class="engineering-panel-count">\${evidence.length} records</span></div>
+                  <div class="engineering-panel-head"><div><span class="engineering-kicker">EVIDENCE CHAIN</span><h2>Evidence</h2></div><span class="engineering-panel-count">${evidence.length} records</span></div>
                   <div class="engineering-detail-evidence-list">
-                    \${evidence.length ? evidence.map((item,index)=>{
+                    ${evidence.length ? evidence.map((item,index)=>{
                       const lifecycle=String(item.lifecycle_status||'Active');
                       const invalid=lifecycle!=='Active';
                       const source= item.source_id!=null ? sources.find((src)=>String(src.id)===String(item.source_id)) : null;
                       const evidenceStatus=String(item.supports_status||'Unverified');
                       const evidenceClass=/verif/i.test(evidenceStatus)?'verified':/fail|risk/i.test(evidenceStatus)?'risk':'open';
-                      return \`<article class="engineering-evidence-card \${invalid?'invalid':''}">
-                        <div class="engineering-evidence-index">\${String(index+1).padStart(2,'0')}</div>
+                      return `<article class="engineering-evidence-card ${invalid?'invalid':''}">
+                        <div class="engineering-evidence-index">${String(index+1).padStart(2,'0')}</div>
                         <div class="engineering-evidence-body">
-                          <div class="engineering-evidence-top"><span class="engineering-status \${evidenceClass}">\${esc(evidenceStatus)}</span><span class="engineering-evidence-type">\${esc(item.evidence_type||'evidence')}</span>\${invalid?'<span class="engineering-invalid-tag">Invalidated</span>':''}</div>
-                          <strong>\${esc(item.result||'No result recorded.')}</strong>
-                          <p>\${esc(item.description||'No evidence description recorded.')}</p>
+                          <div class="engineering-evidence-top"><span class="engineering-status ${evidenceClass}">${esc(evidenceStatus)}</span><span class="engineering-evidence-type">${esc(item.evidence_type||'evidence')}</span>${invalid?'<span class="engineering-invalid-tag">Invalidated</span>':''}</div>
+                          <strong>${esc(item.result||'No result recorded.')}</strong>
+                          <p>${esc(item.description||'No evidence description recorded.')}</p>
                           <div class="engineering-evidence-meta">
-                            <span>\${esc(item.created_at||'Recorded')}</span>
-                            \${item.location?\`<span>⌖ \${esc(item.location)}</span>\`:''}
-                            \${item.calculation_record_id?\`<span>Σ record #\${esc(item.calculation_record_id)}</span>\`:''}
+                            <span>${esc(item.created_at||'Recorded')}</span>
+                            ${item.location?`<span>⌖ ${esc(item.location)}</span>`:''}
+                            ${item.calculation_record_id?`<span>Σ record #${esc(item.calculation_record_id)}</span>`:''}
                           </div>
                           <div class="engineering-source-trace">
                             <span class="engineering-detail-label">SOURCE TRACE</span>
-                            \${source ? \`<button type="button" class="engineering-source-trace-card" data-engineering-source-detail="\${attr(source.id)}"><span>▧</span><div><strong>\${esc(source.title)}</strong><small>\${esc(source.source_type||'document')} · \${esc(source.version||'unversioned')}</small></div><b>›</b></button>\` : item.source ? \`<div class="engineering-source-trace-card static"><span>▧</span><div><strong>\${esc(item.source)}</strong><small>External reference</small></div></div>\` : '<span class="muted">No source linked</span>'}
+                            ${source ? `<button type="button" class="engineering-source-trace-card" data-engineering-source-detail="${attr(source.id)}"><span>▧</span><div><strong>${esc(source.title)}</strong><small>${esc(source.source_type||'document')} · ${esc(source.version||'unversioned')}</small></div><b>›</b></button>` : item.source ? `<div class="engineering-source-trace-card static"><span>▧</span><div><strong>${esc(item.source)}</strong><small>External reference</small></div></div>` : '<span class="muted">No source linked</span>'}
                           </div>
-                          \${invalid && item.invalidation_reason?\`<div class="engineering-invalid-reason">Invalidation: \${esc(item.invalidation_reason)}</div>\`:''}
+                          ${invalid && item.invalidation_reason?`<div class="engineering-invalid-reason">Invalidation: ${esc(item.invalidation_reason)}</div>`:''}
                         </div>
-                        <div class="engineering-evidence-actions">\${invalid?'':\`<button type="button" class="quiet-button" data-evidence-action="invalidate" data-id="\${attr(item.id)}">Invalidate</button>\`}</div>
-                      </article>\`;
-                    }).join('') : '<div class="engineering-empty"><strong>No evidence linked.</strong><span>Add a result, source, measurement, calculation, or verification artifact.</span><button class="primary-button" data-engineering-action="evidence" data-id="\${attr(requirement.id)}">Add evidence</button></div>'}
+                        <div class="engineering-evidence-actions">${invalid?'':`<button type="button" class="quiet-button" data-evidence-action="invalidate" data-id="${attr(item.id)}">Invalidate</button>`}</div>
+                      </article>`;
+                    }).join('') : '<div class="engineering-empty"><strong>No evidence linked.</strong><span>Add a result, source, measurement, calculation, or verification artifact.</span><button class="primary-button" data-engineering-action="evidence" data-id="${attr(requirement.id)}">Add evidence</button></div>'}
                   </div>
                 </section>
 
                 <section class="engineering-panel">
                   <div class="engineering-panel-head"><div><span class="engineering-kicker">DECISION CONTEXT</span><h2>Linked decisions</h2></div><button class="quiet-button" data-engineering-action="decision">+ Add decision</button></div>
                   <div class="engineering-linked-decisions">
-                    \${linkedDecisions.length ? linkedDecisions.map((item,index)=>\`<article class="engineering-linked-decision"><div class="engineering-decision-number">\${String(index+1).padStart(2,'0')}</div><div><div class="engineering-decision-heading"><strong>\${esc(item.title)}</strong><span class="engineering-decision-status">\${esc(item.status||'Proposed')}</span></div><p>\${esc(item.decision||'No decision statement recorded.')}</p>\${item.rationale?\`<small>Rationale · \${esc(item.rationale)}</small>\`:''}<time>\${esc(item.updated_at||item.created_at||'')}</time></div></article>\`).join('') : '<div class="engineering-empty compact"><strong>No decisions are linked.</strong><span>Capture why the requirement is shaped this way.</span><button class="outline-button" data-engineering-action="decision">Add linked decision</button></div>'}
+                    ${linkedDecisions.length ? linkedDecisions.map((item,index)=>`<article class="engineering-linked-decision"><div class="engineering-decision-number">${String(index+1).padStart(2,'0')}</div><div><div class="engineering-decision-heading"><strong>${esc(item.title)}</strong><span class="engineering-decision-status">${esc(item.status||'Proposed')}</span></div><p>${esc(item.decision||'No decision statement recorded.')}</p>${item.rationale?`<small>Rationale · ${esc(item.rationale)}</small>`:''}<time>${esc(item.updated_at||item.created_at||'')}</time></div></article>`).join('') : '<div class="engineering-empty compact"><strong>No decisions are linked.</strong><span>Capture why the requirement is shaped this way.</span><button class="outline-button" data-engineering-action="decision">Add linked decision</button></div>'}
                   </div>
                 </section>
               </main>
@@ -314,32 +314,32 @@
                 <section class="engineering-panel">
                   <div class="engineering-panel-head"><div><span class="engineering-kicker">IDENTITY</span><h2>Requirement record</h2></div></div>
                   <div class="engineering-detail-properties">
-                    <div><span>Identifier</span><strong>\${esc(requirement.identifier||\`REQ-\${requirement.id}\`)}</strong></div>
-                    <div><span>Priority</span><strong>\${esc(requirement.priority||'Not set')}</strong></div>
-                    <div><span>Status</span><strong>\${esc(status)}</strong></div>
-                    <div><span>Created</span><strong>\${esc(requirement.created_at||'—')}</strong></div>
-                    <div><span>Updated</span><strong>\${esc(requirement.updated_at||'—')}</strong></div>
+                    <div><span>Identifier</span><strong>${esc(requirement.identifier||`REQ-${requirement.id}`)}</strong></div>
+                    <div><span>Priority</span><strong>${esc(requirement.priority||'Not set')}</strong></div>
+                    <div><span>Status</span><strong>${esc(status)}</strong></div>
+                    <div><span>Created</span><strong>${esc(requirement.created_at||'—')}</strong></div>
+                    <div><span>Updated</span><strong>${esc(requirement.updated_at||'—')}</strong></div>
                   </div>
                 </section>
 
                 <section class="engineering-panel">
-                  <div class="engineering-panel-head"><div><span class="engineering-kicker">SOURCE TRACEABILITY</span><h2>Referenced sources</h2></div><span class="engineering-panel-count">\${linkedSources.length}</span></div>
+                  <div class="engineering-panel-head"><div><span class="engineering-kicker">SOURCE TRACEABILITY</span><h2>Referenced sources</h2></div><span class="engineering-panel-count">${linkedSources.length}</span></div>
                   <div class="engineering-trace-list">
-                    \${linkedSources.length ? linkedSources.map((source,index)=>\`<button type="button" class="engineering-trace-row" data-engineering-source-detail="\${attr(source.id)}"><span class="engineering-trace-number">\${String(index+1).padStart(2,'0')}</span><span class="engineering-source-icon">▧</span><div><strong>\${esc(source.title)}</strong><small>\${esc(source.source_type||'document')} · \${esc(source.version||'unversioned')}</small></div><b>›</b></button>\`).join('') : '<div class="engineering-empty compact"><strong>No linked sources.</strong><span>Evidence can point directly to a project source.</span></div>'}
+                    ${linkedSources.length ? linkedSources.map((source,index)=>`<button type="button" class="engineering-trace-row" data-engineering-source-detail="${attr(source.id)}"><span class="engineering-trace-number">${String(index+1).padStart(2,'0')}</span><span class="engineering-source-icon">▧</span><div><strong>${esc(source.title)}</strong><small>${esc(source.source_type||'document')} · ${esc(source.version||'unversioned')}</small></div><b>›</b></button>`).join('') : '<div class="engineering-empty compact"><strong>No linked sources.</strong><span>Evidence can point directly to a project source.</span></div>'}
                   </div>
                 </section>
 
                 <section class="engineering-panel">
                   <div class="engineering-panel-head"><div><span class="engineering-kicker">ACTIVITY</span><h2>Verification history</h2></div></div>
                   <div class="engineering-timeline">
-                    \${[...evidence].sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))).slice(-8).reverse().map((item,index)=>\`<div class="engineering-timeline-item"><span class="engineering-timeline-dot \${String(item.lifecycle_status||'Active')==='Active'?'active':'invalid'}"></span><div><strong>\${esc(item.supports_status||'Evidence recorded')}</strong><small>\${esc(item.created_at||'Recorded')}</small><p>\${esc(item.result||item.description||'Evidence updated.')}</p></div></div>\`).join('') || '<div class="engineering-empty compact"><strong>No verification activity.</strong><span>The history will populate as evidence is recorded.</span></div>'}
+                    ${[...evidence].sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))).slice(-8).reverse().map((item,index)=>`<div class="engineering-timeline-item"><span class="engineering-timeline-dot ${String(item.lifecycle_status||'Active')==='Active'?'active':'invalid'}"></span><div><strong>${esc(item.supports_status||'Evidence recorded')}</strong><small>${esc(item.created_at||'Recorded')}</small><p>${esc(item.result||item.description||'Evidence updated.')}</p></div></div>`).join('') || '<div class="engineering-empty compact"><strong>No verification activity.</strong><span>The history will populate as evidence is recorded.</span></div>'}
                   </div>
                 </section>
               </aside>
             </div>
 
-            <footer class="engineering-footer"><span>Requirement traceability boundary · source evidence remains inspectable and inert</span><span>REQ-\${esc(requirement.id)} · \${esc(requirement.status||'Unverified')}</span></footer>
-          </div>\`;
+            <footer class="engineering-footer"><span>Requirement traceability boundary · source evidence remains inspectable and inert</span><span>REQ-${esc(requirement.id)} · ${esc(requirement.status||'Unverified')}</span></footer>
+          </div>`;
 
           document.querySelectorAll('[data-engineering-detail-back]').forEach((back)=>back.onclick=()=>openProjectEngineeringView());
           document.querySelectorAll('[data-engineering-detail-edit]').forEach((edit)=>edit.onclick=()=>engineeringRequirementEditForm(requirement));
@@ -348,7 +348,7 @@
       document.querySelectorAll('[data-engineering-source-detail]').forEach((button)=>{
         button.onclick=()=>{
           const source=sources.find((item)=>String(item.id)===String(button.dataset.engineeringSourceDetail));
-          if(source) modal(source.title,\`<div class="properties"><div class="property"><span>Type</span><strong>\${esc(source.source_type||'document')}</strong></div><div class="property"><span>Version</span><strong>\${esc(source.version||'Unversioned')}</strong></div><div class="property"><span>Author</span><strong>\${esc(source.author||'—')}</strong></div><div class="property"><span>Publisher</span><strong>\${esc(source.publisher||'—')}</strong></div><div class="property"><span>URL</span><strong>\${esc(source.url||'—')}</strong></div></div>\`);
+          if(source) modal(source.title,`<div class="properties"><div class="property"><span>Type</span><strong>${esc(source.source_type||'document')}</strong></div><div class="property"><span>Version</span><strong>${esc(source.version||'Unversioned')}</strong></div><div class="property"><span>Author</span><strong>${esc(source.author||'—')}</strong></div><div class="property"><span>Publisher</span><strong>${esc(source.publisher||'—')}</strong></div><div class="property"><span>URL</span><strong>${esc(source.url||'—')}</strong></div></div>`);
         };
       });
     }catch(error){toast(error.message);}}
