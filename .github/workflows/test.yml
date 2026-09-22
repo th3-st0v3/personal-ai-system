@@ -5,6 +5,8 @@ on:
     branches: [main, beta-foundation, 'pasi/**']
   pull_request:
     branches: [main, 'pasi/**']
+  schedule:
+    - cron: '30 4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -100,7 +102,7 @@ jobs:
           PASI_FAST_GATE_BASE: origin/${{ github.base_ref || 'main' }}
         run: python scripts/pasi_fast_validation.py --base-ref "$PASI_FAST_GATE_BASE"
       - name: Run canonical validation suite
-        if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
         run: bash scripts/check_all.sh
       - name: Run targeted computer-use regression suites
         if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
@@ -137,7 +139,7 @@ jobs:
           if-no-files-found: ignore
 
   browser-use-compat:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'beta-foundation' }}
     concurrency:
       group: pasi-browser-use-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
       cancel-in-progress: true

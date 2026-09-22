@@ -34,5 +34,14 @@ class TestPasiCIWorkflow(unittest.TestCase):
         self.assertIn("browser-use-compat:", workflow)
         self.assertIn("fetch-depth: 1", workflow)
 
+    def test_full_suite_runs_on_schedule_and_codeql_keeps_security_write_permission(self) -> None:
+        test_workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+        self.assertIn("schedule:", test_workflow)
+        self.assertIn("- cron: '30 4 * * *'", test_workflow)
+        self.assertIn("github.event_name == 'schedule'", test_workflow)
+        security = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
+        self.assertIn("security-events: write", security)
+        self.assertIn("upload: never", security)
+
 if __name__ == "__main__":
     unittest.main()

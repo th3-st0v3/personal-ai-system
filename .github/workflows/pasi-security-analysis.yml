@@ -20,8 +20,12 @@ concurrency:
 
 permissions:
   contents: read
+  # CodeQL needs the security-events permission to publish when the repository
+  # has GitHub Code Security enabled. We deliberately keep upload disabled in
+  # this private repository until that repository feature is available.
   security-events: write
   actions: read
+
 
 jobs:
   codeql:
