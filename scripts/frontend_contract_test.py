@@ -148,3 +148,29 @@ def test_planner_interactive_workspace_contract() -> None:
         assert marker in css, f"Planner styling contract missing: {marker}"
 
     assert 'data-view="planner"' in index
+
+
+def test_engineering_workspace_redesign_contract() -> None:
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    ui = (WEB / "ui-completion.js").read_text(encoding="utf-8")
+    css = (WEB / "styles.css").read_text(encoding="utf-8")
+
+    assert "PASI Engineering" in index
+    assert "New engineering session" in index
+    for marker in (
+        "engineering-control-center", "engineering-health-strip",
+        "engineering-requirement-list", "engineering-source-grid",
+        "engineering-coverage-panel", "engineering-decision-list",
+        "engineering-action-row", "engineering-requirement-search",
+        "engineering-requirement-filter", "data-engineering-requirement-detail",
+        "data-engineering-source-detail",
+    ):
+        assert marker in ui, f"Engineering workspace interaction contract missing: {marker}"
+
+    for marker in (
+        ".engineering-control-center", ".engineering-health-strip",
+        ".engineering-requirement", ".engineering-source-card",
+        ".engineering-coverage-ring", ".engineering-decision-card",
+        ".engineering-action-row", ".engineering-detail-modal",
+    ):
+        assert marker in css, f"Engineering workspace styling contract missing: {marker}"
