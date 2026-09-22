@@ -27,7 +27,7 @@ def validate_m0(path: Path) -> list[str]:
     else:
         proof = Path(proof_file)
         try:
-            if proof.read_text(encoding="utf-8") != "PASI M0 LIVE PROOF\n":
+            if proof.read_text(encoding="utf-8") != "PASI M0 LIVE PROOF":
                 errors.append("M0 proof file content is not exact")
         except OSError:
             errors.append("M0 proof file is unavailable")
