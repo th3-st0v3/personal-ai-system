@@ -315,13 +315,15 @@ branch refs/heads/main
             recent_tasks=["previous verified task"],
             roadmap_tasks=["Roadmap task A", "Roadmap task B"],
         )
-        self.assertEqual(
-            prompt.split("RESULT:", 1)[0],
-            "CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.\n\nWork on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n",
-        )
+        self.assertTrue(prompt.startswith("PASI TASK EXECUTION\n"))
+        self.assertIn("TASK_ID: unspecified", prompt)
+        self.assertIn("TASK_MODE: continued_attempt", prompt)
+        self.assertIn("TASK_SIZE: unspecified", prompt)
+        self.assertIn("PHASE: engineering_os", prompt)
+        self.assertIn("TASK_ATTEMPT: 2/3", prompt)
+        self.assertIn("CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.", prompt)
+        self.assertIn("Use the available turn to implement and verify the CURRENT TASK", prompt)
         self.assertNotIn("run-prompt-compiler", prompt)
-        self.assertNotIn("Task number", prompt)
-        self.assertNotIn("Attempt", prompt)
         self.assertNotIn("Roadmap task A", prompt)
         self.assertNotIn("Roadmap task B", prompt)
         self.assertNotIn("previous verified task", prompt)
