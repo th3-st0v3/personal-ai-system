@@ -327,8 +327,7 @@ chrome.runtime.onStartup.addListener(() => {
 void ensureWatchdogAlarm();
 
 if (chrome.sidePanel?.setPanelBehavior) {
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
     .catch((error) => console.warn('[PASI side panel]', error));
 }
 
