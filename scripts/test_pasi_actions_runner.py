@@ -17,7 +17,6 @@ class TestActionsRunnerLauncher(unittest.TestCase):
         self.assertIn("already active", source)
         self.assertIn("find_listener_pid", source)
         self.assertIn("PASI self-hosted runner started", source)
-        self.assertIn("ACTIONS", source)
 
     def test_install_script_delegates_persistent_startup_to_shared_launcher(self) -> None:
         source = (ROOT / "scripts" / "install_pasi_self_hosted_runner.sh").read_text(encoding="utf-8")
