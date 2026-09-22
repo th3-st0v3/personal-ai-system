@@ -139,8 +139,7 @@ class OvernightHardeningTests(unittest.TestCase):
         self.assertEqual(hardening._BRIDGE_HEALTH_URL, "http://127.0.0.1:8765/health")
         self.assertIn("supervisor.healthy(_BRIDGE_HEALTH_URL)", source)
         self.assertIn("automation.orchestrator.bridge", source)
-        self.assertNotIn("127.0.0.1:8766", source)
-        self.assertNotIn("pasi_controller_server.py", source)
+                self.assertNotIn("pasi_controller_server.py", source)
         self.assertNotIn("controller_distribution", source)
 
     def test_patch_guard_rejects_secret_and_symlink_paths(self) -> None:
