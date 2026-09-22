@@ -50,6 +50,19 @@ class TestGitHubActionsBillingContract(unittest.TestCase):
         for job_name in ("free-validation", "test", "browser-use-compat"):
             self.assertIn("needs: runner-preflight", job_block(source, job_name))
 
+    def test_self_hosted_only_prerequisite_checks_do_not_block_hosted_mode(self) -> None:
+        source = TEST_WORKFLOW.read_text(encoding="utf-8")
+        for step_name in (
+            "Validate validation sandbox",
+            "Validate browser acceptance prerequisites",
+        ):
+            marker = "      - name: " + step_name + "\n"
+            start = source.index(marker)
+            if_pos = source.index("        if: ", start)
+            end = source.index("\n", if_pos)
+            condition = source[if_pos:end]
+            self.assertIn("inputs.runner_mode != 'github-hosted'", condition)
+
     def test_required_free_validation_stays_local_and_free(self) -> None:
         source = TEST_WORKFLOW.read_text(encoding="utf-8")
         job = job_block(source, "free-validation")
