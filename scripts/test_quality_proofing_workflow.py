@@ -37,7 +37,7 @@ class TestQualityProofingWorkflow(unittest.TestCase):
         job = job_block(WORKFLOW.read_text(encoding="utf-8"), "local-proofing")
         self.assertIn("python -m pip install -r requirements-dev.txt", job)
         self.assertIn("pre-commit run --all-files", job)
-        self.assertIn("python scripts/pasi_local_proof.py --all", job)
+        self.assertIn("pre-commit run pasi-local-proofing --all-files", job)
         self.assertIn("python scripts/check_pasi_self_hosted_runner.py", job)
 
     def test_local_proofing_has_self_hosted_runner_preflight(self) -> None:
