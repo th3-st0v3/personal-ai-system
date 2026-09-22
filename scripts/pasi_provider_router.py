@@ -81,7 +81,9 @@ def ensure_free_test_network(url: str) -> None:
         raise RuntimeError("PASI_FREE_TEST_MODE blocks external provider network access")
 
 
-def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:    request = urllib.request.Request(
+def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
+    ensure_free_test_network(url)
+    request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "PASI-provider-router/1.0", **headers},
