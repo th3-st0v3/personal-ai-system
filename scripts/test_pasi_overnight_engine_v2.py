@@ -14,7 +14,35 @@ from scripts import pasi_hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 
 
-class TestPasiOvernightEngineV2(unittest.TestCase):
+class TestPasiOvernightEngineV2(unittest.TestCase):\n    def test_background_work_uses_daemon_worker_and_preserves_task_identity(self) -> None:
+        started = []
+        completed = []
+
+        class FakeThread:
+            def __init__(self, *, target, name, daemon):
+                started.append((target, name, daemon))
+
+            def start(self):
+                started[0][0]()
+                completed.append(True)
+
+        original_thread = engine.threading.Thread
+        try:
+            engine.threading.Thread = FakeThread
+            with mock.patch.object(engine, "log_event"):
+                engine.schedule_background_work(
+                    lambda: None,
+                    event="test_work",
+                    task="task-one",
+                    task_number=7,
+                )
+        finally:
+            engine.threading.Thread = original_thread
+
+        self.assertEqual(started[0][1:], ("pasi-test_work", True))
+        self.assertEqual(completed, [True])
+
+
 
     def test_parse_response_allows_scheduler_owned_next_task(self) -> None:
         response = """PASI_RESULT_STATUS: complete
