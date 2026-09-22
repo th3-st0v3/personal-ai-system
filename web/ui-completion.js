@@ -42,5 +42,208 @@
   async function renderSearchResults(result){document.querySelector('.global-search-results')?.remove();const hits=[...(result.chats||[]).map((item)=>({kind:'chat',id:item.id,title:item.title,meta:item.pinned?'Pinned':''})),...(result.projects||[]).map((item)=>({kind:'project',id:item.id,title:item.name,meta:item.description||''})),...(result.notes||[]).map((item)=>({kind:'note',id:item.id,projectId:item.project_id,title:item.title,meta:String(item.content||'').slice(0,120)})),...(result.calculations||[]).map((item)=>({kind:'calculation',id:item.key,title:item.name,meta:item.domain||''}))];const panel=document.createElement('div');panel.className='global-search-results';panel.innerHTML=hits.length?hits.slice(0,24).map((item)=>`<button type="button" data-search-${item.kind}="${attr(item.id)}" ${item.projectId?`data-search-project="${item.projectId}"`:''}><span class="search-kind">${esc(item.kind)}</span><strong>${esc(item.title)}</strong><small>${esc(item.meta)}</small></button>`).join(''):'<div class="empty-state">No matches.</div>';$('global-search').parentElement.appendChild(panel);}
 
   function hydrateUI(){renderAccountDock();$('calculations-toggle')?.setAttribute('aria-controls','calculation-categories');const line=document.querySelector('.chat-title-line');if(line&&!line.querySelector('.chat-title-menu')){const button=document.createElement('button');button.type='button';button.className='icon-button chat-title-menu';button.textContent='⋯';button.title='Chat actions';button.setAttribute('aria-label','Chat actions');line.appendChild(button);}}
-  window.renderAccountDock=renderAccountDock;window.hydrateUI=hydrateUI;window.renderProjectsPage=renderProjectsPage;window.renderProjectFilesPage=renderProjectFilesPage;window.renderSettingsPage=renderSettingsPage;window.renderCustomizeTab=renderCustomizeTab;window.renderEducationPage=renderEducationPage;window.openSimulationsView=openSimulationsView;window.openConnectionsView=openConnectionsView;window.connectionAction=connectionAction;window.pluginAction=pluginAction;window.togglePlugin=togglePlugin;window.openCalculationsView=openCalculationsView;window.openCalculationGroupView=openCalculationGroupView;window.openCalculationSubgroupView=openCalculationSubgroupView;window.openCalculationDetailView=openCalculationDetailView;window.openProjectEngineeringView=openProjectEngineeringView;window.engineeringAction=window.engineeringAction;window.renderSearchResults=renderSearchResults;window.fetchToolSource=async(button)=>{let sources=[];try{sources=JSON.parse(button.dataset.toolFetch||'[]');}catch{return;}const source=sources[0];if(!source)return;if(!st().projectId||!source.chunk_id)return modal('Source','<div class="empty-state">Source metadata is available, but no project chunk ID was returned.</div>');const chunk=await api(`/api/engineering/projects/${st().projectId}/sources/chunks/${source.chunk_id}`);modal(chunk.source||'Source',`<div class="source-detail"><div class="property"><span>Location</span><strong>${esc(chunk.location)}</strong></div><div class="property"><span>Version</span><strong>${esc(chunk.version||'Unversioned')}</strong></div><div class="property"><span>Checksum</span><code>${esc(chunk.checksum)}</code></div><pre class="text-preview">${esc(chunk.content)}</pre></div>`);};
+
+  let labPollTimer=null;
+  let labProcessTimer=null;
+  let labSelectedPid=null;
+  let labProcesses=[];
+  let labCapabilities=null;
+
+  function labBytes(value){
+    const n=Number(value||0);
+    if(n<1024)return n.toFixed(0)+' B';
+    if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
+    if(n<1024*1024*1024)return (n/1024/1024).toFixed(1)+' MB';
+    return (n/1024/1024/1024).toFixed(2)+' GB';
+  }
+  function labTier(host){
+    const ram=Number(host&&host.memory&&host.memory.total_bytes||0)/(1024**3);
+    const cpu=Number(host&&host.cpu_count||1);
+    if(ram>=64&&cpu>=16)return 'Max';
+    if(ram>=32&&cpu>=8)return 'Performance';
+    if(ram>=16&&cpu>=6)return 'Standard';
+    return 'Easy';
+  }
+  function labTierInfo(tier){
+    return {
+      Easy:{fuzz:100,model:'free',note:'Conservative local workloads.'},
+      Standard:{fuzz:500,model:'auto',note:'Balanced local and hosted execution.'},
+      Performance:{fuzz:2000,model:'auto',note:'Larger experiments and stronger local models.'},
+      Max:{fuzz:5000,model:'auto',note:'Maximum bounded workload sizes.'},
+    }[tier];
+  }
+  function labActiveTier(){return localStorage.getItem('pas-lab-tier')||'Easy';}
+
+  function renderLabShell(tab){
+    const page=$('page-view'); if(!page)return;
+    page.innerHTML=[
+      '<div class="page lab-page">',
+      '<div class="page-head"><div><div class="eyebrow">Engineering runtime</div><h1 class="page-title">Experiment Lab</h1><p class="page-subtitle">Observe, model, simulate, fuzz, and tune workloads with immediate local feedback.</p></div><button class="back-button" data-back-chat>Back</button></div>',
+      '<section class="lab-overview"><div class="lab-stat"><span>Host</span><strong id="lab-host-platform">Detecting…</strong></div><div class="lab-stat"><span>CPU</span><strong id="lab-cpu">—</strong></div><div class="lab-stat"><span>Memory</span><strong id="lab-memory">—</strong></div><div class="lab-stat"><span>Swap</span><strong id="lab-swap">—</strong></div><div class="lab-stat"><span>Suggested tier</span><strong id="lab-suggested-tier">—</strong></div></section>',
+      '<div class="lab-tabs" role="tablist"><button type="button" data-lab-tab="resources">Resources</button><button type="button" data-lab-tab="model">Model</button><button type="button" data-lab-tab="fuzz">Fuzzing</button><button type="button" data-lab-tab="compute">Compute</button><button type="button" data-lab-tab="providers">Providers</button></div>',
+      '<div id="lab-content"></div>',
+      '</div>'
+    ].join('');
+    page.querySelectorAll('[data-lab-tab]').forEach(function(button){
+      button.classList.toggle('active',button.dataset.labTab===(tab||'resources'));
+      button.onclick=function(){renderLabTab(button.dataset.labTab);};
+    });
+    renderLabTab(tab||'resources');
+  }
+
+  async function refreshLabHost(){
+    if(st().view!=='lab')return;
+    try{
+      const result=await Promise.all([api('/api/lab/host'),api('/api/lab/control'),api('/api/lab/capabilities')]);
+      const host=result[0], control=result[1];
+      labCapabilities=result[2];
+      const set=function(id,value){const node=$(id);if(node)node.textContent=value;};
+      set('lab-host-platform',host.platform||'unknown');
+      set('lab-cpu',String(host.cpu_count||'—'));
+      set('lab-memory',labBytes(host.memory&&host.memory.used_bytes)+' / '+labBytes(host.memory&&host.memory.total_bytes));
+      set('lab-swap',labBytes(host.swap&&host.swap.used_bytes)+' / '+labBytes(host.swap&&host.swap.total_bytes));
+      set('lab-suggested-tier',labTier(host));
+      const toggle=$('lab-control-toggle');if(toggle)toggle.checked=!!control.enabled;
+      const bar=$('lab-memory-bar');if(bar)bar.style.width=String(Number(host.memory&&host.memory.used_percent||0))+'%';
+      const bar2=$('lab-swap-bar');if(bar2)bar2.style.width=String(Number(host.swap&&host.swap.used_percent||0))+'%';
+      const labels=document.querySelectorAll('.lab-meter-head strong');if(labels[0])labels[0].textContent=String(Number(host.memory&&host.memory.used_percent||0).toFixed(1))+'%';if(labels[1])labels[1].textContent=String(Number(host.swap&&host.swap.used_percent||0).toFixed(1))+'%';
+      const backend=$('lab-backend');if(backend)backend.textContent=String(labCapabilities.backend||'detecting…');
+    }catch(error){toast(error.message);}
+  }
+
+  async function refreshLabProcesses(){
+    if(st().view!=='lab')return;
+    try{
+      labProcesses=await api('/api/lab/processes?query='+encodeURIComponent($('lab-process-search')&&$('lab-process-search').value||'')+'&limit=120');
+      const list=$('lab-process-list');if(!list)return;
+      list.innerHTML=labProcesses.map(function(row){
+        return '<button type="button" class="lab-process-row '+(Number(row.pid)===Number(labSelectedPid)?'active':'')+'" data-lab-pid="'+row.pid+'"><span><strong>'+esc(row.name)+'</strong><small>PID '+row.pid+' · '+esc(row.command||'')+'</small></span><span>'+labBytes(row.rss_bytes)+'</span><span>'+labBytes(row.swap_bytes)+'</span><span>'+Number(row.threads||0)+'</span><span>'+Number(row.memory_percent||0).toFixed(1)+'%</span></button>';
+      }).join('')||'<div class="empty-state">No matching processes.</div>';
+      list.querySelectorAll('[data-lab-pid]').forEach(function(row){row.onclick=function(){labSelectedPid=Number(row.dataset.labPid);renderLabProcessSelection();};});
+      renderLabProcessSelection();
+    }catch(error){toast(error.message);}
+  }
+
+  function renderLabProcessSelection(){
+    document.querySelectorAll('[data-lab-pid]').forEach(function(row){row.classList.toggle('active',Number(row.dataset.labPid)===Number(labSelectedPid));});
+    const detail=$('lab-process-detail');if(!detail)return;
+    const selected=labProcesses.find(function(row){return Number(row.pid)===Number(labSelectedPid);});
+    if(!selected){detail.innerHTML='<div class="empty-state">Select any host process to inspect it. The program does not have to belong to PASI.</div>';return;}
+    detail.innerHTML=[
+      '<div class="lab-selected-head"><div><div class="eyebrow">Selected process</div><h3>'+esc(selected.name)+'</h3><p>PID '+selected.pid+' · '+esc(selected.command||'')+'</p></div><span class="lab-status-pill">LIVE</span></div>',
+      '<div class="lab-process-metrics"><div><span>RSS</span><strong id="lab-selected-rss">'+labBytes(selected.rss_bytes)+'</strong></div><div><span>Swap</span><strong id="lab-selected-swap">'+labBytes(selected.swap_bytes)+'</strong></div><div><span>Threads</span><strong>'+selected.threads+'</strong></div><div><span>Host share</span><strong>'+Number(selected.memory_percent||0).toFixed(2)+'%</strong></div></div>',
+      '<div class="lab-resource-form"><label>RAM limit (MB)<input id="lab-memory-limit" type="number" min="128" step="128" placeholder="unlimited"></label><label>Swap limit (MB)<input id="lab-swap-limit" type="number" min="0" step="128" placeholder="unlimited"></label></div>',
+      '<div class="inline-actions"><button class="outline-button" id="lab-preview-profile">Preview</button><button class="primary-button" id="lab-apply-profile">Apply limits</button><button class="danger-button" id="lab-clear-profile">Clear PASI profile</button></div>',
+      '<div id="lab-profile-result" class="lab-result"></div>',
+      '<div class="lab-warning">Applying limits changes the selected OS process. Only explicitly granted host control can mutate resources.</div>'
+    ].join('');
+    $('lab-preview-profile').onclick=function(){void labProfile('preview');};
+    $('lab-apply-profile').onclick=function(){void labProfile('apply');};
+    $('lab-clear-profile').onclick=function(){void labProfile('clear');};
+  }
+
+  async function refreshLabProcessDetail(){
+    if(!labSelectedPid||st().view!=='lab')return;
+    try{
+      const row=await api('/api/lab/processes/'+labSelectedPid);
+      const rss=$('lab-selected-rss');if(rss)rss.textContent=labBytes(row.rss_bytes);
+      const swap=$('lab-selected-swap');if(swap)swap.textContent=labBytes(row.swap_bytes);
+    }catch(error){}
+  }
+
+  async function labProfile(mode){
+    if(!labSelectedPid)return;
+    try{
+      const result=await send('/api/lab/processes/'+labSelectedPid+'/profile',{mode:mode,memory_limit_mb:($('lab-memory-limit')&&$('lab-memory-limit').value.trim())||'unlimited',swap_limit_mb:($('lab-swap-limit')&&$('lab-swap-limit').value.trim())||'unlimited'});
+      const out=$('lab-profile-result');if(out)out.innerHTML='<pre class="text-preview">'+esc(JSON.stringify(result,null,2))+'</pre>';
+    }catch(error){toast(error.message);}
+  }
+
+  async function setLabControl(enabled){
+    try{const result=await send('/api/lab/control',{enabled:enabled});toast(result.enabled?'Host resource changes enabled':'Host resource changes disabled','ok');}
+    catch(error){toast(error.message);const toggle=$('lab-control-toggle');if(toggle)toggle.checked=!enabled;}
+  }
+
+  async function renderLabResources(){
+    const content=$('lab-content');if(!content)return;
+    content.innerHTML=[
+      '<section class="lab-panel">',
+      '<div class="lab-panel-head"><div><h2>Live host resources</h2><p>Observe PASI and unrelated programs together. Telemetry refreshes while this view is open.</p></div><button class="outline-button" id="lab-refresh">Refresh</button></div>',
+      '<div class="lab-meter-grid"><div><div class="lab-meter-head"><span>Memory</span><strong>—</strong></div><div class="lab-meter"><i id="lab-memory-bar"></i></div></div><div><div class="lab-meter-head"><span>Swap</span><strong>—</strong></div><div class="lab-meter"><i id="lab-swap-bar"></i></div></div></div>',
+      '<div class="lab-control-card"><div><strong>Allow host resource changes</strong><p>Observation stays enabled without this permission. Applying or clearing a resource profile requires it.</p></div><label class="lab-switch"><input id="lab-control-toggle" type="checkbox"><span></span></label></div>',
+      '<div class="lab-process-search"><input id="lab-process-search" type="search" placeholder="Search processes by name or command…"><button class="outline-button" id="lab-search-refresh">Search</button></div>',
+      '<div class="lab-process-header"><span>Process</span><span>RSS</span><span>Swap</span><span>Threads</span><span>Host %</span></div>',
+      '<div id="lab-process-list" class="lab-process-list"></div><div id="lab-process-detail" class="lab-process-detail"></div>',
+      '<div class="lab-note">Backend: <strong id="lab-backend">'+esc(labCapabilities&&labCapabilities.backend||'detecting…')+'</strong>. Linux mutation requires delegated cgroup v2 control; other platforms are observation-only for now.</div>',
+      '</section>'
+    ].join('');
+    $('lab-refresh').onclick=function(){void refreshLabHost();void refreshLabProcesses();};
+    $('lab-search-refresh').onclick=function(){void refreshLabProcesses();};
+    $('lab-process-search').onkeydown=function(e){if(e.key==='Enter')void refreshLabProcesses();};
+    $('lab-control-toggle').onchange=function(e){void setLabControl(e.target.checked);};
+    await refreshLabHost();await refreshLabProcesses();
+  }
+
+  async function renderLabModel(){
+    const content=$('lab-content');if(!content)return;
+    content.innerHTML='<section class="lab-panel"><div class="lab-panel-head"><div><h2>Engineering model builder</h2><p>Turn a problem statement into an inspectable model plan before running a simulation.</p></div></div><textarea id="lab-model-prompt" class="lab-large-input" placeholder="Example: model pressure loss through a wellbore and identify variables, calculations, simulations, assumptions, and open questions."></textarea><div class="inline-actions"><button class="primary-button" id="lab-build-model">Build model plan</button></div><div id="lab-model-result" class="lab-result"></div></section>';
+    $('lab-build-model').onclick=async function(){
+      const prompt=$('lab-model-prompt').value.trim();if(!prompt)return;
+      try{
+        const result=await send('/api/lab/model',{prompt:prompt});
+        const calc=(result.calculations||[]).map(function(x){return '<span class="lab-chip">'+esc(x.name||x.key)+'</span>';}).join('');
+        const sims=(result.simulations||[]).map(function(x){return '<span class="lab-chip">'+esc(x.name||x.key)+'</span>';}).join('');
+        $('lab-model-result').innerHTML='<div class="lab-result-grid"><div><span>Discipline</span><strong>'+esc(result.discipline)+'</strong></div><div><span>Calculations</span><strong>'+(result.calculations||[]).length+'</strong></div><div><span>Simulations</span><strong>'+(result.simulations||[]).length+'</strong></div><div><span>Variables</span><strong>'+esc((result.candidate_variables||[]).join(', ')||'None identified')+'</strong></div></div><div class="lab-result-section"><h3>Calculations</h3><div class="lab-chip-row">'+calc+'</div><h3>Simulations</h3><div class="lab-chip-row">'+sims+'</div><h3>Assumptions</h3><ul>'+((result.assumptions||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')||'<li>None</li>')+'</ul><h3>Open questions</h3><ul>'+((result.open_questions||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('')||'<li>None</li>')+'</ul></div><pre class="text-preview">'+esc(JSON.stringify(result,null,2))+'</pre>';
+      }catch(error){toast(error.message);}
+    };
+  }
+
+  async function renderLabFuzz(){
+    const content=$('lab-content');if(!content)return;
+    const manifest=st().manifest||await api('/api/manifest');const sims=manifest.simulations||[];const calcs=st().calculationCatalog&&st().calculationCatalog.length?st().calculationCatalog:await api('/api/calculations/catalog');
+    content.innerHTML='<section class="lab-panel"><div class="lab-panel-head"><div><h2>Bounded fuzzing</h2><p>Seeded numeric fuzzing for registered deterministic calculations and simulations.</p></div></div><div class="lab-form-grid"><label>Target type<select id="lab-fuzz-kind"><option value="simulation">Simulation</option><option value="calculation">Calculation</option></select></label><label>Target<select id="lab-fuzz-key"></select></label><label>Iterations<select id="lab-fuzz-iterations"><option value="100">Easy · 100</option><option value="500">Standard · 500</option><option value="2000">Performance · 2,000</option><option value="5000">Max · 5,000</option></select></label><label>Seed<input id="lab-fuzz-seed" type="number" value="1"></label></div><label>Base inputs JSON<textarea id="lab-fuzz-inputs" class="lab-json-input" placeholder="{&quot;depth&quot;:3000,&quot;density&quot;:1100,&quot;diameter&quot;:0.15}"></textarea></label><div class="inline-actions"><button class="primary-button" id="lab-run-fuzz">Run fuzz campaign</button></div><div id="lab-fuzz-result" class="lab-result"></div></section>';
+    const kind=$('lab-fuzz-kind'),key=$('lab-fuzz-key');
+    const refill=function(){const source=kind.value==='simulation'?sims:calcs;key.innerHTML=(source||[]).map(function(item){return '<option value="'+attr(item.key)+'">'+esc(item.name||item.key)+'</option>';}).join('');};
+    kind.onchange=refill;refill();
+    $('lab-run-fuzz').onclick=async function(){
+      try{
+        const raw=$('lab-fuzz-inputs').value.trim();const base=raw?JSON.parse(raw):{};
+        const result=await send('/api/lab/fuzz',{target_kind:kind.value,target_key:key.value,base_inputs:base,iterations:Number($('lab-fuzz-iterations').value),seed:Number($('lab-fuzz-seed').value)});
+        $('lab-fuzz-result').innerHTML='<div class="lab-result-grid"><div><span>Successes</span><strong>'+result.successes+'</strong></div><div><span>Failures</span><strong>'+result.failures+'</strong></div><div><span>Duration</span><strong>'+result.duration_seconds+'s</strong></div><div><span>Seed</span><strong>'+result.seed+'</strong></div></div><div class="lab-result-section"><h3>Fingerprint</h3><code>'+esc(result.fingerprint)+'</code><h3>Failure examples</h3><pre class="text-preview">'+esc(JSON.stringify(result.failure_examples||[],null,2))+'</pre></div>';
+      }catch(error){toast(error.message);}
+    };
+  }
+
+  function renderLabCompute(){
+    const content=$('lab-content');if(!content)return;
+    const active=labActiveTier();const tiers=['Easy','Standard','Performance','Max'];
+    content.innerHTML='<section class="lab-panel"><div class="lab-panel-head"><div><h2>Compute profiles</h2><p>Profiles tune workload budgets and model preferences; they do not pretend to change physical host limits.</p></div><span class="lab-status-pill">Active: '+esc(active)+'</span></div><div class="lab-tier-grid">'+tiers.map(function(t){const info=labTierInfo(t);return '<button type="button" class="lab-tier-card '+(t===active?'active':'')+'" data-lab-tier="'+t+'"><span>'+t+'</span><strong>'+info.fuzz.toLocaleString()+' fuzz cases</strong><small>'+esc(info.model)+' routing · '+esc(info.note)+'</small></button>';}).join('')+'</div><div class="lab-note">Higher tiers are opt-in. Verification, security, and paid-provider cost boundaries remain in force.</div></section>';
+    content.querySelectorAll('[data-lab-tier]').forEach(function(button){button.onclick=function(){localStorage.setItem('pas-lab-tier',button.dataset.labTier);localStorage.setItem('pas-model',labTierInfo(button.dataset.labTier).model);renderLabCompute();toast('Compute profile set to '+button.dataset.labTier+'.','ok');};});
+  }
+
+  async function renderLabProviders(){
+    const content=$('lab-content');if(!content)return;
+    const result=await Promise.all([api('/api/connections'),api('/api/plugins')]);const connections=result[0],plugins=result[1];const models=st().manifest&&st().manifest.models||[];
+    content.innerHTML='<section class="lab-panel"><div class="lab-panel-head"><div><h2>Models & providers</h2><p>Local-first and hosted model setup through PASI’s provider-neutral boundary.</p></div><button class="primary-button" id="lab-add-provider">Add provider</button></div><div class="lab-provider-grid"><div class="lab-provider-card"><h3>Model profiles</h3>'+models.map(function(item){return '<div class="lab-provider-row"><div><strong>'+esc(item.model)+'</strong><small>Profile: '+esc(item.key)+'</small></div><button class="outline-button" data-lab-model="'+attr(item.key)+'">Use</button></div>';}).join('')+'</div><div class="lab-provider-card"><h3>Registered connections</h3>'+(connections.length?connections.map(function(item){return '<div class="lab-provider-row"><div><strong>'+esc(item.name)+'</strong><small>'+esc(item.provider)+' · '+esc(item.status)+'</small></div><span>'+esc((item.capabilities||[]).join(', '))+'</span></div>';}).join(''):'<div class="empty-state">No provider connections registered.</div>')+'</div><div class="lab-provider-card"><h3>Plugins</h3>'+(plugins.length?plugins.map(function(item){return '<div class="lab-provider-row"><div><strong>'+esc(item.name)+'</strong><small>'+esc(item.version)+'</small></div><span>'+ (item.enabled?'Enabled':'Disabled') +'</span></div>';}).join(''):'<div class="empty-state">No plugins registered.</div>')+'</div></div><div class="lab-note">Credentials should stay in the local/provider credential mechanism, never browser localStorage. OpenRouter profiles are currently executable; other registered connections are configuration records until their execution adapters are wired.</div></section>';
+    content.querySelectorAll('[data-lab-model]').forEach(function(button){button.onclick=function(){localStorage.setItem('pas-model',button.dataset.labModel);const select=$('ai-mode');if(select)select.value=button.dataset.labModel;toast('Model profile selected: '+button.dataset.labModel+'.','ok');};});
+    $('lab-add-provider').onclick=function(){void window.connectionAction?.('add');};
+  }
+
+  async function renderLabTab(tab){
+    document.querySelectorAll('[data-lab-tab]').forEach(function(button){button.classList.toggle('active',button.dataset.labTab===tab);});
+    if(tab==='resources')return renderLabResources();
+    if(tab==='model')return renderLabModel();
+    if(tab==='fuzz')return renderLabFuzz();
+    if(tab==='compute')return renderLabCompute();
+    if(tab==='providers')return renderLabProviders();
+  }
+
+  async function openExperimentLabView(){
+    setView('lab');renderLabShell('resources');stopExperimentLabPolling();
+    labPollTimer=setInterval(function(){void refreshLabHost();},1500);
+    labProcessTimer=setInterval(function(){void refreshLabProcesses();void refreshLabProcessDetail();},1500);
+  }
+  function stopExperimentLabPolling(){if(labPollTimer)clearInterval(labPollTimer);if(labProcessTimer)clearInterval(labProcessTimer);labPollTimer=null;labProcessTimer=null;}
+
+  window.renderAccountDock=renderAccountDock;window.openExperimentLabView=openExperimentLabView;window.stopExperimentLabPolling=stopExperimentLabPolling;window.hydrateUI=hydrateUI;window.renderProjectsPage=renderProjectsPage;window.renderProjectFilesPage=renderProjectFilesPage;window.renderSettingsPage=renderSettingsPage;window.renderCustomizeTab=renderCustomizeTab;window.renderEducationPage=renderEducationPage;window.openSimulationsView=openSimulationsView;window.openConnectionsView=openConnectionsView;window.connectionAction=connectionAction;window.pluginAction=pluginAction;window.togglePlugin=togglePlugin;window.openCalculationsView=openCalculationsView;window.openCalculationGroupView=openCalculationGroupView;window.openCalculationSubgroupView=openCalculationSubgroupView;window.openCalculationDetailView=openCalculationDetailView;window.openProjectEngineeringView=openProjectEngineeringView;window.engineeringAction=window.engineeringAction;window.renderSearchResults=renderSearchResults;window.fetchToolSource=async(button)=>{let sources=[];try{sources=JSON.parse(button.dataset.toolFetch||'[]');}catch{return;}const source=sources[0];if(!source)return;if(!st().projectId||!source.chunk_id)return modal('Source','<div class="empty-state">Source metadata is available, but no project chunk ID was returned.</div>');const chunk=await api(`/api/engineering/projects/${st().projectId}/sources/chunks/${source.chunk_id}`);modal(chunk.source||'Source',`<div class="source-detail"><div class="property"><span>Location</span><strong>${esc(chunk.location)}</strong></div><div class="property"><span>Version</span><strong>${esc(chunk.version||'Unversioned')}</strong></div><div class="property"><span>Checksum</span><code>${esc(chunk.checksum)}</code></div><pre class="text-preview">${esc(chunk.content)}</pre></div>`);};
 })();
