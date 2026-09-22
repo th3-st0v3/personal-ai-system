@@ -83,7 +83,7 @@ def gh_authenticated() -> bool:
 def _gh_api_json(path: str, *, paginate: bool = False) -> Any:
     command = ["gh", "api", f"repos/{_repository()}/{path.lstrip('/')}" ]
     if paginate:
-        command.append("--paginate")
+        command.extend(["--paginate", "--slurp"])
     code, output = _run(command, timeout=60.0)
     if code != 0:
         raise BranchPrReconciliationError(
@@ -98,11 +98,12 @@ def _gh_api_json(path: str, *, paginate: bool = False) -> Any:
 
 
 def _list_changed_paths(pr_number: int) -> tuple[str, ...]:
-    payload = _gh_api_json(f"pulls/{pr_number}/files?per_page=100")
-    if not isinstance(payload, list):
+    raw_pages = _gh_api_json(f"pulls/{pr_number}/files?per_page=100", paginate=True)
+    if not isinstance(raw_pages, list):
         raise BranchPrReconciliationError(
             f"changed-file response was not a list for PR #{pr_number}"
         )
+    payload = [item for page in raw_pages if isinstance(page, list) for item in page]
     return tuple(
         sorted(
             {
@@ -115,9 +116,10 @@ def _list_changed_paths(pr_number: int) -> tuple[str, ...]:
 
 
 def list_open_pull_requests() -> tuple[PullRequestRecord, ...]:
-    payload = _gh_api_json("pulls?state=open&per_page=100")
-    if not isinstance(payload, list):
+    raw_pages = _gh_api_json("pulls?state=open&per_page=100", paginate=True)
+    if not isinstance(raw_pages, list):
         raise BranchPrReconciliationError("open pull-request response was not a list")
+    payload = [item for page in raw_pages if isinstance(page, list) for item in page]
 
     records: list[PullRequestRecord] = []
     for item in payload:
@@ -148,7 +150,7 @@ def list_open_pull_requests() -> tuple[PullRequestRecord, ...]:
                 head_repo=repo_name,
                 is_draft=bool(item.get("draft", False)),
                 mergeable=str(item.get("mergeable", "") or ""),
-                merge_state=str(item.get("mergeable_state", "") or ""),
+                merge_state=str(item.get("mergeable_state", "") or "").upper(),
                 changed_paths=changed_paths,
                 risk=classify_risk(changed_paths),
             )
@@ -255,9 +257,10 @@ def _create_draft_pr(branch: str) -> str:
 
 
 def list_branches_ahead_of_main() -> tuple[dict[str, Any], ...]:
-    payload = _gh_api_json("branches?per_page=100")
-    if not isinstance(payload, list):
+    raw_pages = _gh_api_json("branches?per_page=100", paginate=True)
+    if not isinstance(raw_pages, list):
         raise BranchPrReconciliationError("branches response was not a list")
+    payload = [item for page in raw_pages if isinstance(page, list) for item in page]
 
     results: list[dict[str, Any]] = []
     for item in payload:
