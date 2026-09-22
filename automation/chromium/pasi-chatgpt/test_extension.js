@@ -576,19 +576,9 @@ test('native generating detection uses one grouped selector', () => {
 
 test('native extension has no legacy working indicator implementation or references', () => {
   assert.ok(!fs.existsSync(path.join(root, 'activity.js')));
-  const productionFiles = [
-    'manifest.json',
-    'timeout-config.js',
-    'timeout-policy.json',
-    'background.js',
-    'detectors.js',
-    'content.js',
-    'recovery_progress.js',
-    'recovery.js',
-    'sidepanel.html',
-    'sidepanel.js',
-    'sidepanel.css',
-  ];
+  const productionFiles = fs.readdirSync(root)
+    .filter((name) => !name.startsWith('test_'))
+    .filter((name) => fs.statSync(path.join(root, name)).isFile());
   const legacyMarkers = [
     'activity.js',
     'pasi-activity-indicator',
