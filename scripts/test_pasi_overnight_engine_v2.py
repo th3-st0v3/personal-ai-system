@@ -10,6 +10,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts.pasi_overnight_engine_v2 import (
+    PROTECTED_UNATTENDED_PATHS,
+    completion_effort_floor_reason,
+    consume_runner_control,
+    write_handoff_summary,
+)
 from scripts import pasi_hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 
@@ -984,7 +990,7 @@ branch refs/heads/main
             "automation/chromium/pasi-chatgpt/timeout-policy.json",
         }
         self.assertTrue(expected.issubset(hardening.PROTECTED_UNATTENDED_PATHS))
-        self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
+        self.assertTrue(expected.issubset(PROTECTED_UNATTENDED_PATHS))
         for path in sorted(expected):
             patch = (
                 f"diff --git a/{path} b/{path}\n"
@@ -999,19 +1005,19 @@ branch refs/heads/main
 
     def test_completion_effort_floor_rejects_low_content_new_task(self) -> None:
         values = {"evidence": "verified"}
-        self.assertIn("summary is too short", engine.completion_effort_floor_reason("complete", "done", values, False))
+        self.assertIn("summary is too short", completion_effort_floor_reason("complete", "done", values, False))
         self.assertIn(
             "evidence is too short",
-            engine.completion_effort_floor_reason(
+            completion_effort_floor_reason(
                 "complete", "Implemented and verified the requested change.", values, False
             ),
         )
 
     def test_completion_effort_floor_allows_existing_no_change_task(self) -> None:
-        self.assertEqual(engine.completion_effort_floor_reason("complete", "done", {"evidence": ""}, True), "")
+        self.assertEqual(completion_effort_floor_reason("complete", "done", {"evidence": ""}, True), "")
 
     def test_completion_effort_floor_only_applies_to_complete_status(self) -> None:
-        self.assertEqual(engine.completion_effort_floor_reason("needs_revision", "done", {"evidence": ""}, False), "")
+        self.assertEqual(completion_effort_floor_reason("needs_revision", "done", {"evidence": ""}, False), "")
 
     def test_handoff_summary_is_durable_and_bounded(self) -> None:
         now = datetime.now(timezone.utc)
@@ -1028,7 +1034,7 @@ branch refs/heads/main
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "handoff.json"
             with mock.patch.object(engine, "HANDOFF_PATH", path), mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)):
-                engine.write_handoff_summary(state, reason="deadline_reached")
+                write_handoff_summary(state, reason="deadline_reached")
                 payload = __import__("json").loads(path.read_text(encoding="utf-8"))
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["run_id"], "handoff-test")
@@ -1085,7 +1091,7 @@ branch refs/heads/main
                 mock.patch.object(engine, "STATE_PATH", root / "state.json"),
                 mock.patch.object(engine, "log_event"),
             ):
-                assert engine.consume_runner_control(state) is True
+                assert consume_runner_control(state) is True
             self.assertEqual(state.task_retry_cycle, 0)
             self.assertEqual(state.current_attempt, 0)
             self.assertEqual(state.last_failure_signature, "")
@@ -1118,7 +1124,7 @@ branch refs/heads/main
                 mock.patch.object(engine, "RUNNER_CONTROL_PATH", control),
                 mock.patch.object(engine, "log_event"),
             ):
-                assert engine.consume_runner_control(state) is False
+                assert consume_runner_control(state) is False
             self.assertEqual(state.task_retry_cycle, 4)
             self.assertEqual(state.current_attempt, 3)
             self.assertEqual(state.last_failure_signature, "failure")
