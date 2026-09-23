@@ -1,119 +1,48 @@
 name: test
 
 on:
-  # Repository branch pushes are the authoritative validation trigger.
+  # Repository branch pushes are the authoritative fast validation trigger.
   # This prevents untrusted fork pull requests from executing on the private PASI runner.
   push:
     branches: [main, beta-foundation, 'pasi/**']
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Validation mode"
+        required: true
+        type: choice
+        options:
+          - fast
+          - live
+        default: fast
+
+concurrency:
+  group: pasi-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    concurrency:
-      group: pasi-test-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-      cancel-in-progress: true
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
-      - name: Install Python dependencies
+
+      - name: Install test dependencies
         run: |
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
-      - name: Install JavaScript DOM fixture dependency
-        run: npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
-      - name: Install validation sandbox
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
-      - name: Validate browser acceptance prerequisites
-        run: |
-          if command -v google-chrome-stable >/dev/null 2>&1; then
-            google-chrome-stable --version
-          elif command -v google-chrome >/dev/null 2>&1; then
-            google-chrome --version
-          elif command -v chromium >/dev/null 2>&1; then
-            chromium --version
-          elif command -v chromium-browser >/dev/null 2>&1; then
-            chromium-browser --version
-          else
-            sudo apt-get update
-            sudo apt-get install -y chromium
-            chromium --version
-          fi
-          if command -v chromedriver >/dev/null 2>&1; then
-            chromedriver --version
-          elif [ -x "$CHROMEWEBDRIVER/chromedriver" ]; then
-            "$CHROMEWEBDRIVER/chromedriver" --version
-          elif [ -x /usr/local/share/chromedriver-linux64/chromedriver ]; then
-            /usr/local/share/chromedriver-linux64/chromedriver --version
-          else
-            echo "ChromeDriver prerequisite not found" >&2
-            exit 1
-          fi
-      - name: Validate unattended launcher shell scripts
-        run: |
-          bash -n scripts/start_pasi_168h.sh
-          python -m pytest -q scripts/test_pasi_168h_launcher.py scripts/test_pasi_168h_supervisor_handoff.py
-          bash -n scripts/stop_pasi_overnight.sh
-          bash -n scripts/status_pasi_overnight.sh
-          bash -n scripts/check_pasi_weekly_run.sh
-          bash -n scripts/run_m0_live_acceptance.sh
-          bash -n scripts/run_m2_live_acceptance.sh
-          python -m py_compile scripts/run_m1_live_acceptance.py
-          python -m py_compile scripts/pasi_desktop_preflight.py
-      - name: Test desktop preflight envelope handling
-        run: python -m pytest -q scripts/test_pasi_desktop_preflight.py
-      - name: Validate extended runtime imports
-        run: python -c 'import scripts.pasi_extended_runtime_entrypoint, scripts.pasi_weeklong_resilience; print("extended runtime import contract OK")'
-      - name: Run canonical validation suite
-        run: bash scripts/check_all.sh
-      - name: Run targeted computer-use regression suites
-        run: |
-          python -m pytest -q automation/orchestrator/test_bridge.py automation/computer_use/test_chatgpt.py scripts/test_pasi_chat.py
-          node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js automation/chromium/pasi-chatgpt/test_native_mutation.js automation/chromium/pasi-chatgpt/test_dom_fixtures.js
-      - name: Run runtime telemetry contract tests
-        run: python -m pytest -q scripts/test_pasi_runtime_telemetry.py
-      - name: Run minimized Chromium response-recovery acceptance test
-        run: python scripts/e2e_chromium_response_recovery.py
-      - name: Run Chromium prompt-submission and chaining acceptance test
-        run: python scripts/e2e_chromium_prompt_submission.py
-      - name: Run Tampermonkey controller contract tests
-        run: node --test automation/legacy/tampermonkey/chatgpt-controller.test.js
-      - name: Run Tampermonkey controller loader contract tests
-        run: node --test automation/legacy/tampermonkey/chatgpt-controller-loader.test.js
-      - name: Validate Tampermonkey controller syntax
-        run: node --check automation/legacy/tampermonkey/chatgpt-controller.user.js
-      - name: Validate Tampermonkey controller loader syntax
-        run: node --check automation/legacy/tampermonkey/chatgpt-controller-loader.user.js
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ci-diagnostics
-          path: .runtime/ci
-          if-no-files-found: ignore
-
-  browser-use-compat:
-    concurrency:
-      group: pasi-browser-use-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-      cancel-in-progress: true
-    runs-on: [self-hosted, linux, x64, pasi-wsl]
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-      - name: Install pinned browser-use dependency
-        run: |
           python -m pip install -r requirements-browser.txt
-          python -m pip install 'pytest==8.4.2'
-      - name: Validate browser-use version and public imports
+          npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
+
+      - name: Validate browser-use contract
         run: |
           python - <<'PY'
           import importlib.metadata
@@ -125,5 +54,49 @@ jobs:
           assert Browser is not None
           print(f"browser-use {version}: import compatibility OK")
           PY
-      - name: Run browser integration contract tests
-        run: python -m pytest -q automation/computer_use/test_browser_use.py
+
+      - name: Run fast fixture and contract validation
+        run: bash scripts/check_fast.sh
+
+      - name: Validate live Chromium prerequisites
+        if: ${{ inputs.mode == 'live' }}
+        run: |
+          if command -v google-chrome-stable >/dev/null 2>&1; then
+            google-chrome-stable --version
+          elif command -v google-chrome >/dev/null 2>&1; then
+            google-chrome --version
+          elif command -v chromium >/dev/null 2>&1; then
+            chromium --version
+          elif command -v chromium-browser >/dev/null 2>&1; then
+            chromium-browser --version
+          else
+            echo "A Linux Chromium/Chrome binary is required for live mode; fast mode uses fixtures and does not install a browser." >&2
+            exit 1
+          fi
+
+          if command -v chromedriver >/dev/null 2>&1; then
+            chromedriver --version
+          elif [ -x "$CHROMEWEBDRIVER/chromedriver" ]; then
+            "$CHROMEWEBDRIVER/chromedriver" --version
+          elif [ -x /usr/local/share/chromedriver-linux64/chromedriver ]; then
+            /usr/local/share/chromedriver-linux64/chromedriver --version
+          else
+            echo "ChromeDriver prerequisite not found for live mode" >&2
+            exit 1
+          fi
+
+      - name: Run live Chromium response-recovery acceptance
+        if: ${{ inputs.mode == 'live' }}
+        run: python scripts/e2e_chromium_response_recovery.py
+
+      - name: Run live Chromium prompt-submission acceptance
+        if: ${{ inputs.mode == 'live' }}
+        run: python scripts/e2e_chromium_prompt_submission.py
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-diagnostics
+          path: .runtime/ci
+          if-no-files-found: ignore
