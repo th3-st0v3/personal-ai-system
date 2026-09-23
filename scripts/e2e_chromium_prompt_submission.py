@@ -30,7 +30,6 @@ from scripts.e2e_chromium_response_recovery import (
     runtime_evaluate,
     start_chrome,
     stop_chrome,
-    wait_for_extension_marker,
 )
 
 BRIDGE_HOST = "127.0.0.1"
@@ -382,8 +381,6 @@ def main() -> None:
                     session_id=browser_session,
                     timeout=10.0,
                 )
-                wait_for_extension_marker(cdp, browser_session, timeout=10.0)
-
                 deadline = time.monotonic() + 60.0
                 while time.monotonic() < deadline:
                     state = runtime_evaluate(
