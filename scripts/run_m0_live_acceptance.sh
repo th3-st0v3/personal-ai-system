@@ -33,7 +33,6 @@ BROWSER_HEALTH_URL="http://127.0.0.1:8765/browser/health"
 BRIDGE_LOG="$EVIDENCE_DIR/m0-bridge.log"
 BRIDGE_PID=""
 BRIDGE_STARTED=0
-WORKTREE=""
 
 cleanup() {
   if [[ -n "$WORKTREE" && -d "$WORKTREE" ]]; then
@@ -117,6 +116,9 @@ TASK="M0 P0.1 live task acceptance: execute one real sustained PASI engineering 
 
 # M0 P0.1 is one live acceptance seam. The browser response, contract, patch,
 # canonical gate, and commit are all part of the same bounded qualification task.
+[[ -n "$WORKTREE" ]] || { echo "error: M0 acceptance worktree path is empty" >&2; exit 10; }
+mkdir -p "$(dirname -- "$WORKTREE")"
+echo "M0 acceptance worktree: $WORKTREE" | tee -a "$LOG"
 git worktree add --quiet -b "$BRANCH" "$WORKTREE" HEAD
 
 BEFORE_COMMIT="$("$PYTHON" -c 'import subprocess,sys; print(subprocess.check_output(["git","-C",sys.argv[1],"rev-parse","HEAD"], text=True).strip())' "$WORKTREE")"
