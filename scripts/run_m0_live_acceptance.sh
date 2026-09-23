@@ -5,8 +5,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-PYTHON="$REPO_ROOT/.venv/bin/python"
-[[ -x "$PYTHON" ]] || { echo "error: $PYTHON is missing" >&2; exit 1; }
+PYTHON="${PASI_PYTHON:-$REPO_ROOT/.venv/bin/python}"
+if [[ ! -x "$PYTHON" && -x "$HOME/.pasi/venv/bin/python" ]]; then
+  PYTHON="$HOME/.pasi/venv/bin/python"
+fi
+[[ -x "$PYTHON" ]] || { echo "error: no usable PASI Python environment found" >&2; exit 1; }
 
 STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
 WORKTREE="$HOME/.pasi-worktrees/pasi-m0-acceptance-$STAMP"
