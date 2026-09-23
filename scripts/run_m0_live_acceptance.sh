@@ -32,8 +32,8 @@ fi
 PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 [[ -n "$PASI_BRIDGE_TOKEN" ]] || { echo "error: PASI bridge token is empty" >&2; exit 7; }
 export PASI_BRIDGE_TOKEN
-for extension_dir in \\
-    "$REPO_ROOT/automation/chromium/pasi-chatgpt" \\
+for extension_dir in \
+    "$REPO_ROOT/automation/chromium/pasi-chatgpt" \
     "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
 do
   if [[ -d "$extension_dir" ]]; then
