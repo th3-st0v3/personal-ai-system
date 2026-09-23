@@ -31,8 +31,11 @@ concurrency:
   # Keep ordinary development runs serialized, but scope M0 live-acceptance
   # pushes to their commit so a stale self-hosted acceptance cannot block the
   # repaired acceptance from starting.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ contains(github.event.head_commit.message, '(m0)') && github.sha || 'stable' }}
-  cancel-in-progress: false
+  # M0 pushes deliberately reuse the historical development group so the next
+  # repaired M0 run can preempt any stale live-acceptance job holding the sole
+  # PASI desktop runner; ordinary development runs remain serialized.
+  group: ${{ contains(github.event.head_commit.message, '(m0)') && 'pasi-development' || format('{0}-{1}-stable', github.workflow, github.ref) }}
+  cancel-in-progress: ${{ contains(github.event.head_commit.message, '(m0)') }}
 
 jobs:
   verify:
