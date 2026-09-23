@@ -101,8 +101,9 @@ jobs:
         run: bash scripts/check_all.sh
 
   m0_live_acceptance:
-    needs: [verify]
-    if: ${{ github.event_name == 'push' && needs.verify.result == 'success' && contains(github.event.head_commit.message, '(m0)') }}
+    # M0 owns its own live browser + canonical-validation gate. Do not make it
+    # wait behind the general verify job, whose broad validation can be long-running.
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '(m0)') }}
     runs-on: [self-hosted, linux, x64, pasi-desktop]
     timeout-minutes: 360
     steps:
