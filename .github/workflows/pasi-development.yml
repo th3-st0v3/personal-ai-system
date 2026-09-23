@@ -96,9 +96,8 @@ jobs:
         run: bash scripts/check_all.sh
 
   desktop:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: [verify]
-    if: ${{ always() && (inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop') && (inputs.mode != 'start-automation' || needs.verify.result == 'success') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && always() && (inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop') && (inputs.mode != 'start-automation' || needs.verify.result == 'success') }}
     runs-on: [self-hosted, linux, x64, pasi-desktop]
     timeout-minutes: 15
     steps:
