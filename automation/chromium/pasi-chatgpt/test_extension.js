@@ -590,7 +590,7 @@ test('native response completion reuses operation-associated assistant evidence'
   assert.ok(start >= 0 && end > start);
   const source = content.slice(start, end);
   assert.match(source, /const responseText = responseEvidence\(\)/);
-  assert.match(source, /assistantResponseEvidence\(      evidenceContext\?\.assistantSnapshot,      evidenceContext\?\.prompt,/);
+  assert.match(source, /const responseEvidence = \(\) => assistantResponseEvidence\(/);
   assert.doesNotMatch(source, /const responseText = latestAssistant\(\)/);
 });
 
