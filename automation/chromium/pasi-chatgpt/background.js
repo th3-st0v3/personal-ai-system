@@ -228,6 +228,18 @@ async function injectExistingChatTabs() {
   });
   for (const tab of tabs) {
     if (typeof tab.id !== 'number') continue;
+
+    // A previously injected controller can answer this ping. Do not
+    // re-execute the full support-script bundle on an already-live tab,
+    // because the support scripts are intentionally global and are not
+    // themselves controller lifecycle owners.
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
+      continue;
+    } catch (_) {
+      // No live controller listener is present; inject into the existing tab.
+    }
+
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
