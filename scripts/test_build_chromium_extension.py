@@ -59,6 +59,9 @@ def test_staged_extension_contains_every_manifest_content_script() -> None:
         for resource_group in manifest_data.get("web_accessible_resources", []):
             for filename in resource_group.get("resources", []):
                 assert (output / filename).is_file(), filename
+        assert (output / manifest_data["side_panel"]["default_path"]).is_file()
+        assert (output / "sidepanel.css").is_file()
+        assert (output / "sidepanel.js").is_file()
 
 
 def test_source_is_the_expected_native_extension_directory() -> None:
