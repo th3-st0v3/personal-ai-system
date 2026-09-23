@@ -121,6 +121,31 @@
     </footer>
   </main>
 
+  <dialog id="settings-dialog" aria-labelledby="settings-heading">
+    <form method="dialog" class="dialog-card" id="settings-form">
+      <div class="section-head">
+        <div>
+          <p class="section-label">Control Center settings</p>
+          <h2 id="settings-heading">Telemetry</h2>
+        </div>
+      </div>
+      <label class="field">
+        <span>Refresh interval</span>
+        <select id="telemetry-interval">
+          <option value="1000">1 second</option>
+          <option value="5000">5 seconds</option>
+          <option value="10000">10 seconds</option>
+          <option value="30000">30 seconds</option>
+        </select>
+      </label>
+      <p class="muted">The preference is stored locally in extension storage and only changes Control Center refresh cadence.</p>
+      <div class="button-row">
+        <button class="outline-button" value="cancel" type="submit">Cancel</button>
+        <button class="primary-button" id="btn-save-settings" value="default" type="button">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="import-dialog" aria-labelledby="import-heading">
     <form method="dialog" class="dialog-card" id="import-form">
       <div class="section-head">
@@ -137,7 +162,7 @@
         <span>Or choose a file</span>
         <input id="roadmap-file" type="file" accept=".json,.md,.markdown,.txt,.yaml,.yml,text/plain,application/json,text/markdown">
       </label>
-      <p class="muted" id="import-feedback">Structured JSON tasks can be previewed immediately. Raw text is retained for a later dissection adapter.</p>
+      <p class="muted" id="import-feedback">Structured JSON tasks can be previewed immediately. Raw roadmap is retained and ready for a later dissection adapter.</p>
       <div class="button-row">
         <button class="outline-button" value="cancel" type="submit">Cancel</button>
         <button class="primary-button" id="btn-save-roadmap" value="default" type="button">Import</button>
