@@ -22,6 +22,9 @@ EXTENSION_FILES = (
     "content.js",
     "recovery_progress.js",
     "recovery.js",
+    "sidepanel.html",
+    "sidepanel.css",
+    "sidepanel.js",
 )
 
 FORBIDDEN_SUFFIXES = frozenset({".pyc", ".pyo"})
@@ -36,6 +39,36 @@ def validate_extension_tree(root: Path) -> None:
             raise RuntimeError(f"invalid Chromium extension staging entry: {relative}")
         if path.is_file() and path.suffix.lower() in FORBIDDEN_SUFFIXES:
             raise RuntimeError(f"Python bytecode is forbidden in Chromium extension staging: {relative}")
+
+
+def validate_manifest_files(root: Path) -> None:
+    """Ensure every local file named by the MV3 manifest is present in staging."""
+    import json
+
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    required = set()
+    background = manifest.get("background", {})
+    if isinstance(background, dict) and isinstance(background.get("service_worker"), str):
+        required.add(background["service_worker"])
+    action = manifest.get("action", {})
+    if isinstance(action, dict) and isinstance(action.get("default_popup"), str):
+        required.add(action["default_popup"])
+    side_panel = manifest.get("side_panel", {})
+    if isinstance(side_panel, dict) and isinstance(side_panel.get("default_path"), str):
+        required.add(side_panel["default_path"])
+    for script_group in manifest.get("content_scripts", []):
+        if isinstance(script_group, dict):
+            required.update(item for item in script_group.get("js", []) if isinstance(item, str))
+            required.update(item for item in script_group.get("css", []) if isinstance(item, str))
+    for resource_group in manifest.get("web_accessible_resources", []):
+        if isinstance(resource_group, dict):
+            required.update(item for item in resource_group.get("resources", []) if isinstance(item, str))
+    icons = manifest.get("icons", {})
+    if isinstance(icons, dict):
+        required.update(item for item in icons.values() if isinstance(item, str))
+    missing = sorted(path for path in required if not (root / path).is_file())
+    if missing:
+        raise RuntimeError("manifest-declared extension files missing from staging: " + ", ".join(missing))
 
 
 def build_extension(output: Path = DEFAULT_OUTPUT) -> Path:
@@ -55,6 +88,7 @@ def build_extension(output: Path = DEFAULT_OUTPUT) -> Path:
         shutil.copy2(source_file, output / relative)
 
     validate_extension_tree(output)
+    validate_manifest_files(output)
     return output
 
 
