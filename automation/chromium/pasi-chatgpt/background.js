@@ -12,6 +12,12 @@ let controllerClaimTail = Promise.resolve();
 let cachedBridgeToken = null;
 let bridgeTokenPromise = null;
 
+if (chrome.sidePanel?.setPanelBehavior) {
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.warn('[PASI side panel]', error));
+}
+
 function serializeControllerClaim(task) {
   const next = controllerClaimTail.then(task, task);
   controllerClaimTail = next.catch(() => undefined);
