@@ -10,7 +10,7 @@ EVIDENCE_DIR="$REPO_ROOT/.runtime/acceptance"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 mkdir -p "$EVIDENCE_DIR"
-export PYTHONPATH="$REPO_ROOT:$PYTHONPATH"
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 
 TOKEN_FILE="$HOME/.pasi/bridge-token"
 [[ -s "$TOKEN_FILE" ]] || { echo "error: bridge token is missing: $TOKEN_FILE" >&2; exit 1; }
