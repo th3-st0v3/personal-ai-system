@@ -17,6 +17,30 @@ mkdir -p "$EVIDENCE_DIR"
 export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 export PASI_PRIMARY_CHATGPT_ONLY=1
 
+# The native MV3 controller reads its private bridge credential from an
+# unpacked extension resource. Keep that credential out of packaged archives,
+# but make the M0 live gate self-sufficient for the generated staging tree.
+TOKEN_FILE="$HOME/.pasi/bridge-token"
+mkdir -p "$HOME/.pasi"
+if [[ ! -s "$TOKEN_FILE" ]]; then
+  "$PYTHON" - <<'PY' > "$TOKEN_FILE"
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+  chmod 600 "$TOKEN_FILE"
+fi
+PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
+[[ -n "$PASI_BRIDGE_TOKEN" ]] || { echo "error: PASI bridge token is empty" >&2; exit 7; }
+export PASI_BRIDGE_TOKEN
+for extension_dir in \\
+    "$REPO_ROOT/automation/chromium/pasi-chatgpt" \\
+    "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
+do
+  if [[ -d "$extension_dir" ]]; then
+    install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
+  fi
+done
+
 TASK="M0 live acceptance: in the dedicated PASI acceptance worktree, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF. Do not modify protected PASI runtime files. Run canonical validation. Return the normal PASI completion contract and one unified patch."
 
 "$PYTHON" scripts/pasi_overnight_engine_v2.py   --hours 8   --task "$TASK"   --worktree "$WORKTREE"   --branch "$BRANCH"   --no-push > >(tee -a "$LOG") 2>&1 &
