@@ -181,6 +181,8 @@ if ! "$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-secon
     echo "=== Opera process command lines ==="
     if command -v powershell.exe >/dev/null 2>&1; then
       powershell.exe -NoProfile -NonInteractive -Command "\$ids = (Get-Process opera -ErrorAction SilentlyContinue).Id; Get-CimInstance Win32_Process | Where-Object { \$ids -contains \$_.ProcessId } | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress" 2>/dev/null || true
+      echo
+      powershell.exe -NoProfile -NonInteractive -Command "\$root = Join-Path \$env:APPDATA 'Opera Software\\Opera GX Stable'; if (Test-Path \$root) { Get-ChildItem -Path \$root -Filter Preferences -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { \$path = \$_.FullName; try { \$json = Get-Content -Raw -LiteralPath \$path | ConvertFrom-Json; \$settings = \$json.extensions.settings; if (\$settings) { \$settings.psobject.Properties | ForEach-Object { \$entry = \$_.Value; \$manifest = \$entry.manifest; if (\$manifest.name -eq 'PASI ChatGPT Controller') { [pscustomobject]@{ preferences=\$path; extension_id=\$_.Name; name=\$manifest.name; manifest_version=\$manifest.version; path=\$entry.path; state=\$entry.state; location=\$entry.location } | ConvertTo-Json -Compress } } } } catch {} } }" 2>/dev/null || true
     else
       echo "powershell.exe unavailable"
     fi
