@@ -143,18 +143,20 @@ if ! curl -fsS --max-time 3 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BR
 fi
 
 # The real acceptance boundary requires the authenticated browser page itself.
-# When the Windows Opera instance is already running, open ChatGPT through that
-# existing profile so the native content script has a real tab to attach to.
+# When the Windows Opera instance is already running, request the native PASI
+# unpacked extension to load in that profile and open ChatGPT through it.
+BROWSER_EXTENSION_WIN_ROOT="$(wslpath -w "$BROWSER_EXTENSION_ROOT" 2>/dev/null || true)"
+export PASI_M0_EXTENSION_WIN_ROOT="$BROWSER_EXTENSION_WIN_ROOT"
+
 if command -v powershell.exe >/dev/null 2>&1 && command -v tasklist.exe >/dev/null 2>&1; then
   if tasklist.exe 2>/dev/null | grep -qi '^opera\.exe'; then
-    if powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'Name = \"opera.exe\"' | Where-Object { \$_.ExecutablePath } | Select-Object -First 1; if (\$p) { Start-Process -FilePath \$p.ExecutablePath -ArgumentList 'https://chatgpt.com/' | Out-Null; exit 0 }; exit 1" >/dev/null 2>&1; then
-      echo "M0 browser bootstrap: opened https://chatgpt.com/ in the running Opera profile" | tee -a "$LOG"
+    if [[ -n "$PASI_M0_EXTENSION_WIN_ROOT" ]] && powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'Name = \"opera.exe\"' | Where-Object { \$_.ExecutablePath } | Select-Object -First 1; if (\$p) { Start-Process -FilePath \$p.ExecutablePath -ArgumentList @('--load-extension=' + \$env:PASI_M0_EXTENSION_WIN_ROOT, 'https://chatgpt.com/') | Out-Null; exit 0 }; exit 1" >/dev/null 2>&1; then
+      echo "M0 browser bootstrap: requested native PASI extension load and opened https://chatgpt.com/" | tee -a "$LOG"
     else
-      echo "M0 browser bootstrap: could not open ChatGPT through the running Opera profile; continuing to the authenticated heartbeat gate" | tee -a "$LOG"
+      echo "M0 browser bootstrap: native extension load request could not be issued; continuing to the authenticated heartbeat gate" | tee -a "$LOG"
     fi
   fi
 fi
-
 TASK="M0 P0.1 live task acceptance: execute one real sustained PASI engineering task through the complete acceptance seam in this dedicated worktree. First inspect the existing M0 acceptance harness and the prior failure evidence. Then perform the smallest necessary related inspection or repair work needed to establish this exact chain: an authenticated ChatGPT response through the native PASI browser path, the normal PASI completion contract, extraction of the unified patch, successful git patch application, successful canonical validation via scripts/check_all.sh, and a new clean Git commit containing the required evidence artifact. Keep all of those steps inside this single task; do not turn them into separate tasks or stop after creating a proof file, making a tiny patch, or seeing one intermediate check pass. Only after the complete chain is directly evidenced, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF, and return the normal PASI completion contract with the unified patch that produces it. Do not modify protected PASI runtime/control files. If the authenticated browser, contract, patch, canonical validation, or commit chain genuinely fails, report the concrete failure instead of claiming completion."
 
 # M0 P0.1 is one live acceptance seam. The browser response, contract, patch,
