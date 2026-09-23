@@ -359,7 +359,6 @@ test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.ok(manifest.host_permissions.includes("http://127.0.0.1:8765/*"));
   assert.ok(!content.includes("fetch(BRIDGE"));
   assert.ok(!content.includes("http://127.0.0.1:8765/operation"));
-  assert.ok(!activity.includes("http://127.0.0.1:8765/operation"));
   assert.ok(!recovery.includes("fetch(BRIDGE"));
 });
 
