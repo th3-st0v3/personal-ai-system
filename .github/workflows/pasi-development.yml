@@ -32,7 +32,7 @@ concurrency:
 jobs:
   verify:
     if: ${{ inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 20
     steps:
       - name: Resolve requested ref
@@ -90,7 +90,10 @@ jobs:
 
       - name: Run controller/frontend contract tests
         run: |
-          node --test automation/chromium/pasi-chatgpt/test_extension.js             automation/chromium/pasi-chatgpt/test_recovery.js             automation/chromium/pasi-chatgpt/test_native_mutation.js             automation/chromium/pasi-chatgpt/test_dom_fixtures.js
+          node --test automation/chromium/pasi-chatgpt/test_extension.js \
+            automation/chromium/pasi-chatgpt/test_recovery.js \
+            automation/chromium/pasi-chatgpt/test_native_mutation.js \
+            automation/chromium/pasi-chatgpt/test_dom_fixtures.js
 
       - name: Run canonical validation
         run: bash scripts/check_all.sh
