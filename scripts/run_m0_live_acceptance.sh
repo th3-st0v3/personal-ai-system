@@ -29,9 +29,36 @@ TOKEN_FILE="$HOME/.pasi/bridge-token"
 # operator's authenticated unpacked Chromium extension is loaded. Prefer the
 # canonical local workspace when it exists, while still staging the token into
 # the acceptance checkout used by this job.
+# The GitHub Actions checkout is not necessarily the directory from which the
+# operator's authenticated unpacked Chromium extension is loaded. Prefer an
+# explicit override, the canonical local workspace, and any other unpacked
+# PASI extension roots discoverable on this runner.
 BROWSER_EXTENSION_ROOT="${PASI_BROWSER_EXTENSION_ROOT:-$HOME/workspace/personal-ai-system/automation/chromium/pasi-chatgpt}"
 BROWSER_EXTENSION_ROOT_FALLBACK="$REPO_ROOT/automation/chromium/pasi-chatgpt"
+declare -a BROWSER_EXTENSION_ROOTS=()
+add_browser_extension_root() {
+  local candidate="$1"
+  [[ -d "$candidate" ]] || return 0
+  [[ -f "$candidate/manifest.json" && -f "$candidate/content.js" ]] || return 0
+  local existing
+  for existing in "${BROWSER_EXTENSION_ROOTS[@]}"; do
+    [[ "$existing" == "$candidate" ]] && return 0
+  done
+  BROWSER_EXTENSION_ROOTS+=( "$candidate" )
+}
+add_browser_extension_root "$BROWSER_EXTENSION_ROOT"
+add_browser_extension_root "$BROWSER_EXTENSION_ROOT_FALLBACK"
+while IFS= read -r discovered_root; do
+  add_browser_extension_root "$discovered_root"
+done < <(find "$HOME" -type f -path "*/automation/chromium/pasi-chatgpt/manifest.json" -print 2>/dev/null | sed "s#/manifest.json##" | head -50)
+if ((${#BROWSER_EXTENSION_ROOTS[@]} == 0)); then
+  echo "error: no unpacked PASI ChatGPT extension root was found on the runner" >&2
+  exit 10
+fi
+printf "M0 browser extension roots:\n" | tee -a "$LOG"
+printf "  %s\n" "${BROWSER_EXTENSION_ROOTS[@]}" | tee -a "$LOG"
 mkdir -p "$HOME/.pasi"
+
 
 BRIDGE_URL="http://127.0.0.1:8765/health"
 PREFLIGHT_FILE="$EVIDENCE_DIR/m0-preflight.txt"
@@ -77,17 +104,19 @@ PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 [[ -n "$PASI_BRIDGE_TOKEN" ]] || { echo "error: PASI bridge token is empty" >&2; exit 7; }
 export PASI_BRIDGE_TOKEN
 
-if (( bridge_already_healthy == 0 )); then
-  for extension_dir in \
-      "$BROWSER_EXTENSION_ROOT" \
-      "$BROWSER_EXTENSION_ROOT_FALLBACK" \
-      "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
-  do
-    if [[ -d "$extension_dir" ]]; then
-      install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
-      echo "M0 bridge token provisioned: $extension_dir/.bridge-token" | tee -a "$LOG"
-    fi
+provision_browser_extension_tokens() {
+  local extension_dir
+  for extension_dir in "${BROWSER_EXTENSION_ROOTS[@]}"; do
+    install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
+    echo "M0 bridge token provisioned: $extension_dir/.bridge-token" | tee -a "$LOG"
   done
+  if [[ -d "$REPO_ROOT/.runtime/chromium/pasi-chatgpt" ]]; then
+    install -m 600 "$TOKEN_FILE" "$REPO_ROOT/.runtime/chromium/pasi-chatgpt/.bridge-token"
+  fi
+}
+
+if (( bridge_already_healthy == 0 )); then
+  provision_browser_extension_tokens
   "$PYTHON" -m automation.orchestrator.bridge >"$BRIDGE_LOG" 2>&1 &
   BRIDGE_PID="$!"
   BRIDGE_STARTED=1
@@ -99,16 +128,7 @@ if (( bridge_already_healthy == 0 )); then
     sleep 1
   done
 else
-  for extension_dir in \
-      "$BROWSER_EXTENSION_ROOT" \
-      "$BROWSER_EXTENSION_ROOT_FALLBACK" \
-      "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
-  do
-    if [[ -d "$extension_dir" ]]; then
-      install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
-      echo "M0 bridge token provisioned: $extension_dir/.bridge-token" | tee -a "$LOG"
-    fi
-  done
+  provision_browser_extension_tokens
 fi
 
 if ! curl -fsS --max-time 2 "$BRIDGE_URL" >/dev/null 2>&1; then
@@ -133,7 +153,13 @@ git worktree add --quiet -b "$BRANCH" "$WORKTREE" HEAD
 
 BEFORE_COMMIT="$("$PYTHON" -c 'import subprocess,sys; print(subprocess.check_output(["git","-C",sys.argv[1],"rev-parse","HEAD"], text=True).strip())' "$WORKTREE")"
 
-"$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30 2>&1 | tee "$PREFLIGHT_FILE" | tee -a "$LOG"
+if ! "$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30 2>&1 | tee "$PREFLIGHT_FILE" | tee -a "$LOG"; then
+  BROWSER_HEALTH_FAILURE="$EVIDENCE_DIR/m0-browser-health-failure.json"
+  curl -fsS --max-time 3 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BROWSER_HEALTH_URL" >"$BROWSER_HEALTH_FAILURE" 2>/dev/null || true
+  echo "M0 browser-health diagnostic: $BROWSER_HEALTH_FAILURE" | tee -a "$LOG"
+  if [[ -s "$BROWSER_HEALTH_FAILURE" ]]; then cat "$BROWSER_HEALTH_FAILURE" | tee -a "$LOG"; fi
+  exit 1
+fi
 
 RESPONSE_FILE="$EVIDENCE_DIR/m0-live-response.txt"
 "$PYTHON" scripts/pasi_chat_guard.py "$TASK" --github public --timeout 3600 --repo "$WORKTREE" > >(tee "$RESPONSE_FILE" | tee -a "$LOG") 2>&1
