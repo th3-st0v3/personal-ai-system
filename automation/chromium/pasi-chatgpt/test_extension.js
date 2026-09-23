@@ -99,7 +99,7 @@ test('native controller and recovery companion have unique recovery declarations
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
-  assert.equal(manifest.version, '1.1.1');
+  assert.equal(manifest.version, '1.1.2');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.ok(manifest.permissions.includes('alarms'));
