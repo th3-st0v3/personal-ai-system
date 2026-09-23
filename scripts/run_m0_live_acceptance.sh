@@ -194,9 +194,25 @@ committed_proof = subprocess.run(
     text=True,
     check=False,
 )
-if committed_proof.returncode != 0 or committed_proof.stdout != "PASI M0 LIVE PROOF
-":
+if committed_proof.returncode != 0 or committed_proof.stdout != "PASI M0 LIVE PROOF\n":
     raise SystemExit("error: required proof artifact is not present exactly in the committed tree")
+
+commit_files = subprocess.run(
+    ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", commit],
+    cwd=worktree,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+if commit_files.returncode != 0:
+    raise SystemExit(f"error: could not inspect M0 commit contents: {commit_files.stderr}")
+proof_status = [
+    line.split("\t", 1)
+    for line in commit_files.stdout.splitlines()
+    if line.endswith("\tacceptance/M0-LIVE-PROOF.txt")
+]
+if proof_status != [["A", "acceptance/M0-LIVE-PROOF.txt"]]:
+    raise SystemExit("error: M0 proof artifact was not newly added by the acceptance commit")
 
 status_output = subprocess.run(
     ["git", "status", "--porcelain", "--untracked-files=all"],
