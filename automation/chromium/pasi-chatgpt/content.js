@@ -573,7 +573,7 @@
     return Boolean((head && text.includes(head)) || (tail && text.includes(tail)));
   }
 
-  function assistantResponseEvidence(snapshot, prompt, baseline) {
+  function assistantResponseEvidence(snapshot, prompt) {
     if (!snapshot || typeof prompt !== 'string' || !prompt.trim()) return '';
     const matchedUsers = userMessages().filter((node) => userMessageMatchesPrompt(node, prompt));
     if (!matchedUsers.length) return '';
@@ -584,7 +584,7 @@
       if (!assistantNodeIsNew(node, snapshot)) continue;
       if (!matchedUsers.some((user) => nodeFollows(user, node))) continue;
       const text = extractAssistant(node);
-      if (!text || fingerprintFromText(text) === baseline) continue;
+      if (!text) continue;
       return text;
     }
     return '';
@@ -1381,8 +1381,7 @@
     let sawGeneration = false;
     const responseEvidence = () => assistantResponseEvidence(
       evidenceContext?.assistantSnapshot,
-      evidenceContext?.prompt,
-      baseline
+      evidenceContext?.prompt
     );
     let generationEndedAt = 0;
     let failureReason = null;
@@ -1418,14 +1417,10 @@
           : null;
       }
 
-      const current = fingerprint();
-      if (current !== baseline && current) {
-        const responseText = responseEvidence();
-        return completionMarkersSatisfied(responseText, completionMarkers)
-          ? responseText
-          : null;
-      }
-      return null;
+      const responseText = responseEvidence();
+      return completionMarkersSatisfied(responseText, completionMarkers)
+        ? responseText
+        : null;
     }, TIMEOUTS.generation, DOM_POLL_MS);
 
     if (failureReason) throw new Error(failureReason);
