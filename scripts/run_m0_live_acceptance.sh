@@ -22,27 +22,10 @@ export PASI_PRIMARY_CHATGPT_ONLY=1
 
 # The native MV3 controller reads its private bridge credential from an
 # unpacked extension resource. Keep that credential out of packaged archives,
-# but make the M0 live gate self-sufficient for the generated staging tree.
+# and never rotate the credential behind an already-healthy bridge without
+# first confirming that the managed token exists.
 TOKEN_FILE="$HOME/.pasi/bridge-token"
 mkdir -p "$HOME/.pasi"
-if [[ ! -s "$TOKEN_FILE" ]]; then
-  "$PYTHON" - <<'PY' > "$TOKEN_FILE"
-import secrets
-print(secrets.token_urlsafe(48))
-PY
-  chmod 600 "$TOKEN_FILE"
-fi
-PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
-[[ -n "$PASI_BRIDGE_TOKEN" ]] || { echo "error: PASI bridge token is empty" >&2; exit 7; }
-export PASI_BRIDGE_TOKEN
-for extension_dir in \
-    "$REPO_ROOT/automation/chromium/pasi-chatgpt" \
-    "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
-do
-  if [[ -d "$extension_dir" ]]; then
-    install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
-  fi
-done
 
 BRIDGE_URL="http://127.0.0.1:8765/health"
 BRIDGE_LOG="$EVIDENCE_DIR/m0-bridge.log"
@@ -61,7 +44,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! curl -fsS --max-time 3 "$BRIDGE_URL" >/dev/null 2>&1; then
+bridge_already_healthy=0
+if curl -fsS --max-time 3 "$BRIDGE_URL" >/dev/null 2>&1; then
+  bridge_already_healthy=1
+fi
+
+if (( bridge_already_healthy == 1 )); then
+  if [[ ! -s "$TOKEN_FILE" ]]; then
+    echo "error: PASI bridge is already healthy but its managed token file is missing; refusing to rotate credentials behind the live bridge" >&2
+    exit 7
+  fi
+elif [[ ! -s "$TOKEN_FILE" ]]; then
+  "$PYTHON" - <<'PY' > "$TOKEN_FILE"
+import secrets
+print(secrets.token_urlsafe(48))
+PY
+  chmod 600 "$TOKEN_FILE"
+fi
+
+PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
+[[ -n "$PASI_BRIDGE_TOKEN" ]] || { echo "error: PASI bridge token is empty" >&2; exit 7; }
+export PASI_BRIDGE_TOKEN
+
+if (( bridge_already_healthy == 0 )); then
+  for extension_dir in \
+      "$REPO_ROOT/automation/chromium/pasi-chatgpt" \
+      "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
+  do
+    if [[ -d "$extension_dir" ]]; then
+      install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
+    fi
+  done
   "$PYTHON" -m automation.orchestrator.bridge >"$BRIDGE_LOG" 2>&1 &
   BRIDGE_PID="$!"
   BRIDGE_STARTED=1
@@ -72,7 +85,17 @@ if ! curl -fsS --max-time 3 "$BRIDGE_URL" >/dev/null 2>&1; then
     fi
     sleep 1
   done
+else
+  for extension_dir in \
+      "$REPO_ROOT/automation/chromium/pasi-chatgpt" \
+      "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
+  do
+    if [[ -d "$extension_dir" ]]; then
+      install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
+    fi
+  done
 fi
+
 if ! curl -fsS --max-time 2 "$BRIDGE_URL" >/dev/null 2>&1; then
   echo "error: PASI bridge did not become healthy on 127.0.0.1:8765" >&2
   echo "Bridge log: $BRIDGE_LOG" >&2
