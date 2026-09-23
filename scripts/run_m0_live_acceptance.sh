@@ -46,51 +46,83 @@ done
 
 TASK="M0 live acceptance: in the dedicated PASI acceptance worktree, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF. Do not modify protected PASI runtime files. Run canonical validation. Return the normal PASI completion contract and one unified patch."
 
-"$PYTHON" scripts/pasi_overnight_engine_v2.py   --hours 8   --task "$TASK"   --worktree "$WORKTREE"   --branch "$BRANCH"   --no-push > >(tee -a "$LOG") 2>&1 &
-PID=$!
+# M0 is a single live acceptance seam. Use the guarded ChatGPT path directly
+# instead of the multi-task overnight engine so a real authenticated DOM
+# acceptance reaches a bounded terminal result for this one proof task.
+git worktree add --quiet -b "$BRANCH" "$WORKTREE" HEAD
 
-cleanup() { kill "$PID" 2>/dev/null || true; }
-trap cleanup EXIT
+RESPONSE_FILE="$EVIDENCE_DIR/m0-live-response.txt"
+"$PYTHON" scripts/pasi_chat_guard.py "$TASK" --github public --timeout 900 --repo "$WORKTREE" > >(tee "$RESPONSE_FILE" | tee -a "$LOG") 2>&1
 
-EVENTS="$WORKTREE/.runtime/overnight/events.jsonl"
-while kill -0 "$PID" 2>/dev/null; do
-  if [[ -f "$EVENTS" ]] && grep -q '"kind": "task_completed"' "$EVENTS"; then
-    kill -TERM "$PID" 2>/dev/null || true
-    wait "$PID" || true
-    break
-  fi
-  if [[ -f "$EVENTS" ]] && grep -q '"kind": "task_failed"' "$EVENTS"; then
-    echo "M0 task failed; inspect $LOG" >&2
-    exit 2
-  fi
-  sleep 1
-done
-
-git -C "$WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "error: acceptance worktree was not created" >&2; exit 3; }
-if [[ -f "$EVENTS" ]] && grep -q '"kind": "fallback_provider_route"' "$EVENTS"; then
-    echo "error: M0 was completed through a fallback provider; live M0 requires the primary ChatGPT browser path." >&2
-    exit 6
-fi
-COMMIT="$(git -C "$WORKTREE" rev-parse HEAD)"
-PROOF="$WORKTREE/acceptance/M0-LIVE-PROOF.txt"
-[[ -f "$PROOF" ]] && [[ "$(cat "$PROOF")" == "PASI M0 LIVE PROOF" ]] || { echo "error: proof file missing" >&2; exit 4; }
-[[ -z "$(git -C "$WORKTREE" status --porcelain)" ]] || { echo "error: M0 worktree is not clean" >&2; exit 5; }
-
-EVIDENCE="$EVIDENCE_DIR/m0-live.json"
-"$PYTHON" - "$WORKTREE" "$BRANCH" "$COMMIT" "$LOG" "$EVIDENCE" <<'PY'
+"$PYTHON" - "$WORKTREE" "$BRANCH" "$TASK" "$RESPONSE_FILE" "$LOG" "$EVIDENCE_DIR" <<'PY'
 import json
+import subprocess
 import sys
 from pathlib import Path
-worktree, branch, commit, log, evidence = sys.argv[1:]
-Path(evidence).write_text(json.dumps({
-    "gate": "M0",
-    "status": "PASS",
-    "worktree": str(Path(worktree).resolve()),
-    "branch": branch,
-    "commit": commit,
-    "proof_file": str((Path(worktree) / "acceptance/M0-LIVE-PROOF.txt").resolve()),
-    "log": str(Path(log).resolve()),
-}, indent=2) + "\n", encoding="utf-8")
-print("M0 PASS: ChatGPT response -> parser -> git apply -> validation -> commit")
+from scripts.pasi_overnight_engine_v2 import completion_contract, parse_response, verify_and_commit
+
+worktree, branch, task, response_file, log, evidence_dir = map(Path, sys.argv[1:7])
+response = response_file.read_text(encoding="utf-8")
+status, summary, next_task, patch, allow_delete, values = parse_response(response)
+if not completion_contract(status, values):
+    raise SystemExit("M0 live acceptance returned a non-complete PASI response contract")
+if not patch:
+    raise SystemExit("M0 live acceptance returned an empty patch")
+
+proof_path = worktree / "acceptance" / "M0-LIVE-PROOF.txt"
+commit, gate_output = verify_and_commit(
+    worktree,
+    branch,
+    task,
+    patch,
+    allow_delete,
+    push=False,
+    promote=False,
+)
+if not proof_path.is_file():
+    raise SystemExit("error: proof file missing")
+if proof_path.read_text(encoding="utf-8") != "PASI M0 LIVE PROOF\n":
+    raise SystemExit("error: proof file must contain exactly one line")
+status_output = subprocess.run(
+    ["git", "status", "--porcelain", "--untracked-files=all"],
+    cwd=worktree,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+if status_output.returncode != 0 or status_output.stdout.strip():
+    raise SystemExit(f"error: M0 worktree is not clean after commit: {status_output.stdout}")
+runtime_check = subprocess.run(
+    ["git", "status", "--porcelain", "--untracked-files=all", "--", ".runtime"],
+    cwd=worktree,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+if runtime_check.returncode != 0 or runtime_check.stdout.strip():
+    raise SystemExit(f"error: protected PASI runtime files changed: {runtime_check.stdout}")
+
+evidence = evidence_dir / "m0-live.json"
+evidence.write_text(
+    json.dumps(
+        {
+            "gate": "M0",
+            "status": "PASS",
+            "provider": "chatgpt_browser",
+            "authenticated_live_dom_required": True,
+            "worktree": str(worktree.resolve()),
+            "branch": str(branch),
+            "commit": commit,
+            "proof_file": str(proof_path.resolve()),
+            "log": str(log.resolve()),
+            "gate_output": gate_output[-4000:],
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+print("M0 PASS: authenticated ChatGPT browser response -> guarded parser -> git apply -> canonical validation -> commit")
 print(f"Evidence: {evidence}")
+print(f"Commit: {commit}")
 PY
