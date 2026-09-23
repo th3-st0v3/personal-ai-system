@@ -343,7 +343,8 @@ test('native controller can poll the queue through the MV3 worker', () => {
 test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.doesNotMatch(background, /targetAddressSpace/);
   assert.ok(background.includes("cache: 'no-store'"));
-  assert.ok(!activity.includes("fetch(`http://127.0.0.1:8765"));
+  assert.doesNotMatch(content, /127\.0\.0\.1:8765/);
+  assert.doesNotMatch(recovery, /127\.0\.0\.1:8765/);
   assert.ok(!recovery.includes("fetch(BRIDGE"));
   assert.ok(background.includes("const BRIDGE_ROUTES = new Set(["));
   assert.ok(background.includes("function allowedBridgeRequest(method, path)"));
