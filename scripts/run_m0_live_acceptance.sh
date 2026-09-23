@@ -166,10 +166,7 @@ if ! "$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-secon
     fi
     echo
     echo "=== PASI extension profile diagnostics ==="
-    for preferences in \
-      /mnt/c/Users/*/AppData/Local/"Opera Software"/"Opera GX Stable"/Preferences \
-      /mnt/c/Users/*/AppData/Roaming/"Opera Software"/"Opera GX Stable"/Preferences
-    do
+    while IFS= read -r preferences; do
       [[ -f "$preferences" ]] || continue
       "$PYTHON" - "$preferences" <<'PY'
 import json
@@ -185,7 +182,7 @@ except Exception as exc:
 
 settings = payload.get("extensions", {}).get("settings", {})
 if not isinstance(settings, dict):
-    return
+    raise SystemExit(0)
 for extension_id, entry in settings.items():
     if not isinstance(entry, dict):
         continue
@@ -205,7 +202,7 @@ for extension_id, entry in settings.items():
         "location": entry.get("location")
     }, ensure_ascii=False))
 PY
-    done
+    done < <(find /mnt/c/Users -type f -path '*/Opera Software/Opera GX Stable/*/Preferences' -print 2>/dev/null | head -100)
   } >"$BROWSER_HOST_DIAGNOSTICS" 2>&1
   echo "M0 browser-health diagnostic: $BROWSER_HEALTH_FAILURE" | tee -a "$LOG"
   if [[ -s "$BROWSER_HEALTH_FAILURE" ]]; then cat "$BROWSER_HEALTH_FAILURE" | tee -a "$LOG"; fi
