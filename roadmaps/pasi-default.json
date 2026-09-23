@@ -28,8 +28,8 @@
       "estimated_size": "medium",
       "phase": "automation",
       "status": "pending",
-      "start_date": "2026-09-22",
-      "end_date": "2026-09-25"
+      "start_date": "2026-09-18",
+      "end_date": "2026-09-22"
     },
     {
       "id": "automation.browser-terminality-and-single-send",
@@ -60,8 +60,8 @@
       "estimated_size": "medium",
       "phase": "automation",
       "status": "pending",
-      "start_date": "2026-09-25",
-      "end_date": "2026-09-29"
+      "start_date": "2026-09-22",
+      "end_date": "2026-09-27"
     },
     {
       "id": "engineering.live-acceptance-gate-hardening",
@@ -93,8 +93,8 @@
       "estimated_size": "medium",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-09-29",
-      "end_date": "2026-10-02"
+      "start_date": "2026-09-27",
+      "end_date": "2026-10-01"
     },
     {
       "id": "engineering.multi-step-task-execution",
@@ -125,8 +125,8 @@
       "estimated_size": "medium",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-10-02",
-      "end_date": "2026-10-05"
+      "start_date": "2026-10-01",
+      "end_date": "2026-10-04"
     },
     {
       "id": "engineering.execution-pacing-and-retry-policy",
@@ -158,8 +158,8 @@
       "estimated_size": "medium",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-10-05",
-      "end_date": "2026-10-08"
+      "start_date": "2026-10-04",
+      "end_date": "2026-10-07"
     },
     {
       "id": "engineering.task-evidence-verification",
@@ -186,8 +186,8 @@
       "estimated_size": "medium",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-10-08",
-      "end_date": "2026-10-11"
+      "start_date": "2026-10-07",
+      "end_date": "2026-10-10"
     },
     {
       "id": "engineering.hybrid-roadmap-planning",
@@ -217,8 +217,8 @@
       "estimated_size": "medium",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-10-11",
-      "end_date": "2026-10-13"
+      "start_date": "2026-10-10",
+      "end_date": "2026-10-12"
     },
     {
       "id": "engineering.provider-boundaries",
@@ -246,8 +246,8 @@
       "estimated_size": "large",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-10-13",
-      "end_date": "2026-10-16"
+      "start_date": "2026-10-12",
+      "end_date": "2026-10-15"
     },
     {
       "id": "engineering.application-verification",
@@ -275,8 +275,8 @@
       "estimated_size": "medium",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-10-16",
-      "end_date": "2026-10-19"
+      "start_date": "2026-10-15",
+      "end_date": "2026-10-18"
     },
     {
       "id": "engineering.sustained-unattended-burn-in",
@@ -308,13 +308,13 @@
       "estimated_size": "large",
       "phase": "engineering_os",
       "status": "pending",
-      "start_date": "2026-10-19",
-      "end_date": "2026-10-23"
+      "start_date": "2026-10-18",
+      "end_date": "2026-10-22"
     }
   ],
   "schedule_notes": {
     "anchor_date": "2026-09-22",
-    "basis": "Speculative planning based on current debugging pace, with shorter later windows as browser automation reliability reduces manual waiting and failed retry cycles.",
+    "basis": "Speculative schedule anchored to the active terminality/single-send task on 2026-09-22, with modest initial buffers and progressively shorter windows as reliable automation reduces manual waiting and failed retry cycles.",
     "acceleration_assumption": "Later estimates assume bounded recovery, fast failure classification, multi-prompt task continuity, and stable duplicate-send protection are functioning sufficiently to reduce idle time.",
     "date_format": "YYYY-MM-DD"
   }
