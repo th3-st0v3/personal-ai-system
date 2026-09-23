@@ -13,7 +13,6 @@ test('native background bridge respects content-side request timeouts', () => {
 const root = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
-const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
@@ -109,7 +108,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller keeps response telemetry off the completion critical path', () => {
@@ -309,27 +308,6 @@ test('native new-chat creation requires a changed conversation identity or genui
   assert.match(content, /differentChat/);
   assert.match(content, /initialChatReady/);
   assert.match(content, /new chat control did not change conversation identity/);
-});
-
-test('activity indicator reconciles stale browser state with terminal backend operations', () => {
-  assert.match(activity, /async function backendOperation\(operationId\)/);
-  assert.ok(activity.includes("path: '/operation?operation_id=' + encodeURIComponent(String(operationId))"));
-  assert.match(activity, /\['completed', 'failed', 'cancelled'\]\.includes\(backend\.status\)/);
-  assert.doesNotMatch(activity, /localStorage\.removeItem\(ACTIVE_KEY\)/);
-  assert.match(activity, /The controller owns lifecycle cleanup/);
-  assert.match(activity, /let syncInFlight = false/);
-  assert.match(activity, /if \(syncInFlight\) return/);
-});
-
-test('activity indicator is isolated, non-interactive, and reduced-motion aware', () => {
-  assert.match(activity, /pasi-activity-indicator/);
-  assert.match(activity, /attachShadow\(\{ mode: 'closed' \}\)/);
-  assert.match(activity, /pointer-events: none/);
-  assert.match(activity, /prefers-reduced-motion: reduce/);
-  assert.match(activity, /const state = isGenerating \? 'Thinking' : sawGeneration \? 'Finishing' : 'Working'/);
-  assert.match(activity, /label\.textContent = `PASI · \$\{state\}`/);
-  assert.match(activity, /const POLL_MS = 2000;/);
-  assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
 test('native recovery retries completed prompt evidence before clearing the active marker', () => {
@@ -712,3 +690,10 @@ test('native response settle fallback remains aligned with the 10ms latency targ
   assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 10;/);
 });
 
+
+
+test('native ChatGPT pages never receive a PASI activity indicator', () => {
+  assert.ok(!fs.existsSync(path.join(root, 'activity.js')));
+  assert.doesNotMatch(JSON.stringify(manifest), /activity\.js/);
+  assert.doesNotMatch(content, /pasi-activity-indicator|PASI · (Thinking|Working|Finishing)/);
+});
