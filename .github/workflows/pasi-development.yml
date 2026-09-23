@@ -28,9 +28,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep ordinary development runs serialized, but scope M0 live-acceptance
-  # pushes to their commit so a stale self-hosted acceptance cannot block the
-  # repaired acceptance from starting.
   # M0 pushes deliberately reuse the historical development group so the next
   # repaired M0 run can preempt any stale live-acceptance job holding the sole
   # PASI desktop runner; ordinary development runs remain serialized.
