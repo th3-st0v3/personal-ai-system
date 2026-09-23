@@ -34,7 +34,6 @@
         "https://www.chatgpt.com/*"
       ],
       "js": [
-        "activity.js",
         "timeout-config.js",
         "detectors.js",
         "recovery_progress.js",
