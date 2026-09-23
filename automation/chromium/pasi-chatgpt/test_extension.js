@@ -112,6 +112,20 @@ test('native extension injects into already-open ChatGPT tabs', () => {
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });
 
+test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
+  const start = background.indexOf('async function injectExistingChatTabs()');
+  const end = background.indexOf('async function inspect()', start);
+  assert.ok(start >= 0 && end > start);
+  const source = background.slice(start, end);
+  assert.match(source, /await chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}\);/);
+  assert.match(source, /await chrome\.scripting\.executeScript/);
+  assert.ok(
+    source.indexOf("await chrome.tabs.sendMessage") <
+      source.indexOf("await chrome.scripting.executeScript")
+  );
+  assert.match(source, /continue;/);
+});
+
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
   assert.equal(manifest.version, '1.1.2');
   assert.equal(manifest.manifest_version, 3);
