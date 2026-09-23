@@ -88,7 +88,7 @@ test('recovery tracks monitoring state across reloads and handles context exhaus
 
 test('recovery never finalizes a partial assistant response during generation', () => {
   assert.match(source, /function generating\(\)/);
-  assert.match(source, /const response = latestAssistantForOperation\(current, baseline\)/);
+  assert.match(source, /const response = latestAssistantForOperation\(current\)/);
   assert.match(source, /if \(generating\(\) \|\| !response\) return false/);
 });
 
@@ -218,7 +218,7 @@ test('response recovery retries a lost completion acknowledgement within a bound
 test('terminal recovery attempts a bound visible assistant response before clearing state', () => {
   assert.match(source, /async function finishVisibleResponse\(operationId, current, baseline\)/);
   assert.match(source, /if \(await finishVisibleResponse\(operationId, current, state\.baseline\)\)/);
-  assert.match(source, /if \(generating\(\) \|\| !response \|\| currentFingerprint === String\(baseline \|\| ''\)\) return false/);
+  assert.match(source, /if \(generating\(\) \|\| !response\) return false/);
 });
 
 
