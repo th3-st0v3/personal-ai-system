@@ -27,15 +27,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  # M0 pushes deliberately reuse the historical development group so the next
-  # repaired M0 run can preempt any stale live-acceptance job holding the sole
-  # PASI desktop runner; ordinary development runs remain serialized.
-  group: ${{ contains(github.event.head_commit.message, '(m0)') && 'pasi-development' || format('{0}-{1}-stable', github.workflow, github.ref) }}
-  cancel-in-progress: ${{ contains(github.event.head_commit.message, '(m0)') }}
-
 jobs:
   verify:
+    concurrency:
+      group: ${{ format('{0}-{1}-verify', github.workflow, github.ref) }}
+      cancel-in-progress: false
     if: ${{ github.event_name == 'push' || inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -101,7 +97,10 @@ jobs:
         run: bash scripts/check_all.sh
 
   m0_live_acceptance:
-    # M0 owns its own live browser + canonical-validation gate. Do not make it
+    concurrency:
+      group: ${{ format('{0}-{1}-m0-live', github.workflow, github.repository) }}
+      cancel-in-progress: true
+    # M0 owns its own live browser + canonical-validation gate. It must not
     # wait behind the general verify job, whose broad validation can be long-running.
     if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '(m0)') }}
     runs-on: [self-hosted, linux, x64, pasi-desktop]
@@ -124,6 +123,9 @@ jobs:
         run: env -u PYTHONPATH bash scripts/run_m0_live_acceptance.sh
 
   desktop:
+    concurrency:
+      group: ${{ format('{0}-{1}-desktop-control', github.workflow, github.repository) }}
+      cancel-in-progress: false
     needs: [verify]
     if: ${{ always() && (inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop') && (inputs.mode != 'start-automation' || needs.verify.result == 'success') }}
     runs-on: [self-hosted, linux, x64, pasi-desktop]
