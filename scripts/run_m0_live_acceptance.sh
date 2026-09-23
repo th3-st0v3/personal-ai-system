@@ -155,9 +155,62 @@ BEFORE_COMMIT="$("$PYTHON" -c 'import subprocess,sys; print(subprocess.check_out
 
 if ! "$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30 2>&1 | tee "$PREFLIGHT_FILE" | tee -a "$LOG"; then
   BROWSER_HEALTH_FAILURE="$EVIDENCE_DIR/m0-browser-health-failure.json"
+  BROWSER_HOST_DIAGNOSTICS="$EVIDENCE_DIR/m0-browser-host-diagnostics.txt"
   curl -fsS --max-time 3 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BROWSER_HEALTH_URL" >"$BROWSER_HEALTH_FAILURE" 2>/dev/null || true
+  {
+    echo "=== Browser process diagnostics ==="
+    if command -v tasklist.exe >/dev/null 2>&1; then
+      tasklist.exe 2>/dev/null | grep -Ei 'opera|chrome|chromium' || true
+    else
+      echo "tasklist.exe unavailable"
+    fi
+    echo
+    echo "=== PASI extension profile diagnostics ==="
+    for preferences in \
+      /mnt/c/Users/*/AppData/Local/"Opera Software"/"Opera GX Stable"/Preferences \
+      /mnt/c/Users/*/AppData/Roaming/"Opera Software"/"Opera GX Stable"/Preferences
+    do
+      [[ -f "$preferences" ]] || continue
+      "$PYTHON" - "$preferences" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"{path}: unreadable ({exc.__class__.__name__})")
+    raise SystemExit(0)
+
+settings = payload.get("extensions", {}).get("settings", {})
+if not isinstance(settings, dict):
+    return
+for extension_id, entry in settings.items():
+    if not isinstance(entry, dict):
+        continue
+    manifest = entry.get("manifest")
+    if not isinstance(manifest, dict):
+        continue
+    name = str(manifest.get("name") or "")
+    if "PASI ChatGPT Controller" not in name:
+        continue
+    print(json.dumps({
+        "preferences": str(path),
+        "extension_id": extension_id,
+        "name": name,
+        "manifest_version": manifest.get("version"),
+        "path": entry.get("path"),
+        "state": entry.get("state"),
+        "location": entry.get("location")
+    }, ensure_ascii=False))
+PY
+    done
+  } >"$BROWSER_HOST_DIAGNOSTICS" 2>&1
   echo "M0 browser-health diagnostic: $BROWSER_HEALTH_FAILURE" | tee -a "$LOG"
   if [[ -s "$BROWSER_HEALTH_FAILURE" ]]; then cat "$BROWSER_HEALTH_FAILURE" | tee -a "$LOG"; fi
+  echo "M0 browser-host diagnostic: $BROWSER_HOST_DIAGNOSTICS" | tee -a "$LOG"
+  if [[ -s "$BROWSER_HOST_DIAGNOSTICS" ]]; then cat "$BROWSER_HOST_DIAGNOSTICS" | tee -a "$LOG"; fi
   exit 1
 fi
 
