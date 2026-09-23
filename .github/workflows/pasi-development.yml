@@ -1,6 +1,8 @@
 name: pasi-development
 
 on:
+  push:
+    branches: ['pasi/**']
   workflow_dispatch:
     inputs:
       ref:
@@ -94,6 +96,28 @@ jobs:
 
       - name: Run canonical validation
         run: bash scripts/check_all.sh
+
+  m0_live_acceptance:
+    needs: [verify]
+    if: ${{ github.event_name == 'push' && needs.verify.result == 'success' && contains(github.event.head_commit.message, '(m0)') }}
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 360
+    steps:
+      - name: Resolve branch
+        id: ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ github.ref_name }}
+        run: printf 'ref=%s\n' "$REQUESTED_REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 1
+
+      - name: Run M0 live authenticated ChatGPT acceptance
+        shell: bash
+        run: env -u PYTHONPATH bash scripts/run_m0_live_acceptance.sh
 
   desktop:
     if: ${{ github.event_name == 'workflow_dispatch' }}
