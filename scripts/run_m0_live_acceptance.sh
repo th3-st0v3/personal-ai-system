@@ -178,6 +178,13 @@ if ! "$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-secon
       echo "tasklist.exe unavailable"
     fi
     echo
+    echo "=== Opera process command lines ==="
+    if command -v powershell.exe >/dev/null 2>&1; then
+      powershell.exe -NoProfile -NonInteractive -Command "\$ids = (Get-Process opera -ErrorAction SilentlyContinue).Id; Get-CimInstance Win32_Process | Where-Object { \$ids -contains \$_.ProcessId } | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress" 2>/dev/null || true
+    else
+      echo "powershell.exe unavailable"
+    fi
+    echo
     echo "=== PASI extension profile diagnostics ==="
     while IFS= read -r preferences; do
       [[ -f "$preferences" ]] || continue
