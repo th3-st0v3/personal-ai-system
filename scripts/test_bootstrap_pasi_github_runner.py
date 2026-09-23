@@ -44,6 +44,15 @@ def test_authoritative_ci_stays_self_hosted_and_fork_safe() -> None:
     assert "github.event.pull_request.head.repo.full_name == github.repository" in security_workflow
 
 
+def test_development_and_branch_hygiene_validation_stays_self_hosted() -> None:
+    development = (ROOT / ".github" / "workflows" / "pasi-development.yml").read_text(encoding="utf-8")
+    branch_hygiene = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
+    assert "ubuntu-latest" not in development
+    assert "ubuntu-latest" not in branch_hygiene
+    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in development
+    assert branch_hygiene.count("runs-on: [self-hosted, linux, x64, pasi-wsl]") == 2
+
+
 def test_obsolete_hosted_pr_audits_are_not_present() -> None:
     assert not (ROOT / ".github" / "workflows" / "agent-impact-audit.yml").exists()
     assert not (ROOT / ".github" / "workflows" / "self-modification-boundary-audit.yml").exists()
