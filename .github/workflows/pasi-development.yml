@@ -67,7 +67,7 @@ jobs:
 
       - name: Validate roadmap
         env:
-          ROADMAP: ${{ inputs.roadmap }}
+          ROADMAP: ${{ inputs.roadmap || 'roadmaps/pasi-default.json' }}
         run: |
           python - "$ROADMAP" <<'PY'
           import sys
