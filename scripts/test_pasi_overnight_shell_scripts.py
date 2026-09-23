@@ -114,7 +114,8 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             'authenticated_live_dom_required": True',
             '"gate": "M0"',
             '"status": "PASS"',
-        ):            self.assertIn(required, script)
+        ):
+            self.assertIn(required, script)
     def test_168h_launcher_provisions_managed_bridge_token(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
