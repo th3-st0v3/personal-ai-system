@@ -63,7 +63,7 @@ while kill -0 "$PID" 2>/dev/null; do
   sleep 1
 done
 
-[[ -d "$WORKTREE/.git" ]] || { echo "error: acceptance worktree was not created" >&2; exit 3; }
+git -C "$WORKTREE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "error: acceptance worktree was not created" >&2; exit 3; }
 if [[ -f "$EVENTS" ]] && grep -q '"kind": "fallback_provider_route"' "$EVENTS"; then
     echo "error: M0 was completed through a fallback provider; live M0 requires the primary ChatGPT browser path." >&2
     exit 6
