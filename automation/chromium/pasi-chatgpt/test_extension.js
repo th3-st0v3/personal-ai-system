@@ -284,7 +284,7 @@ test('native completion captures responses through the event-driven waiter and b
   assert.match(content, /async function waitForResponse\(baseline(?:,|\))/);
   assert.match(content, /let sawGeneration = false/);
   assert.match(content, /const response = await waitUntil\(\(\) =>/);
-  assert.match(content, /const responseText = latestAssistant\(\)/);
+  assert.match(content, /const responseText = responseEvidence\(\)/);
   assert.match(content, /PASI_NATIVE: ChatGPT generation timed out/);
   assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
   assert.match(content, /response_text: responseText\.slice\(0, MAX_RESPONSE_TEXT_CHARS\)/);
@@ -584,14 +584,14 @@ test('native generating detection uses one grouped selector', () => {
   assert.doesNotMatch(source, /firstVisible\(\['button\[data-testid="stop-button"/);
 });
 
-test('native response completion reuses the extracted assistant text for fingerprinting', () => {
+test('native response completion reuses operation-associated assistant evidence', () => {
   const start = content.indexOf('async function waitForResponse(');
   const end = content.indexOf('  function rememberContextRecovery(', start);
   assert.ok(start >= 0 && end > start);
   const source = content.slice(start, end);
-  assert.match(source, /const responseText = latestAssistant\(\)/);
-  assert.match(source, /fingerprintFromText\(responseText\) !== baseline/);
-  assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
+  assert.match(source, /const responseText = responseEvidence\(\)/);
+  assert.match(source, /assistantResponseEvidence\(      evidenceContext\?\.assistantSnapshot,      evidenceContext\?\.prompt,/);
+  assert.doesNotMatch(source, /const responseText = latestAssistant\(\)/);
 });
 
 test('native lost lease path clears operation state before returning', () => {
