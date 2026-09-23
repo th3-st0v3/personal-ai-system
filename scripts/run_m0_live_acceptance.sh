@@ -44,6 +44,42 @@ do
   fi
 done
 
+BRIDGE_URL="http://127.0.0.1:8765/health"
+BRIDGE_LOG="$EVIDENCE_DIR/m0-bridge.log"
+BRIDGE_PID=""
+BRIDGE_STARTED=0
+WORKTREE=""
+
+cleanup() {
+  if [[ -n "$WORKTREE" && -d "$WORKTREE" ]]; then
+    git worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+  fi
+  if (( BRIDGE_STARTED == 1 )) && [[ -n "$BRIDGE_PID" ]] && kill -0 "$BRIDGE_PID" 2>/dev/null; then
+    kill "$BRIDGE_PID" 2>/dev/null || true
+    wait "$BRIDGE_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+if ! curl -fsS --max-time 3 "$BRIDGE_URL" >/dev/null 2>&1; then
+  "$PYTHON" -m automation.orchestrator.bridge >"$BRIDGE_LOG" 2>&1 &
+  BRIDGE_PID="$!"
+  BRIDGE_STARTED=1
+  bridge_deadline=$((SECONDS + 20))
+  while (( SECONDS < bridge_deadline )); do
+    if curl -fsS --max-time 2 "$BRIDGE_URL" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
+if ! curl -fsS --max-time 2 "$BRIDGE_URL" >/dev/null 2>&1; then
+  echo "error: PASI bridge did not become healthy on 127.0.0.1:8765" >&2
+  echo "Bridge log: $BRIDGE_LOG" >&2
+  [[ -s "$BRIDGE_LOG" ]] && tail -80 "$BRIDGE_LOG" >&2 || true
+  exit 8
+fi
+
 TASK="M0 live qualification: treat this as one sustained qualification task, not a one-file task. Work through the complete current M0 gate in this dedicated acceptance worktree: (1) re-establish CI evidence against the current head, (2) confirm canonical validation, (3) complete the real authenticated ChatGPT DOM acceptance through the native PASI browser path, (4) confirm 168-hour PASI startup readiness, and (5) preserve already-verified capabilities. Inspect the relevant repository and previous failure evidence first, then make the smallest necessary related implementation changes and verify them. You may perform multiple implementation, inspection, and repair steps inside this single M0 task; do not treat any of those steps as a new task. Do not stop after creating the proof file, producing a small patch, or getting one test to pass. Continue working until every M0 acceptance criterion has direct evidence. Only after the full M0 gate is actually satisfied, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF, and return the normal PASI completion contract with one unified patch. Do not modify protected PASI runtime files. If a real external obstacle prevents completion, report blocked with the concrete evidence rather than claiming success."
 
 # M0 is a single live acceptance seam. Use the guarded ChatGPT path directly
@@ -51,8 +87,10 @@ TASK="M0 live qualification: treat this as one sustained qualification task, not
 # acceptance reaches a bounded terminal result for this one proof task.
 git worktree add --quiet -b "$BRANCH" "$WORKTREE" HEAD
 
+"$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30
+
 RESPONSE_FILE="$EVIDENCE_DIR/m0-live-response.txt"
-"$PYTHON" scripts/pasi_chat_guard.py "$TASK" --github public --timeout 900 --repo "$WORKTREE" > >(tee "$RESPONSE_FILE" | tee -a "$LOG") 2>&1
+"$PYTHON" scripts/pasi_chat_guard.py "$TASK" --github public --timeout 3600 --repo "$WORKTREE" > >(tee "$RESPONSE_FILE" | tee -a "$LOG") 2>&1
 
 "$PYTHON" - "$WORKTREE" "$BRANCH" "$TASK" "$RESPONSE_FILE" "$LOG" "$EVIDENCE_DIR" <<'PY'
 import json
