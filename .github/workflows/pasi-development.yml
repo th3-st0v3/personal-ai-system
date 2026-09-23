@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   verify:
-    if: ${{ inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
+    if: ${{ github.event_name == 'push' || inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
