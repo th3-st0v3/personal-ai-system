@@ -1988,7 +1988,22 @@ def run(state: OvernightState, *, push: bool) -> None:
                     failure = response[-12_000:] or "ChatGPT returned a code/protocol failure."
                 attempt += 1
                 continue
-            status, summary, next_task, patch, allow_delete, values = parse_response(response)
+            try:
+                status, summary, next_task, patch, allow_delete, values = parse_response(response)
+            except ValueError as exc:
+                failure = f"response_contract: {exc}\n" + (response[-12_000:] or "ChatGPT returned an invalid completion contract.")
+                log_event(
+                    "response_contract_failed",
+                    phase=state.phase,
+                    task_id=task_key(state.current_task),
+                    task_number=state.task_number,
+                    attempt=attempt,
+                    provider=provider_source,
+                    error=str(exc),
+                    response_chars=len(response),
+                )
+                attempt += 1
+                continue
             contract_ok = completion_contract(status, values)
             task_already_completed = task_key(state.current_task) in completed_task_keys()
             effort_floor_reason = completion_effort_floor_reason(
