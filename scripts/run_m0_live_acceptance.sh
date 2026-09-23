@@ -25,6 +25,12 @@ export PASI_PRIMARY_CHATGPT_ONLY=1
 # and never rotate the credential behind an already-healthy bridge without
 # first confirming that the managed token exists.
 TOKEN_FILE="$HOME/.pasi/bridge-token"
+# The GitHub Actions checkout is not necessarily the directory from which the
+# operator's authenticated unpacked Chromium extension is loaded. Prefer the
+# canonical local workspace when it exists, while still staging the token into
+# the acceptance checkout used by this job.
+BROWSER_EXTENSION_ROOT="${PASI_BROWSER_EXTENSION_ROOT:-$HOME/workspace/personal-ai-system/automation/chromium/pasi-chatgpt}"
+BROWSER_EXTENSION_ROOT_FALLBACK="$REPO_ROOT/automation/chromium/pasi-chatgpt"
 mkdir -p "$HOME/.pasi"
 
 BRIDGE_URL="http://127.0.0.1:8765/health"
@@ -73,11 +79,13 @@ export PASI_BRIDGE_TOKEN
 
 if (( bridge_already_healthy == 0 )); then
   for extension_dir in \
-      "$REPO_ROOT/automation/chromium/pasi-chatgpt" \
+      "$BROWSER_EXTENSION_ROOT" \
+      "$BROWSER_EXTENSION_ROOT_FALLBACK" \
       "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
   do
     if [[ -d "$extension_dir" ]]; then
       install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
+      echo "M0 bridge token provisioned: $extension_dir/.bridge-token" | tee -a "$LOG"
     fi
   done
   "$PYTHON" -m automation.orchestrator.bridge >"$BRIDGE_LOG" 2>&1 &
@@ -92,11 +100,13 @@ if (( bridge_already_healthy == 0 )); then
   done
 else
   for extension_dir in \
-      "$REPO_ROOT/automation/chromium/pasi-chatgpt" \
+      "$BROWSER_EXTENSION_ROOT" \
+      "$BROWSER_EXTENSION_ROOT_FALLBACK" \
       "$REPO_ROOT/.runtime/chromium/pasi-chatgpt"
   do
     if [[ -d "$extension_dir" ]]; then
       install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"
+      echo "M0 bridge token provisioned: $extension_dir/.bridge-token" | tee -a "$LOG"
     fi
   done
 fi
