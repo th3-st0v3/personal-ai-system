@@ -28,7 +28,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: pasi-development
+  # Keep ordinary development runs serialized, but scope M0 live-acceptance
+  # pushes to their commit so a stale self-hosted acceptance cannot block the
+  # repaired acceptance from starting.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ contains(github.event.head_commit.message, '(m0)') && github.sha || 'stable' }}
   cancel-in-progress: false
 
 jobs:
