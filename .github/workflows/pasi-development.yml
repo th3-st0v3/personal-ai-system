@@ -120,7 +120,6 @@ jobs:
         run: env -u PYTHONPATH bash scripts/run_m0_live_acceptance.sh
 
   desktop:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: [verify]
     if: ${{ always() && (inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop') && (inputs.mode != 'start-automation' || needs.verify.result == 'success') }}
     runs-on: [self-hosted, linux, x64, pasi-desktop]
