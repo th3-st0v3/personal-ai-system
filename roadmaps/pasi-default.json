@@ -314,8 +314,21 @@
   ],
   "schedule_notes": {
     "anchor_date": "2026-09-22",
-    "basis": "Speculative schedule anchored to the active terminality/single-send task on 2026-09-22, with modest initial buffers and progressively shorter windows as reliable automation reduces manual waiting and failed retry cycles.",
-    "acceleration_assumption": "Later estimates assume bounded recovery, fast failure classification, multi-prompt task continuity, and stable duplicate-send protection are functioning sufficiently to reduce idle time.",
+    "basis": "P0 is treated as the manual/live-runtime bottleneck; P0.4 imposes a seven-day acceptance duration after M0/M1/M2 are ready. P1 is projected shorter because P0 is expected to leave more automation, recovery, and evidence infrastructure in place.",
+    "productivity_signal": "Recent repository activity was an unusually dense burst of implementation commits, so commit count is used as an intensity signal rather than a direct task-per-day conversion.",
+    "project_field_note": "Phase targets are mirrored in the authoritative P0 and P1 GitHub issue bodies; the available GitHub integration does not expose GitHub Projects custom-field writes.",
     "date_format": "YYYY-MM-DD"
+  },
+  "phase_schedule": {
+    "P0": {
+      "start_date": "2026-09-22",
+      "target_completion_date": "2026-10-04",
+      "status": "speculative"
+    },
+    "P1": {
+      "start_date": "2026-10-04",
+      "target_completion_date": "2026-10-12",
+      "status": "speculative"
+    }
   }
 }
