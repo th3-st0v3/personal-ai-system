@@ -487,7 +487,7 @@ branch refs/heads/main
                         with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
                             with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
                                 with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
-                                with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                    with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
                                     with mock.patch.object(engine, "record_task_ledger"):
                                         with mock.patch.object(engine, "save_state"):
                                             with mock.patch.object(engine, "log_event"):
