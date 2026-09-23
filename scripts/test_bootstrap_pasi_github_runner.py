@@ -78,4 +78,3 @@ def test_fast_validator_exists_and_stays_free_of_live_acceptance_scripts() -> No
     assert "node --test" in script
     assert "scripts/e2e_chromium_response_recovery.py" not in script
     assert "scripts/e2e_chromium_prompt_submission.py" not in script
-}
