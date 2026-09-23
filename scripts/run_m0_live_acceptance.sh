@@ -28,6 +28,7 @@ TOKEN_FILE="$HOME/.pasi/bridge-token"
 mkdir -p "$HOME/.pasi"
 
 BRIDGE_URL="http://127.0.0.1:8765/health"
+PREFLIGHT_FILE="$EVIDENCE_DIR/m0-preflight.txt"
 BROWSER_HEALTH_URL="http://127.0.0.1:8765/browser/health"
 BRIDGE_LOG="$EVIDENCE_DIR/m0-bridge.log"
 BRIDGE_PID=""
@@ -147,8 +148,8 @@ if not completion_contract(status, values):
 if not patch:
     raise SystemExit("M0 live acceptance returned an empty patch")
 
-chat_url_match = re.search(r"^Chat URL:s+(https://chatgpt.com/c/[^s]+)$", response, re.MULTILINE)
-completion_match = re.search(r"^Completion:s+(.+)$", response, re.MULTILINE)
+chat_url_match = re.search(r"^Chat URL:\s+(https://chatgpt\.com/c/[^\s]+)$", response, re.MULTILINE)
+completion_match = re.search(r"^Completion:\s+(.+)$", response, re.MULTILINE)
 if not chat_url_match:
     raise SystemExit("error: M0 response did not contain a verified ChatGPT conversation URL")
 if not completion_match or completion_match.group(1).strip().casefold() != "complete":
@@ -172,8 +173,7 @@ if "ALL LOCAL VALIDATION PASSED" not in gate_output:
     raise SystemExit("error: canonical validation did not report ALL LOCAL VALIDATION PASSED")
 if not proof_path.is_file():
     raise SystemExit("error: proof file missing")
-if proof_path.read_text(encoding="utf-8") != "PASI M0 LIVE PROOF
-":
+if proof_path.read_text(encoding="utf-8") != "PASI M0 LIVE PROOF\n":
     raise SystemExit("error: proof file must contain exactly one line")
 
 commit_parents = subprocess.run(
@@ -255,8 +255,7 @@ evidence.write_text(
         },
         indent=2,
     )
-    + "
-",
+    + "\n",
     encoding="utf-8",
 )
 print("M0 PASS: authenticated ChatGPT response -> contract parsing -> git apply -> canonical validation -> committed proof -> clean worktree")
