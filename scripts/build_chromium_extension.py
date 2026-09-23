@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import shutil
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZipFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
