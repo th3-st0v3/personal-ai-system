@@ -29,6 +29,13 @@ test('recovery preserves a verified response and includes response text in compl
   assert.match(source, /grace_wait/);
 });
 
+test('recovery binds visible response capture to the current operation prompt', () => {
+  assert.match(source, /function latestAssistantForOperation\(operation, baseline\)/);
+  assert.match(source, /function userMessageMatchesOperation\(node, operation\)/);
+  assert.match(source, /matchedUsers\.some\(\(user\) => nodeFollows\(user, node\)\)/);
+  assert.match(source, /const response = latestAssistantForOperation\(current, baseline\)/);
+});
+
 test('recovery observations identify the active prompt operation so the bridge can persist response evidence', () => {
   assert.match(source, /active_operation_id: operationId/);
   assert.match(source, /schema_version: 'pasi-chatgpt-recovery-v3'/);
@@ -81,8 +88,8 @@ test('recovery tracks monitoring state across reloads and handles context exhaus
 
 test('recovery never finalizes a partial assistant response during generation', () => {
   assert.match(source, /function generating\(\)/);
-  const guardedFinalizers = source.match(/if \(!generating\(\) && response && currentFingerprint/g) || [];
-  assert.equal(guardedFinalizers.length, 2);
+  assert.match(source, /const response = latestAssistantForOperation\(current, baseline\)/);
+  assert.match(source, /if \(generating\(\) \|\| !response\) return false/);
 });
 
 test('recovery preserves response text casing while still normalizing marker checks', () => {
