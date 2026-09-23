@@ -61,7 +61,12 @@ import sys
 from pathlib import Path
 from scripts.pasi_overnight_engine_v2 import completion_contract, parse_response, verify_and_commit
 
-worktree, branch, task, response_file, log, evidence_dir = map(Path, sys.argv[1:7])
+worktree = Path(sys.argv[1])
+branch = sys.argv[2]
+task = sys.argv[3]
+response_file = Path(sys.argv[4])
+log = Path(sys.argv[5])
+evidence_dir = Path(sys.argv[6])
 response = response_file.read_text(encoding="utf-8")
 status, summary, next_task, patch, allow_delete, values = parse_response(response)
 if not completion_contract(status, values):
