@@ -98,6 +98,21 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         self.assertIn("Managed services:", status_script)
         self.assertIn("MANAGED (PID", status_script)
 
+    def test_m0_live_acceptance_has_portable_python_and_bridge_token_setup(self) -> None:
+        script = (ROOT / "scripts" / "run_m0_live_acceptance.sh").read_text(encoding="utf-8")
+        result = subprocess.run(["bash", "-n", str(ROOT / "scripts" / "run_m0_live_acceptance.sh")], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for required in (
+            'PYTHON="${PASI_PYTHON:-$REPO_ROOT/.venv/bin/python}"',
+            'if [[ ! -x "$PYTHON" && -x "$HOME/.pasi/venv/bin/python" ]]',
+            'PASI_PRIMARY_CHATGPT_ONLY=1',
+            'TOKEN_FILE="$HOME/.pasi/bridge-token"',
+            'install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"',
+            'M0 live acceptance:',
+            '"gate": "M0"',
+            '"status": "PASS"',
+        ):
+            self.assertIn(required, script)
     def test_168h_launcher_provisions_managed_bridge_token(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
