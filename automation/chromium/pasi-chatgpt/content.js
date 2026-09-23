@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  if (globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ === true) return;
+  globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = true;
+
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
   const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;

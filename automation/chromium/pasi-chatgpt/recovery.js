@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  if (globalThis.__PASI_NATIVE_RECOVERY_STARTED__ === true) return;
+  globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = true;
+
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';

@@ -6,7 +6,8 @@
   "permissions": [
     "alarms",
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "scripting"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",

@@ -131,6 +131,14 @@ if ! curl -fsS --max-time 3 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BR
   exit 9
 fi
 
+BROWSER_ATTACH_LOG="$EVIDENCE_DIR/m0-existing-browser-attach.txt"
+set +e
+"$PYTHON" scripts/attach_existing_chromium_extension.py --extension-dir "${BROWSER_EXTENSION_ROOTS[0]}" >"$BROWSER_ATTACH_LOG" 2>&1
+BROWSER_ATTACH_STATUS=$?
+set -e
+echo "M0 existing-browser attach status: $BROWSER_ATTACH_STATUS" | tee -a "$LOG"
+cat "$BROWSER_ATTACH_LOG" | tee -a "$LOG" || true
+
 # The real acceptance boundary requires the authenticated browser page itself.
 # M0 deliberately does not launch Opera, create tabs, or reload the operator's
 # ChatGPT session. The native controller must already be attached to the
@@ -142,6 +150,7 @@ TASK="P0.1 — M0 live task acceptance: Prove one real task can travel from auth
 [[ -n "$WORKTREE" ]] || { echo "error: M0 acceptance worktree path is empty" >&2; exit 10; }
 mkdir -p "$(dirname -- "$WORKTREE")"
 echo "M0 acceptance worktree: $WORKTREE" | tee -a "$LOG"
+git worktree prune --expire now >/dev/null 2>&1 || true
 git worktree add --quiet -b "$BRANCH" "$WORKTREE" HEAD
 
 BEFORE_COMMIT="$("$PYTHON" -c 'import subprocess,sys; print(subprocess.check_output(["git","-C",sys.argv[1],"rev-parse","HEAD"], text=True).strip())' "$WORKTREE")"

@@ -94,7 +94,15 @@ def main() -> int:
     last_retry_reason = ""
     while True:
         payload = request_json(BROWSER_HEALTH_URL, token=token, timeout=5.0)
-        observation, data = extract_observation(payload)
+        try:
+            observation, data = extract_observation(payload)
+        except RuntimeError as exc:
+            last_retry_reason = str(exc)
+            age = float("inf")
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(max(0.05, args.retry_interval_seconds))
+            continue
         try:
             captured_at = capture_time(data, observation)
             age = heartbeat_age_seconds(captured_at)
