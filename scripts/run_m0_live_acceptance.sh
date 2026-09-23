@@ -25,14 +25,8 @@ export PASI_PRIMARY_CHATGPT_ONLY=1
 # and never rotate the credential behind an already-healthy bridge without
 # first confirming that the managed token exists.
 TOKEN_FILE="$HOME/.pasi/bridge-token"
-# The GitHub Actions checkout is not necessarily the directory from which the
-# operator's authenticated unpacked Chromium extension is loaded. Prefer the
-# canonical local workspace when it exists, while still staging the token into
-# the acceptance checkout used by this job.
-# The GitHub Actions checkout is not necessarily the directory from which the
-# operator's authenticated unpacked Chromium extension is loaded. Prefer an
-# explicit override, the canonical local workspace, and any other unpacked
-# PASI extension roots discoverable on this runner.
+# M0 must use the extension roots that can actually participate in the live
+# acceptance boundary. Do not mutate historical worktrees or unrelated runtimes.
 BROWSER_EXTENSION_ROOT="${PASI_BROWSER_EXTENSION_ROOT:-$HOME/workspace/personal-ai-system/automation/chromium/pasi-chatgpt}"
 BROWSER_EXTENSION_ROOT_FALLBACK="$REPO_ROOT/automation/chromium/pasi-chatgpt"
 declare -a BROWSER_EXTENSION_ROOTS=()
@@ -48,18 +42,13 @@ add_browser_extension_root() {
 }
 add_browser_extension_root "$BROWSER_EXTENSION_ROOT"
 add_browser_extension_root "$BROWSER_EXTENSION_ROOT_FALLBACK"
-while IFS= read -r discovered_root; do
-  add_browser_extension_root "$discovered_root"
-done < <(find "$HOME" -type f -path "*/automation/chromium/pasi-chatgpt/manifest.json" -print 2>/dev/null | sed "s#/manifest.json##" | head -50)
 if ((${#BROWSER_EXTENSION_ROOTS[@]} == 0)); then
-  echo "error: no unpacked PASI ChatGPT extension root was found on the runner" >&2
+  echo "error: no canonical PASI ChatGPT extension root was found on the runner" >&2
   exit 10
 fi
 printf "M0 browser extension roots:\n" | tee -a "$LOG"
 printf "  %s\n" "${BROWSER_EXTENSION_ROOTS[@]}" | tee -a "$LOG"
 mkdir -p "$HOME/.pasi"
-
-
 BRIDGE_URL="http://127.0.0.1:8765/health"
 PREFLIGHT_FILE="$EVIDENCE_DIR/m0-preflight.txt"
 BROWSER_HEALTH_URL="http://127.0.0.1:8765/browser/health"
@@ -143,70 +132,9 @@ if ! curl -fsS --max-time 3 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BR
 fi
 
 # The real acceptance boundary requires the authenticated browser page itself.
-# Chromium/Opera only honors --load-extension when the browser process actually
-# starts, so when the controller is not already registered, gracefully restart
-# the authenticated Opera GX profile with the unpacked PASI extension loaded.
-BROWSER_EXTENSION_WIN_ROOT="$(wslpath -w "$BROWSER_EXTENSION_ROOT" 2>/dev/null || true)"
-OPERA_PROFILE_WIN_ROOT="$(wslpath -w "$HOME/../riley/.pasi" 2>/dev/null || true)"
-export PASI_M0_EXTENSION_WIN_ROOT="$BROWSER_EXTENSION_WIN_ROOT"
-
-if command -v powershell.exe >/dev/null 2>&1 && command -v tasklist.exe >/dev/null 2>&1; then
-  powershell.exe -NoProfile -NonInteractive -Command "
-    \$extension = \$env:PASI_M0_EXTENSION_WIN_ROOT
-    \$profiles = @(
-      (Join-Path \$env:APPDATA 'Opera Software\\Opera GX Stable'),
-      (Join-Path \$env:LOCALAPPDATA 'Opera Software\\Opera GX Stable')
-    ) | Where-Object { Test-Path \$_ }
-    \$prefs = \$profiles | ForEach-Object {
-      Get-ChildItem -Path \$_ -Filter Preferences -File -ErrorAction SilentlyContinue
-    } | Select-Object -First 10
-    \$controllerFound = \$false
-    foreach (\$file in \$prefs) {
-      try {
-        \$json = Get-Content -Raw -LiteralPath \$file.FullName | ConvertFrom-Json
-        \$settings = \$json.extensions.settings
-        if (\$settings) {
-          foreach (\$prop in \$settings.psobject.Properties) {
-            if (\$prop.Value.manifest.name -eq 'PASI ChatGPT Controller') {
-              \$controllerFound = \$true
-              break
-            }
-          }
-        }
-      } catch {}
-      if (\$controllerFound) { break }
-    }
-
-    \$opera = Get-Process opera -ErrorAction SilentlyContinue | Where-Object { \$_.Path } | Select-Object -First 1
-    if (\$opera -and -not \$controllerFound -and \$extension) {
-      \$closed = \$false
-      \$main = Get-Process opera -ErrorAction SilentlyContinue | Where-Object { \$_.MainWindowHandle -ne 0 } | Select-Object -First 1
-      if (\$main) {
-        \$closed = \$main.CloseMainWindow()
-        if (\$closed) { \$main.WaitForExit(15000) | Out-Null }
-      }
-      \$deadline = (Get-Date).AddSeconds(15)
-      while ((Get-Process opera -ErrorAction SilentlyContinue) -and ((Get-Date) -lt \$deadline)) {
-        Start-Sleep -Milliseconds 500
-      }
-      if (-not (Get-Process opera -ErrorAction SilentlyContinue)) {
-        Start-Process -FilePath \$opera.Path -ArgumentList @(
-          '--load-extension=' + \$extension,
-          'https://chatgpt.com/'
-        ) | Out-Null
-        Write-Output 'M0_BROWSER_RESTARTED_WITH_EXTENSION'
-      } else {
-        Write-Output 'M0_BROWSER_RESTART_SKIPPED_STILL_RUNNING'
-      }
-    } elseif (\$controllerFound) {
-      Write-Output 'M0_CONTROLLER_REGISTERED'
-    } else {
-      Write-Output 'M0_BROWSER_BOOTSTRAP_UNAVAILABLE'
-    }
-  " 2>&1 | tee -a "$LOG"
-fi
-
-
+# M0 deliberately does not launch Opera, create tabs, or reload the operator's
+# ChatGPT session. The native controller must already be attached to the
+# authenticated tab that the operator has chosen for acceptance.
 TASK="M0 P0.1 live task acceptance: execute one real sustained PASI engineering task through the complete acceptance seam in this dedicated worktree. First inspect the existing M0 acceptance harness and the prior failure evidence. Then perform the smallest necessary related inspection or repair work needed to establish this exact chain: an authenticated ChatGPT response through the native PASI browser path, the normal PASI completion contract, extraction of the unified patch, successful git patch application, successful canonical validation via scripts/check_all.sh, and a new clean Git commit containing the required evidence artifact. Keep all of those steps inside this single task; do not turn them into separate tasks or stop after creating a proof file, making a tiny patch, or seeing one intermediate check pass. Only after the complete chain is directly evidenced, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF, and return the normal PASI completion contract with the unified patch that produces it. Do not modify protected PASI runtime/control files. If the authenticated browser, contract, patch, canonical validation, or commit chain genuinely fails, report the concrete failure instead of claiming completion."
 
 # M0 P0.1 is one live acceptance seam. The browser response, contract, patch,
@@ -230,14 +158,6 @@ if ! "$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-secon
       echo "tasklist.exe unavailable"
     fi
     echo
-    echo "=== Opera process command lines ==="
-    if command -v powershell.exe >/dev/null 2>&1; then
-      powershell.exe -NoProfile -NonInteractive -Command "\$ids = (Get-Process opera -ErrorAction SilentlyContinue).Id; Get-CimInstance Win32_Process | Where-Object { \$ids -contains \$_.ProcessId } | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress" 2>/dev/null || true
-      echo
-      powershell.exe -NoProfile -NonInteractive -Command "\$roots = @((Join-Path \$env:APPDATA 'Opera Software\\Opera GX Stable'), (Join-Path \$env:LOCALAPPDATA 'Opera Software\\Opera GX Stable')); if (Test-Path \$env:LOCALAPPDATA\\Packages) { \$roots += Get-ChildItem -Path (Join-Path \$env:LOCALAPPDATA 'Packages') -Directory -ErrorAction SilentlyContinue | Where-Object { \$_.Name -match 'Opera' } | ForEach-Object { \$_.FullName } }; \$roots | Sort-Object -Unique | ForEach-Object { \$root = \$_; if (Test-Path \$root) { Write-Output ('PROFILE_ROOT=' + \$root); Get-ChildItem -Path \$root -Filter Preferences -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { \$path = \$_.FullName; try { \$json = Get-Content -Raw -LiteralPath \$path | ConvertFrom-Json; \$settings = \$json.extensions.settings; if (\$settings) { \$settings.psobject.Properties | ForEach-Object { \$entry = \$_.Value; \$manifest = \$entry.manifest; if (\$manifest.name -eq 'PASI ChatGPT Controller') { [pscustomobject]@{ preferences=\$path; extension_id=\$_.Name; name=\$manifest.name; manifest_version=\$manifest.version; path=\$entry.path; state=\$entry.state; location=\$entry.location } | ConvertTo-Json -Compress } } } } catch {} } } }" 2>/dev/null || true
-    else
-      echo "powershell.exe unavailable"
-    fi
     echo
     echo "=== PASI extension profile diagnostics ==="
     while IFS= read -r preferences; do
