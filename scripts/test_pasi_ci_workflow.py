@@ -8,15 +8,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestPasiCIWorkflow(unittest.TestCase):
-    def test_pasi_branches_run_validation_on_push_and_pull_requests(self) -> None:
+    def test_pasi_branches_run_authoritative_validation_on_push(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("branches: [main, beta-foundation, 'pasi/**']", workflow)
-        self.assertIn("pull_request:\n    branches: [main, 'pasi/**']", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertIn("untrusted fork pull requests", workflow)
 
-    def test_canonical_validation_is_present(self) -> None:
+    def test_fast_validation_is_authoritative_and_live_acceptance_is_manual(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("bash scripts/check_all.sh", workflow)
-        self.assertIn("Run targeted computer-use regression suites", workflow)
+        self.assertIn("runs-on: [self-hosted, linux, x64, pasi-wsl]", workflow)
+        self.assertIn("bash scripts/check_fast.sh", workflow)
+        self.assertIn("mode:", workflow)
+        self.assertIn("fast", workflow)
+        self.assertIn("live", workflow)
+        self.assertIn("scripts/e2e_chromium_response_recovery.py", workflow)
+        self.assertIn("scripts/e2e_chromium_prompt_submission.py", workflow)
+        self.assertNotIn("ubuntu-latest", workflow)
+
+    def test_authoritative_fast_lane_does_not_duplicate_the_full_quality_sweep(self) -> None:
+        script = (ROOT / "scripts" / "check_fast.sh").read_text(encoding="utf-8")
+        self.assertNotIn("check_all.sh", script)
+        self.assertNotIn("apt-get", script)
+        self.assertNotIn("e2e_chromium", script)
 
 
 if __name__ == "__main__":
