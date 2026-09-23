@@ -10,7 +10,8 @@
       "acceptance_criteria": [
         "A stale or missing observation is detected without treating a stale heartbeat as healthy.",
         "Native controller recovery restores a fresh observation without requiring Tampermonkey.",
-        "Recovery does not create duplicate operations or bypass authentication boundaries."
+        "Recovery does not create duplicate operations or bypass authentication boundaries.",
+        "Recovery remains bounded and surfaces the exact failure stage instead of silently waiting."
       ],
       "verification": [
         "Run the targeted browser/controller recovery tests.",
@@ -22,26 +23,28 @@
         "scripts/",
         "tests/"
       ],
-      "priority": 100,
+      "priority": 120,
       "splittable": false,
       "estimated_size": "medium",
       "phase": "automation",
       "status": "pending"
     },
     {
-      "id": "automation.response-handoff-latency",
-      "title": "Minimize completed-response to next-prompt handoff latency",
-      "objective": "Reduce unnecessary work between detected response completion and the next prompt being injected and submitted while preserving deterministic submission acknowledgement and recovery behavior.",
+      "id": "automation.browser-terminality-and-single-send",
+      "title": "Harden browser terminality, silent-stall detection, and single-send boundaries",
+      "objective": "Prevent a ChatGPT operation from appearing to work while never reaching a verifiable terminal state, and prevent delayed acknowledgements from causing duplicate submissions.",
       "depends_on": [
         "automation.browser-observation-recovery"
       ],
       "acceptance_criteria": [
-        "The normal chained-operation path avoids avoidable polling or fixed sleeps after response completion.",
-        "Completion-to-prompt-injection timing is instrumented and covered by deterministic tests.",
-        "Thinking selection, submission acknowledgement, and recovery behavior remain correct."
+        "A submission is recorded as fired exactly once and no fallback send strategy is invoked after a send mechanism has fired.",
+        "A generation that stops producing meaningful terminal evidence is distinguished from a healthy long-running generation and exits through a bounded recovery path.",
+        "Terminal completion requires verifiable assistant-response evidence rather than UI timing alone.",
+        "Provider, browser, and model-contract failures are classified early enough to avoid unnecessary long retries."
       ],
       "verification": [
-        "Run the controller latency and browser-use compatibility tests.",
+        "Run the native submission, response-recovery, and failure-classification tests.",
+        "Run a focused live browser smoke exercise covering a successful response and a silent-stall/recovery case.",
         "Run the canonical repository validation."
       ],
       "allowed_paths": [
@@ -50,10 +53,102 @@
         "scripts/",
         "tests/"
       ],
-      "priority": 90,
-      "splittable": false,
+      "priority": 115,
+      "splittable": true,
       "estimated_size": "medium",
       "phase": "automation",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.live-acceptance-gate-hardening",
+      "title": "Make M0/M1/M2 live acceptance gates fail fast and diagnostically",
+      "objective": "Turn live acceptance from a long opaque wait into bounded evidence-producing gates that identify the exact seam that failed before expensive retries begin.",
+      "depends_on": [
+        "automation.browser-terminality-and-single-send"
+      ],
+      "acceptance_criteria": [
+        "M0 records distinct submission, terminal-response, parser, patch-application, validation, and commit stages.",
+        "M0/M1/M2 stop or retry according to the detected failure class instead of treating every stall as generic chat failure.",
+        "Live artifacts remain internally consistent and are not synthesized from source inspection or unit tests.",
+        "A failed live gate preserves enough evidence to resume the same milestone without restarting unrelated work."
+      ],
+      "verification": [
+        "Run the M0 live harness through successful completion.",
+        "Run the M1 harness and verify its 20-operation evidence contract.",
+        "Run targeted acceptance-harness tests and the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "scripts/",
+        "automation/chromium/",
+        "automation/orchestrator/",
+        "tests/",
+        "docs/operations/"
+      ],
+      "priority": 125,
+      "splittable": true,
+      "estimated_size": "medium",
+      "phase": "engineering_os",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.multi-step-task-execution",
+      "title": "Support multi-prompt task completion as a first-class execution pattern",
+      "objective": "Allow a real engineering task to span multiple prompt operations when needed while preserving one durable task identity, bounded retries, and exact operation provenance.",
+      "depends_on": [
+        "engineering.live-acceptance-gate-hardening"
+      ],
+      "acceptance_criteria": [
+        "A task may require multiple prompt operations without being treated as duplicate task work.",
+        "Each prompt operation has a durable operation ID and an unambiguous relationship to the parent task attempt.",
+        "A retry never re-submits an operation whose submission was already acknowledged unless explicit recovery proves the original operation is lost or terminal.",
+        "Task completion summarizes the complete sequence of verified operations and repository changes."
+      ],
+      "verification": [
+        "Run controller, bridge, task-ledger, and retry/recovery tests.",
+        "Run a focused live multi-operation exercise after M0/M1 acceptance is green.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "automation/chromium/",
+        "automation/orchestrator/",
+        "scripts/",
+        "tests/"
+      ],
+      "priority": 118,
+      "splittable": true,
+      "estimated_size": "medium",
+      "phase": "engineering_os",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.execution-pacing-and-retry-policy",
+      "title": "Tune unattended pacing and retry behavior from measured failure evidence",
+      "objective": "Reduce wasted wall-clock time by distinguishing healthy long generations, silent browser stalls, contract-invalid responses, verification failures, and infrastructure failures before selecting the next retry action.",
+      "depends_on": [
+        "engineering.multi-step-task-execution"
+      ],
+      "acceptance_criteria": [
+        "Retry policy is explicitly different for browser/controller infrastructure, malformed completion contracts, patch/verification failures, and legitimate multi-prompt continuation.",
+        "The same failure signature does not consume unbounded retry cycles without a recovery action or terminal stop reason.",
+        "Long-running generations are not reloaded solely because they are old when meaningful progress is still observed.",
+        "Measured latency and failure evidence is persisted so later pacing changes can be based on runtime data rather than guesswork."
+      ],
+      "verification": [
+        "Run retry, watchdog, telemetry, and failure-classification tests.",
+        "Review M0/M1 live timing and failure evidence before finalizing thresholds.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "automation/chromium/",
+        "automation/orchestrator/",
+        "scripts/",
+        "tests/",
+        "docs/operations/"
+      ],
+      "priority": 112,
+      "splittable": true,
+      "estimated_size": "medium",
+      "phase": "engineering_os",
       "status": "pending"
     },
     {
@@ -61,7 +156,7 @@
       "title": "Make completion evidence authoritative",
       "objective": "Ensure unattended task completion is based on reproducible repository verification and durable ledger evidence rather than model claims alone.",
       "depends_on": [
-        "automation.response-handoff-latency"
+        "engineering.execution-pacing-and-retry-policy"
       ],
       "acceptance_criteria": [
         "A model cannot mark an unverified patch complete.",
@@ -76,15 +171,15 @@
         "scripts/",
         "tests/"
       ],
-      "priority": 100,
+      "priority": 105,
       "splittable": true,
-      "estimated_size": "large",
+      "estimated_size": "medium",
       "phase": "engineering_os",
       "status": "pending"
     },
     {
       "id": "engineering.hybrid-roadmap-planning",
-      "title": "Add deterministic-first hybrid roadmap planning",
+      "title": "Maintain deterministic-first hybrid roadmap planning",
       "objective": "Select the next executable task from a structured roadmap using deterministic dependency and safety rules first, with optional AI ranking only among eligible tasks.",
       "depends_on": [
         "engineering.task-evidence-verification"
@@ -92,7 +187,8 @@
       "acceptance_criteria": [
         "Roadmaps have stable task IDs, dependencies, acceptance criteria, verification, scope, and finite status values.",
         "Dependency cycles, missing dependencies, invalid AI rankings, and scope escapes are rejected deterministically.",
-        "The executor receives only one selected task and never receives authority to choose the next task."
+        "The executor receives only one selected task and never receives authority to choose the next task.",
+        "Task sizes and dependency boundaries keep the first unattended tasks small enough to verify quickly before larger work is scheduled."
       ],
       "verification": [
         "Run the hybrid planner unit tests.",
@@ -131,7 +227,7 @@
         "automation/orchestrator/",
         "tests/"
       ],
-      "priority": 80,
+      "priority": 90,
       "splittable": true,
       "estimated_size": "large",
       "phase": "engineering_os",
@@ -157,6 +253,37 @@
         "scripts/",
         "tests/",
         "automation/"
+      ],
+      "priority": 80,
+      "splittable": true,
+      "estimated_size": "medium",
+      "phase": "engineering_os",
+      "status": "pending"
+    },
+    {
+      "id": "engineering.sustained-unattended-burn-in",
+      "title": "Run sustained unattended burn-in and tune throughput from evidence",
+      "objective": "Validate that the hardened control plane can sustain long sequences of real work without silent stalls, duplicate submissions, stuck retries, or loss of repository provenance, then tune throughput using the measured runtime profile.",
+      "depends_on": [
+        "engineering.application-verification"
+      ],
+      "acceptance_criteria": [
+        "A sustained live run completes a representative sequence of independent tasks with no duplicate browser submissions.",
+        "Silent stalls have bounded detection and recovery time and do not consume an entire unattended work window unnoticed.",
+        "Task throughput, recovery frequency, retry frequency, and verification latency are captured as runtime evidence.",
+        "Throughput improvements are introduced only after the corresponding reliability evidence is stable."
+      ],
+      "verification": [
+        "Run the sustained live burn-in harness using the authenticated native Chromium controller.",
+        "Review runtime telemetry for stall and retry patterns.",
+        "Run the canonical repository validation before and after throughput tuning."
+      ],
+      "allowed_paths": [
+        "scripts/",
+        "automation/chromium/",
+        "automation/orchestrator/",
+        "tests/",
+        "docs/operations/"
       ],
       "priority": 70,
       "splittable": true,
