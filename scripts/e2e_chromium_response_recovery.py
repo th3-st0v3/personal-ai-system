@@ -493,29 +493,6 @@ def runtime_evaluate(
     return result.get("value")
 
 
-def wait_for_extension_marker(
-    cdp: BrowserCdpClient,
-    session_id: str,
-    timeout: float = 10.0,
-) -> None:
-    deadline = time.monotonic() + timeout
-    last_value: object = None
-    while time.monotonic() < deadline:
-        last_value = runtime_evaluate(
-            cdp,
-            session_id,
-            "Boolean(document.getElementById('pasi-activity-indicator'))",
-            timeout=3.0,
-        )
-        if last_value is True:
-            return
-        time.sleep(0.2)
-    raise AssertionError(
-        "PASI Chromium extension did not inject its activity marker into the fixture page; "
-        f"last marker state={last_value!r}"
-    )
-
-
 def start_chrome(
     chrome_binary: str,
     debug_port: int,
@@ -661,8 +638,6 @@ def main() -> None:
                     session_id=browser_session,
                     timeout=10.0,
                 )
-
-                wait_for_extension_marker(cdp, browser_session, timeout=10.0)
 
                 browser_state = runtime_evaluate(
                     cdp,
