@@ -30,10 +30,10 @@ test('recovery preserves a verified response and includes response text in compl
 });
 
 test('recovery binds visible response capture to the current operation prompt', () => {
-  assert.match(source, /function latestAssistantForOperation\(operation, baseline\)/);
+  assert.match(source, /function latestAssistantForOperation\(operation\)/);
   assert.match(source, /function userMessageMatchesOperation\(node, operation\)/);
   assert.match(source, /matchedUsers\.some\(\(user\) => nodeFollows\(user, node\)\)/);
-  assert.match(source, /const response = latestAssistantForOperation\(current, baseline\)/);
+  assert.match(source, /const response = latestAssistantForOperation\(current\)/);
 });
 
 test('recovery observations identify the active prompt operation so the bridge can persist response evidence', () => {
