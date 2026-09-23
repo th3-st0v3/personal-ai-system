@@ -110,6 +110,8 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
             'install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"',
             'BRIDGE_URL="http://127.0.0.1:8765/health"',
             'BRIDGE_STARTED=0',
+            'bridge_already_healthy=0',
+            'refusing to rotate credentials behind the live bridge',
             '"$PYTHON" -m automation.orchestrator.bridge >"$BRIDGE_LOG" 2>&1 &',
             'pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30',
             'git worktree remove --force "$WORKTREE"',
