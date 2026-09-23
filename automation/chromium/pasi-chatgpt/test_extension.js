@@ -270,6 +270,16 @@ test('native prompt submission uses a single send strategy and never duplicates 
   assert.doesNotMatch(content, /newestUserMatches/);
 });
 
+test('native completion binds capture to a new assistant reply for the active operation', () => {
+  assert.match(content, /function snapshotAssistantMessages\(\)/);
+  assert.match(content, /function assistantResponseEvidence\(snapshot, prompt, baseline\)/);
+  assert.match(content, /function userMessageMatchesPrompt\(node, prompt\)/);
+  assert.match(content, /matchedUsers\.some\(\(user\) => nodeFollows\(user, node\)\)/);
+  assert.match(content, /const assistantSnapshot = snapshotAssistantMessages\(\)/);
+  assert.match(content, /Boolean\(assistantResponseEvidence\(assistantSnapshot, promptText, baseline\)\)/);
+  assert.match(content, /\{ assistantSnapshot, prompt: promptText \}/);
+});
+
 test('native completion captures responses through the event-driven waiter and bounded evidence', () => {
   assert.match(content, /async function waitForResponse\(baseline(?:,|\))/);
   assert.match(content, /let sawGeneration = false/);
