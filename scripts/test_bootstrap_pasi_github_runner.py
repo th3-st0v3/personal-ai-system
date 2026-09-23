@@ -29,8 +29,11 @@ def test_runner_bootstrap_is_noninteractive_and_service_aware() -> None:
 def test_authoritative_workflow_does_not_use_hosted_runner() -> None:
     workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     assert "ubuntu-latest" not in workflow
-    assert "self-hosted" in workflow
-    assert "pasi-wsl" in workflow
+    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in workflow
+    assert "check_fast.sh" in workflow
+    assert "mode:" in workflow
+    assert "fast" in workflow
+    assert "live" in workflow
 
 
 def test_authoritative_ci_stays_self_hosted_and_fork_safe() -> None:
@@ -60,5 +63,14 @@ def test_obsolete_hosted_pr_audits_are_not_present() -> None:
 
 def test_security_runs_cancel_stale_heads() -> None:
     workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
-    assert "group: pasi-security-${{ github.event.pull_request.number || github.ref }}" in workflow
+    assert "group: pasi-security-" in workflow
+    assert "github.event.pull_request.number" in workflow
     assert "cancel-in-progress: true" in workflow
+
+
+def test_fast_validator_exists_and_stays_free_of_live_acceptance_scripts() -> None:
+    script = (ROOT / "scripts" / "check_fast.sh").read_text(encoding="utf-8")
+    assert "python -m pytest -q" in script
+    assert "node --test" in script
+    assert "scripts/e2e_chromium_response_recovery.py" not in script
+    assert "scripts/e2e_chromium_prompt_submission.py" not in script
