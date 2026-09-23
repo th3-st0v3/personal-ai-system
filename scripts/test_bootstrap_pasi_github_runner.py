@@ -47,12 +47,16 @@ def test_authoritative_ci_stays_self_hosted_and_fork_safe() -> None:
     assert "github.event.pull_request.head.repo.full_name == github.repository" in security_workflow
 
 
-def test_development_and_branch_hygiene_validation_stays_self_hosted() -> None:
+def test_development_and_branch_hygiene_validation_uses_intended_runner_boundaries() -> None:
     development = (ROOT / ".github" / "workflows" / "pasi-development.yml").read_text(encoding="utf-8")
     branch_hygiene = (ROOT / ".github" / "workflows" / "branch-hygiene.yml").read_text(encoding="utf-8")
-    assert "ubuntu-latest" not in development
-    assert "ubuntu-latest" not in branch_hygiene
-    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in development
+    development_verify = development[development.index("  verify:"):development.index("  desktop:")]
+    development_desktop = development[development.index("  desktop:"):]
+
+    assert "runs-on: ubuntu-latest" in development_verify
+    assert "runs-on: [self-hosted, linux, x64, pasi-desktop]" in development_desktop
+    assert development_desktop.count("runs-on: [self-hosted, linux, x64, pasi-desktop]") == 1
+    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in branch_hygiene
     assert branch_hygiene.count("runs-on: [self-hosted, linux, x64, pasi-wsl]") == 2
 
 
@@ -74,3 +78,4 @@ def test_fast_validator_exists_and_stays_free_of_live_acceptance_scripts() -> No
     assert "node --test" in script
     assert "scripts/e2e_chromium_response_recovery.py" not in script
     assert "scripts/e2e_chromium_prompt_submission.py" not in script
+}
