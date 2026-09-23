@@ -147,7 +147,7 @@ fi
 # existing profile so the native content script has a real tab to attach to.
 if command -v powershell.exe >/dev/null 2>&1 && command -v tasklist.exe >/dev/null 2>&1; then
   if tasklist.exe 2>/dev/null | grep -qi '^opera\.exe'; then
-    if powershell.exe -NoProfile -NonInteractive -Command '$p = Get-CimInstance Win32_Process -Filter "Name = \'opera.exe\'" | Where-Object { $_.ExecutablePath } | Select-Object -First 1; if ($p) { Start-Process -FilePath $p.ExecutablePath -ArgumentList "https://chatgpt.com/" | Out-Null; exit 0 } exit 1' >/dev/null 2>&1; then
+    if powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'Name = \"opera.exe\"' | Where-Object { \$_.ExecutablePath } | Select-Object -First 1; if (\$p) { Start-Process -FilePath \$p.ExecutablePath -ArgumentList 'https://chatgpt.com/' | Out-Null; exit 0 }; exit 1" >/dev/null 2>&1; then
       echo "M0 browser bootstrap: opened https://chatgpt.com/ in the running Opera profile" | tee -a "$LOG"
     else
       echo "M0 browser bootstrap: could not open ChatGPT through the running Opera profile; continuing to the authenticated heartbeat gate" | tee -a "$LOG"
