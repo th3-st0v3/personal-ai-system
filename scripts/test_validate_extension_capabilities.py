@@ -47,6 +47,20 @@ class ExtensionCapabilityValidationTests(unittest.TestCase):
     def test_current_repository_manifest_passes(self) -> None:
         self.assertEqual(validator.validate_extension_capabilities(), [])
 
+    def test_templated_fixture_port_does_not_raise(self) -> None:
+        temp, extension, _ = self._fixture()
+        fixture = temp / "fixture.py"
+        fixture.write_text(
+            "BROWSER = 'http://127.0.0.1:{port}/json/version'\n",
+            encoding="utf-8",
+        )
+        errors = validator.validate_extension_capabilities(
+            manifest_path=extension / "manifest.json",
+            extension_root=extension,
+            python_files=[fixture],
+        )
+        self.assertEqual(errors, [])
+
     def test_missing_permission_is_reported(self) -> None:
         temp, extension, _ = self._fixture()
         manifest_path = extension / "manifest.json"
