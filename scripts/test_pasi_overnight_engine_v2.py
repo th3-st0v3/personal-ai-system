@@ -444,7 +444,7 @@ branch refs/heads/main
             "evidence": "attempt failed before a usable patch was produced",
             "repository_progress": "stopped",
         }
-        success_values = dict(failure_values, evidence="verified patch for next task", repository_progress="changed")
+        success_values = dict(failure_values, evidence="verified patch for the next task and deterministic acceptance checks", repository_progress="changed")
         parsed = iter(
             [
                 ("needs_revision", "first failure", "", "", False, failure_values),
