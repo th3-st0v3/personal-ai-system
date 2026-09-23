@@ -450,7 +450,7 @@ branch refs/heads/main
                 ("needs_revision", "first failure", "", "", False, failure_values),
                 ("needs_revision", "second failure", "", "", False, failure_values),
                 ("needs_revision", "third failure", "", "", False, failure_values),
-                ("complete", "next task completed", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
+                ("complete", "completed the next verified task successfully", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
             ]
         )
 
@@ -987,12 +987,12 @@ branch refs/heads/main
         self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
         for path in sorted(expected):
             patch = (
-                f"diff --git a/{path} b/{path}\\n"
-                f"--- a/{path}\\n"
-                f"+++ b/{path}\\n"
-                "@@ -1 +1 @@\\n"
-                "-old\\n"
-                "+new\\n"
+                f"diff --git a/{path} b/{path}\n"
+                f"--- a/{path}\n"
+                f"+++ b/{path}\n"
+                "@@ -1 +1 @@\n"
+                "-old\n"
+                "+new\n"
             )
             with self.assertRaisesRegex(ValueError, "protected unattended"):
                 engine.validate_patch_paths(patch, False, Path.cwd())
