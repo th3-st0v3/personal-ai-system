@@ -28,6 +28,7 @@ TOKEN_FILE="$HOME/.pasi/bridge-token"
 mkdir -p "$HOME/.pasi"
 
 BRIDGE_URL="http://127.0.0.1:8765/health"
+BROWSER_HEALTH_URL="http://127.0.0.1:8765/browser/health"
 BRIDGE_LOG="$EVIDENCE_DIR/m0-bridge.log"
 BRIDGE_PID=""
 BRIDGE_STARTED=0
@@ -52,6 +53,10 @@ fi
 if (( bridge_already_healthy == 1 )); then
   if [[ ! -s "$TOKEN_FILE" ]]; then
     echo "error: PASI bridge is already healthy but its managed token file is missing; refusing to rotate credentials behind the live bridge" >&2
+    exit 7
+  fi
+  if ! curl -fsS --max-time 3 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BROWSER_HEALTH_URL" >/dev/null 2>&1; then
+    echo "error: managed PASI bridge token does not authenticate against the already-healthy bridge; refusing to overwrite the live credential state" >&2
     exit 7
   fi
 elif [[ ! -s "$TOKEN_FILE" ]]; then
@@ -102,21 +107,27 @@ if ! curl -fsS --max-time 2 "$BRIDGE_URL" >/dev/null 2>&1; then
   [[ -s "$BRIDGE_LOG" ]] && tail -80 "$BRIDGE_LOG" >&2 || true
   exit 8
 fi
+if ! curl -fsS --max-time 3 -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$BROWSER_HEALTH_URL" >/dev/null 2>&1; then
+  echo "error: PASI bridge token is not accepted by the browser-health endpoint" >&2
+  exit 9
+fi
 
-TASK="M0 live qualification: treat this as one sustained qualification task, not a one-file task. Work through the complete current M0 gate in this dedicated acceptance worktree: (1) re-establish CI evidence against the current head, (2) confirm canonical validation, (3) complete the real authenticated ChatGPT DOM acceptance through the native PASI browser path, (4) confirm 168-hour PASI startup readiness, and (5) preserve already-verified capabilities. Inspect the relevant repository and previous failure evidence first, then make the smallest necessary related implementation changes and verify them. You may perform multiple implementation, inspection, and repair steps inside this single M0 task; do not treat any of those steps as a new task. Do not stop after creating the proof file, producing a small patch, or getting one test to pass. Continue working until every M0 acceptance criterion has direct evidence. Only after the full M0 gate is actually satisfied, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF, and return the normal PASI completion contract with one unified patch. Do not modify protected PASI runtime files. If a real external obstacle prevents completion, report blocked with the concrete evidence rather than claiming success."
+TASK="M0 P0.1 live task acceptance: execute one real sustained PASI engineering task through the complete acceptance seam in this dedicated worktree. First inspect the existing M0 acceptance harness and the prior failure evidence. Then perform the smallest necessary related inspection or repair work needed to establish this exact chain: an authenticated ChatGPT response through the native PASI browser path, the normal PASI completion contract, extraction of the unified patch, successful git patch application, successful canonical validation via scripts/check_all.sh, and a new clean Git commit containing the required evidence artifact. Keep all of those steps inside this single task; do not turn them into separate tasks or stop after creating a proof file, making a tiny patch, or seeing one intermediate check pass. Only after the complete chain is directly evidenced, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF, and return the normal PASI completion contract with the unified patch that produces it. Do not modify protected PASI runtime/control files. If the authenticated browser, contract, patch, canonical validation, or commit chain genuinely fails, report the concrete failure instead of claiming completion."
 
-# M0 is a single live acceptance seam. Use the guarded ChatGPT path directly
-# instead of the multi-task overnight engine so a real authenticated DOM
-# acceptance reaches a bounded terminal result for this one proof task.
+# M0 P0.1 is one live acceptance seam. The browser response, contract, patch,
+# canonical gate, and commit are all part of the same bounded qualification task.
 git worktree add --quiet -b "$BRANCH" "$WORKTREE" HEAD
 
-"$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30
+BEFORE_COMMIT="$("$PYTHON" -c 'import subprocess,sys; print(subprocess.check_output(["git","-C",sys.argv[1],"rev-parse","HEAD"], text=True).strip())' "$WORKTREE")"
+
+"$PYTHON" scripts/pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30 2>&1 | tee "$PREFLIGHT_FILE" | tee -a "$LOG"
 
 RESPONSE_FILE="$EVIDENCE_DIR/m0-live-response.txt"
 "$PYTHON" scripts/pasi_chat_guard.py "$TASK" --github public --timeout 3600 --repo "$WORKTREE" > >(tee "$RESPONSE_FILE" | tee -a "$LOG") 2>&1
 
-"$PYTHON" - "$WORKTREE" "$BRANCH" "$TASK" "$RESPONSE_FILE" "$LOG" "$EVIDENCE_DIR" <<'PY'
+"$PYTHON" - "$WORKTREE" "$BRANCH" "$BEFORE_COMMIT" "$TASK" "$RESPONSE_FILE" "$LOG" "$EVIDENCE_DIR" <<'PY'
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -124,16 +135,28 @@ from scripts.pasi_overnight_engine_v2 import completion_contract, parse_response
 
 worktree = Path(sys.argv[1])
 branch = sys.argv[2]
-task = sys.argv[3]
-response_file = Path(sys.argv[4])
-log = Path(sys.argv[5])
-evidence_dir = Path(sys.argv[6])
+before_commit = sys.argv[3]
+task = sys.argv[4]
+response_file = Path(sys.argv[5])
+log = Path(sys.argv[6])
+evidence_dir = Path(sys.argv[7])
 response = response_file.read_text(encoding="utf-8")
 status, summary, next_task, patch, allow_delete, values = parse_response(response)
 if not completion_contract(status, values):
     raise SystemExit("M0 live acceptance returned a non-complete PASI response contract")
 if not patch:
     raise SystemExit("M0 live acceptance returned an empty patch")
+
+chat_url_match = re.search(r"^Chat URL:s+(https://chatgpt.com/c/[^s]+)$", response, re.MULTILINE)
+completion_match = re.search(r"^Completion:s+(.+)$", response, re.MULTILINE)
+if not chat_url_match:
+    raise SystemExit("error: M0 response did not contain a verified ChatGPT conversation URL")
+if not completion_match or completion_match.group(1).strip().casefold() != "complete":
+    raise SystemExit("error: M0 response did not report terminal ChatGPT completion")
+
+preflight_text = (evidence_dir / "m0-preflight.txt").read_text(encoding="utf-8")
+if "PASI desktop preflight: PASS" not in preflight_text:
+    raise SystemExit("error: M0 desktop preflight evidence is missing PASS")
 
 proof_path = worktree / "acceptance" / "M0-LIVE-PROOF.txt"
 commit, gate_output = verify_and_commit(
@@ -145,10 +168,36 @@ commit, gate_output = verify_and_commit(
     push=False,
     promote=False,
 )
+if "ALL LOCAL VALIDATION PASSED" not in gate_output:
+    raise SystemExit("error: canonical validation did not report ALL LOCAL VALIDATION PASSED")
 if not proof_path.is_file():
     raise SystemExit("error: proof file missing")
-if proof_path.read_text(encoding="utf-8") != "PASI M0 LIVE PROOF\n":
+if proof_path.read_text(encoding="utf-8") != "PASI M0 LIVE PROOF
+":
     raise SystemExit("error: proof file must contain exactly one line")
+
+commit_parents = subprocess.run(
+    ["git", "rev-list", "--parents", "-n", "1", commit],
+    cwd=worktree,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+parent_fields = commit_parents.stdout.strip().split()
+if commit_parents.returncode != 0 or len(parent_fields) != 2 or parent_fields[1] != before_commit:
+    raise SystemExit(f"error: M0 commit {commit} is not the direct result of applying the acceptance patch")
+
+committed_proof = subprocess.run(
+    ["git", "show", f"{commit}:acceptance/M0-LIVE-PROOF.txt"],
+    cwd=worktree,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+if committed_proof.returncode != 0 or committed_proof.stdout != "PASI M0 LIVE PROOF
+":
+    raise SystemExit("error: required proof artifact is not present exactly in the committed tree")
+
 status_output = subprocess.run(
     ["git", "status", "--porcelain", "--untracked-files=all"],
     cwd=worktree,
@@ -176,19 +225,25 @@ evidence.write_text(
             "status": "PASS",
             "provider": "chatgpt_browser",
             "authenticated_live_dom_required": True,
+            "authenticated_browser_chat_url": chat_url_match.group(1),
+            "completion": completion_match.group(1).strip(),
+            "preflight_evidence": str((evidence_dir / "m0-preflight.txt").resolve()),
             "worktree": str(worktree.resolve()),
+            "base_commit": before_commit,
             "branch": str(branch),
             "commit": commit,
             "proof_file": str(proof_path.resolve()),
             "log": str(log.resolve()),
+            "canonical_validation": "ALL LOCAL VALIDATION PASSED",
             "gate_output": gate_output[-4000:],
         },
         indent=2,
     )
-    + "\n",
+    + "
+",
     encoding="utf-8",
 )
-print("M0 PASS: authenticated ChatGPT browser response -> guarded parser -> git apply -> canonical validation -> commit")
+print("M0 PASS: authenticated ChatGPT response -> contract parsing -> git apply -> canonical validation -> committed proof -> clean worktree")
 print(f"Evidence: {evidence}")
 print(f"Commit: {commit}")
 PY
