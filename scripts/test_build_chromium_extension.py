@@ -22,6 +22,18 @@ def test_build_uses_an_allowlist_and_excludes_python_cache() -> None:
         )
 
 
+def test_rebuild_removes_stale_reserved_entries_from_existing_staging() -> None:
+    with TemporaryDirectory() as temporary:
+        output = Path(temporary) / "pasi-chatgpt"
+        stale_cache = output / ("_" + "_" + "pycache__")
+        stale_cache.mkdir(parents=True)
+        (stale_cache / ("junk" + ".py" + "c")).write_bytes(b"stale")
+        (output / "_reserved.txt").write_text("stale", encoding="utf-8")
+        build_extension(output)
+        assert not stale_cache.exists()
+        assert not (output / "_reserved.txt").exists()
+
+
 def test_archive_is_cache_free_and_contains_only_the_unpackable_extension() -> None:
     with TemporaryDirectory() as temporary:
         output = build_extension_archive(Path(temporary) / "pasi-chatgpt")
