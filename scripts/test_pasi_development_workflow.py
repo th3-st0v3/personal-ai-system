@@ -12,21 +12,17 @@ def test_development_workflow_is_manual_and_has_control_modes() -> None:
         assert f"          - {mode}" in source
 
 
-def test_development_workflow_uses_desktop_runner_for_live_automation() -> None:
+def test_development_workflow_uses_self_hosted_verification_and_desktop_runner() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
+    verify = source[source.index("  verify:"):source.index("  desktop:")]
+    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in verify
+    assert "bash scripts/check_fast.sh" in verify
     assert "runs-on: [self-hosted, linux, x64, pasi-desktop]" in source
     assert "scripts/pasi_desktop_preflight.py" in source
     assert "scripts/start_pasi_168h.sh --roadmap" in source
     assert "scripts/status_pasi_overnight.sh" in source
     assert "scripts/stop_pasi_overnight.sh" in source
-
-
-def test_development_workflow_keeps_verification_on_hosted_runner() -> None:
-    source = WORKFLOW.read_text(encoding="utf-8")
-    hosted = source[source.index("  verify:"):source.index("  desktop:")]
-    assert "runs-on: ubuntu-latest" in hosted
-    assert "bash scripts/check_all.sh" in hosted
-    assert "node --test automation/chromium/pasi-chatgpt/test_dom_fixtures.js" in hosted
+    assert "ubuntu-latest" not in source
 
 
 def test_development_workflow_validates_roadmap_scope() -> None:
