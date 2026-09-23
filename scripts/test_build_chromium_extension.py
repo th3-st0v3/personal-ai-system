@@ -1,8 +1,14 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zipfile import ZipFile
 
-from scripts.build_chromium_extension import EXTENSION_FILES, SOURCE, build_extension
+from scripts.build_chromium_extension import (
+    EXTENSION_FILES,
+    SOURCE,
+    build_extension,
+    build_extension_archive,
+)
 
 
 def test_build_uses_an_allowlist_and_excludes_python_cache() -> None:
@@ -13,6 +19,21 @@ def test_build_uses_an_allowlist_and_excludes_python_cache() -> None:
         assert not any(
             path.name == "__pycache__" or path.suffix in {".pyc", ".pyo"}
             for path in output.rglob("*")
+        )
+
+
+def test_archive_is_cache_free_and_contains_only_the_unpackable_extension() -> None:
+    with TemporaryDirectory() as temporary:
+        output = build_extension_archive(Path(temporary) / "pasi-chatgpt")
+        with ZipFile(output) as archive:
+            members = [Path(info.filename) for info in archive.infolist() if not info.is_dir()]
+        assert sorted(path.as_posix() for path in members) == sorted(
+            f"pasi-chatgpt/{relative}" for relative in EXTENSION_FILES
+        )
+        assert not any(
+            any(component.startswith("_") for component in path.parts)
+            or path.suffix in {".pyc", ".pyo"}
+            for path in members
         )
 
 
@@ -32,3 +53,4 @@ def test_source_is_the_expected_native_extension_directory() -> None:
     assert SOURCE.name == "pasi-chatgpt"
     assert SOURCE.parent.name == "chromium"
     assert (SOURCE / "manifest.json").is_file()
+    assert not (SOURCE / "activity.js").exists()
