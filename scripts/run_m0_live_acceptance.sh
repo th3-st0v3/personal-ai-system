@@ -44,7 +44,7 @@ do
   fi
 done
 
-TASK="M0 live acceptance: in the dedicated PASI acceptance worktree, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF. Do not modify protected PASI runtime files. Run canonical validation. Return the normal PASI completion contract and one unified patch."
+TASK="M0 live qualification: treat this as one sustained qualification task, not a one-file task. Work through the complete current M0 gate in this dedicated acceptance worktree: (1) re-establish CI evidence against the current head, (2) confirm canonical validation, (3) complete the real authenticated ChatGPT DOM acceptance through the native PASI browser path, (4) confirm 168-hour PASI startup readiness, and (5) preserve already-verified capabilities. Inspect the relevant repository and previous failure evidence first, then make the smallest necessary related implementation changes and verify them. You may perform multiple implementation, inspection, and repair steps inside this single M0 task; do not treat any of those steps as a new task. Do not stop after creating the proof file, producing a small patch, or getting one test to pass. Continue working until every M0 acceptance criterion has direct evidence. Only after the full M0 gate is actually satisfied, create acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF, and return the normal PASI completion contract with one unified patch. Do not modify protected PASI runtime files. If a real external obstacle prevents completion, report blocked with the concrete evidence rather than claiming success."
 
 # M0 is a single live acceptance seam. Use the guarded ChatGPT path directly
 # instead of the multi-task overnight engine so a real authenticated DOM
