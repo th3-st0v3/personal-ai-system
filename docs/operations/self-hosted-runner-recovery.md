@@ -13,9 +13,20 @@ The test/security jobs use the first four required labels, while runner capabili
 
 ## Why the queue happens
 
-A self-hosted job remains queued when GitHub cannot find an online and idle runner matching its labels. The current PASI workflow jobs observed on September 22, 2026 have been queued with `runner_id=0` and no runner name, which is consistent with no eligible online runner.
+A self-hosted job remains queued when GitHub cannot find an online and idle runner matching its labels. A single PASI runner can also make independent jobs execute serially; unlike separate GitHub-hosted workers, one machine cannot execute several runner jobs at once through a single runner listener.
 
-A local runner can also report `Connected to GitHub` and `Listening for Jobs` while the repository still shows no job assignment. When that occurs, treat the local registration as suspect rather than assuming the workflow labels are wrong.
+A local runner can report `Connected to GitHub` and `Listening for Jobs` while GitHub CLI/UI briefly still reports queued metadata. Treat the runner journal as direct evidence of job assignment and use `gh run view` after the run completes for authoritative conclusions.
+
+## Fast validation versus live acceptance
+
+The authoritative `test` workflow has two modes:
+
+- **fast** (the default for branch pushes): runs the existing Python unit/contract tests, JavaScript unit/fixture tests, shell syntax, and JSON validation through `scripts/check_fast.sh`.
+- **live** (manual `workflow_dispatch` only): additionally runs the Chromium response-recovery and prompt-submission acceptance scripts against their local fixture/browser environment.
+
+The fast path deliberately does not run `apt-get`, start a live Chromium acceptance session, invoke the full `check_all.sh` quality sweep, or duplicate individual test suites. Existing PASI tests already use `FakeTransport`, mocked adapters, temporary directories, local HTTP fixtures, and JSDOM fixtures to exercise browser/bridge behavior without requiring a real ChatGPT session.
+
+The slower `scripts/check_all.sh` suite remains available for full local/maintenance validation. It performs broader quality checks such as static typing, Markdown linting, browser-use compatibility, web smoke tests, and the discovered test suite.
 
 ## Register or repair the WSL runner
 
@@ -82,11 +93,28 @@ GitHub's runner documentation uses the `Listening for Jobs` state as the signal 
 
 Then manually dispatch the authoritative test workflow or push a new commit to a branch. The job should show the PASI self-hosted runner rather than `ubuntu-latest`.
 
+## Clear stale branch runs before diagnosing the current head
+
+When one self-hosted runner has been offline, several older jobs may already be queued. They can make the machine execute old work before the newest head is reached.
+
+List branch runs:
+
+```bash
+gh run list \
+  -R th3-st0v3/personal-ai-system \
+  --branch pasi/runner-recovery-20260922 \
+  --limit 100
+```
+
+Cancel stale queued/in-progress runs before diagnosing a new head. Do not cancel the current run you intend to validate.
+
+For repeated workflow updates, the repository's concurrency controls cancel stale validation heads, but jobs that were already assigned can still briefly finish or unwind on the runner.
+
 ## Authoritative billing boundary
 
 PASI validation should not use a GitHub-hosted fallback. GitHub documents self-hosted runner usage as free of GitHub Actions usage charges, while private-repository jobs on GitHub-hosted standard runners consume included minutes and can be billed after the allowance is exhausted.
 
-This is why PR #270 changes the authoritative `test` and security workflows to the PASI self-hosted labels instead of allowing queued infrastructure to silently turn into billed validation attempts.
+This is why authoritative PASI validation uses self-hosted labels instead of allowing queued infrastructure to silently turn into hosted validation attempts.
 
 ## Long-running WSL operation
 
