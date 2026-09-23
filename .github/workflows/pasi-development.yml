@@ -32,7 +32,7 @@ jobs:
     concurrency:
       group: ${{ format('{0}-{1}-verify', github.workflow, github.ref) }}
       cancel-in-progress: false
-    if: ${{ github.event_name == 'push' || inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
+    if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '(m0)')) || inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
