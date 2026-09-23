@@ -225,7 +225,7 @@
     return Boolean((head && text.includes(head)) || (tail && text.includes(tail)));
   }
 
-  function latestAssistantForOperation(operation, baseline) {
+  function latestAssistantForOperation(operation) {
     if (!operation) return '';
     const matchedUsers = userMessages().filter((node) => userMessageMatchesOperation(node, operation));
     if (!matchedUsers.length) return '';
@@ -235,7 +235,7 @@
       const node = nodes[index];
       if (!matchedUsers.some((user) => nodeFollows(user, node))) continue;
       const text = compact(node.innerText || node.textContent || '');
-      if (!text || text.slice(-4000) === String(baseline || '')) continue;
+      if (!text) continue;
       return text.slice(0, MAX_RESPONSE_TEXT_CHARS);
     }
     return '';
@@ -494,7 +494,7 @@
   async function finishVisibleResponse(operationId, current, baseline) {
     if (!current || current.operation_type !== 'prompt') return false;
     if (await finishPersistedResponse(current)) return true;
-    const response = latestAssistantForOperation(current, baseline);
+    const response = latestAssistantForOperation(current);
     if (generating() || !response) return false;
     return finishExisting(operationId, response);
   }
