@@ -51,6 +51,69 @@ PASI_RESULT_PATCH_END
         self.assertEqual(values["requirements"], "complete")
 
 
+    def test_response_contract_parse_failure_retries_current_task(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="contract-retry-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        attempts: list[int] = []
+        failures: list[str] = []
+        success_values = {
+            "requirements": "complete",
+            "limitations": "handled",
+            "research": "not_applicable",
+            "ux": "verified",
+            "backend": "verified",
+            "evidence": "contract retry evidence is verified and complete",
+            "repository_progress": "changed",
+        }
+        parser_results = iter([
+            ValueError("missing summary/evidence/allow_delete"),
+            ("complete", "completed after contract repair", "", "diff --git a/example.txt b/example.txt\n", False, success_values),
+        ])
+
+        def invoke(_task, state_arg, failure):
+            attempts.append(state_arg.current_attempt)
+            failures.append(failure)
+            return 0, "fixture response"
+
+        def parse(_response):
+            value = next(parser_results)
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        def verify(*_args, **_kwargs):
+            engine.STOP = True
+            return "deadbeef", "verified"
+
+        original_stop = engine.STOP
+        try:
+            engine.STOP = False
+            with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
+                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                    with mock.patch.object(engine, "parse_response", side_effect=parse):
+                        with mock.patch.object(engine, "completion_contract", return_value=True):
+                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                with mock.patch.object(engine, "record_task_ledger"):
+                                    with mock.patch.object(engine, "save_state"):
+                                        with mock.patch.object(engine, "log_event"):
+                                            engine.run(state, push=False)
+        finally:
+            engine.STOP = original_stop
+
+        self.assertEqual(attempts, [1, 2])
+        self.assertEqual(failures[0], "")
+        self.assertIn("response_contract:", failures[1])
+        self.assertEqual(state.completed_tasks, 1)
+
     def test_parse_response_records_optional_automation_continue(self) -> None:
         response = """PASI_RESULT_STATUS: complete
 PASI_RESULT_SUMMARY: fixed the issue
