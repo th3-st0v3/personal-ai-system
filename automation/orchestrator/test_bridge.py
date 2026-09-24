@@ -115,6 +115,57 @@ def test_tab_provisioning_observation_is_persisted_separately(tmp_path: Path) ->
     assert bridge.get_browser_observation() == chat_state
     assert bridge.get_browser_provisioning() == observation
 
+def test_http_provisioning_route_persists_dedicated_observation(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    observation = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-24T13:45:00Z",
+        "data": {
+            "kind": "chatgpt_tab_provisioning",
+            "action": "created",
+            "existing_tab_count": 0,
+            "after_create_tab_count": 1,
+            "requested_url": "https://chatgpt.com/c/example",
+        },
+    }
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/browser/provisioning",
+            body=json.dumps({"observation": observation}),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-bridge-token",
+            },
+        )
+        response = connection.getresponse()
+        assert response.status == 201
+        response.read()
+        connection.close()
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "GET",
+            "/browser/provisioning",
+            headers={"Authorization": "Bearer test-bridge-token"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        assert response.status == 200
+        assert payload["observation"] == observation
+        assert bridge.get_browser_observation() != observation
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_bridge_module_resolves_from_repository() -> None:
     assert Path(bridge_module.__file__).resolve() == (Path(__file__).parent / "bridge.py").resolve()
 
