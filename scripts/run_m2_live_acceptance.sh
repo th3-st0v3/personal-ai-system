@@ -195,9 +195,10 @@ print(json.dumps({
     "injection_ready": data.get("injection_ready"),
     "existing_tab_ids": data.get("existing_tab_ids"),
     "existing_tab_urls": data.get("existing_tab_urls"),
-    "after_create_tab_count": data.get("after_create_tab_count"),
     "after_create_tab_ids": data.get("after_create_tab_ids"),
     "after_create_tab_urls": data.get("after_create_tab_urls"),
+    "resume_operation_id": data.get("resume_operation_id"),
+    "resume_handoff_sent": data.get("resume_handoff_sent"),
 }))
 PY
 }
@@ -368,7 +369,7 @@ wait_for_manual_reload_gate() {
 import json, os, sys, time, urllib.parse, urllib.request
 opid = sys.argv[1]
 headers = {"Authorization": "Bearer " + os.environ["PASI_BRIDGE_TOKEN"]}
-deadline = time.time() + 180
+deadline = time.time() + 900
 while time.time() < deadline:
     req = urllib.request.Request(
         "http://127.0.0.1:8765/operation?operation_id=" + urllib.parse.quote(opid, safe=""),
@@ -379,19 +380,7 @@ while time.time() < deadline:
         op = (json.loads(response.read(2000000).decode()).get("operation") or {})
     response_text = op.get("response_text")
     completion_markers = op.get("completion_markers") or []
-    response_has_marker = (
-        isinstance(response_text, str)
-        and any(
-            isinstance(marker, str)
-            and marker.strip()
-            and any(
-                line.strip() == marker.strip()
-                or line.strip().startswith(marker.strip() + ":")
-                for line in response_text.splitlines()
-            )
-            for marker in completion_markers
-        )
-    )
+    response_has_marker = marker_satisfied(response_text, completion_markers)
     if (
         op.get("manual_reload_gate") is True
         and op.get("manual_reload_gate_armed") is True
@@ -409,7 +398,7 @@ raise SystemExit(3)
 PY
 }
 
-echo "Waiting for the durable M2 manual reload gate to arm with persisted response evidence..."
+echo "Waiting up to 900 seconds for the durable M2 manual reload gate to arm with persisted response evidence..."
 if ! wait_for_manual_reload_gate; then
   "$PYTHON" - "$operation_id" <<'PY' >&2
 import json, os, sys, urllib.parse, urllib.request
@@ -423,15 +412,20 @@ try:
     )
     with urllib.request.urlopen(req, timeout=5) as response:
         op = (json.loads(response.read(2000000).decode()).get("operation") or {})
+    telemetry = {}
+    try:
+        telemetry_req = urllib.request.Request(
+            "http://127.0.0.1:8765/browser/telemetry",
+            headers=headers,
+            method="GET",
+        )
+        with urllib.request.urlopen(telemetry_req, timeout=5) as telemetry_response:
+            telemetry = json.loads(telemetry_response.read(2000000).decode())
+    except Exception:
+        telemetry = {}
     response_text = op.get("response_text") if isinstance(op.get("response_text"), str) else ""
     markers = [m for m in (op.get("completion_markers") or []) if isinstance(m, str)]
-    marker_present = any(
-        marker.strip() and any(
-            line.strip() == marker.strip() or line.strip().startswith(marker.strip() + ":")
-            for line in response_text.splitlines()
-        )
-        for marker in markers
-    )
+    marker_present = marker_satisfied(response_text, markers)
     print(json.dumps({
         "operation_id": opid,
         "status": op.get("status"),
@@ -443,6 +437,7 @@ try:
         "manual_reload_gate_armed": op.get("manual_reload_gate_armed") is True,
         "manual_reload_gate_released": op.get("manual_reload_gate_released") is True,
         "response_tail": response_text[-1000:],
+        "latest_browser_telemetry": telemetry,
     }, indent=2, ensure_ascii=False))
 except Exception as exc:
     print(json.dumps({"operation_id": opid, "diagnostic_error": str(exc)}))
