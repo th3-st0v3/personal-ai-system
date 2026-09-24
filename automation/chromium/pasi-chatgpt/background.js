@@ -11,10 +11,13 @@ const TAB_CREATE_COOLDOWN_MS = 15 * 1000;
 const TAB_PROVISIONING_PENDING_KEY = 'pasi:chatgpt-tab-provisioning-pending';
 const RUNTIME_TELEMETRY_PENDING_KEY = 'pasi:chatgpt-runtime-telemetry-pending';
 const TAB_BOOTSTRAP_RETRY_MS = 1000;
+const TAB_BOOTSTRAP_READY_TTL_MS = 15 * 1000;
 const MAX_RUNTIME_TELEMETRY_QUEUE = 64;
 const MAX_RUNTIME_ERROR_CHARS = 2000;
 let controllerClaimTail = Promise.resolve();
 let tabCreateInFlight = null;
+const tabBootstrapInFlight = new Map();
+const tabBootstrapReadyAt = new Map();
 let cachedBridgeToken = null;
 let bridgeTokenPromise = null;
 
@@ -638,6 +641,15 @@ async function injectChatGptTab(tabId, context = {}) {
 }
 
 async function bootstrapCreatedChatGptTab(tabId, context = {}) {
+  if (typeof tabId !== 'number') return false;
+  const readyAt = Number(tabBootstrapReadyAt.get(tabId) || 0);
+  if (readyAt > 0 && Date.now() - readyAt < TAB_BOOTSTRAP_READY_TTL_MS) {
+    return true;
+  }
+  const existing = tabBootstrapInFlight.get(tabId);
+  if (existing) return existing;
+
+  const run = (async () => {
   for (let attempt = 1; attempt <= 10; attempt += 1) {
     reportRuntimeTelemetry({
       event: 'BOOTSTRAP_ATTEMPT',
@@ -711,6 +723,18 @@ async function bootstrapCreatedChatGptTab(tabId, context = {}) {
     });
   }
   return false;
+  })();
+
+  tabBootstrapInFlight.set(tabId, run);
+  try {
+    const result = await run;
+    if (result === true) tabBootstrapReadyAt.set(tabId, Date.now());
+    return result;
+  } finally {
+    if (tabBootstrapInFlight.get(tabId) === run) {
+      tabBootstrapInFlight.delete(tabId);
+    }
+  }
 }
 
 async function injectExistingChatTabs() {
