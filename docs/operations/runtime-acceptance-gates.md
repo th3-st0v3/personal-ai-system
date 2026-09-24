@@ -91,7 +91,7 @@ The harness writes an evidence artifact even on failure:
 .runtime/acceptance/m2-live-*.json
 ```
 
-The artifact records the stage that failed, operation snapshots, baseline/final conversation signatures, exact conversation URL, bridge/runner PID timestamps, resume output, and final response evidence. It must report `status: PASS` before M2 can be marked complete.
+The artifact records the stage that failed, operation snapshots, baseline/final conversation signatures, exact conversation URL, bridge/runner PID timestamps, resume output, final response evidence, and any fail-closed cleanup actions. On failure after the isolated runner starts, the harness stops the managed supervisor/runner before returning; if the harness had stopped the bridge and failed to restart it, it attempts to restore that previously healthy managed bridge. It must report `status: PASS` before M2 can be marked complete.
 
 ## Close-out rule
 
