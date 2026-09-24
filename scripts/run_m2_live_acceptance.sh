@@ -34,12 +34,19 @@ state = request("GET", "/browser/state").get("observation") or {}
 data = state.get("data") if isinstance(state, dict) and isinstance(state.get("data"), dict) else state
 before_sig = data.get("conversation_signature") if isinstance(data, dict) else None
 before_url = data.get("chat_url") if isinstance(data, dict) else None
-queued = request("POST", "/queue", {"operation_type":"prompt","prompt":prompt,"idempotency_key":"m2-"+str(time.time_ns())})
+idempotency_key = "m2-" + str(time.time_ns())
+queued = request("POST", "/queue", {
+    "operation_type": "prompt",
+    "prompt": prompt,
+    "idempotency_key": idempotency_key,
+    "completion_markers": [f"M2-LIVE-{STAMP}"],
+})
 operation = queued["operation"]
 Path(out).write_text(json.dumps({
     "gate":"M2","status":"STARTED","operation_id":operation["operation_id"],
-    "prompt":prompt,"started_at":time.time(),
-    "pre_restart_signature":before_sig,"pre_restart_chat_url":before_url
+    "prompt":prompt,"idempotency_key":idempotency_key,"started_at":time.time(),
+    "pre_restart_signature":before_sig,"pre_restart_chat_url":before_url,
+    "stages": []
 }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 print(operation["operation_id"])
 PY
@@ -77,6 +84,84 @@ wait_for_active() {
   return 1
 }
 
+wait_for_exact_reclaim() {
+  local deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    local result
+    result="$("$PYTHON" - "$operation_id" <<'PY'
+import json, os, sys, urllib.parse, urllib.request
+opid=sys.argv[1]
+req=urllib.request.Request(
+    "http://127.0.0.1:8765/operation?operation_id="+urllib.parse.quote(opid,safe=""),
+    headers={"Authorization":"Bearer "+os.environ["PASI_BRIDGE_TOKEN"]},
+    method="GET",
+)
+with urllib.request.urlopen(req, timeout=5) as response:
+    op=(json.loads(response.read(2000000).decode()).get("operation") or {})
+print(json.dumps({
+    "status": op.get("status"),
+    "retry_count": int(op.get("retry_count", 0) or 0),
+    "controller_retry_count": int((op.get("retry_counts") or {}).get("controller", 0) or 0),
+}))
+PY
+)"
+    local retry_count controller_retry_count status
+    retry_count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["retry_count"])')"
+    controller_retry_count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["controller_retry_count"])')"
+    status="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["status"] or "")')"
+    if [[ "$retry_count" == "1" && "$controller_retry_count" == "1" ]]; then
+      case "$status" in
+        queued|claimed|generating) return 0 ;;
+      esac
+    fi
+    if (( retry_count > 1 || controller_retry_count > 1 )); then
+      echo "error: M2 operation was reclaimed more than once: $result" >&2
+      return 1
+    fi
+    sleep 2
+  done
+  echo "error: M2 browser reload did not produce exactly one retry/reclaim within 180 seconds" >&2
+  return 1
+}
+
+duplicate_queue_probe() {
+  local stage="$1"
+  "$PYTHON" - "$OUT" "$stage" <<'PY'
+import json, os, sys, time, urllib.request
+path, stage = sys.argv[1:]
+p = json.load(open(path, encoding="utf-8"))
+token = os.environ["PASI_BRIDGE_TOKEN"]
+headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+payload = {
+    "operation_type": "prompt",
+    "prompt": p["prompt"],
+    "idempotency_key": p["idempotency_key"],
+    "completion_markers": [p["prompt"].split("reply exactly ", 1)[1]],
+}
+req = urllib.request.Request(
+    "http://127.0.0.1:8765/queue",
+    data=json.dumps(payload).encode(),
+    headers=headers,
+    method="POST",
+)
+with urllib.request.urlopen(req, timeout=5) as response:
+    duplicate = (json.loads(response.read(2000000).decode()).get("operation") or {})
+if duplicate.get("operation_id") != p["operation_id"]:
+    raise SystemExit(
+        f"duplicate queue probe created a different operation: {duplicate.get('operation_id')!r}"
+    )
+if duplicate.get("prompt") != p["prompt"] or duplicate.get("idempotency_key") != p["idempotency_key"]:
+    raise SystemExit("duplicate queue probe returned mismatched operation identity")
+p.setdefault("stages", []).append({
+    "stage": stage,
+    "duplicate_queue_probe_operation_id": duplicate.get("operation_id"),
+    "duplicate_queue_probe_status": duplicate.get("status"),
+    "checked_at": time.time(),
+})
+open(path, "w", encoding="utf-8").write(json.dumps(p, indent=2, ensure_ascii=False) + "\n")
+PY
+}
+
 update_evidence() {
   "$PYTHON" - "$OUT" <<'PY'
 import json, os, sys, time, urllib.parse, urllib.request
@@ -92,6 +177,15 @@ def get(path):
 p["latest_operation"]=get("/operation?operation_id="+urllib.parse.quote(opid,safe="")).get("operation")
 p["latest_health"]=get("/browser/health").get("observation")
 p["latest_state"]=get("/browser/state").get("observation")
+op = p["latest_operation"] or {}
+p.setdefault("stages", []).append({
+    "stage": p.pop("_pending_stage", "snapshot"),
+    "operation_status": op.get("status"),
+    "retry_count": op.get("retry_count"),
+    "retry_counts": op.get("retry_counts"),
+    "recovery_events": op.get("recovery_events") or [],
+    "checked_at": time.time(),
+})
 p["checked_at"]=time.time()
 open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
 PY
@@ -99,12 +193,31 @@ PY
 
 echo "Waiting for the exact M2 operation to be claimed/generating..."
 wait_for_active || { echo "error: M2 operation was not claimed within 180 seconds" >&2; exit 2; }
+"$PYTHON" - "$OUT" <<'PY'
+import json, sys
+path=sys.argv[1]
+p=json.load(open(path,encoding="utf-8"))
+p["_pending_stage"]="initial_active"
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
+PY
 update_evidence
 
 echo
 echo "MANUAL STEP: close OR reload the exact ChatGPT tab recorded in $OUT."
 echo "Do not substitute another ChatGPT tab. Press Enter after that exact tab is closed/reloaded."
 read -r
+
+echo "Waiting for browser recovery to requeue and reclaim the exact operation once..."
+wait_for_exact_reclaim
+"$PYTHON" - "$OUT" <<'PY'
+import json, sys
+path=sys.argv[1]
+p=json.load(open(path,encoding="utf-8"))
+p["_pending_stage"]="browser_reload_reclaimed_once"
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
+PY
+update_evidence
+duplicate_queue_probe "after_browser_reload_reclaim"
 
 if [[ ! -s "$BRIDGE_PID_FILE" ]]; then
   echo "error: managed bridge PID file is missing: $BRIDGE_PID_FILE" >&2
@@ -132,7 +245,15 @@ while (( SECONDS < bridge_deadline )); do
 done
 (( bridge_recovered == 1 )) || { echo "error: supervised bridge did not recover" >&2; exit 4; }
 
+"$PYTHON" - "$OUT" <<'PY'
+import json, sys
+path=sys.argv[1]
+p=json.load(open(path,encoding="utf-8"))
+p["_pending_stage"]="bridge_restart_recovered"
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
+PY
 update_evidence
+duplicate_queue_probe "after_bridge_restart"
 
 if [[ ! -s "$RUNNER_PID_FILE" ]]; then
   echo "error: managed runner PID file is missing: $RUNNER_PID_FILE" >&2
@@ -162,6 +283,15 @@ for _ in {1..30}; do
   sleep 1
 done
 [[ -n "$NEW_RUNNER_PID" ]] || { echo "error: resumed runner did not become live" >&2; exit 6; }
+
+"$PYTHON" - "$OUT" <<'PY'
+import json, sys
+path=sys.argv[1]
+p=json.load(open(path,encoding="utf-8"))
+p["_pending_stage"]="runner_restart_resumed"
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
+PY
+update_evidence
 
 echo "Waiting for the original operation to complete after runner restart..."
 deadline=$((SECONDS + 900))
@@ -193,6 +323,20 @@ data=state.get("data") if isinstance(state,dict) and isinstance(state.get("data"
 marker=re.search(r"M2-LIVE-[0-9]{8}-[0-9]{6}-[0-9]+", p["prompt"]).group(0)
 if marker not in str(op.get("response_text") or ""):
     raise SystemExit("final response did not contain the original M2 marker")
+if op.get("operation_id") != p["operation_id"]:
+    raise SystemExit("final response belonged to a different operation")
+if op.get("prompt") != p["prompt"] or op.get("idempotency_key") != p["idempotency_key"]:
+    raise SystemExit("operation identity changed during recovery")
+if int(op.get("retry_count", 0) or 0) != 1:
+    raise SystemExit(f"expected exactly one recovery/reclaim, got retry_count={op.get('retry_count')!r}")
+retry_counts = op.get("retry_counts") or {}
+if int(retry_counts.get("controller", 0) or 0) != 1:
+    raise SystemExit(f"expected exactly one controller recovery/reclaim, got {retry_counts!r}")
+events = op.get("recovery_events") or []
+if not any(event.get("phase") == "reloading" for event in events if isinstance(event, dict)):
+    raise SystemExit("M2 evidence is missing the browser reloading recovery event")
+if not any(event.get("phase") == "preserve_current_chat" for event in events if isinstance(event, dict)):
+    raise SystemExit("M2 evidence is missing the exact-operation preserve_current_chat recovery event")
 def sig(v):
     m=re.match(r"^(\d+):(\d+):", str(v or ""))
     return (int(m.group(1)),int(m.group(2))) if m else None
