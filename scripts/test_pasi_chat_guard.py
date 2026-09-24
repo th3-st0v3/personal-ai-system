@@ -58,6 +58,11 @@ class TestPasiChatGuard(unittest.TestCase):
         ):
             self.assertIn(f'"{secret_name}"', source)
 
+    def test_guard_keeps_computer_gateway_protocol_out_of_initial_task(self) -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        self.assertIn("task = original_task", source)
+        self.assertNotIn("task = original_task + computer_protocol_prompt()", source)
+
     def test_guard_uses_immutable_launcher_control_script_and_explicit_target_repo(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn('str(REPO_ROOT / "scripts" / "pasi_chat.py")', source)
