@@ -134,7 +134,7 @@ def test_native_controller_uses_event_driven_response_capture() -> None:
     source = _read(NATIVE)
 
     assert "async function waitForResponse(baseline, completionMarkers = [], evidenceContext = null)" in source
-    assert "const response = await waitUntil(() =>" in source
+    assert "response = await waitUntil(() =>" in source
     assert "let sawGeneration = false" in source
     assert "PASI_NATIVE: ChatGPT generation timed out" in source
     assert "const MAX_RESPONSE_TEXT_CHARS = 120_000;" in source
