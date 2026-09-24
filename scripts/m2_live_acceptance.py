@@ -577,7 +577,7 @@ def main() -> int:
             "marker_operation_ids": marker_operation_ids,
         }
 
-        print("\n=== M2 MANUAL CHECKPOINT ==="
+        print("\n=== M2 MANUAL CHECKPOINT ===")
         print(f"Operation ID: {operation_id}")
         print(f"Chat URL:     {chat_url}")
         print(f"Marker:       {marker}")
