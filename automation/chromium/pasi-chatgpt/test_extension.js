@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 test('native background bridge respects content-side request timeouts', () => {
   assert.match(background, /const requestedTimeout = Number\(message\.timeout\);/);
@@ -803,4 +804,16 @@ test('native M2 gate arms immediately after send evidence', () => {
   assert.ok(responseWait > processStart);
   assert.ok(earlyArm > processStart);
   assert.ok(earlyArm < responseWait);
+});
+
+
+test('native recovery progress helper is safe to inject more than once into one ChatGPT page', () => {
+  const recoveryProgress = fs.readFileSync('automation/chromium/pasi-chatgpt/recovery_progress.js', 'utf8');
+  const context = vm.createContext({ console });
+  assert.doesNotThrow(() => {
+    vm.runInContext(recoveryProgress, context, { filename: 'recovery_progress.js' });
+    vm.runInContext(recoveryProgress, context, { filename: 'recovery_progress.js' });
+  });
+  assert.equal(typeof context.PASI_RECOVERY_PROGRESS, 'object');
+  assert.equal(typeof context.PASI_RECOVERY_PROGRESS.decideRecovery, 'function');
 });
