@@ -189,6 +189,12 @@ test('native existing-tab provisioning is not considered ready when controller i
   assert.match(background, /return injectionReady \? selectedTabId : null/);
 });
 
+test('native zero-tab provisioning recovers an active operation from persisted browser state', () => {
+  assert.match(background, /const browserState = await bridgeJson\('\/browser\/state'\);/);
+  assert.match(background, /stateData\?\.active_operation_id/);
+  assert.match(background, /const browserResponse = await bridgeJson\('\/browser\/response'\);/);
+});
+
 test('native created-tab provisioning records bootstrap readiness and exact-operation handoff', () => {
   assert.match(background, /action: 'created_pending_bootstrap'/);
   assert.match(background, /await chrome\.tabs\.sendMessage\(tabId, \{[\s\S]*type: 'pasi-resume-operation'/);
