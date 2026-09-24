@@ -43,11 +43,20 @@ body:
       required: true
 
   - type: input
-    id: development_milestone
+    id: milestone
     attributes:
-      label: Development Milestone
-      description: Name the milestone or proof gate associated with this item, such as M0, M1, beta, or release gate.
+      label: Milestone
+      description: Existing GitHub issue milestone title. The synchronizer assigns the issue's native Milestone setting.
       placeholder: M0
+    validations:
+      required: true
+
+  - type: input
+    id: development
+    attributes:
+      label: Development
+      description: Native GitHub Development action. Use "create branch: <branch-name>" to create and link a branch, or "link <existing-branch>" to record a manual-link request.
+      placeholder: create branch: pasi/feature-example
     validations:
       required: true
 
@@ -67,4 +76,4 @@ body:
   - type: markdown
     attributes:
       value: |
-        The PASI Project automation will add this roadmap issue to the Project and synchronize Description, Start Date, End Date, Relationship, Development Milestone, and Status.
+        The PASI Project automation will add this roadmap issue to the Project, set native Start date/Target date/Quarter/Iteration scheduling, apply native Relationships and Milestone, handle Development branch creation when requested, and synchronize Status.
