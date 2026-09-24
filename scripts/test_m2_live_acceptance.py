@@ -41,8 +41,10 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertIn('"PASI_M2_FAST_START": "1"', source)
         self.assertIn('M2_FAST_START="${PASI_M2_FAST_START:-0}"', launcher)
         self.assertIn('skipping redundant setup-check', launcher)
-        self.assertIn('browser_wait_seconds=30', launcher)
-        self.assertIn('runner_wait_seconds=15', launcher)
+        self.assertIn('browser_deadline=$((SECONDS + 30))', launcher)
+        self.assertIn('browser_deadline=$((SECONDS + 5))', launcher)
+        self.assertIn('runner_start_deadline=$((SECONDS + 15))', launcher)
+        self.assertIn('runner_start_deadline=$((SECONDS + 5))', launcher)
 
     def test_m2_live_start_records_phase_timings(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
