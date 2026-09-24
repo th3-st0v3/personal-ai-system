@@ -1609,6 +1609,25 @@
     }
   }
 
+  async function reconcileStaleManualReloadGate() {
+    const stored = manualReloadGateState();
+    if (!stored?.operation_id) return false;
+    try {
+      const response = await bridge(
+        `/operation?operation_id=${encodeURIComponent(stored.operation_id)}`
+      );
+      const payload = response.ok ? response.json() : null;
+      const current = payload?.operation;
+      if (!current || ['failed', 'cancelled'].includes(current.status)) {
+        localStorage.removeItem(ACTIVE_KEY);
+        activeRecoveryState = null;
+        manualReloadGateMonitorActive = false;
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   async function armM2ManualReloadGate(operation, responseText, timing) {
     const stored = manualReloadGateState() || {};
     const nextState = {
@@ -2158,8 +2177,11 @@
   async function recoverInterruptedOperation() {
     try {
       if (manualReloadGateState()) {
-        scheduleManualReloadGateMonitor();
-        return;
+        const cleared = await reconcileStaleManualReloadGate();
+        if (!cleared) {
+          scheduleManualReloadGateMonitor();
+          return;
+        }
       }
       const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
       if (!stored?.operation_id) return;
@@ -2224,7 +2246,10 @@
 
   function poll() {
     if (manualReloadGateState()) {
-      scheduleManualReloadGateMonitor();
+      void reconcileStaleManualReloadGate().then((cleared) => {
+        if (cleared) scheduleImmediatePoll();
+        else scheduleManualReloadGateMonitor();
+      });
       return Promise.resolve();
     }
     if (processing || activeOperationId !== null || extensionContextInvalidated) return Promise.resolve();
