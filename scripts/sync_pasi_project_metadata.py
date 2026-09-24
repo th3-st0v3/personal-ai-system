@@ -36,15 +36,14 @@ START_FIELD = "Start date"
 END_FIELD = "Target date"
 TEAM_FIELD = "Team"
 
-# Project #1 already has a native "Quarter" iteration field. PASI's canonical
-# quarter values (Q3-2026, Q4-2026, ...) are single-select metadata, so keep
-# them in a dedicated field rather than colliding with the native iteration field.
-QUARTER_FIELD = "PASI Quarter"
+# Use GitHub's native scheduling controls. Quarter is an Iteration field on the
+# active PASI Project, so quarter membership is derived from the item's Start
+# Date/Target date against the live Quarter iteration windows.
+QUARTER_FIELD = "Quarter"
 ITERATION_FIELD = "Iteration"
 STATUS_FIELD = "Status"
 DESCRIPTION_FIELD = "Description"
-RELATIONSHIP_FIELD = "Relationship"
-DEVELOPMENT_MILESTONE_FIELD = "Development Milestone"
+MILESTONE_FIELD = "Milestone"
 STATUS_DONE = "Done"
 STATUS_TODO = "Todo"
 FRONTEND_ROADMAP_ISSUE = 318
@@ -123,12 +122,13 @@ class RoadmapForm:
     end_date: str
     relationship: str
     development_milestone: str
+    development: str
     status: str
 
 
 ISSUE_FORM_RE = re.compile(
-    r"^### (?P<label>Description|Start Date|End Date|Relationship|Development Milestone|Status)\s*$\n"
-    r"(?P<value>.*?)(?=^### (?:Description|Start Date|End Date|Relationship|Development Milestone|Status)\s*$|\Z)",
+    r"^### (?P<label>Description|Start Date|End Date|Relationship|Milestone|Development Milestone|Development|Status)\s*$\n"
+    r"(?P<value>.*?)(?=^### (?:Description|Start Date|End Date|Relationship|Milestone|Development Milestone|Development|Status)\s*$|\Z)",
     re.MULTILINE | re.DOTALL,
 )
 
@@ -141,14 +141,7 @@ def parse_roadmap_form(body: str) -> RoadmapForm | None:
     if not matches:
         return None
 
-    required = [
-        "Description",
-        "Start Date",
-        "End Date",
-        "Relationship",
-        "Development Milestone",
-        "Status",
-    ]
+    required = ["Description", "Start Date", "End Date", "Status"]
     missing = [label for label in required if not matches.get(label)]
     if missing:
         raise ValueError(
@@ -175,8 +168,13 @@ def parse_roadmap_form(body: str) -> RoadmapForm | None:
         description=matches["Description"],
         start_date=start_date,
         end_date=end_date,
-        relationship=matches["Relationship"],
-        development_milestone=matches["Development Milestone"],
+        relationship=matches.get("Relationship", "None") or "None",
+        development_milestone=(
+            matches.get("Milestone")
+            or matches.get("Development Milestone")
+            or "None"
+        ),
+        development=matches.get("Development", "None") or "None",
         status=status,
     )
 
