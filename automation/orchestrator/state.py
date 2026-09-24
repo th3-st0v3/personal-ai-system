@@ -29,6 +29,7 @@ class StateManager:
         self.browser_health_path = ai_dir / "browser-health.json"
         self.browser_state_path = ai_dir / "browser-state.json"
         self.browser_response_path = ai_dir / "browser-response.json"
+        self.browser_provisioning_path = ai_dir / "browser-provisioning.json"
         self.context_package_path = ai_dir / "context-package.json"
         self.research_state_path = ai_dir / "research-state.json"
         self.execution_results_path = ai_dir / "execution-results.json"
@@ -189,6 +190,15 @@ class StateManager:
             response,
         )
 
+    def save_browser_provisioning(
+        self,
+        provisioning: dict[str, Any],
+    ) -> None:
+        self.write_json(
+            self.browser_provisioning_path,
+            provisioning,
+        )
+
     def save_browser_health(self, health: dict[str, Any]) -> None:
         self.write_json(self.browser_health_path, health)
 
@@ -272,6 +282,14 @@ class StateManager:
         return self.require_dict(
             self.browser_response_path,
             self.read_json(self.browser_response_path, {}),
+        )
+
+    def load_browser_provisioning(
+        self,
+    ) -> dict[str, Any]:
+        return self.require_dict(
+            self.browser_provisioning_path,
+            self.read_json(self.browser_provisioning_path, {}),
         )
 
     def save_handoff(
