@@ -94,7 +94,7 @@ def test_quarter_iteration_selection_uses_project_date_windows() -> None:
             phase="P7",
             issue_type="frontend",
             iteration="Iteration 8",
-            start_date="2026-12-21",
+            start_date="2026-12-20",
             end_date="2027-01-09",
             team="Frontend",
             quarter="legacy-calendar-label",
