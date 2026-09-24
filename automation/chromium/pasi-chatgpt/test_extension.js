@@ -782,3 +782,26 @@ test('native ChatGPT pages never receive a PASI activity indicator', () => {
   assert.doesNotMatch(JSON.stringify(manifest), /activity\.js/);
   assert.doesNotMatch(content, /pasi-activity-indicator|PASI · (Thinking|Working|Finishing)/);
 });
+
+
+test('native M2 manual reload gate is wired through the extension bridge', () => {
+  assert.match(content, /PASI_M2_MANUAL_RELOAD_GATE: true/);
+  assert.match(content, /function isM2ManualReloadGate\(operation\)/);
+  assert.match(content, /manual_reload_gate_response/);
+  assert.match(content, /chat\/manual-reload-gate\/arm/);
+  assert.match(content, /chat\/manual-reload-gate\/release/);
+  assert.match(content, /function scheduleManualReloadGateMonitor\(\)/);
+  assert.match(content, /manual_reload_gate_supported: true/);
+  assert.match(background, /POST \/chat\/manual-reload-gate\/arm/);
+  assert.match(background, /POST \/chat\/manual-reload-gate\/release/);
+});
+
+test('native M2 gate arms immediately after send evidence', () => {
+  const processStart = content.indexOf('async function processOperation(operation)');
+  const responseWait = content.indexOf('const response = await waitForResponse(', processStart);
+  const earlyArm = content.indexOf("armM2ManualReloadGate(operation, '', submission.timing || null)", processStart);
+  assert.ok(processStart >= 0);
+  assert.ok(responseWait > processStart);
+  assert.ok(earlyArm > processStart);
+  assert.ok(earlyArm < responseWait);
+});
