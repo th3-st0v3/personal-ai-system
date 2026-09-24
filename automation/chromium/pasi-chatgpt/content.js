@@ -2393,6 +2393,13 @@
       const operation = payload?.operation;
       if (!operation || operation.operation_id !== operationId) return false;
 
+      void reportObservation('chatgpt_recovery', {
+        phase: 'resume_handoff',
+        operation_id: operationId,
+        recovery_action: 'resume_exact_operation',
+        observed_status: operation.status
+      });
+
       if (operation.status === 'completed') {
         scheduleImmediatePoll();
         return true;
