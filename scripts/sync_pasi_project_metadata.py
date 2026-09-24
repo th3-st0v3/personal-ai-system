@@ -303,6 +303,7 @@ def project_snapshot() -> dict[str, Any]:
           id
           number
           title
+          viewerCanUpdate
           fields(first:100) {
             nodes {
               __typename
@@ -336,6 +337,11 @@ def project_snapshot() -> dict[str, Any]:
         raise RuntimeError(
             f"Deterministic Project title check failed: expected {PROJECT_TITLE!r}, "
             f"got {project['title']!r}."
+        )
+    if not project.get("viewerCanUpdate"):
+        raise RuntimeError(
+            f"Project {PROJECT_OWNER}/{number} is readable but not writable "
+            "by the configured token."
         )
     return project
 
