@@ -1,0 +1,70 @@
+name: PASI Roadmap Item
+description: Create a roadmap issue with fields that synchronize directly into the PASI Project.
+title: "[Roadmap] "
+labels:
+  - roadmap
+assignees:
+  - th3-st0v3
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the capability or deliverable. This becomes the PASI Project Description field.
+      placeholder: Explain what this roadmap item should accomplish.
+    validations:
+      required: true
+
+  - type: input
+    id: start_date
+    attributes:
+      label: Start Date
+      description: Project start date in YYYY-MM-DD format.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+
+  - type: input
+    id: end_date
+    attributes:
+      label: End Date
+      description: Project target/end date in YYYY-MM-DD format.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+
+  - type: input
+    id: relationship
+    attributes:
+      label: Relationship
+      description: Record dependencies or links, such as "depends on #273", "blocks #280", or "related to #319". Use "None" when standalone.
+      placeholder: depends on #273
+    validations:
+      required: true
+
+  - type: input
+    id: development_milestone
+    attributes:
+      label: Development Milestone
+      description: Name the milestone or proof gate associated with this item, such as M0, M1, beta, or release gate.
+      placeholder: M0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: Status
+      description: This maps to the PASI Project Status field.
+      options:
+        - Todo
+        - In Progress
+        - Done
+      default: 0
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        The PASI Project automation will add this roadmap issue to the Project and synchronize Description, Start Date, End Date, Relationship, Development Milestone, and Status.
