@@ -69,6 +69,21 @@ def expected_controller_version(root: Path) -> str:
     return match.group(1).strip()
 
 
+def browser_health_is_ready(
+    data: dict[str, Any],
+    expected_controller_version: str,
+    heartbeat_age: float,
+    max_heartbeat_age: float,
+) -> bool:
+    return (
+        data.get("kind") == "chatgpt_health"
+        and data.get("native_controller") is True
+        and data.get("controller_version") == expected_controller_version
+        and -5 <= heartbeat_age <= max_heartbeat_age
+        and data.get("composer_present") is True
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify the real PASI desktop/browser boundary before a run.")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
@@ -114,13 +129,21 @@ def main() -> int:
         native = data.get("native_controller") is True
         kind = data.get("kind")
         actual = data.get("controller_version")
-        if (
+        compatible = (
             kind == "chatgpt_health"
             and native
             and actual == expected
             and -5 <= age <= args.max_age_seconds
-        ):
+        )
+        terminal_browser_block = (
+            data.get("auth_required") is True
+            or data.get("provider_usage_limited") is True
+            or data.get("conversation_context_exhausted") is True
+        )
+        if compatible and (data.get("composer_present") is True or terminal_browser_block):
             break
+        if compatible and data.get("composer_present") is not True:
+            last_retry_reason = "ChatGPT composer is not present"
         if time.monotonic() >= deadline:
             if last_retry_reason:
                 raise RuntimeError(last_retry_reason)
