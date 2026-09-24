@@ -832,6 +832,8 @@
           reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
           conversation_signature: conversationSignature(),
           active_operation_id: activeOperationId,
+          generating: generating(),
+          composer_present: Boolean(composer()),
           native_controller: true
         });
       }
@@ -1723,6 +1725,16 @@
     void tick();
   }
 
+  function normalizeCompletionMarkerLine(value) {
+    return String(value || '')
+      .trim()
+      .replace(/^[\s\`*_~]+|[\s\`*_~]+$/g, '')
+      .trim()
+      .replace(/[.,;!?]+$/g, '')
+      .replace(/^[\s\`*_~]+|[\s\`*_~]+$/g, '')
+      .trim();
+  }
+
   function completionMarkersSatisfied(responseText, markers) {
     const text = typeof responseText === 'string' ? responseText : '';
     if (!text.trim()) return false;
@@ -1732,11 +1744,16 @@
           .map((marker) => marker.trim())
       : [];
     if (!configured.length) return true;
-    const lines = text.split(/\r?\n/).map((line) => line.trim());
+    const lines = text.split(/\r?\n/).map(normalizeCompletionMarkerLine);
     const collapsed = collapseWhitespace(text);
     return configured.some((marker) => {
       const normalizedMarker = collapseWhitespace(marker);
-      return lines.some((line) => line === marker || line.startsWith(marker + ':'))
+      const normalizedLines = lines.map(collapseWhitespace);
+      return normalizedLines.some((line) => (
+        line === normalizedMarker
+        || line.startsWith(normalizedMarker + ':')
+        || line.startsWith(normalizedMarker + ' ')
+      ))
         || collapsed === normalizedMarker
         || collapsed.endsWith(' ' + normalizedMarker)
         || collapsed.endsWith(' ' + normalizedMarker + ':');
