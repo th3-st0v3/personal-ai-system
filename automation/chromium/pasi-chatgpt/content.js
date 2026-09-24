@@ -5,6 +5,10 @@
   globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = true;
 
   const CONTROLLER_VERSION = '2.4.11';
+  // Keep the loaded package version independent of chrome.runtime APIs. Those
+  // APIs can throw after Opera/Chromium invalidates an older content-script
+  // context during an extension reload.
+  const EXTENSION_MANIFEST_VERSION = '1.1.3';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
   const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;
   const HEALTH_MS = TIMEOUT_POLICY.heartbeatMs || 15000;
@@ -698,6 +702,15 @@
     return Object.keys(context).length ? context : null;
   }
 
+  function stopControllerTimers() {
+    if (pollTimerId !== null) clearInterval(pollTimerId);
+    if (healthTimerId !== null) clearInterval(healthTimerId);
+    pollTimerId = null;
+    healthTimerId = null;
+    if (leaseTimerId !== null) clearInterval(leaseTimerId);
+    leaseTimerId = null;
+  }
+
   async function reportObservation(kind, data, timeout = 10000) {
     try {
       await bridge('/browser/observation', {
@@ -715,7 +728,8 @@
   function reportHealth() {
     if (healthReportInFlight) return healthReportInFlight;
     healthReportInFlight = (async () => {
-      const currentUrl = chatUrl();
+      try {
+        const currentUrl = chatUrl();
       if (currentUrl !== lastKnownChatUrl) {
         if (lastKnownChatUrl !== null || currentUrl !== null) {
           void reportObservation('chatgpt_chat_changed', {
@@ -755,7 +769,7 @@
         composer_present: composerPresent,
         conversation_signature: conversationSignature(),
         native_controller: true,
-        extension_manifest_version: String(chrome.runtime.getManifest?.().version || ''),
+        extension_manifest_version: EXTENSION_MANIFEST_VERSION,
         active_operation_id: activeOperationId
       }, 2000);
 
@@ -775,6 +789,11 @@
           active_operation_id: activeOperationId,
           native_controller: true
         });
+      } catch (error) {
+        if (isExtensionContextInvalidatedError(error)) {
+          extensionContextInvalidated = true;
+          stopControllerTimers();
+        }
       }
     })().finally(() => {
       healthReportInFlight = null;
@@ -1976,8 +1995,8 @@
   async function start() {
     // Start health reporting before any recovery or queue work. Freshness must
     // not depend on the duration of interrupted-operation reconciliation.
-    pollTimerId = setInterval(poll, POLL_MS);
-    healthTimerId = setInterval(reportHealth, HEALTH_MS);
+    pollTimerId = setInterval(() => { void reportHealth(); }, POLL_MS);
+    healthTimerId = setInterval(() => { void reportHealth(); }, HEALTH_MS);
     void reportHealth();
     if (extensionContextInvalidated) return;
 
