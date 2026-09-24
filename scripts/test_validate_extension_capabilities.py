@@ -98,7 +98,7 @@ class ExtensionCapabilityValidationTests(unittest.TestCase):
     def test_unknown_chrome_api_requires_contract_entry(self) -> None:
         temp, extension, _ = self._fixture()
         (extension / "content.js").write_text(
-            "chrome.scripting.executeScript({});\n",
+            "chrome.unknownApi.execute({});\n",
             encoding="utf-8",
         )
 
