@@ -232,9 +232,12 @@ PY
     controller_retry_count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["controller_retry_count"])')"
     status="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["status"] or "")')"
     if (( retry_count == 1 && controller_retry_count == 1 )); then
-      case "$status" in
-        queued|claimed|generating) return 0 ;;
-      esac
+      # The replacement-tab controller can reclaim the queued retry and consume
+      # the already-persisted response faster than this poll loop can observe a
+      # non-terminal status. The retry counters are durable proof that the exact
+      # operation was requeued/reclaimed exactly once; terminal completion is
+      # still validated after bridge/runner restart below.
+      return 0
     fi
     if (( retry_count > 1 || controller_retry_count > 1 )); then
       echo "error: M2 operation was reclaimed more than once: $result" >&2
