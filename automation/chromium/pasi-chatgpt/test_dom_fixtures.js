@@ -130,7 +130,7 @@ test('native response evidence rejects pre-prompt assistant messages and accepts
   dom.window.document.querySelector('main').append(reply);
 
   assert.equal(
-    api.assistantResponseEvidence(snapshot, '[PASI_OPERATION op-123]\\nDo the task', 'older baseline'),
+    api.assistantResponseEvidence(snapshot, '[PASI_OPERATION op-123]\nDo the task', 'older baseline'),
     'new assistant response'
   );
   dom.window.close();
@@ -138,7 +138,7 @@ test('native response evidence rejects pre-prompt assistant messages and accepts
   const reused = loadController(
     '<main>' +
       '<div id="assistant" data-message-author-role="assistant"><div class="markdown">old assistant response</div></div>' +
-      '<div data-message-author-role="user"><div>[PASI_OPERATION op-456]\\nDo the task</div></div>' +
+      '<div data-message-author-role="user"><div>[PASI_OPERATION op-456]\nDo the task</div></div>' +
       '</main>'
   );
   const reusedApi = reused.window.PASI_NATIVE_TEST_API;
@@ -149,7 +149,7 @@ test('native response evidence rejects pre-prompt assistant messages and accepts
   assert.equal(
     reusedApi.assistantResponseEvidence(
       reusedSnapshot,
-      '[PASI_OPERATION op-456]\\nDo the task',
+      '[PASI_OPERATION op-456]\nDo the task',
       'old assistant response'
     ),
     'new assistant response'
