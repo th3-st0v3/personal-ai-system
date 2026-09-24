@@ -789,7 +789,7 @@ def delete_project_field(field_id: str) -> None:
     mutation = """
     mutation($input:DeleteProjectV2FieldInput!) {
       deleteProjectV2Field(input:$input) {
-        projectV2Field { id }
+        clientMutationId
       }
     }
     """
