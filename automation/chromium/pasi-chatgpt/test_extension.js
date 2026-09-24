@@ -151,7 +151,7 @@ test('native watchdog reinjects when the existing controller is stale', () => {
   const source = background.slice(start, end);
   assert.match(source, /controller\.controller_version === '2\.4\.11'/);
   assert.match(source, /controller\.extension_manifest_version === expectedVersion/);
-  assert.match(source, /No live controller listener is present; inject into the existing tab/);
+  assert.match(source, /listener that cannot identify itself as this exact extension version/);
 });
 
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
