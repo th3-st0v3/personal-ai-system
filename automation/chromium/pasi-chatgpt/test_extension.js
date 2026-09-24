@@ -931,7 +931,7 @@ test('native background selects and bootstraps an existing ChatGPT tab when work
   assert.match(background, /selected_tab_id: selectedTabId/);
   assert.match(background, /selected_tab_url: String\(selectedTab\?\.url \|\| ''\)/);
   assert.match(background, /injection_ready: injectionReady/);
-  assert.match(background, /return selectedTabId;/);
+  assert.match(background, /return injectionReady \? selectedTabId : null;/);
 });
 
 test('native prompt submission has a bounded fallback after a no-op first strategy', () => {
