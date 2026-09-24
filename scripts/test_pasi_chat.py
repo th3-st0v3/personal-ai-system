@@ -288,6 +288,51 @@ class TestPasiChat(unittest.TestCase):
                 pasi_chat.SESSION_STATE_PATH = original_path
                 pasi_chat.MAX_HANDOFF_CHARS = original_limit
 
+    def test_m2_fast_start_reuses_verified_thinking_without_queueing_selection(self) -> None:
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_health",
+            "chat_url": "https://chatgpt.com/c/current",
+            "chat_exhausted": False,
+            "github_attached": False,
+            "thinking_enabled": True,
+            "thinking_capability": "available",
+            "native_controller": True,
+        })
+        handoff: dict[str, object] = {"chat_url": "https://chatgpt.com/c/current"}
+        with patch.dict("os.environ", {"PASI_M2_FAST_START": "1"}, clear=False):
+            routed, known_url = route_chat(
+                adapter,
+                handoff,
+                "m2 startup task",
+                "th3-st0v3/personal-ai-system",
+                "public",
+                initial_observation={"data": dict(adapter.state)},
+            )
+        self.assertEqual(known_url, "https://chatgpt.com/c/current")
+        self.assertEqual(routed["reasoning_mode"], "thinking")
+        self.assertFalse(any(call[0] == "select_reasoning" for call in adapter.calls))
+
+    def test_m2_fast_start_does_not_bypass_reasoning_selection_when_thinking_is_unverified(self) -> None:
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_health",
+            "chat_url": "https://chatgpt.com/c/current",
+            "chat_exhausted": False,
+            "github_attached": False,
+            "thinking_enabled": False,
+            "thinking_capability": "available",
+            "native_controller": True,
+        })
+        with patch.dict("os.environ", {"PASI_M2_FAST_START": "1"}, clear=False):
+            route_chat(
+                adapter,
+                {},
+                "m2 startup task",
+                "th3-st0v3/personal-ai-system",
+                "public",
+                initial_observation={"data": dict(adapter.state)},
+            )
+        self.assertTrue(any(call[0] == "select_reasoning" for call in adapter.calls))
+
     def test_pending_operation_prevents_replacement_routing(self) -> None:
         task = "resume without creating another chat"
         adapter = FakeChatAdapter({
