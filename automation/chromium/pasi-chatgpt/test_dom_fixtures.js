@@ -151,3 +151,42 @@ test('whitespace-collapse mutation fails the multiline extraction contract', () 
   current.window.close();
   mutated.window.close();
 });
+
+
+test('native submission falls through from a no-op form submit to a real send without duplicating the prompt', async () => {
+  const dom = loadController(
+    '<main>' +
+      '<button aria-label="Thinking" aria-pressed="true">Thinking</button>' +
+      '<form id="composer-form">' +
+        '<textarea id="prompt-textarea"></textarea>' +
+        '<button data-testid="send-button" type="submit">Send</button>' +
+      '</form>' +
+    '</main>'
+  );
+  const api = dom.window.PASI_NATIVE_TEST_API;
+  const form = dom.window.document.querySelector('#composer-form');
+  const button = dom.window.document.querySelector('[data-testid="send-button"]');
+  form.requestSubmit = () => {};
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    const user = dom.window.document.createElement('div');
+    user.setAttribute('data-message-author-role', 'user');
+    user.textContent = '[PASI_OPERATION op-fallback]\\nDo the task';
+    dom.window.document.querySelector('main').append(user);
+    const stop = dom.window.document.createElement('button');
+    stop.setAttribute('data-testid', 'stop-button');
+    stop.textContent = 'Stop generating';
+    dom.window.document.querySelector('main').append(stop);
+  });
+
+  const result = await api.submitPrompt(
+    '[PASI_OPERATION op-fallback]\\nDo the task',
+    { fastPath: true }
+  );
+  assert.equal(result.via, 'verified');
+  assert.equal(result.attempt, 2);
+  assert.equal(result.verified, true);
+  assert.equal(result.timing.user_messages_added, 1);
+  assert.equal(dom.window.document.querySelectorAll('[data-message-author-role="user"]').length, 1);
+  dom.window.close();
+});
