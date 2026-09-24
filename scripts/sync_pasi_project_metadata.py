@@ -100,11 +100,11 @@ PHASE_SCHEDULE = [
 
 QUARTER_SCHEDULE = [
     ("Quarter 1", "2026-09-22", "2026-12-19"),
-    ("Quarter 2", "2026-12-20", "2027-03-20"),
-    ("Quarter 3", "2027-03-21", "2027-06-19"),
-    ("Quarter 4", "2027-06-20", "2027-09-25"),
-    ("Quarter 1", "2027-09-26", "2027-12-11"),
-    ("Quarter 2", "2027-12-12", "2028-01-15"),
+    ("Quarter 2", "2026-12-20", "2027-03-19"),
+    ("Quarter 3", "2027-03-20", "2027-06-19"),
+    ("Quarter 4", "2027-06-20", "2027-09-19"),
+    ("Quarter 1", "2027-09-20", "2027-12-19"),
+    ("Quarter 2", "2027-12-20", "2028-03-19"),
 ]
 
 PHASES = {
@@ -612,14 +612,13 @@ def quarter_iteration_for_metadata(
         raise RuntimeError("Required native Project Quarter iteration field could not be resolved.")
 
     start = date.fromisoformat(metadata.start_date)
-    end = date.fromisoformat(metadata.end_date)
     matches = []
     for iteration in quarter["configuration"]["iterations"]:
         iteration_start = date.fromisoformat(iteration["startDate"])
         iteration_end = iteration_start.fromordinal(
             iteration_start.toordinal() + iteration["duration"] - 1
         )
-        if iteration_start <= start and end <= iteration_end:
+        if iteration_start <= start <= iteration_end:
             matches.append(iteration)
 
     if len(matches) != 1:
@@ -637,8 +636,8 @@ def quarter_iteration_for_metadata(
             for item in quarter["configuration"]["iterations"]
         ]
         raise RuntimeError(
-            f"No unique native Quarter iteration fully contains {metadata.phase} "
-            f"({metadata.start_date}..{metadata.end_date}). Available Quarter windows: {available}"
+            f"No unique native Quarter iteration contains the start of {metadata.phase} "
+            f"({metadata.start_date}). Available Quarter windows: {available}"
         )
     return matches[0]
 
