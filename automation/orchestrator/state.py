@@ -13,6 +13,7 @@ class StateCorruptionError(RuntimeError):
 
 
 MAX_PERSISTED_TERMINAL_QUEUE_ITEMS = 32
+MAX_BROWSER_RUNTIME_EVENTS = 256
 TERMINAL_QUEUE_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
@@ -30,6 +31,7 @@ class StateManager:
         self.browser_state_path = ai_dir / "browser-state.json"
         self.browser_response_path = ai_dir / "browser-response.json"
         self.browser_provisioning_path = ai_dir / "browser-provisioning.json"
+        self.browser_runtime_telemetry_path = ai_dir / "browser-runtime-telemetry.json"
         self.context_package_path = ai_dir / "context-package.json"
         self.research_state_path = ai_dir / "research-state.json"
         self.execution_results_path = ai_dir / "execution-results.json"
@@ -198,6 +200,33 @@ class StateManager:
             self.browser_provisioning_path,
             provisioning,
         )
+
+    def append_browser_runtime_telemetry(
+        self,
+        event: dict[str, Any],
+    ) -> None:
+        current = self.read_json(self.browser_runtime_telemetry_path, {})
+        events = current.get("events") if isinstance(current, dict) else []
+        if not isinstance(events, list):
+            events = []
+        events.append(event)
+        self.write_json(
+            self.browser_runtime_telemetry_path,
+            {
+                "schema_version": "pasi-native-chromium-v2",
+                "events": events[-MAX_BROWSER_RUNTIME_EVENTS:],
+            },
+        )
+
+    def load_browser_runtime_telemetry(self) -> dict[str, Any]:
+        value = self.require_dict(
+            self.browser_runtime_telemetry_path,
+            self.read_json(self.browser_runtime_telemetry_path, {}),
+        )
+        events = value.get("events")
+        if not isinstance(events, list):
+            value["events"] = []
+        return value
 
     def save_browser_health(self, health: dict[str, Any]) -> None:
         self.write_json(self.browser_health_path, health)
