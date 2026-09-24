@@ -368,19 +368,43 @@
       try {
         chrome.runtime.sendMessage({ type: 'pasi-controller-claim' }, (response) => {
           const runtimeError = chrome.runtime.lastError;
-          if (runtimeError || !response || response.ok !== true) {
+          if (runtimeError || !response || response.ok !== true || response.leader !== true) {
             controllerLeader = false;
             controllerClaimedAt = 0;
+            reportRuntimeTelemetry({
+              event: 'CLAIM_FAILURE',
+              status: 'failure',
+              active_operation_id: activeOperationId,
+              force,
+              error: runtimeErrorText(runtimeError || (
+                response
+                  ? new Error('controller claim rejected: ' + JSON.stringify(response).slice(0, 1000))
+                  : new Error('controller claim returned no response')
+              ))
+            });
             resolve(false);
             return;
           }
-          controllerLeader = response.leader === true;
-          controllerClaimedAt = controllerLeader ? Date.now() : 0;
-          resolve(controllerLeader);
+          controllerLeader = true;
+          controllerClaimedAt = Date.now();
+          reportRuntimeTelemetry({
+            event: 'CLAIM_SUCCESS',
+            status: 'success',
+            active_operation_id: activeOperationId,
+            force
+          });
+          resolve(true);
         });
-      } catch (_) {
+      } catch (error) {
         controllerLeader = false;
         controllerClaimedAt = 0;
+        reportRuntimeTelemetry({
+          event: 'CLAIM_FAILURE',
+          status: 'failure',
+          active_operation_id: activeOperationId,
+          force,
+          error: runtimeErrorText(error)
+        });
         resolve(false);
       }
     });
@@ -655,6 +679,34 @@
         } }
       });
     } catch (_) {}
+  }
+
+  function runtimeErrorText(error) {
+    return String(error?.message || error || 'unknown runtime error').slice(0, 2000);
+  }
+
+  function reportRuntimeTelemetry(event) {
+    const observation = {
+      schema_version: 'pasi-native-chromium-v2',
+      captured_at: new Date().toISOString(),
+      data: {
+        kind: 'chatgpt_runtime_telemetry',
+        controller_version: CONTROLLER_VERSION,
+        manifest_version: EXTENSION_MANIFEST_VERSION,
+        ...event
+      }
+    };
+    try {
+      chrome.runtime.sendMessage(
+        { type: 'pasi-runtime-telemetry', observation },
+        () => {
+          void chrome.runtime.lastError;
+        }
+      );
+    } catch (error) {
+      console.warn('[PASI runtime telemetry]', runtimeErrorText(error));
+    }
+    return observation;
   }
 
   function reportHealth() {
@@ -1244,6 +1296,7 @@
       return null;
     };
 
+    const strategyNames = ['form_request_submit', 'native_mouse_activate', 'dispatch_enter'];
     const strategies = [
       async (box, button) => {
         if (generating()) return false;
@@ -1333,11 +1386,52 @@
       // Once a send strategy has fired, never invoke another send mechanism:
       // the delayed acknowledgement may simply trail the real submission, and
       // a second click can duplicate work.
+      const strategy = strategyNames[attempt - 1] || 'unknown';
+      reportRuntimeTelemetry({
+        event: 'SUBMISSION_ATTEMPT',
+        status: 'started',
+        operation_id: activeOperationId,
+        attempt,
+        strategy,
+        expected_prompt_length: String(expected || '').length
+      });
       const injectedAtMs = Date.now();
-      const fired = await strategies[attempt - 1](readyBox, button);
-      if (!fired) continue;
+      let fired = false;
+      try {
+        fired = await strategies[attempt - 1](readyBox, button);
+      } catch (error) {
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'failure',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          error: runtimeErrorText(error)
+        });
+        throw error;
+      }
+      if (!fired) {
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'failure',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          error: 'PASI_NATIVE: submission strategy returned false'
+        });
+        continue;
+      }
 
       via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
+      reportRuntimeTelemetry({
+        event: 'SUBMISSION_ATTEMPT',
+        status: 'success',
+        operation_id: activeOperationId,
+        attempt,
+        strategy,
+        submission_via: via || 'sent_unverified',
+        verified: via === 'verified'
+      });
       const finalVia = via || 'sent_unverified';
       return {
         via: finalVia,
@@ -1746,7 +1840,28 @@
             const current = composer();
             return current && !generating() ? current : null;
           }, PREVIOUS_RESPONSE_WAIT_MS, DOM_POLL_MS);
-          if (!box) throw new Error(generating() ? 'PASI_NATIVE: previous response still generating' : 'PASI_NATIVE: composer unavailable');
+          if (!box) {
+            const error = new Error(
+              generating()
+                ? 'PASI_NATIVE: previous response still generating'
+                : 'PASI_NATIVE: composer unavailable'
+            );
+            reportRuntimeTelemetry({
+              event: 'COMPOSER_READY',
+              status: 'failure',
+              operation_id: operation.operation_id,
+              chat_url: chatUrl(),
+              error: runtimeErrorText(error)
+            });
+            throw error;
+          }
+          reportRuntimeTelemetry({
+            event: 'COMPOSER_READY',
+            status: 'success',
+            operation_id: operation.operation_id,
+            chat_url: chatUrl(),
+            fast_handoff: fastHandoff
+          });
           const baseline = typeof operation.__pasi_baseline_fingerprint === 'string'
             ? operation.__pasi_baseline_fingerprint
             : fingerprint();
@@ -2011,7 +2126,17 @@
         return;
       }
       const payload = response.json();
-      if (payload?.operation) await processOperation(payload.operation);
+      if (payload?.operation) {
+        reportRuntimeTelemetry({
+          event: 'OPERATION_RECEIVED',
+          status: 'success',
+          operation_id: payload.operation.operation_id,
+          operation_type: payload.operation.operation_type,
+          operation_status: payload.operation.status,
+          retry_count: payload.operation.retry_count
+        });
+        await processOperation(payload.operation);
+      }
       } catch (error) {
         if (isExtensionContextInvalidatedError(error)) {
           extensionContextInvalidated = true;
@@ -2031,6 +2156,11 @@
   async function start() {
     // Start health reporting before any recovery or queue work. Freshness must
     // not depend on the duration of interrupted-operation reconciliation.
+    reportRuntimeTelemetry({
+      event: 'CONTROLLER_STARTED',
+      status: 'success',
+      chat_url: chatUrl()
+    });
     pollTimerId = setInterval(poll, POLL_MS);
     healthTimerId = setInterval(reportHealth, HEALTH_MS);
     void reportHealth();
