@@ -290,12 +290,17 @@ def descendants(pid: int) -> list[int]:
     return result
 
 
-def kill_managed_tree(runtime_dir: Path, pid_name: str, expected_fragment: str) -> dict[str, Any]:
+def kill_managed_tree(
+    runtime_dir: Path,
+    pid_name: str,
+    expected_fragment: str | tuple[str, ...],
+) -> dict[str, Any]:
     pid = read_pid(runtime_dir, pid_name)
     if pid is None or not process_exists(pid):
         raise M2AcceptanceError("process_kill", f"{pid_name} is not live")
     command_line = process_command(pid)
-    if expected_fragment not in command_line:
+    expected = (expected_fragment,) if isinstance(expected_fragment, str) else expected_fragment
+    if not any(fragment in command_line for fragment in expected):
         raise M2AcceptanceError(
             "process_kill",
             f"{pid_name} PID {pid} is not the expected PASI process: {command_line!r}",
@@ -547,7 +552,11 @@ def main() -> int:
             "operation": after_reload,
         }
 
-        bridge_stop = kill_managed_tree(runtime_dir, "bridge.pid", "pasi_log_router.py")
+        bridge_stop = kill_managed_tree(
+            runtime_dir,
+            "bridge.pid",
+            ("pasi_log_router.py", "automation.orchestrator.bridge"),
+        )
         wait_for(lambda: not bridge_is_healthy(), 10, "bridge outage")
         bridge_down_at = utc_now()
         bridge_start = start_bridge(runtime_dir)
