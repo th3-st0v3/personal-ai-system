@@ -408,6 +408,48 @@ def test_roadmap_form_schema_excludes_custom_description_and_native_control_text
     assert "development_milestone" not in annotations
     assert "development" not in annotations
 
+
+def test_legacy_project_fields_are_identified_for_cleanup() -> None:
+    assert sync_module.LEGACY_PROJECT_FIELDS == {
+        "Description",
+        "Relationship",
+        "Development",
+        "Development Milestone",
+        "PASI Quarter",
+    }
+
+
+def test_remove_legacy_project_fields_deletes_only_custom_fields(monkeypatch) -> None:
+    project = {
+        "fields": {
+            "nodes": [
+                {"id": "description", "name": "Description", "isIssueField": False},
+                {"id": "relationship", "name": "Relationship", "isIssueField": False},
+                {"id": "milestone", "name": "Milestone", "isIssueField": True},
+                {"id": "team", "name": "Team", "isIssueField": False},
+            ]
+        }
+    }
+    deleted = []
+    monkeypatch.setattr(
+        sync_module,
+        "delete_project_field",
+        lambda field_id: deleted.append(field_id),
+    )
+    refreshed = {
+        "fields": {
+            "nodes": [
+                {"id": "team", "name": "Team", "isIssueField": False},
+                {"id": "milestone", "name": "Milestone", "isIssueField": True},
+            ]
+        }
+    }
+    monkeypatch.setattr(sync_module, "project_snapshot", lambda: refreshed)
+    result = sync_module.remove_legacy_project_fields(project)
+    assert deleted == ["description", "relationship"]
+    assert result == refreshed
+
+
 def test_roadmap_form_rejects_invalid_status() -> None:
     body = """
 ### Start Date
