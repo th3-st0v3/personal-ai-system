@@ -82,6 +82,36 @@ def post_queue(
     return response.status, body
 
 
+
+def test_tab_provisioning_observation_has_authoritative_priority(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    observation = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-24T13:45:00Z",
+        "data": {
+            "kind": "chatgpt_tab_provisioning",
+            "action": "created",
+            "after_create_tab_count": 1,
+        },
+    }
+
+    saved = bridge.save_browser_observation(observation)
+
+    assert saved == observation
+    assert bridge.get_browser_observation() == observation
+
+    newer_chat_state = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-24T13:45:01Z",
+        "data": {
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/example",
+        },
+    }
+    bridge.save_browser_observation(newer_chat_state)
+
+    assert bridge.get_browser_observation() == observation
+
 def test_bridge_module_resolves_from_repository() -> None:
     assert Path(bridge_module.__file__).resolve() == (Path(__file__).parent / "bridge.py").resolve()
 
