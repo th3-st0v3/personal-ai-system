@@ -845,6 +845,20 @@ class BridgeState:
             provisioning = self.state_manager.load_browser_provisioning()
             return provisioning if provisioning else None
 
+    def save_browser_runtime_telemetry(
+        self,
+        observation: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self.lock:
+            self.state_manager.append_browser_runtime_telemetry(observation)
+        return observation
+
+    def get_browser_runtime_telemetry(
+        self,
+    ) -> dict[str, Any]:
+        with self.lock:
+            return self.state_manager.load_browser_runtime_telemetry()
+
     def get_status(self) -> dict[str, Any]:
         with self.lock:
             queue = self._load_queue()
@@ -1387,6 +1401,12 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if path == "/browser/telemetry":
+            self._send_json(
+                self.bridge_state.get_browser_runtime_telemetry()
+            )
+            return
+
         if path == "/browser/health":
             self._send_json(
                 {
@@ -1506,6 +1526,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
             if path == "/browser/provisioning":
                 self._browser_provisioning(payload)
+                return
+
+            if path == "/browser/telemetry":
+                self._browser_telemetry(payload)
                 return
 
             if path == "/runner/control":
@@ -1672,6 +1696,40 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             {"observation": saved},
             HTTPStatus.CREATED,
         )
+
+    def _browser_telemetry(
+        self,
+        payload: dict[str, Any],
+    ) -> None:
+        observation = payload.get("observation")
+        if not isinstance(observation, dict):
+            self._send_json(
+                {"error": "observation must be an object."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        schema_version = observation.get("schema_version")
+        if not isinstance(schema_version, str) or not schema_version.strip():
+            self._send_json(
+                {"error": "observation.schema_version is required."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        data = observation.get("data")
+        if (
+            not isinstance(data, dict)
+            or data.get("kind") != "chatgpt_runtime_telemetry"
+        ):
+            self._send_json(
+                {"error": "telemetry observation.kind must be chatgpt_runtime_telemetry."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        saved = self.bridge_state.save_browser_runtime_telemetry(observation)
+        self._send_json({"observation": saved}, HTTPStatus.CREATED)
 
     def _queue(
         self,
