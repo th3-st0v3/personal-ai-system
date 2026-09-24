@@ -322,8 +322,7 @@ def main() -> int:
     original_task = " ".join(args.task).strip()
     if not original_task:
         raise ValueError("task must not be empty")
-    task = original_task + computer_protocol_prompt()
-    for round_number in range(MAX_COMPUTER_ROUNDS + 1):
+    # Keep gateway mechanics out of the model-facing task; the sandbox enforces the same capability policy in code.\n    task = original_task\n    for round_number in range(MAX_COMPUTER_ROUNDS + 1):
         forwarded = [
             sys.executable,
             str(REPO_ROOT / "scripts" / "pasi_chat.py"),
