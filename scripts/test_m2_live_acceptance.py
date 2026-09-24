@@ -44,6 +44,13 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertIn('browser_wait_seconds=30', launcher)
         self.assertIn('runner_wait_seconds=15', launcher)
 
+    def test_m2_live_start_records_phase_timings(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("launcher_start_seconds", source)
+        self.assertIn("queue_wait_seconds", source)
+        self.assertIn("active_wait_seconds", source)
+        self.assertIn("manual_gate_wait_seconds", source)
+
     def test_m2_operation_poll_is_responsive(self) -> None:
         from scripts.m2_live_acceptance import OPERATION_POLL_SECONDS
         self.assertLessEqual(OPERATION_POLL_SECONDS, 0.25)
