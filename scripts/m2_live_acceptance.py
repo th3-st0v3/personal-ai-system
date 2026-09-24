@@ -516,7 +516,7 @@ def main() -> int:
         evidence["failure"] = {"stage": exc.stage, "message": str(exc)}
         save()
         print(f"M2 FAIL ({exc.stage}): {exc}", file=sys.stderr)
-        print(f"Evidence: {artifact_path}", file=os.sys.stderr)
+        print(f"Evidence: {artifact_path}", file=sys.stderr)
         return 1
 
 
