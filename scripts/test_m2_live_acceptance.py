@@ -60,3 +60,12 @@ def test_m2_harness_prompt_creates_a_real_generation_window() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert "output the integers 1 through 1000, one integer per line" in source
     assert "end with exactly M2-LIVE-$STAMP on its own line" in source
+
+
+def test_m2_harness_accepts_existing_chatgpt_tabs_without_creating_one() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "existing_tabs_no_create|race_existing_tabs_no_create" in source
+    assert "existing tab accepted; zero-tab path must create exactly one" in source
+    assert "selected_tab_id" in source
+    assert "tab_provisioning_initial" in source
+    assert "initial tab provisioning evidence" in source
