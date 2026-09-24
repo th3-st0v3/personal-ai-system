@@ -52,7 +52,7 @@ if operation.get("manual_reload_gate_released") is True:
     raise SystemExit(0)
 PY
 
-curl -fsS --max-time 5   -X POST   -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json"   "$BRIDGE/chat/manual-reload-gate/release"   -d "$(printf '%s' "$OPERATION_ID" | "$PYTHON" -c 'import json,sys; print(json.dumps({"operation_id":sys.argv[1]}))')"   >/dev/null
+curl -fsS --max-time 5   -X POST   -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json"   "$BRIDGE/chat/manual-reload-gate/release"   -d "$("$PYTHON" -c 'import json,sys; print(json.dumps({"operation_id":sys.argv[1]}))' "$OPERATION_ID")"   >/dev/null
 
 echo "Released M2 manual reload gate for $OPERATION_ID."
 echo "The M2 harness should continue without pressing Enter."
