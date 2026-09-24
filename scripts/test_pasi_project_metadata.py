@@ -145,6 +145,101 @@ def test_verify_issue_handles_unset_project_iteration_without_attribute_error(mo
     else:
         raise AssertionError("Expected missing native Iteration value to fail verification")
 
+
+def test_sync_issue_relationships_dispatches_blocked_by(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sync_module,
+        "fetch_issue_context",
+        lambda number: {
+            "id": f"id-{number}",
+            "parent": None,
+            "blockedBy": {"nodes": []},
+            "blocking": {"nodes": []},
+        },
+    )
+    calls = []
+    monkeypatch.setattr(
+        sync_module,
+        "add_blocked_by_relationship",
+        lambda issue_id, blocking_issue_id: calls.append((issue_id, blocking_issue_id)),
+    )
+    sync_module.sync_issue_relationships(319, "depends on #273")
+    assert calls == [("id-319", "id-273")]
+
+
+def test_sync_issue_relationships_dispatches_parent(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sync_module,
+        "fetch_issue_context",
+        lambda number: {
+            "id": f"id-{number}",
+            "parent": None,
+            "blockedBy": {"nodes": []},
+            "blocking": {"nodes": []},
+        },
+    )
+    calls = []
+    monkeypatch.setattr(
+        sync_module,
+        "add_parent_relationship",
+        lambda issue_id, parent_id: calls.append((issue_id, parent_id)),
+    )
+    sync_module.sync_issue_relationships(319, "parent #318")
+    assert calls == [("id-319", "id-318")]
+
+
+def test_set_issue_milestone_updates_native_issue_milestone(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sync_module,
+        "run_gh",
+        lambda args, input_text=None: (
+            '{"number":42,"title":"M0"}\n'
+            if "/milestones?" in " ".join(args)
+            else "{}"
+        ),
+    )
+    seen = {}
+    original = sync_module.run_gh
+
+    def capture(args, input_text=None):
+        result = original(args, input_text)
+        seen["args"] = args
+        seen["payload"] = input_text
+        return result
+
+    monkeypatch.setattr(sync_module, "run_gh", capture)
+    sync_module.set_issue_milestone(319, "M0")
+    assert seen["args"][-3:] == ["PATCH", "--input", "-"]
+    assert '"milestone": 42' in seen["payload"]
+
+
+def test_development_create_branch_dispatches_native_linked_branch(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sync_module,
+        "fetch_issue_context",
+        lambda number: {
+            "id": "issue-319",
+            "repositoryId": "repo-1",
+            "defaultBranchOid": "oid-main",
+            "linkedBranches": {"nodes": []},
+        },
+    )
+    calls = []
+    monkeypatch.setattr(
+        sync_module,
+        "graphql",
+        lambda query, variables=None, retryable=True: (
+            calls.append((query, variables)) or {"createLinkedBranch": {"linkedBranch": {"id": "branch-1"}}}
+        ),
+    )
+    sync_module.create_linked_development_branch(319, "pasi/fe-p0")
+    assert calls[0][1]["input"] == {
+        "issueId": "issue-319",
+        "repositoryId": "repo-1",
+        "oid": "oid-main",
+        "name": "pasi/fe-p0",
+    }
+
 def test_frontend_phase_mapping_is_complete_and_contiguous() -> None:
     assert len(FRONTEND_PHASE_ISSUES) == 23
     assert [FRONTEND_PHASE_ISSUES[f"P{i}"] for i in range(23)] == list(range(319, 342))
