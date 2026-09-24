@@ -234,7 +234,7 @@ def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> s
     return (
         "CURRENT TASK:\n"
         f"{task_text}\n\n"
-        "Work on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n"
+        "Complete the task as an implementation task when implementation is required; tracked-file changes are allowed unless the task explicitly scopes them out. Keep working until the stated acceptance criteria are met. Run every relevant test, type check, lint, or other deterministic verification check needed for the task; repair failures and do not report completion while required checks are failing. Keep the response focused on the task and actionable results; do not expose internal routing, planner, browser-controller, capability-gateway, or orchestration details.\n\n"
         "RESULT:\n"
         "PASI_RESULT_STATUS: complete|needs_revision|blocked\n"
         "PASI_RESULT_SUMMARY: one concise sentence\n"
@@ -243,7 +243,7 @@ def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> s
         "PASI_RESULT_RESEARCH: performed|not_applicable\n"
         "PASI_RESULT_UX: verified|not_applicable\n"
         "PASI_RESULT_BACKEND: verified|not_applicable\n"
-        "PASI_RESULT_EVIDENCE: concise tests/verification evidence\n"
+        "PASI_RESULT_EVIDENCE: concise actionable verification evidence; report failures, warnings, type-check/analyzer diagnostics, or other relevant findings and omit routine internal processing details\n"
         "PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped\n"
         "PASI_RESULT_ALLOW_DELETE: true|false\n"
         "PASI_RESULT_PATCH_BEGIN\n"
@@ -498,13 +498,10 @@ def route_chat(
     )
     if fast_start and thinking_already_verified:
         reasoning_mode = "thinking"
-        print("Thinking mode already verified by the live browser preflight; skipping redundant reasoning-selection operation.")
     elif not isinstance(reasoning_mode, str) or reasoning_mode not in {"thinking", "think"}:
         adapter.select_reasoning_mode("thinking")
         reasoning_mode = "thinking"
-        print("Thinking mode enabled for task.")
     else:
-        print("Thinking mode already enabled.")
 
     github_attached = handoff.get("github_attached") is True or state.get("github_attached") is True
     fallback_requested = needs_github_context(task, override=github_mode)
@@ -516,7 +513,6 @@ def route_chat(
         else:
             print("GitHub fallback context already attached; not adding it again.")
     else:
-        print(f"Using public GitHub repository as the default context source: {PUBLIC_REPOSITORY_URL}")
         if github_attached:
             print("GitHub app context is already attached from a prior explicit fallback; not removing it.")
 
