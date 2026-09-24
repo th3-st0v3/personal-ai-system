@@ -111,6 +111,18 @@ test('native background reports durable tab provisioning telemetry without block
   assert.match(background, /chatgpt_tab_provisioning/);
 });
 
+test('native background sends provisioning telemetry to the dedicated bridge route', () => {
+  assert.match(background, /'GET \/browser\/provisioning'/);
+  assert.match(background, /'POST \/browser\/provisioning'/);
+  assert.match(background, /bridgeFetch\('\/browser\/provisioning', 'POST'/);
+});
+
+test('native background inspects pending work immediately at startup as well as periodically', () => {
+  assert.match(background, /chrome\.runtime\.onInstalled\.addListener\(\(\) => \{[\s\S]*void inspect\(\);/);
+  assert.match(background, /chrome\.runtime\.onStartup\.addListener\(\(\) => \{[\s\S]*void inspect\(\);/);
+  assert.match(background, /void ensureWatchdogAlarm\(\);[\s\S]*void injectExistingChatTabs\(\);[\s\S]*void inspect\(\);/);
+});
+
 test('native background only provisions when bridge reports queued or active work', () => {
   assert.match(background, /function bridgeHasPendingWork\(status, health\)/);
   assert.match(background, /queue_size/);
