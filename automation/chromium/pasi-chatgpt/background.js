@@ -9,7 +9,10 @@ const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
 const TAB_CREATE_COOLDOWN_KEY = 'pasi:chatgpt-tab-create-cooldown';
 const TAB_CREATE_COOLDOWN_MS = 15 * 1000;
 const TAB_PROVISIONING_PENDING_KEY = 'pasi:chatgpt-tab-provisioning-pending';
+const RUNTIME_TELEMETRY_PENDING_KEY = 'pasi:chatgpt-runtime-telemetry-pending';
 const TAB_BOOTSTRAP_RETRY_MS = 1000;
+const MAX_RUNTIME_TELEMETRY_QUEUE = 64;
+const MAX_RUNTIME_ERROR_CHARS = 2000;
 let controllerClaimTail = Promise.resolve();
 let tabCreateInFlight = null;
 let cachedBridgeToken = null;
@@ -272,6 +275,65 @@ async function reportTabProvisioning(event) {
   return false;
 }
 
+
+let runtimeTelemetryFlushInFlight = null;
+
+function runtimeErrorText(error) {
+  return String(error?.message || error || 'unknown runtime error').slice(0, MAX_RUNTIME_ERROR_CHARS);
+}
+
+async function queueRuntimeTelemetry(observation) {
+  try {
+    const stored = await chrome.storage.local.get(RUNTIME_TELEMETRY_PENDING_KEY);
+    const queue = Array.isArray(stored?.[RUNTIME_TELEMETRY_PENDING_KEY])
+      ? stored[RUNTIME_TELEMETRY_PENDING_KEY]
+      : [];
+    queue.push(observation);
+    await chrome.storage.local.set({
+      [RUNTIME_TELEMETRY_PENDING_KEY]: queue.slice(-MAX_RUNTIME_TELEMETRY_QUEUE)
+    });
+  } catch (_) {}
+}
+
+async function flushRuntimeTelemetry() {
+  if (runtimeTelemetryFlushInFlight) return runtimeTelemetryFlushInFlight;
+  runtimeTelemetryFlushInFlight = (async () => {
+    try {
+      const stored = await chrome.storage.local.get(RUNTIME_TELEMETRY_PENDING_KEY);
+      const queue = Array.isArray(stored?.[RUNTIME_TELEMETRY_PENDING_KEY])
+        ? stored[RUNTIME_TELEMETRY_PENDING_KEY].slice()
+        : [];
+      while (queue.length) {
+        const response = await bridgeFetch('/browser/telemetry', 'POST', queue[0], 2000);
+        if (!response.ok) break;
+        queue.shift();
+        await chrome.storage.local.set({
+          [RUNTIME_TELEMETRY_PENDING_KEY]: queue
+        });
+      }
+      return queue.length === 0;
+    } catch (_) {
+      return false;
+    } finally {
+      runtimeTelemetryFlushInFlight = null;
+    }
+  })();
+  return runtimeTelemetryFlushInFlight;
+}
+
+function reportRuntimeTelemetry(event) {
+  const observation = {
+    schema_version: 'pasi-native-chromium-v2',
+    captured_at: new Date().toISOString(),
+    data: {
+      kind: 'chatgpt_runtime_telemetry',
+      ...event
+    }
+  };
+  void queueRuntimeTelemetry(observation).then(() => flushRuntimeTelemetry());
+  return observation;
+}
+
 async function flushPendingTabProvisioning() {
   try {
     const stored = await chrome.storage.local.get(TAB_PROVISIONING_PENDING_KEY);
@@ -398,12 +460,30 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
 
 let injectExistingTabsInFlight = null;
 
-async function injectChatGptTab(tabId) {
-  if (!chrome.scripting?.executeScript || typeof tabId !== 'number') return false;
+async function injectChatGptTab(tabId, context = {}) {
+  if (!chrome.scripting?.executeScript || typeof tabId !== 'number') {
+    const error = 'PASI_RUNTIME: scripting.executeScript unavailable or tab id invalid';
+    reportRuntimeTelemetry({
+      event: 'INJECTION_FAILURE',
+      status: 'failure',
+      tab_id: tabId,
+      source: context.source || 'unknown',
+      error
+    });
+    return false;
+  }
+
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });
+    reportRuntimeTelemetry({
+      event: 'INJECTION_SUCCESS',
+      status: 'success',
+      tab_id: tabId,
+      source: context.source || 'unknown',
+      mode: 'existing_controller'
+    });
     return true;
-  } catch (_) {
+  } catch (error) {
     // No live controller listener is present; inject into the existing tab.
   }
 
@@ -418,18 +498,49 @@ async function injectChatGptTab(tabId) {
         'recovery.js'
       ]
     });
+    reportRuntimeTelemetry({
+      event: 'INJECTION_SUCCESS',
+      status: 'success',
+      tab_id: tabId,
+      source: context.source || 'unknown',
+      mode: 'execute_script'
+    });
     return true;
-  } catch (_) {
+  } catch (error) {
+    reportRuntimeTelemetry({
+      event: 'INJECTION_FAILURE',
+      status: 'failure',
+      tab_id: tabId,
+      source: context.source || 'unknown',
+      mode: 'execute_script',
+      error: runtimeErrorText(error)
+    });
     return false;
   }
 }
 
 async function bootstrapCreatedChatGptTab(tabId) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const ok = await injectChatGptTab(tabId);
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    reportRuntimeTelemetry({
+      event: 'BOOTSTRAP_ATTEMPT',
+      status: 'started',
+      tab_id: tabId,
+      source: 'created_tab',
+      attempt,
+      max_attempts: 10
+    });
+    const ok = await injectChatGptTab(tabId, { source: 'created_tab' });
     if (ok) return true;
     await new Promise((resolve) => setTimeout(resolve, TAB_BOOTSTRAP_RETRY_MS));
   }
+  reportRuntimeTelemetry({
+    event: 'INJECTION_FAILURE',
+    status: 'failure',
+    tab_id: tabId,
+    source: 'created_tab',
+    phase: 'bootstrap_exhausted',
+    error: 'PASI_RUNTIME: created-tab bootstrap exhausted all injection attempts'
+  });
   return false;
 }
 
@@ -441,7 +552,7 @@ async function injectExistingChatTabs() {
     const tabs = await listChatGptTabs();
     for (const tab of tabs) {
       if (typeof tab.id !== 'number') continue;
-      await injectChatGptTab(tab.id);
+      await injectChatGptTab(tab.id, { source: 'watchdog_existing_tab' });
     }
   })();
 
@@ -455,6 +566,7 @@ async function injectExistingChatTabs() {
   }
 }
 async function inspect() {
+  await flushRuntimeTelemetry();
   await flushPendingTabProvisioning();
   await injectExistingChatTabs();
 
