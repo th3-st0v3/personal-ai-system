@@ -573,9 +573,9 @@ test('native controller preserves prompt operations for bounded response recover
   assert.match(content, /finalized = false/);
 });
 
-test('background watchdog wakes existing tabs without navigation', () => {
+test('background watchdog wakes existing tabs and can reopen the exact target', () => {
   assert.match(background, /chrome\.tabs\.sendMessage/);
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.match(background, /chrome\.tabs\.create/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });;
 
@@ -585,21 +585,23 @@ test('native controller answers background health pings and visibility transitio
   assert.match(content, /document\.addEventListener\('visibilitychange'/);
 });
 
-test('background watchdog never creates a missing ChatGPT tab', () => {
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
-  assert.doesNotMatch(background, /createCooldown/);
-  assert.doesNotMatch(background, /markCreateAttempt/);
+test('background watchdog only reopens a nonterminal operation target', () => {
+  assert.match(background, /reopenMissingTargetTab/);
+  assert.match(background, /operationId/);
+  assert.match(background, /\['completed', 'failed', 'cancelled'\]/);
+  assert.match(background, /chrome\.tabs\.create/);
 });;
 
-test('background watchdog has no missing-tab creation cooldown', () => {
-  assert.doesNotMatch(background, /CREATE_RETRY_MS/);
-  assert.doesNotMatch(background, /createCooldown/);
-  assert.doesNotMatch(background, /markCreateAttempt/);
+test('background watchdog uses bounded exact-operation reopen cooldown', () => {
+  assert.match(background, /TAB_REOPEN_COOLDOWN_KEY/);
+  assert.match(background, /TAB_REOPEN_COOLDOWN_MS/);
+  assert.match(background, /attempted_at/);
 });;
 
-test('background watchdog does not persist creation cooldown state', () => {
-  assert.doesNotMatch(background, /create:\$\{targetChatUrl\}/);
-  assert.doesNotMatch(background, /chrome\.storage\.local\.remove\(`create:/);
+test('background watchdog persists exact operation and conversation identity for reopen cooldown', () => {
+  assert.match(background, /operation_id: operationId/);
+  assert.match(background, /chat_url: targetChatUrl/);
+  assert.match(background, /chrome\.storage\.local\.remove/);
 });;
 
 
