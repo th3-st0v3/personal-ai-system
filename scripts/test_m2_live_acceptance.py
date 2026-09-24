@@ -25,7 +25,7 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         entrypoint = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
         self.assertIn("m2_live_acceptance.py", entrypoint)
-        self.assertIn('export PYTHONPATH="$REPO_ROOT', entrypoint)
+        self.assertIn('export PYTHONPATH="$REPO_ROOT${PYTHONPATH-}"', entrypoint)
         self.assertIn("PASI_RUNTIME_DIR", source)
         self.assertIn("runner.pid", source)
         self.assertIn("bridge.pid", source)
