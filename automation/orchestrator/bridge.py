@@ -700,6 +700,8 @@ class BridgeState:
         data = observation.get("data")
         kind = data.get("kind") if isinstance(data, dict) else None
 
+        if schema_version == "pasi-native-chromium-v2" and kind == "chatgpt_tab_provisioning":
+            return 110
         if schema_version == "pasi-native-chromium-v2" and kind in {
             "chatgpt_health",
             "chatgpt_state",
