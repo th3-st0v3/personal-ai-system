@@ -1,0 +1,51 @@
+name: PASI Project Metadata Sync
+
+on:
+  issues:
+    types: [opened, edited]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to synchronize; leave empty to synchronize all PASI metadata issues"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  sync:
+    # Issue-triggered runs are restricted to repository-owner changes so an
+    # arbitrary public issue author cannot execute a Project-write credential
+    # on the self-hosted runner.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.actor == 'th3-st0v3' &&
+           contains(github.event.issue.body, 'PASI_PROJECT_METADATA')) }}
+    runs-on: [self-hosted, linux, x64, pasi-wsl]
+    steps:
+      - name: Validate project token
+        env:
+          GH_TOKEN: ${{ secrets.PASI_PROJECTS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}" || {
+            echo "::error::Missing PASI_PROJECTS_TOKEN repository secret. It needs GitHub Project write access."
+            exit 1
+          }
+          gh api user --jq '.login' >/dev/null
+
+      - name: Sync metadata
+        env:
+          GH_TOKEN: ${{ secrets.PASI_PROJECTS_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${ISSUE_NUMBER}" ]; then
+            python3 scripts/sync_pasi_project_metadata.py "${ISSUE_NUMBER}"
+          else
+            python3 scripts/sync_pasi_project_metadata.py --all
+          fi
