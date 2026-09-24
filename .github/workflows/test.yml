@@ -1,8 +1,9 @@
 name: test
 
 on:
-  # Repository branch pushes are the authoritative fast validation trigger.
-  # This prevents untrusted fork pull requests from executing on the private PASI runner.
+  # Hosted GitHub Actions is the authoritative repository validation path.
+  # PRs and protected branch pushes use the same non-privileged hosted checks.
+  pull_request:
   push:
     branches: [main, beta-foundation, 'pasi/**']
   workflow_dispatch:
@@ -22,10 +23,8 @@ concurrency:
 
 jobs:
   test:
-    # M0 P0.1 intentionally reserves the shared self-hosted machine for the
-    # authenticated live acceptance seam; generic test validation is skipped
-    # on M0 pushes and remains available through normal pushes/dispatch.
-    if: ${{ !(github.event_name == 'push' && contains(github.event.head_commit.message, '(m0)')) }}
+    # All repository validation runs on GitHub-hosted runners. Authenticated
+    # desktop M0 evidence is a local runtime acceptance, not a CI dependency.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
