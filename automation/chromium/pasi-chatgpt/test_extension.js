@@ -919,6 +919,15 @@ test('native prompt submission has a bounded fallback after a no-op first strate
 });
 
 
+test('native operation receipt publishes fresh existing-tab provisioning evidence', () => {
+  assert.match(content, /type: 'pasi-operation-received'/);
+  assert.match(background, /message\?\.type === 'pasi-operation-received'/);
+  assert.match(background, /reason: 'operation_received'/);
+  assert.match(background, /action: 'existing_tabs_no_create'/);
+  assert.match(background, /selected_tab_id: tabId/);
+  assert.match(background, /injection_ready: true/);
+});
+
 test('native existing-tab work handoff verifies the controller and explicitly wakes pending queue work', () => {
   assert.match(background, /chrome\.tabs\.sendMessage\(selectedTabId, \{ type: 'pasi-work-wake' \}\)/);
   assert.match(background, /work_wake_sent: workWakeSent/);
