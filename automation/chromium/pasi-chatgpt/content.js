@@ -1550,7 +1550,13 @@
           // Release never changes operation identity. If the operation is still
           // nonterminal, clear only the gate and hand control back to the normal
           // same-operation recovery path instead of resubmitting the prompt.
-          localStorage.removeItem(ACTIVE_KEY);
+          const resumedState = { ...stored };
+          delete resumedState.manual_reload_gate;
+          delete resumedState.manual_reload_gate_response;
+          delete resumedState.manual_reload_gate_timing;
+          delete resumedState.manual_reload_gate_chat_url;
+          delete resumedState.manual_reload_gate_armed_at;
+          localStorage.setItem(ACTIVE_KEY, JSON.stringify(resumedState));
           activeRecoveryState = null;
           manualReloadGateMonitorActive = false;
           await recoverInterruptedOperation();
