@@ -184,7 +184,7 @@ test('native created-tab provisioning explicitly bootstraps the controller and r
 });
 
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
-  const start = background.indexOf('async function injectChatGptTab(tabId)');
+  const start = background.indexOf('async function injectChatGptTab(tabId, context = {})');
   const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId)', start);
   assert.ok(start >= 0 && end > start);
   const source = background.slice(start, end);
