@@ -58,6 +58,58 @@ def test_project_status_option_lookup_is_case_insensitive() -> None:
     assert option["id"] == "progress"
 
 
+
+def test_canonical_quarter_windows_cover_all_phase_schedules() -> None:
+    project = {
+        "fields": {
+            "nodes": [
+                {
+                    "__typename": "ProjectV2IterationField",
+                    "id": "quarter-field",
+                    "name": "Quarter",
+                    "configuration": {
+                        "iterations": [
+                            {
+                                "id": f"q{index}",
+                                "title": title,
+                                "startDate": start,
+                                "duration": (
+                                    __import__("datetime").date.fromisoformat(end)
+                                    - __import__("datetime").date.fromisoformat(start)
+                                ).days + 1,
+                            }
+                            for index, (title, start, end) in enumerate(
+                                sync_module.QUARTER_SCHEDULE, start=1
+                            )
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+
+    for phase, info in sync_module.PHASES.items():
+        selected = sync_module.quarter_iteration_for_metadata(
+            project,
+            sync_module.Metadata(
+                phase=phase,
+                issue_type="frontend",
+                iteration=info["iteration"],
+                start_date=info["start"],
+                end_date=info["end"],
+                team="Frontend",
+                quarter=info["quarter"],
+            ),
+        )
+        assert selected["title"] in {
+            "Quarter 1",
+            "Quarter 2",
+            "Quarter 3",
+            "Quarter 4",
+            "Quarter 5",
+            "Quarter 6",
+        }
+
 def test_quarter_iteration_selection_uses_project_date_windows() -> None:
     project = {
         "fields": {
