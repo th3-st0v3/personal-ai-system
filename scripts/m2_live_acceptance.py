@@ -198,9 +198,8 @@ def listening_pids(port: int = 8765) -> list[int]:
             continue
         if completed.returncode != 0:
             continue
-        if command[-1] == "-ltnp":
-            if f":{port}" not in completed.stdout:
-                continue
+        if command[-1] == "-ltnp" and f":{port}" not in completed.stdout:
+            continue
         pids: list[int] = []
         for match in re.finditer(r"pid=(\d+)", completed.stdout):
             value = int(match.group(1))
@@ -208,14 +207,42 @@ def listening_pids(port: int = 8765) -> list[int]:
                 pids.append(value)
         if pids:
             return pids
-    return []
+
+    # Some WSL/Linux configurations omit process ownership from ss output.
+    # Fall back to lsof without weakening the later PASI-process identity check.
+    try:
+        completed = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return []
+    if completed.returncode != 0:
+        return []
+    pids = []
+    for line in completed.stdout.splitlines():
+        if line.strip().isdigit():
+            value = int(line.strip())
+            if value not in pids:
+                pids.append(value)
+    return pids
 
 
 def is_managed_bridge_process(command_line: str, cwd: str) -> bool:
-    if "pasi_log_router.py" not in command_line:
-        return False
     repo = str(REPO_ROOT)
-    return repo in command_line or cwd == repo or cwd.startswith(repo + os.sep)
+    rooted_in_repo = cwd == repo or cwd.startswith(repo + os.sep) or repo in command_line
+    if not rooted_in_repo:
+        return False
+
+    # Current managed launcher: router owns the bridge child.
+    if "pasi_log_router.py" in command_line and "automation.orchestrator.bridge" in command_line:
+        return True
+
+    # Legacy/direct managed launcher: bridge itself was started from repository.
+    # Exact module + repository root are both required; unrelated bridges remain unmanaged.
+    return "automation.orchestrator.bridge" in command_line
 
 
 def discover_managed_bridge_pid() -> tuple[int, dict[str, Any]] | None:
