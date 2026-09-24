@@ -929,7 +929,7 @@ def sync_issue(
     project: dict[str, Any],
     issue_number: int,
     existing_items: dict[int, dict[str, Any]],
-) -> tuple[dict[str, Any], Metadata | None]:
+) -> tuple[dict[str, Any], Metadata | None, RoadmapForm | None, str]:
     content_id, title, body, state = fetch_issue(issue_number)
     metadata = parse_metadata(body) if "PASI_PROJECT_METADATA" in body else None
     form = parse_roadmap_form(body)
