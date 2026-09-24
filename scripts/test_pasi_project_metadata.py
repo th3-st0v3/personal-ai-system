@@ -28,6 +28,12 @@ def project_items_with_status(status: str) -> dict[int, dict[str, dict[str, str]
     }
 
 
+
+def test_project_uses_native_github_date_fields_and_dedicated_quarter_field() -> None:
+    assert sync_module.START_FIELD == "Start date"
+    assert sync_module.END_FIELD == "Target date"
+    assert sync_module.QUARTER_FIELD == "PASI Quarter"
+
 def test_frontend_phase_mapping_is_complete_and_contiguous() -> None:
     assert len(FRONTEND_PHASE_ISSUES) == 23
     assert [FRONTEND_PHASE_ISSUES[f"P{i}"] for i in range(23)] == list(range(319, 342))
