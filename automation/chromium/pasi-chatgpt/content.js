@@ -1,6 +1,12 @@
 (() => {
   'use strict';
 
+  const existingControllerHandle = globalThis.__PASI_NATIVE_CONTROLLER_HANDLE__;
+  if (existingControllerHandle && typeof existingControllerHandle.stop === 'function') {
+    try { existingControllerHandle.stop(); } catch (_) {}
+  }
+  delete globalThis.__PASI_NATIVE_CONTROLLER_HANDLE__;
+
   if (globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ === true) return;
   globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = true;
 
@@ -57,6 +63,27 @@
   let lastCompletionAckAtMs = 0;
   let activeRecoveryState = null;
   let manualReloadGateMonitorActive = false;
+
+  function disposeController() {
+    extensionContextInvalidated = true;
+    controllerLeader = false;
+    controllerClaimedAt = 0;
+    processing = false;
+    activeOperationId = null;
+    manualReloadGateMonitorActive = false;
+    if (leaseTimerId !== null) {
+      clearInterval(leaseTimerId);
+      leaseTimerId = null;
+    }
+    if (pollTimerId !== null) {
+      clearInterval(pollTimerId);
+      pollTimerId = null;
+    }
+    if (healthTimerId !== null) {
+      clearInterval(healthTimerId);
+      healthTimerId = null;
+    }
+  }
 
   function scheduleImmediateOperation(operation) {
     if (immediateOperationQueued || extensionContextInvalidated || !operation?.operation_id) return;
@@ -2295,6 +2322,8 @@
   document.addEventListener('visibilitychange', () => {
     if (!extensionContextInvalidated) void reportHealth();
   });
+
+  globalThis.__PASI_NATIVE_CONTROLLER_HANDLE__ = Object.freeze({ stop: disposeController });
 
   if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
     globalThis.PASI_NATIVE_TEST_API = Object.freeze({
