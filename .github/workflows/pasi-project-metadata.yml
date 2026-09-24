@@ -2,20 +2,28 @@ name: PASI Project Automation
 
 on:
   issues:
-    types: [opened, edited]
+    types: [opened, edited, labeled, reopened]
   workflow_dispatch:
     inputs:
       issue_number:
-        description: "Issue number to add/format in the PASI Project; leave empty to reconcile all PASI metadata issues"
+        description: "Specific issue number to add/format; leave empty to use the selected bulk scope"
         required: false
         type: string
+      scope:
+        description: "Bulk synchronization scope when issue_number is empty"
+        required: true
+        type: choice
+        default: roadmap
+        options:
+          - roadmap
+          - metadata
 
 permissions:
   contents: read
   issues: read
 
 concurrency:
-  group: pasi-project-metadata
+  group: pasi-project-automation
   cancel-in-progress: false
 
 jobs:
@@ -26,7 +34,7 @@ jobs:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           (github.actor == 'th3-st0v3' &&
-           contains(github.event.issue.body, 'PASI_PROJECT_METADATA')) }}
+           contains(github.event.issue.labels.*.name, 'roadmap')) }}
     runs-on: [self-hosted, linux, x64, pasi-wsl]
     timeout-minutes: 20
     env:
@@ -111,6 +119,8 @@ jobs:
 
           if [ -n "${ISSUE_NUMBER}" ]; then
             python3 scripts/sync_pasi_project_metadata.py "${ISSUE_NUMBER}"
-          else
+          elif [ "${{ inputs.scope }}" = "metadata" ]; then
             python3 scripts/sync_pasi_project_metadata.py --all
+          else
+            python3 scripts/sync_pasi_project_metadata.py --roadmap
           fi
