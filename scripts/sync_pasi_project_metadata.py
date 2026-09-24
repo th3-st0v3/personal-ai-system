@@ -35,6 +35,14 @@ END_FIELD = "End Date"
 TEAM_FIELD = "Team"
 QUARTER_FIELD = "Quarter"
 ITERATION_FIELD = "Iteration"
+STATUS_FIELD = "Status"
+STATUS_DONE = "Done"
+STATUS_TODO = "Todo"
+FRONTEND_ROADMAP_ISSUE = 318
+FRONTEND_PHASE_ISSUES = {f"P{index}": 319 + index for index in range(23)}
+PROJECT_EVENT_ACTION = os.environ.get("PASI_PROJECT_EVENT_ACTION", "").strip().lower()
+PROJECT_EVENT_ISSUE_NUMBER_RAW = os.environ.get("PASI_PROJECT_EVENT_ISSUE_NUMBER", "").strip()
+
 
 META_RE = re.compile(
     r"<!--\s*PASI_PROJECT_METADATA\s*\n(?P<body>.*?)\nPASI_PROJECT_METADATA\s*-->",
@@ -120,6 +128,14 @@ def run_gh(args: list[str], *, input_text: str | None = None) -> str:
             f"gh {' '.join(args)} failed: {proc.stderr.strip() or proc.stdout.strip()}"
         )
     return proc.stdout
+
+
+def update_issue_body(issue_number: int, body: str) -> None:
+    endpoint = f"repos/{REPO}/issues/{issue_number}"
+    run_gh(
+        ["api", endpoint, "--method", "PATCH", "--input", "-"],
+        input_text=json.dumps({"body": body}),
+    )
 
 
 def retry_delay(attempt: int) -> float:
@@ -281,6 +297,7 @@ def fetch_issue(issue_number: int) -> tuple[str, str, str]:
           id
           number
           title
+          state
           body
         }
       }
@@ -291,7 +308,7 @@ def fetch_issue(issue_number: int) -> tuple[str, str, str]:
         {"owner": "th3-st0v3", "repo": "personal-ai-system", "number": issue_number},
     )
     issue = data["repository"]["issue"]
-    return issue["id"], issue["title"], issue.get("body") or ""
+    return issue["id"], issue["title"], issue.get("body") or "", issue["state"]
 
 
 def project_snapshot() -> dict[str, Any]:
@@ -519,9 +536,18 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
     team = field_by_name(project, TEAM_FIELD, "ProjectV2SingleSelectField")
     quarter = field_by_name(project, QUARTER_FIELD, "ProjectV2SingleSelectField")
     iteration = field_by_name(project, ITERATION_FIELD, "ProjectV2IterationField")
+    status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
 
-    if not team or not quarter or not iteration:
+    if not team or not quarter or not iteration or not status:
         raise RuntimeError("Required PASI Project fields could not be resolved.")
+
+    status_names = {option["name"] for option in status["options"]}
+    missing_statuses = {STATUS_TODO, "In Progress", STATUS_DONE} - status_names
+    if missing_statuses:
+        raise RuntimeError(
+            "PASI Project Status field is missing required options: "
+            + ", ".join(sorted(missing_statuses))
+        )
 
     # Reconcile Team/Quarter options while preserving existing option IDs.
     desired_team = ["Backend", "Frontend"]
@@ -627,6 +653,95 @@ def add_item(project_id: str, content_id: str) -> str:
     return data["addProjectV2ItemById"]["item"]["id"]
 
 
+def project_status_option(project: dict[str, Any], status_name: str) -> dict[str, Any]:
+    status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
+    if not status:
+        raise RuntimeError("Required PASI Project Status field could not be resolved.")
+    option = next((option for option in status["options"] if option["name"] == status_name), None)
+    if not option:
+        raise RuntimeError(f"PASI Project Status option {status_name!r} is unavailable.")
+    return option
+
+
+def set_project_status(project: dict[str, Any], item_id: str, status_name: str) -> None:
+    option = project_status_option(project, status_name)
+    status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
+    if not status:
+        raise RuntimeError("Required PASI Project Status field could not be resolved.")
+    update_item_field(
+        project["id"],
+        item_id,
+        status["id"],
+        {"singleSelectOptionId": option["id"]},
+    )
+
+
+def sync_frontend_statuses(
+    project: dict[str, Any],
+    items: dict[int, dict[str, Any]],
+    issue_states: dict[int, str],
+) -> None:
+    event_issue = int(PROJECT_EVENT_ISSUE_NUMBER_RAW) if PROJECT_EVENT_ISSUE_NUMBER_RAW.isdigit() else None
+    for phase, issue_number in FRONTEND_PHASE_ISSUES.items():
+        item = items.get(issue_number)
+        if not item:
+            continue
+        current = (item.get("status") or {}).get("name")
+        desired = current or STATUS_TODO
+        if issue_states.get(issue_number, "").upper() == "CLOSED":
+            desired = STATUS_DONE
+        elif PROJECT_EVENT_ACTION == "reopened" and event_issue == issue_number:
+            desired = STATUS_TODO
+        if desired not in {STATUS_TODO, "In Progress", STATUS_DONE}:
+            raise RuntimeError(
+                f"Unsupported Project Status {desired!r} for frontend phase {phase} (#{issue_number})."
+            )
+        if current != desired:
+            set_project_status(project, item["id"], desired)
+            print(f"Synced #{issue_number} {phase} Project Status: {current!r} -> {desired!r}")
+
+
+def synchronize_frontend_roadmap_checkboxes(
+    body: str,
+    project_items_by_number: dict[int, dict[str, Any]],
+) -> str:
+    pattern = re.compile(
+        r"^(?P<prefix>\s*-\s*)\[(?P<checked>[ xX])\](?P<rest>\s+\[FE-P(?P<phase>\d+)\s+—[^\n]*\]\(https://github\\.com/th3-st0v3/personal-ai-system/issues/(?P<issue>\d+)\))\s*$",
+        re.MULTILINE,
+    )
+    seen: set[str] = set()
+
+    def replace(match: re.Match[str]) -> str:
+        phase = f"P{match.group('phase')}"
+        issue_number = int(match.group("issue"))
+        expected_issue = FRONTEND_PHASE_ISSUES.get(phase)
+        if expected_issue != issue_number:
+            raise RuntimeError(
+                f"Frontend roadmap mapping drifted for FE-{phase}: expected issue #{expected_issue}, got #{issue_number}."
+            )
+        status_name = (project_items_by_number.get(issue_number, {}).get("status") or {}).get("name")
+        checked = status_name == STATUS_DONE
+        seen.add(phase)
+        return f"{match.group('prefix')}[{'x' if checked else ' '}]"+match.group("rest")
+
+    updated = pattern.sub(replace, body)
+    missing = sorted(set(FRONTEND_PHASE_ISSUES) - seen, key=lambda value: int(value[1:]))
+    if missing:
+        raise RuntimeError(
+            "Frontend roadmap is missing checkbox mappings for: " + ", ".join(f"FE-{phase}" for phase in missing)
+        )
+    return updated
+
+
+def verify_frontend_roadmap_checkboxes(
+    body: str,
+    project_items_by_number: dict[int, dict[str, Any]],
+) -> None:
+    expected = synchronize_frontend_roadmap_checkboxes(body, project_items_by_number)
+    if expected != body:
+        raise RuntimeError("Frontend roadmap checkbox state is out of sync with Project Status.")
+
+
 def apply_metadata_to_item(
     project: dict[str, Any],
     item_id: str,
@@ -683,7 +798,7 @@ def sync_issue(
     issue_number: int,
     existing_items: dict[int, dict[str, Any]],
 ) -> tuple[dict[str, Any], Metadata | None]:
-    content_id, title, body = fetch_issue(issue_number)
+    content_id, title, body, state = fetch_issue(issue_number)
     metadata = parse_metadata(body) if "PASI_PROJECT_METADATA" in body else None
 
     existing = existing_items.get(issue_number)
@@ -699,10 +814,10 @@ def sync_issue(
             f"Project membership {membership_action}: #{issue_number} {title} "
             "(no phase metadata block)."
         )
-        return project, None
+        return project, None, state
 
     project = apply_metadata_to_item(project, item_id, metadata, issue_number, title)
-    return project, metadata
+    return project, metadata, state
 
 
 def all_metadata_issue_numbers() -> list[int]:
@@ -720,7 +835,7 @@ def all_metadata_issue_numbers() -> list[int]:
 
 
 def metadata_for_issue(issue_number: int) -> Metadata:
-    _, _, body = fetch_issue(issue_number)
+    _, _, body, _ = fetch_issue(issue_number)
     return parse_metadata(body)
 
 
@@ -733,7 +848,8 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
       $endField:String!,
       $teamField:String!,
       $quarterField:String!,
-      $iterationField:String!
+      $iterationField:String!,
+      $statusField:String!
     ) {
       node(id:$project) {
         ... on ProjectV2 {
@@ -766,6 +882,12 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
                   title
                   startDate
                   duration
+                }
+              }
+              status: fieldValueByName(name:$statusField) {
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  optionId
+                  name
                 }
               }
             }
@@ -823,24 +945,41 @@ def verify_issue(project_items_by_number: dict[int, dict[str, Any]], issue_numbe
 
 
 def synchronize(issue_numbers: list[int]) -> None:
-    project = project_snapshot()
+    project = ensure_schema(project_snapshot())
     field_names = {
         "startField": START_FIELD,
         "endField": END_FIELD,
         "teamField": TEAM_FIELD,
         "quarterField": QUARTER_FIELD,
         "iterationField": ITERATION_FIELD,
+        "statusField": STATUS_FIELD,
     }
     existing_items = project_items(project, field_names)
     metadata_by_issue: dict[int, Metadata] = {}
+    issue_states: dict[int, str] = {}
 
     for issue_number in issue_numbers:
-        project, metadata = sync_issue(project, issue_number, existing_items)
+        project, metadata, state = sync_issue(project, issue_number, existing_items)
+        issue_states[issue_number] = state
         if metadata is not None:
             metadata_by_issue[issue_number] = metadata
 
     project = project_snapshot()
     items = project_items(project, field_names)
+    frontend_states = {
+        issue_number: issue_states.get(issue_number) or fetch_issue(issue_number)[3]
+        for issue_number in FRONTEND_PHASE_ISSUES.values()
+        if issue_number in items
+    }
+    sync_frontend_statuses(project, items, frontend_states)
+
+    project = project_snapshot()
+    items = project_items(project, field_names)
+    _, _, roadmap_body, _ = fetch_issue(FRONTEND_ROADMAP_ISSUE)
+    updated_body = synchronize_frontend_roadmap_checkboxes(roadmap_body, items)
+    if updated_body != roadmap_body:
+        update_issue_body(FRONTEND_ROADMAP_ISSUE, updated_body)
+        print(f"Synchronized FE roadmap #{FRONTEND_ROADMAP_ISSUE} checkboxes from Project Status.")
 
     errors: list[str] = []
     for issue_number in issue_numbers:
@@ -882,6 +1021,24 @@ def synchronize(issue_numbers: list[int]) -> None:
                     verify_issue(items, issue_number, metadata)
                 except RuntimeError as exc:
                     errors.append(str(exc))
+
+    try:
+        _, _, roadmap_body, _ = fetch_issue(FRONTEND_ROADMAP_ISSUE)
+        verify_frontend_roadmap_checkboxes(roadmap_body, items)
+        for phase, issue_number in FRONTEND_PHASE_ISSUES.items():
+            item = items.get(issue_number)
+            if not item:
+                errors.append(
+                    f"Frontend Project verification failed: FE-{phase} issue #{issue_number} is not in the Project."
+                )
+                continue
+            status_name = (item.get("status") or {}).get("name")
+            if status_name not in {STATUS_TODO, "In Progress", STATUS_DONE}:
+                errors.append(
+                    f"Frontend Project verification failed for FE-{phase}: invalid Status {status_name!r}."
+                )
+    except RuntimeError as exc:
+        errors.append(str(exc))
 
     if errors:
         raise RuntimeError(
