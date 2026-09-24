@@ -3,8 +3,6 @@ from scripts.sync_pasi_project_metadata import (
     STATUS_DONE,
     STATUS_TODO,
     parse_roadmap_form,
-    STATUS_DONE,
-    STATUS_TODO,
     synchronize_frontend_roadmap_checkboxes,
     verify_frontend_roadmap_checkboxes,
 )
