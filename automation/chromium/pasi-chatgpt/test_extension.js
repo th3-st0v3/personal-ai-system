@@ -75,7 +75,8 @@ test('native background watchdog provisions one ChatGPT tab only when work is pe
   assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
   assert.match(background, /if \(!pendingWork\) return null/);
   assert.match(background, /const existingTabs = await listChatGptTabs\(\)/);
-  assert.match(background, /if \(existingTabs\.length > 0\) return null/);
+  assert.match(background, /action: 'existing_tabs_no_create'/);
+  assert.match(background, /return null/);
   assert.match(background, /chrome\.tabs\.create\(\{ url: requestedUrl, active: false \}\)/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });;
@@ -95,7 +96,8 @@ test('native background applies a persistent tab-creation cooldown and in-flight
   assert.match(background, /let tabCreateInFlight = null/);
   assert.match(background, /chrome\.storage\.local\.get\(TAB_CREATE_COOLDOWN_KEY\)/);
   assert.match(background, /chrome\.storage\.local\.set\([\s\S]*attempted_at/);
-  assert.match(background, /if \(tabCreateInFlight\) return tabCreateInFlight/);
+  assert.match(background, /if \(tabCreateInFlight\) \{/);
+  assert.match(background, /return tabCreateInFlight;/);
   assert.match(background, /Re-check immediately before creation/);
 });
 
@@ -545,7 +547,8 @@ test('native controller answers background health pings and visibility transitio
 test('background watchdog creates a missing ChatGPT tab only through the guarded provisioning path', () => {
   assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
   assert.match(background, /if \(!pendingWork\) return null/);
-  assert.match(background, /if \(existingTabs\.length > 0\) return null/);
+  assert.match(background, /const existingTabs = await listChatGptTabs\(\)/);
+  assert.match(background, /action: 'existing_tabs_no_create'/);
   assert.match(background, /chrome\.tabs\.create/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });;
@@ -558,8 +561,9 @@ test('background watchdog uses the persistent missing-tab creation cooldown', ()
 });;
 
 test('background watchdog stores the target URL with the creation cooldown state', () => {
+  assert.match(background, /const attemptedAtMs = Date\.now\(\)/);
+  assert.match(background, /attempted_at: attemptedAtMs/);
   assert.match(background, /url: requestedUrl/);
-  assert.match(background, /attempted_at: Date\.now\(\)/);
 });;
 
 
