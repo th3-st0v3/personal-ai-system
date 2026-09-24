@@ -1402,9 +1402,11 @@ def no_change_completion_is_satisfied(
 def continuation_directive(_state: OvernightState, _task: str | None = None) -> str:
     """Compatibility helper kept for legacy callers; prompt construction is centralized."""
     return (
-        "Work on this task until its acceptance criteria are met. "
-        "Inspect the relevant code, make the smallest correct change, verify it, "
-        "and repair any verification failure. Do not start another task."
+        "Complete the task as an implementation task when implementation is required; "
+        "tracked-file changes are allowed unless the task explicitly scopes them out. "
+        "Keep working until the stated acceptance criteria are met. "
+        "Run every relevant test, type check, lint, or other deterministic verification check needed for the task; "
+        "repair failures and do not report completion while required checks are failing."
     )
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
