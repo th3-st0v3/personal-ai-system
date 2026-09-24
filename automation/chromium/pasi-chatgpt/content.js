@@ -1640,9 +1640,15 @@
       manual_reload_gate_armed_at: new Date().toISOString()
     };
     localStorage.setItem(ACTIVE_KEY, JSON.stringify(nextState));
+    const boundedResponse = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
     const response = await bridge('/chat/manual-reload-gate/arm', {
       method: 'POST',
-      body: { operation_id: operation.operation_id }
+      body: {
+        operation_id: operation.operation_id,
+        response_text: boundedResponse,
+        response_text_available: Boolean(boundedResponse.trim()),
+        chat_url: chatUrl()
+      }
     });
     if (!response.ok) {
       throw new Error(`PASI_NATIVE: manual reload gate arm rejected (HTTP ${response.status})`);
