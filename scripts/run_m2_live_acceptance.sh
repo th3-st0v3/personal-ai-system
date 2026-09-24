@@ -20,10 +20,10 @@ STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
 PROMPT="M2 live recovery $STAMP: output the integers 1 through 1000, one integer per line, without commentary, then end with exactly M2-LIVE-$STAMP on its own line."
 OUT="$EVIDENCE_DIR/m2-live-$STAMP.json"
 
-"$PYTHON" - "$PROMPT" "$OUT" <<'PY'
+"$PYTHON" - "$PROMPT" "$OUT" "$STAMP" <<'PY'
 import json, os, sys, time, urllib.parse, urllib.request
 from pathlib import Path
-prompt, out = sys.argv[1:]
+prompt, out, stamp = sys.argv[1:]
 headers = {"Authorization": "Bearer " + os.environ["PASI_BRIDGE_TOKEN"], "Content-Type": "application/json"}
 def request(method, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode()
@@ -39,7 +39,7 @@ queued = request("POST", "/queue", {
     "operation_type": "prompt",
     "prompt": prompt,
     "idempotency_key": idempotency_key,
-    "completion_markers": [f"M2-LIVE-{STAMP}"],
+    "completion_markers": [f"M2-LIVE-{stamp}"],
 })
 operation = queued["operation"]
 Path(out).write_text(json.dumps({
