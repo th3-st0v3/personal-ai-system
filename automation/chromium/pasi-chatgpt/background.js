@@ -324,7 +324,7 @@ async function reportTabProvisioning(event) {
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const response = await bridgeFetch('/browser/provisioning', 'POST', observation, 2000);
+      const response = await bridgeFetch('/browser/provisioning', 'POST', { observation }, 2000);
       if (response.ok) {
         try {
           await chrome.storage.local.remove(TAB_PROVISIONING_PENDING_KEY);
@@ -373,7 +373,7 @@ async function flushRuntimeTelemetry() {
         ? stored[RUNTIME_TELEMETRY_PENDING_KEY].slice()
         : [];
       while (queue.length) {
-        const response = await bridgeFetch('/browser/telemetry', 'POST', queue[0], 2000);
+        const response = await bridgeFetch('/browser/telemetry', 'POST', { observation: queue[0] }, 2000);
         if (!response.ok) break;
         queue.shift();
         await chrome.storage.local.set({
@@ -409,7 +409,7 @@ async function flushPendingTabProvisioning() {
     const observation = stored?.[TAB_PROVISIONING_PENDING_KEY];
     if (!observation || typeof observation !== 'object') return false;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const response = await bridgeFetch('/browser/provisioning', 'POST', observation, 2000);
+      const response = await bridgeFetch('/browser/provisioning', 'POST', { observation }, 2000);
       if (response.ok) {
         await chrome.storage.local.remove(TAB_PROVISIONING_PENDING_KEY);
         return true;
