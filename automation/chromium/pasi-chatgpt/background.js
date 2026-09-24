@@ -650,6 +650,10 @@ async function bootstrapCreatedChatGptTab(tabId, context = {}) {
     const ok = await injectChatGptTab(tabId, { source: 'created_tab' });
     if (ok) {
       let resumeHandoffSent = false;
+      const trackProvisioning = (
+        typeof context.requestedUrl === 'string' ||
+        typeof context.resumeOperationId === 'string'
+      );
       const resumeOperationId = typeof context.resumeOperationId === 'string' && context.resumeOperationId
         ? context.resumeOperationId
         : null;
@@ -664,7 +668,8 @@ async function bootstrapCreatedChatGptTab(tabId, context = {}) {
           resumeHandoffSent = false;
         }
       }
-      void reportTabProvisioning({
+      if (trackProvisioning) {
+        void reportTabProvisioning({
         action: 'created',
         existing_tab_count: 0,
         requested_url: String(context.requestedUrl || ''),
@@ -680,7 +685,8 @@ async function bootstrapCreatedChatGptTab(tabId, context = {}) {
         injection_ready: true,
         resume_operation_id: resumeOperationId,
         resume_handoff_sent: resumeHandoffSent
-      });
+        });
+      }
       return true;
     }
     await new Promise((resolve) => setTimeout(resolve, TAB_BOOTSTRAP_RETRY_MS));
@@ -693,7 +699,8 @@ async function bootstrapCreatedChatGptTab(tabId, context = {}) {
     phase: 'bootstrap_exhausted',
     error: 'PASI_RUNTIME: created-tab bootstrap exhausted all injection attempts'
   });
-  void reportTabProvisioning({
+  if (typeof context.requestedUrl === 'string' || typeof context.resumeOperationId === 'string') {
+    void reportTabProvisioning({
     action: 'create_bootstrap_failed',
     existing_tab_count: 0,
     requested_url: String(context.requestedUrl || ''),
@@ -701,7 +708,8 @@ async function bootstrapCreatedChatGptTab(tabId, context = {}) {
     injection_ready: false,
     resume_operation_id: typeof context.resumeOperationId === 'string' ? context.resumeOperationId : null,
     resume_handoff_sent: false
-  });
+    });
+  }
   return false;
 }
 
@@ -744,9 +752,16 @@ async function inspect() {
   ) ? liveHealth.data.chat_url : '';
   const pendingWork = bridgeHasPendingWork(status, liveHealth);
 
-  const resumeOperationId = typeof liveHealth?.data?.active_operation_id === 'string'
+  let resumeOperationId = typeof liveHealth?.data?.active_operation_id === 'string'
     ? liveHealth.data.active_operation_id
     : null;
+  if (!resumeOperationId && pendingWork) {
+    const browserResponse = await bridgeJson('/browser/response');
+    const responseData = browserResponse?.data;
+    if (typeof responseData?.active_operation_id === 'string') {
+      resumeOperationId = responseData.active_operation_id;
+    }
+  }
   const createdTabId = await ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId);
   if (createdTabId !== null) return;
   if (!health) return;
