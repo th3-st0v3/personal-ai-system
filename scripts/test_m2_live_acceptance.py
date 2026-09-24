@@ -11,7 +11,9 @@ if str(ROOT) not in sys.path:
 
 from scripts.m2_live_acceptance import (
     BROWSER_MAX_HEARTBEAT_AGE_SECONDS,
+    M2AcceptanceError,
     discover_managed_bridge_pid,
+    validate_browser_health,
     is_managed_bridge_process,
     queue_operation_ids,
     read_log_since,
@@ -77,6 +79,66 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertEqual(value["captured_at"], "2026-09-24T05:10:05.569Z")
         self.assertEqual(value["schema_version"], "pasi-native-chromium-v2")
 
+    def test_browser_health_rejects_missing_extension_version(self) -> None:
+        from datetime import datetime, timezone
+
+        captured = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        health = {
+            "kind": "chatgpt_health",
+            "native_controller": True,
+            "controller_version": "2.4.11",
+            "composer_present": True,
+            "conversation_signature": "1:0:fingerprint",
+            "chat_url": "https://chatgpt.com/c/example",
+            "captured_at": captured,
+        }
+        with self.assertRaisesRegex(M2AcceptanceError, "stale or unidentified"):
+            validate_browser_health(health, "2.4.11", "1.1.3", 30.0)
+
+    def test_browser_health_requires_fresh_timestamp_and_same_conversation(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        stale = (datetime.now(timezone.utc) - timedelta(seconds=31)).isoformat().replace("+00:00", "Z")
+        health = {
+            "kind": "chatgpt_health",
+            "native_controller": True,
+            "controller_version": "2.4.11",
+            "extension_manifest_version": "1.1.3",
+            "composer_present": True,
+            "conversation_signature": "1:0:fingerprint",
+            "chat_url": "https://chatgpt.com/c/example",
+            "captured_at": stale,
+        }
+        with self.assertRaisesRegex(M2AcceptanceError, "heartbeat is stale"):
+            validate_browser_health(health, "2.4.11", "1.1.3", 30.0)
+
+        fresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        health["captured_at"] = fresh
+        with self.assertRaisesRegex(M2AcceptanceError, "conversation URL changed"):
+            validate_browser_health(
+                health,
+                "2.4.11",
+                "1.1.3",
+                30.0,
+                expected_chat_url="https://chatgpt.com/c/other",
+            )
+
+    def test_browser_health_accepts_fresh_same_conversation(self) -> None:
+        from datetime import datetime, timezone
+
+        health = {
+            "kind": "chatgpt_health",
+            "native_controller": True,
+            "controller_version": "2.4.11",
+            "extension_manifest_version": "1.1.3",
+            "composer_present": True,
+            "conversation_signature": "1:0:fingerprint",
+            "chat_url": "https://chatgpt.com/c/example",
+            "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        age = validate_browser_health(health, "2.4.11", "1.1.3", 30.0, "https://chatgpt.com/c/example")
+        self.assertGreaterEqual(age, -5.0)
+        self.assertLessEqual(age, 30.0)
     def test_m2_preflight_rejects_stale_browser_health(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
         self.assertIn("BROWSER_MAX_HEARTBEAT_AGE_SECONDS", source)
