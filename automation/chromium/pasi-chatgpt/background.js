@@ -5,6 +5,8 @@ const ALARM = 'pasi-watchdog';
 let STALE_MS = 45 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
+const TAB_REOPEN_COOLDOWN_KEY = 'pasi:tab-reopen-cooldown';
+const TAB_REOPEN_COOLDOWN_MS = 15 * 1000;
 let controllerClaimTail = Promise.resolve();
 let cachedBridgeToken = null;
 let bridgeTokenPromise = null;
@@ -288,6 +290,58 @@ async function injectExistingChatTabs() {
     }
   }
 }
+async function reopenMissingTargetTab(targetChatUrl, operationId, operation) {
+  if (!targetChatUrl || !sameChatConversationUrl(targetChatUrl, targetChatUrl)) return false;
+  if (!operationId || !operation) return false;
+  if (['completed', 'failed', 'cancelled'].includes(String(operation.status || ''))) return false;
+  if (operation.manual_reload_gate === true && operation.manual_reload_gate_released === true) return false;
+
+  let cooldown = null;
+  try {
+    const stored = await chrome.storage.local.get(TAB_REOPEN_COOLDOWN_KEY);
+    cooldown = stored?.[TAB_REOPEN_COOLDOWN_KEY];
+  } catch (_) {}
+  if (
+    cooldown &&
+    cooldown.operation_id === operationId &&
+    cooldown.chat_url === targetChatUrl &&
+    Number.isFinite(Number(cooldown.attempted_at)) &&
+    Date.now() - Number(cooldown.attempted_at) < TAB_REOPEN_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  try {
+    await chrome.storage.local.set({
+      [TAB_REOPEN_COOLDOWN_KEY]: {
+        operation_id: operationId,
+        chat_url: targetChatUrl,
+        attempted_at: Date.now()
+      }
+    });
+  } catch (_) {}
+
+  try {
+    await chrome.tabs.create({ url: targetChatUrl, active: false });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function clearTabReopenCooldownIfMatched(operationId, chatUrl) {
+  try {
+    const stored = await chrome.storage.local.get(TAB_REOPEN_COOLDOWN_KEY);
+    const cooldown = stored?.[TAB_REOPEN_COOLDOWN_KEY];
+    if (
+      cooldown?.operation_id === operationId &&
+      cooldown?.chat_url === chatUrl
+    ) {
+      await chrome.storage.local.remove(TAB_REOPEN_COOLDOWN_KEY);
+    }
+  } catch (_) {}
+}
+
 async function inspect() {
   await injectExistingChatTabs();
 
@@ -300,19 +354,30 @@ async function inspect() {
   const targetChatUrl = typeof health.data.chat_url === 'string'
     ? health.data.chat_url
     : '';
-  if (!targetChatUrl) return;
+  const operationId = typeof health.data.active_operation_id === 'string'
+    ? health.data.active_operation_id
+    : '';
+  if (!targetChatUrl || !operationId) return;
 
   const tabs = await chrome.tabs.query({
     url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
   });
   const matchingTab = tabs.find((tab) => sameChatConversationUrl(tab.url, targetChatUrl));
   if (matchingTab && typeof matchingTab.id === 'number') {
+    await clearTabReopenCooldownIfMatched(operationId, targetChatUrl);
     try {
       await chrome.tabs.sendMessage(matchingTab.id, { type: 'pasi-health-ping' });
     } catch (_) {
       // Existing-tab injection will be retried on the next watchdog pass.
     }
+    return;
   }
+
+  const operationPayload = await bridgeJson(
+    `/operation?operation_id=${encodeURIComponent(operationId)}`
+  );
+  const operation = operationPayload?.operation;
+  await reopenMissingTargetTab(targetChatUrl, operationId, operation);
 }
 
 async function applyTimeoutPolicy() {
