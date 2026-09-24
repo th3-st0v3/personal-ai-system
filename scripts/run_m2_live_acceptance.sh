@@ -17,7 +17,7 @@ TOKEN_FILE="$HOME/.pasi/bridge-token"
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 
 STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
-PROMPT="M2 live recovery $STAMP: reply exactly M2-LIVE-$STAMP"
+PROMPT="M2 live recovery $STAMP: output the integers 1 through 1000, one integer per line, without commentary, then end with exactly M2-LIVE-$STAMP on its own line."
 OUT="$EVIDENCE_DIR/m2-live-$STAMP.json"
 
 "$PYTHON" - "$PROMPT" "$OUT" <<'PY'
