@@ -668,12 +668,14 @@ def main() -> int:
 
         marker = f"M2_ACCEPTANCE_{uuid.uuid4().hex[:10]}"
         task = (
-            "Perform a bounded engineering verification of PASI's browser recovery path in the current "
-            "repository/worktree. Inspect the recovery implementation and relevant tests, run the smallest "
-            "relevant deterministic checks, and return a substantive engineering report. Do not modify tracked "
-            f"files. Include the exact token {marker} on its own line near the end of the final response. "
-            "PASI_M2_MANUAL_RELOAD_GATE: true. Do not treat the task as terminal until this same operation is explicitly released after the manual tab reload and process recovery. "
-            "This is a live M2 kill/restart recovery acceptance operation."
+            "Complete this isolated live M2 recovery acceptance fixture. Verify the requested operation identity and "
+            "return the required result contract with concise, task-relevant evidence. This is an acceptance fixture, "
+            "not a roadmap task; it does not require repository implementation changes. Keep internal controller, "
+            "planner, capability-gateway, and orchestration details out of the response. Do not treat the task as "
+            "terminal until this same operation is explicitly released after the manual tab reload and process recovery. "
+            f"Include the exact token {marker} on its own line near the end of the final response. "
+            "PASI_M2_MANUAL_RELOAD_GATE: true. "
+            "Run relevant verification checks before reporting completion and repair any failure you can reproduce."
         )
         branch = f"pasi/m2-live-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         worktree, actual_branch, start_output, launcher_start_seconds = start_managed_run(runtime_dir, branch, task)
@@ -754,7 +756,13 @@ def main() -> int:
         print(f"Chat URL:     {chat_url}")
         print(f"Marker:       {marker}")
         print("Close or reload the EXACT ChatGPT conversation tab carrying this operation.")
-        print("Do not open a replacement tab and do not send another message.")
+        print("PASI will attempt to reopen the same conversation automatically when the tab is absent.")
+        print("Do not open a replacement conversation and do not send another message.")
+        print("Fallback WSL reopen command:")
+        print(f'  powershell.exe -NoProfile -Command "Start-Process \'{chat_url}\'"')
+        print("Fallback Windows command:")
+        print(f'  cmd.exe /c start "" "{chat_url}"')
+        print("Use the fallback only if PASI has not reopened the exact URL; then press Enter.")
         input("Press Enter after that exact tab is closed/reloaded: ")
         reload_confirmed_at = utc_now()
 
