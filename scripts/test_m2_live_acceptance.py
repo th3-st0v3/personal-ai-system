@@ -40,3 +40,11 @@ def test_m2_harness_runs_all_three_restart_stages() -> None:
     for stage in ("browser_reload_reclaimed_once", "bridge_restart_recovered", "runner_restart_resumed"):
         assert f'"{stage}"' in source
     assert re.search(r'bash scripts/start_pasi_168h.sh --resume', source)
+
+def test_m2_harness_requires_runner_to_resume_the_same_persisted_operation() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert 'Resuming persisted ChatGPT operation: {opid}' in source
+    assert 'runner_log_path = Path(os.environ["RUNNER_LOG"])' in source
+    assert 'initial_submit_count != 1' in source
+    assert 'resume_count < 1' in source
+    assert '"runner_resume_verified":True' in source
