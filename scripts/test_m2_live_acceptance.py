@@ -151,3 +151,30 @@ def test_native_controller_reconciles_stale_manual_gate_before_polling() -> None
     assert "localStorage.removeItem(ACTIVE_KEY)" in source
     assert "['failed', 'cancelled'].includes(current.status)" in source
     assert "const cleared = await reconcileStaleManualReloadGate();" in source
+
+
+def test_m2_harness_uses_shared_marker_matcher_and_long_response_window() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "from scripts.m2_completion_markers import marker_satisfied" in source
+    assert "deadline = time.time() + 900" in source
+    assert '"latest_browser_telemetry": telemetry' in source
+    assert '"resume_operation_id": data.get("resume_operation_id")' in source
+    assert '"resume_handoff_sent": data.get("resume_handoff_sent")' in source
+
+
+def test_m2_controller_does_not_retry_before_manual_gate_is_armed() -> None:
+    source = Path("automation/chromium/pasi-chatgpt/content.js").read_text(encoding="utf-8")
+    assert "const M2_PRE_GATE_FAILURE_PREFIX = 'PASI_M2_PRE_GATE_FAILURE:';" in source
+    assert "const m2PreGateFailure =" in source
+    assert "isM2ManualReloadGate(operation) &&" in source
+    assert "!manualReloadGateState()?.manual_reload_gate" in source
+    assert "event: 'M2_PRE_GATE_FAILURE'" in source
+    assert "event: 'GENERATION_START_PROGRESS'" in source
+    assert "event: 'RESPONSE_WAIT_PROGRESS'" in source
+    assert "bridge('/chat/heartbeat'" in source
+
+
+def test_m2_provisioning_observation_preserves_resume_handoff_fields() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert '"resume_operation_id": data.get("resume_operation_id")' in source
+    assert '"resume_handoff_sent": data.get("resume_handoff_sent")' in source
