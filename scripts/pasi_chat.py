@@ -501,17 +501,14 @@ def route_chat(
     elif not isinstance(reasoning_mode, str) or reasoning_mode not in {"thinking", "think"}:
         adapter.select_reasoning_mode("thinking")
         reasoning_mode = "thinking"
-    else:
 
     github_attached = handoff.get("github_attached") is True or state.get("github_attached") is True
     fallback_requested = needs_github_context(task, override=github_mode)
     if fallback_requested:
         if not github_attached:
             operation_id = adapter.attach_github_repository(repository)
-            print(f"GitHub fallback context operation: {operation_id}")
             github_attached = True
         else:
-            print("GitHub fallback context already attached; not adding it again.")
     else:
         if github_attached:
             print("GitHub app context is already attached from a prior explicit fallback; not removing it.")
