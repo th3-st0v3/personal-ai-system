@@ -19,6 +19,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 class BrowserStateReader(Protocol):
     def read_browser_state(self) -> Any: ...
+
+
+class BrowserBaselineReader(Protocol):
     def read_browser_observation(self) -> Any: ...
 
 
@@ -63,7 +66,7 @@ def response_fingerprint(value: object) -> str:
 
 
 def wait_for_conversation_signature(
-    adapter: BrowserStateReader,
+    adapter: BrowserBaselineReader,
     expected_chat_url: str | None = None,
     *,
     timeout_seconds: float = 15.0,
