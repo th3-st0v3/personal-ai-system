@@ -95,6 +95,8 @@ def test_m2_manual_gate_can_be_released_from_a_second_terminal() -> None:
     assert "manual_reload_gate_armed" in release
     assert "response_text_available" in release
     assert "armed before the original response was durably captured" in release
+    assert "completion_markers" in release
+    assert "configured completion marker" in release
 
 
 def test_m2_harness_and_runtime_admin_scripts_have_valid_shell_syntax() -> None:
@@ -113,7 +115,9 @@ def test_m2_harness_waits_through_watchdog_and_uses_safe_cleanup_argument_passin
     assert '"$PYTHON" - "$operation_id" <<\'PY\'' in source
     assert 'sys.argv[1]' in source
     assert 'op.get("response_text_available") is True' in source
-    assert 'bool(op.get("response_text").strip())' in source
+    assert 'completion_markers = op.get("completion_markers") or []' in source
+    assert 'response_has_marker' in source
+    assert 'any(' in source
     assert '| "$PYTHON" -c \'import json,sys; print(json.dumps({"operation_id":sys.argv[1]' not in source
 
 
