@@ -137,8 +137,8 @@ class RoadmapForm:
 
 
 ISSUE_FORM_RE = re.compile(
-    r"^### (?P<label>Start Date|End Date|Status)\s*$\n"
-    r"(?P<value>.*?)(?=^### (?:Start Date|End Date|Status)\s*$|\Z)",
+    r"^### (?P<label>[^\n]+?)\s*$\n"
+    r"(?P<value>.*?)(?=^### [^\n]+?\s*$|\Z)",
     re.MULTILINE | re.DOTALL,
 )
 
