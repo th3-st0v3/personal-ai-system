@@ -221,11 +221,44 @@
       "end_date": "2026-10-12"
     },
     {
+      "id": "engineering.github-issue-task-intake-and-ai-extraction",
+      "title": "Ingest GitHub issues and compile executable tasks",
+      "objective": "Use repository GitHub issues as a durable task source: extract the issue into one structured executable TaskSpec with an AI planning stage, validate it deterministically, and send only the selected task requirements to the composer without exposing scheduler or controller internals.",
+      "depends_on": [
+        "engineering.hybrid-roadmap-planning"
+      ],
+      "acceptance_criteria": [
+        "Eligible GitHub issues are read through the repository GitHub boundary with explicit actor/label or equivalent trust filtering; pull requests, closed issues, and untrusted automation instructions are not executed as tasks.",
+        "An AI extraction stage converts the selected issue into a structured TaskSpec containing objective, acceptance criteria, verification, scope, and stable task identity; malformed or incomplete extraction is rejected deterministically.",
+        "The deterministic planner remains authoritative for dependency, safety, scope, and next-task selection; the executor cannot choose or invent the next task.",
+        "The composer receives only the selected TaskSpec execution requirements and relevant failure evidence, not raw scheduler protocol, computer capability policy, or browser-controller diagnostics.",
+        "Tracked-file changes are allowed when the selected task requires them; protected control-plane paths remain enforced by PASI's existing authorization and verification boundaries.",
+        "Completion requires the relevant repository verification checks to pass; responses emphasize failures, warnings, type/analyzer diagnostics, and other actionable findings instead of routine internal processing."
+      ],
+      "verification": [
+        "Run GitHub issue ingestion and trust-filter tests.",
+        "Run AI extraction schema-validation tests with malformed and valid issue fixtures.",
+        "Run planner/executor integration tests proving only one validated TaskSpec reaches prompt compilation.",
+        "Run the canonical repository validation."
+      ],
+      "allowed_paths": [
+        "automation/orchestrator/",
+        "scripts/",
+        "roadmaps/",
+        "tests/"
+      ],
+      "priority": 108,
+      "splittable": true,
+      "estimated_size": "medium",
+      "phase": "engineering_os",
+      "status": "pending"
+    },
+    {
       "id": "engineering.provider-boundaries",
       "title": "Harden provider-neutral planning and execution boundaries",
       "objective": "Keep provider-specific adapters behind explicit capability boundaries so planner and executor behavior remains provider-neutral and authorization rules remain controller-owned.",
       "depends_on": [
-        "engineering.hybrid-roadmap-planning"
+        "engineering.github-issue-task-intake-and-ai-extraction"
       ],
       "acceptance_criteria": [
         "Planner inputs and outputs are provider-neutral.",
