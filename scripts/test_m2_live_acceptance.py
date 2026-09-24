@@ -49,6 +49,13 @@ def test_m2_harness_requires_runner_to_resume_the_same_persisted_operation() -> 
     assert 'resume_count < 1' in source
     assert '"runner_resume_verified":True' in source
 
+def test_m2_harness_passes_stamp_into_embedded_python() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert '"$PYTHON" - "$PROMPT" "$OUT" "$STAMP" <<\'PY\'' in source
+    assert "prompt, out, stamp = sys.argv[1:]" in source
+    assert '"completion_markers": [f"M2-LIVE-{stamp}"]' in source
+
+
 def test_m2_harness_prompt_creates_a_real_generation_window() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert "output the integers 1 through 1000, one integer per line" in source
