@@ -1456,6 +1456,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 self._browser_observation(payload)
                 return
 
+            if path == "/browser/provisioning":
+                self._browser_provisioning(payload)
+                return
+
             if path == "/runner/control":
                 action = payload.get("action")
                 if not isinstance(action, str):
@@ -1572,6 +1576,44 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             {
                 "observation": saved
             },
+            HTTPStatus.CREATED,
+        )
+
+    def _browser_provisioning(
+        self,
+        payload: dict[str, Any],
+    ) -> None:
+        observation = payload.get("observation")
+
+        if not isinstance(observation, dict):
+            self._send_json(
+                {"error": "observation must be an object."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        schema_version = observation.get("schema_version")
+        if not isinstance(schema_version, str) or not schema_version.strip():
+            self._send_json(
+                {"error": "observation.schema_version is required."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        data = observation.get("data")
+        if (
+            not isinstance(data, dict)
+            or data.get("kind") != "chatgpt_tab_provisioning"
+        ):
+            self._send_json(
+                {"error": "provisioning observation.kind must be chatgpt_tab_provisioning."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        self.bridge_state.save_browser_provisioning(observation)
+        self._send_json(
+            {"observation": observation},
             HTTPStatus.CREATED,
         )
 
