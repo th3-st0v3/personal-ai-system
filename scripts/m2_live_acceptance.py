@@ -231,18 +231,21 @@ def listening_pids(port: int = 8765) -> list[int]:
 
 
 def is_managed_bridge_process(command_line: str, cwd: str) -> bool:
-    repo = str(REPO_ROOT)
-    rooted_in_repo = cwd == repo or cwd.startswith(repo + os.sep) or repo in command_line
-    if not rooted_in_repo:
+    if "automation.orchestrator.bridge" not in command_line:
         return False
 
-    # Current managed launcher: router owns the bridge child.
-    if "pasi_log_router.py" in command_line and "automation.orchestrator.bridge" in command_line:
-        return True
+    repo = str(REPO_ROOT)
+    rooted_in_repo = cwd == repo or cwd.startswith(repo + os.sep) or repo in command_line
+    bridge_source_exists = bool(cwd) and (Path(cwd) / "automation" / "orchestrator" / "bridge.py").is_file()
 
-    # Legacy/direct managed launcher: bridge itself was started from repository.
-    # Exact module + repository root are both required; unrelated bridges remain unmanaged.
-    return "automation.orchestrator.bridge" in command_line
+    # Current managed launcher: router owns the bridge child.
+    if "pasi_log_router.py" in command_line:
+        return rooted_in_repo or bridge_source_exists
+
+    # Direct/legacy managed launcher: accept any PASI checkout/worktree that
+    # actually contains the bridge implementation. This covers managed runtime
+    # worktrees whose cwd is not the acceptance checkout.
+    return rooted_in_repo or bridge_source_exists
 
 
 def discover_managed_bridge_pid() -> tuple[int, dict[str, Any]] | None:
