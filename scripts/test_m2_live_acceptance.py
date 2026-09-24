@@ -35,6 +35,19 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertIn("runtime_startup_diagnostics(runtime_dir)", source)
         self.assertIn('"operation_start_timeout"', source)
 
+    def test_m2_fast_start_avoids_redundant_launcher_work(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        launcher = Path("scripts/start_pasi_168h.sh").read_text(encoding="utf-8")
+        self.assertIn('"PASI_M2_FAST_START": "1"', source)
+        self.assertIn('M2_FAST_START="${PASI_M2_FAST_START:-0}"', launcher)
+        self.assertIn('skipping redundant setup-check', launcher)
+        self.assertIn('browser_wait_seconds=30', launcher)
+        self.assertIn('runner_wait_seconds=15', launcher)
+
+    def test_m2_operation_poll_is_responsive(self) -> None:
+        from scripts.m2_live_acceptance import OPERATION_POLL_SECONDS
+        self.assertLessEqual(OPERATION_POLL_SECONDS, 0.25)
+
     def test_entrypoint_and_runtime_contracts_are_present(self) -> None:
         entrypoint = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
