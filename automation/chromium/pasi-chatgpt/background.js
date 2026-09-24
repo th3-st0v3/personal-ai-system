@@ -615,6 +615,7 @@ async function injectChatGptTab(tabId, context = {}) {
         'recovery.js'
       ]
     });
+    await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });
     reportRuntimeTelemetry({
       event: 'INJECTION_SUCCESS',
       status: 'success',
