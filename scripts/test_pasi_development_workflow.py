@@ -40,3 +40,11 @@ def test_development_workflow_integrates_project_roadmap_sync() -> None:
     assert "uses: ./.github/workflows/pasi-project-metadata.yml" in source
     assert "secrets:" in source
     assert "PASI_PROJECTS_TOKEN" in source
+
+def test_project_automation_reconciles_frontend_status_and_checkboxes() -> None:
+    source = (ROOT / ".github" / "workflows" / "pasi-project-metadata.yml").read_text(encoding="utf-8")
+    assert "schedule:" in source
+    assert 'cron: "17 * * * *"' in source
+    assert "closed]" in source
+    assert "PASI_PROJECT_EVENT_ACTION" in source
+    assert "PASI_PROJECT_EVENT_ISSUE_NUMBER" in source
