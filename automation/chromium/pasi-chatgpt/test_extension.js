@@ -141,6 +141,8 @@ test('native extension is Manifest V3 with least-privilege required permissions'
 
 test('native controller keeps response telemetry off the completion critical path', () => {
   assert.match(content, /void reportObservation\('chatgpt_response'/);
+  assert.match(content, /void reportObservation\\('chatgpt_state'/);
+  assert.match(content, /conversation_signature: conversationSignature\\(\\)/);
   assert.ok(content.includes('}).catch(() => {});'));
   assert.doesNotMatch(content, /await reportObservation\('chatgpt_response'/);
 });
