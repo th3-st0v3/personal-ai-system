@@ -822,6 +822,15 @@ test('native M2 manual reload gate persists the response and blocks normal queue
 });
 
 
+test('native M2 gate release prefers persisted or visible response evidence before resuming the same operation', () => {
+  assert.match(content, /current\.response_text/);
+  assert.match(content, /latestAssistantForOperation\(current\)/);
+  assert.match(content, /const resumedState = \{ \.\.\.stored \}/);
+  assert.match(content, /delete resumedState\.manual_reload_gate/);
+  assert.match(content, /localStorage\.setItem\(ACTIVE_KEY, JSON\.stringify\(resumedState\)\)/);
+  assert.match(content, /await recoverInterruptedOperation\(\)/);
+});
+
 test('native M2 manual reload gate arms immediately after the original send is evidenced', () => {
   const processStart = content.indexOf('async function processOperation(operation)');
   const responseWait = content.indexOf('const response = await waitForResponse(', processStart);
