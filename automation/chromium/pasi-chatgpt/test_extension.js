@@ -71,12 +71,41 @@ test('native content controller reuses a fresh lease for the immediate completio
   assert.match(content, /if \(!finalized\) \{/);
 });
 
-test('native background watchdog never navigates ChatGPT tabs', () => {
-  assert.match(background, /await injectExistingChatTabs\(\)/);
-  assert.match(background, /chrome\.tabs\.sendMessage/);
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+test('native background watchdog provisions one ChatGPT tab only when work is pending', () => {
+  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
+  assert.match(background, /if \(!pendingWork\) return null/);
+  assert.match(background, /const existingTabs = await listChatGptTabs\(\)/);
+  assert.match(background, /if \(existingTabs\.length > 0\) return null/);
+  assert.match(background, /chrome\.tabs\.create\(\{ url: requestedUrl, active: false \}\)/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });;
+
+
+
+test('native background reopens the exact persisted conversation URL when available', () => {
+  assert.match(background, /const CHATGPT_ROOT_URL = 'https:\/\/chatgpt\.com\/'/);
+  assert.match(background, /validChatConversationUrl\(targetChatUrl\)/);
+  assert.match(background, /const requestedUrl = validChatConversationUrl\(targetChatUrl\) \|\| CHATGPT_ROOT_URL/);
+  assert.match(background, /sameChatConversationUrl\(value, value\)/);
+});
+
+test('native background applies a persistent tab-creation cooldown and in-flight lock', () => {
+  assert.match(background, /const TAB_CREATE_COOLDOWN_KEY = 'pasi:chatgpt-tab-create-cooldown'/);
+  assert.match(background, /const TAB_CREATE_COOLDOWN_MS = 15 \* 1000/);
+  assert.match(background, /let tabCreateInFlight = null/);
+  assert.match(background, /chrome\.storage\.local\.get\(TAB_CREATE_COOLDOWN_KEY\)/);
+  assert.match(background, /chrome\.storage\.local\.set\([\s\S]*attempted_at/);
+  assert.match(background, /if \(tabCreateInFlight\) return tabCreateInFlight/);
+  assert.match(background, /Re-check immediately before creation/);
+});
+
+test('native background only provisions when bridge reports queued or active work', () => {
+  assert.match(background, /function bridgeHasPendingWork\(status, health\)/);
+  assert.match(background, /queue_size/);
+  assert.match(background, /active_operation_id/);
+  assert.match(background, /\['queued', 'claimed', 'generating', 'running'\]/);
+  assert.match(background, /const pendingWork = bridgeHasPendingWork\(status, health\)/);
+});
 
 test('native recovery companion expires vanished operations after the bounded grace period', () => {
   assert.match(recovery, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
@@ -102,13 +131,14 @@ test('native controller and recovery companion have unique recovery declarations
   assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
 });
 
-test('native extension injects into already-open ChatGPT tabs', () => {
+test('native extension injects into existing ChatGPT tabs and provisions missing work tabs', () => {
   assert.ok(manifest.permissions.includes('scripting'));
   assert.match(background, /async function injectExistingChatTabs\(\)/);
   assert.match(background, /chrome\.scripting\.executeScript/);
   assert.match(background, /content\.js/);
   assert.match(background, /recovery\.js/);
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
+  assert.match(background, /chrome\.tabs\.create/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });
 
