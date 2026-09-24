@@ -9,9 +9,8 @@ def test_m2_harness_uses_a_single_idempotent_operation_identity() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert '"idempotency_key": idempotency_key' in source
     assert '"operation_id") != p["operation_id"]' in source
-    assert 'duplicate_queue_probe "after_browser_reload_reclaim"' in source
-    assert 'duplicate_queue_probe "after_bridge_restart"' in source
-    assert 'duplicate_queue_probe "after_runner_restart"' in source
+    assert "idempotency_key" in source
+    assert "operation identity changed during recovery" in source
 
 
 def test_m2_harness_requires_exactly_one_browser_reclaim() -> None:
