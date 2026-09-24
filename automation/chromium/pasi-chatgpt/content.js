@@ -717,7 +717,7 @@
 
   async function reportObservation(kind, data, timeout = 10000) {
     try {
-      await bridge('/browser/observation', {
+      const response = await bridge('/browser/observation', {
         timeout,
         method: 'POST',
         body: { observation: {
@@ -726,7 +726,10 @@
           data: { kind, controller_version: CONTROLLER_VERSION, ...data }
         } }
       });
-    } catch (_) {}
+      return response.ok === true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function runtimeErrorText(error) {
@@ -797,7 +800,7 @@
 
       // Health is the freshness signal used by the launcher/watchdog. Keep it
       // lightweight and bounded so DOM/state telemetry cannot delay it.
-      await reportObservation('chatgpt_health', {
+      const healthReported = await reportObservation('chatgpt_health', {
         chat_url: currentUrl,
         provider_usage_limited: limited,
         auth_required: auth,
@@ -811,6 +814,8 @@
         manual_reload_gate_supported: true,
         active_operation_id: activeOperationId
       }, 2000);
+
+      if (!healthReported) return false;
 
       if (Date.now() - lastStateReportAt >= STATE_REPORT_MS) {
         lastStateReportAt = Date.now();
@@ -2485,9 +2490,16 @@
 
   chrome.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === 'pasi-health-ping' && !extensionContextInvalidated) {
-      void reportHealth();
-      sendResponse?.({ ok: true, controller: true });
-      return;
+      void reportHealth()
+        .then((healthReported) => {
+          sendResponse?.({
+            ok: healthReported === true,
+            controller: healthReported === true,
+            health_reported: healthReported === true
+          });
+        })
+        .catch(() => sendResponse?.({ ok: false, controller: false, health_reported: false }));
+      return true;
     }
     if (message?.type === 'pasi-work-wake' && !extensionContextInvalidated) {
       void poll();
