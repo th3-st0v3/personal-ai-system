@@ -30,14 +30,16 @@ Link the corresponding backend phase issue.
 
 Describe the user-visible vertical slice.
 
-## Scope
+## Tasks
 
-- [ ] Discoverable frontend entry point
-- [ ] Real API/contract integration
-- [ ] Loading/empty/error/recovery states
-- [ ] Deterministic UI/contract tests
-- [ ] Accessibility and keyboard behavior
-- [ ] Provenance/operation identity where applicable
+- [ ] **P#.1 — Discoverable frontend entry point**
+- [ ] **P#.2 — Real API/contract integration**
+- [ ] **P#.3 — Loading/empty/error/recovery states**
+- [ ] **P#.4 — Deterministic UI/contract tests**
+- [ ] **P#.5 — Accessibility and keyboard behavior**
+- [ ] **P#.6 — Provenance/operation identity where applicable**
+
+> For P0, use the backend milestone naming convention for the proof gates: **P0.1 — M0 ...**, **P0.2 — M1 ...**, **P0.3 — M2 ...**. Keep later implementation tasks as numbered P#.N checkboxes.
 
 ## Acceptance criteria
 
