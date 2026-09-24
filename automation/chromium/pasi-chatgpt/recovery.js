@@ -5,6 +5,7 @@
   globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = true;
 
   const ACTIVE_KEY = 'pasi:active-operation';
+  const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
@@ -228,6 +229,55 @@
     return Boolean((head && text.includes(head)) || (tail && text.includes(tail)));
   }
 
+  function conversationSignatureState() {
+    const currentUrl = location.href;
+    try {
+      const stored = JSON.parse(localStorage.getItem(CONVERSATION_SIGNATURE_KEY) || 'null');
+      if (
+        stored &&
+        stored.chat_url === currentUrl &&
+        Number.isInteger(stored.user_count) &&
+        stored.user_count >= 0 &&
+        Number.isInteger(stored.assistant_count) &&
+        stored.assistant_count >= 0 &&
+        Array.isArray(stored.completed_operation_ids)
+      ) {
+        return {
+          chat_url: currentUrl,
+          user_count: stored.user_count,
+          assistant_count: stored.assistant_count,
+          completed_operation_ids: stored.completed_operation_ids.slice(-256)
+        };
+      }
+    } catch (_) {}
+
+    const seeded = {
+      chat_url: currentUrl,
+      user_count: userMessages().length,
+      assistant_count: assistants().length,
+      completed_operation_ids: []
+    };
+    try {
+      localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(seeded));
+    } catch (_) {}
+    return seeded;
+  }
+
+  function advanceConversationSignature(operationId, responseText) {
+    const state = conversationSignatureState();
+    const responseFingerprint = compact(responseText).slice(-4000);
+    if (!state || !operationId || !responseFingerprint) return `0:0:${responseFingerprint}`;
+    if (!state.completed_operation_ids.includes(operationId)) {
+      state.user_count += 1;
+      state.assistant_count += 1;
+      state.completed_operation_ids = [...state.completed_operation_ids, operationId].slice(-256);
+      try {
+        localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(state));
+      } catch (_) {}
+    }
+    return `${state.user_count}:${state.assistant_count}:${responseFingerprint}`;
+  }
+
   function latestAssistantForOperation(operation) {
     if (!operation) return '';
     const matchedUsers = userMessages().filter((node) => userMessageMatchesOperation(node, operation));
@@ -414,16 +464,7 @@
     const bounded = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
     const available = Boolean(bounded.trim());
     if (!available) return false;
-    const conversationSignature = (() => {
-      try {
-        const users = userMessages().length;
-        const assistantCount = assistants().length;
-        const responseFingerprint = compact(bounded).slice(-4000);
-        return String(users) + ':' + String(assistantCount) + ':' + responseFingerprint;
-      } catch (_) {
-        return '';
-      }
-    })();
+    const conversationSignature = advanceConversationSignature(operationId, bounded);
 
     await report('chatgpt_response', {
       operation_id: operationId,
