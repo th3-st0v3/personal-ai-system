@@ -678,15 +678,26 @@ def apply_metadata_to_item(
 def sync_issue(
     project: dict[str, Any],
     issue_number: int,
+    existing_items: dict[int, dict[str, Any]],
 ) -> tuple[dict[str, Any], Metadata | None]:
     content_id, title, body = fetch_issue(issue_number)
-    item_id = add_item(project["id"], content_id)
+    metadata = parse_metadata(body) if "PASI_PROJECT_METADATA" in body else None
 
-    if "PASI_PROJECT_METADATA" not in body:
-        print(f"Added #{issue_number} {title} to PASI Project (no phase metadata block).")
+    existing = existing_items.get(issue_number)
+    if existing:
+        item_id = existing["id"]
+        membership_action = "already present"
+    else:
+        item_id = add_item(project["id"], content_id)
+        membership_action = "added"
+
+    if metadata is None:
+        print(
+            f"Project membership {membership_action}: #{issue_number} {title} "
+            "(no phase metadata block)."
+        )
         return project, None
 
-    metadata = parse_metadata(body)
     project = apply_metadata_to_item(project, item_id, metadata, issue_number, title)
     return project, metadata
 
@@ -712,6 +723,7 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
           items(first:100, after:$after) {
             pageInfo { hasNextPage endCursor }
             nodes {
+              id
               content {
                 __typename
                 ... on Issue {
@@ -795,14 +807,6 @@ def verify_issue(project_items_by_number: dict[int, dict[str, Any]], issue_numbe
 
 def synchronize(issue_numbers: list[int]) -> None:
     project = project_snapshot()
-    metadata_by_issue: dict[int, Metadata] = {}
-
-    for issue_number in issue_numbers:
-        project, metadata = sync_issue(project, issue_number)
-        if metadata is not None:
-            metadata_by_issue[issue_number] = metadata
-
-    project = project_snapshot()
     field_names = {
         "startField": START_FIELD,
         "endField": END_FIELD,
@@ -810,6 +814,15 @@ def synchronize(issue_numbers: list[int]) -> None:
         "quarterField": QUARTER_FIELD,
         "iterationField": ITERATION_FIELD,
     }
+    existing_items = project_items(project, field_names)
+    metadata_by_issue: dict[int, Metadata] = {}
+
+    for issue_number in issue_numbers:
+        project, metadata = sync_issue(project, issue_number, existing_items)
+        if metadata is not None:
+            metadata_by_issue[issue_number] = metadata
+
+    project = project_snapshot()
     items = project_items(project, field_names)
 
     errors: list[str] = []
