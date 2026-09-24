@@ -73,7 +73,7 @@ class TestM1LiveAcceptance(unittest.TestCase):
         state, signature = wait_for_conversation_signature(
             FakeAdapter(), "https://chatgpt.com/c/fresh", timeout_seconds=0.1, poll_seconds=0
         )
-        self.assertEqual(state["kind"], "chatgpt_state")
+        self.assertEqual(state["kind"], "chatgpt_health")
         self.assertEqual(signature, "0:0:")
 
     def test_wait_for_signature_progression_retries_stale_state(self) -> None:
@@ -127,7 +127,7 @@ class TestM1LiveAcceptance(unittest.TestCase):
                             "operation_id": "op-1",
                             "chat_url": "https://chatgpt.com/c/live",
                             "response_text": "The requested marker is PASI_M1_ACCEPTANCE_01_abcd1234.",
-                            "conversation_signature": "4:5:current",
+                            "conversation_signature": "4:5:The requested marker is PASI_M1_ACCEPTANCE_01_abcd1234.",
                         }
                     },
                 ]
