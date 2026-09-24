@@ -47,6 +47,7 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 hours="${PASI_OVERNIGHT_HOURS:-168}"
+M2_FAST_START="${PASI_M2_FAST_START:-0}"
 if [[ "$hours" != "168" && "$hours" != "168.0" ]]; then
     printf 'error: start_pasi_168h.sh is fixed to a 168-hour automation window; use start_pasi_overnight.sh for another duration.\n' >&2
     exit 2
@@ -102,6 +103,11 @@ printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
 printf 'Local validation mode: %s\n' "$PASI_LOCAL_GATE_MODE"
 "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
 printf '\n=== STARTING 168-HOUR RUN ===\n'
+if [[ "$M2_FAST_START" == "1" ]]; then
+    printf 'M2 fast-start mode: skipping redundant setup-check; M2 already ran the desktop preflight.\n'
+else
+    "$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
+fi
 
 mkdir -p "$RUNTIME_DIR"
 exec 9>"$LOCK_FILE"
@@ -326,7 +332,9 @@ start_service \
     "$BRIDGE_PID_FILE" \
     "$PYTHON" -m automation.orchestrator.bridge
 
-service_deadline=$((SECONDS + 20))
+service_wait_seconds=20
+if [[ "$M2_FAST_START" == "1" ]]; then service_wait_seconds=5; fi
+service_deadline=$((SECONDS + service_wait_seconds))
 while (( SECONDS < service_deadline )); do
     bridge_ok=0
     curl -fsS --max-time 2 'http://127.0.0.1:8765/health' >/dev/null 2>&1 && bridge_ok=1 || true
@@ -404,7 +412,9 @@ PY
 printf '
 === VERIFYING NATIVE CHATGPT BROWSER ===
 '
-browser_deadline=$((SECONDS + 30))
+browser_wait_seconds=30
+if [[ "$M2_FAST_START" == "1" ]]; then browser_wait_seconds=5; fi
+browser_deadline=$((SECONDS + browser_wait_seconds))
 browser_ready=0
 browser_auth_required=0
 while (( SECONDS < browser_deadline )); do
@@ -440,7 +450,9 @@ log_file="$RUNTIME_DIR/runner.log"
 nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$log_file" --max-bytes 2097152 --backups 4 -- bash "$REPO_ROOT/scripts/pasi_168h_supervisor.sh"     --hours 168     --worktree "$WORKTREE"     --branch "$BRANCH"     -- "${launcher_args[@]}" < /dev/null > /dev/null 2>&1 &
 pid=$!
 
-runner_start_deadline=$((SECONDS + 15))
+runner_wait_seconds=15
+if [[ "$M2_FAST_START" == "1" ]]; then runner_wait_seconds=5; fi
+runner_start_deadline=$((SECONDS + runner_wait_seconds))
 supervisor_ready=0
 runner_ready=0
 while (( SECONDS < runner_start_deadline )); do
