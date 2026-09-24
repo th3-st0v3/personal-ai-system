@@ -109,7 +109,7 @@ class ExtensionCapabilityValidationTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                "chrome.scripting is used but has no declared capability contract"
+                "chrome.unknownApi is used but has no declared capability contract"
                 in error
                 for error in errors
             )
