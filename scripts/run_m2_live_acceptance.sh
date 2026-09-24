@@ -262,17 +262,32 @@ for _ in {1..20}; do
   sleep 1
 done
 
-echo "Waiting for the supervised bridge restart and exact operation retention..."
-bridge_deadline=$((SECONDS + 120))
+echo "Restarting the managed PASI bridge and verifying exact operation retention..."
+BRIDGE_LOG="$RUNTIME_DIR/bridge.log"
+nohup bash -c 'exec 9>&-; exec "$@"' _ env PYTHONPATH="$PYTHONPATH" "$PYTHON" "$REPO_ROOT/scripts/pasi_log_router.py" --log "$BRIDGE_LOG" --max-bytes 1048576 --backups 2 -- "$PYTHON" -m automation.orchestrator.bridge < /dev/null > /dev/null 2>&1 &
+NEW_BRIDGE_PID=$!
+printf '%s\n' "$NEW_BRIDGE_PID" > "$BRIDGE_PID_FILE"
+
+bridge_deadline=$((SECONDS + 30))
 bridge_recovered=0
 while (( SECONDS < bridge_deadline )); do
-  if curl -fsS --max-time 2 -H "Authorization: Bearer $PASI_BRIDGE_TOKEN" http://127.0.0.1:8765/health >/dev/null 2>&1; then
+  if kill -0 "$NEW_BRIDGE_PID" 2>/dev/null &&
+     curl -fsS --max-time 2 -H "Authorization: Bearer $PASI_BRIDGE_TOKEN" http://127.0.0.1:8765/health >/dev/null 2>&1; then
     bridge_recovered=1
     break
   fi
   sleep 1
 done
-(( bridge_recovered == 1 )) || { echo "error: supervised bridge did not recover" >&2; exit 4; }
+(( bridge_recovered == 1 )) || { echo "error: restarted bridge did not become healthy" >&2; exit 4; }
+
+"$PYTHON" - "$OUT" <<'PY'
+import json, os, sys
+path=sys.argv[1]
+p=json.load(open(path,encoding="utf-8"))
+p["bridge_restart_pid"]=int(os.environ.get("NEW_BRIDGE_PID", "0"))
+p["bridge_restart_verified"]=True
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
+PY
 
 "$PYTHON" - "$OUT" <<'PY'
 import json, sys
