@@ -155,6 +155,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'pasi-runtime-telemetry') {
+    const senderUrl = String(sender?.tab?.url || sender?.url || '');
+    if (
+      !/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)
+      && !senderUrl.startsWith(`chrome-extension://${chrome.runtime.id}/`)
+    ) {
+      sendResponse({ ok: false, status: 403, text: 'runtime telemetry sender rejected' });
+      return undefined;
+    }
+    const observation = message?.observation;
+    const data = observation?.data;
+    if (
+      !observation
+      || typeof observation !== 'object'
+      || observation?.schema_version !== 'pasi-native-chromium-v2'
+      || !data
+      || data.kind !== 'chatgpt_runtime_telemetry'
+    ) {
+      sendResponse({ ok: false, status: 400, text: 'invalid runtime telemetry observation' });
+      return undefined;
+    }
+    void queueRuntimeTelemetry(observation).then(() => flushRuntimeTelemetry());
+    sendResponse({ ok: true });
+    return undefined;
+  }
+
   if (message?.type === 'pasi-control-center-bridge-request') {
     const senderUrl = String(sender?.url || '');
     const extensionPrefix = `chrome-extension://${chrome.runtime.id}/`;
