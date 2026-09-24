@@ -56,18 +56,19 @@ Configure:
 5. Under **Set**, select **Status: Todo**.
 6. Click **Save and turn on workflow**.
 
-The built-in workflow is intentionally limited to static Project-field actions. Dynamic PASI fields such as Start Date, End Date, Team, Quarter, and Iteration are derived from the issue's PASI metadata block by the repository Action. On the current user-owned Project, PASI reuses GitHub's native `Start date` and `Target date` fields for the Start/End schedule, and uses a dedicated `PASI Quarter` single-select field because the native `Quarter` field is an Iteration field.
+The built-in workflow is intentionally limited to static Project-field actions. The PASI synchronizer uses GitHub's native scheduling controls: `Start date`, `Target date`, `Quarter`, and `Iteration`. Quarter membership is selected from the native Quarter iteration windows using the phase Start/End dates, so a phase belongs to the Quarter whose native window fully contains that phase.
 
-### 3. Dynamic metadata and FE status synchronization
+### 3. Dynamic metadata and native issue controls
 
-No additional Project UI formatter is required for:
+The synchronizer manages:
 
-- Start Date
-- End Date
-- Team
-- Quarter
-- Iteration
-- Status
+- native `Start date` and `Target date`;
+- native `Quarter` iteration membership, based on the native quarter's date window;
+- native `Iteration` membership, with one configured iteration and date window for every PASI phase;
+- Project `Status` and the FE roadmap checkbox state;
+- native issue `Milestone`;
+- native issue `Relationships` for parent/blocked-by/blocking dependencies; and
+- native `Development` branch creation when requested.
 
 For each frontend phase, **FE-P0 through FE-P22 map one-to-one to issues #319 through #341 and Iteration 1 through Iteration 23**. The repository Action validates that mapping, reconciles the Project Iteration catalog, and reads the fields back for verification.
 
@@ -174,22 +175,24 @@ The PASI issue templates establish those defaults. Existing frontend phase issue
 The repository-side workflow and the Project built-in Auto-add workflow can both observe the same issue. The synchronizer first reads the Project membership and only performs the Project-add mutation when the issue is not already present, so duplicate workflow activity does not intentionally create duplicate Project items.
 
 
-## Structured roadmap issue form
+## Native GitHub issue controls
 
 For roadmap items that need editable Project metadata at creation time, use **PASI Roadmap Item** from the issue-template chooser.
 
-The form fields map to Project fields:
-
-| Issue Form field | PASI Project field | Type |
+| Issue Form field | Native GitHub target | Behavior |
 | --- | --- | --- |
-| Description | Description | Text |
-| Start Date | Start date | Date |
-| End Date | Target date | Date |
-| Relationship | Relationship | Text |
-| Development Milestone | Development Milestone | Text |
-| Status | Status | Single select |
+| Description | Project Description | Stored in the Project text field |
+| Start Date | Project Start date | Stored as the native Project date |
+| End Date | Project Target date | Stored as the native Project date |
+| Relationship | Issue Relationships | Supports parent, blocked-by, and blocking specifications; unsupported relationship types are reported without creating a custom field |
+| Milestone | Issue Milestone | Must match an existing repository milestone; the issue's native Milestone setting is updated |
+| Development | Issue Development | `create branch: <name>` creates a linked branch; `link <existing-branch>` is reported as a manual-link operation |
+| Status | Project Status | Stored in the native Project Status field |
 
-The issue form is the data-entry surface. GitHub renders submitted issue-form values into the issue body as Markdown, so the repository synchronizer parses the labeled sections and writes the corresponding Project values; the form body is not JSON. GitHub documents input, textarea, and dropdown issue-form elements, while Project v2 supports updating text, date, single-select, and iteration field values. citeturn524843search1turn524843search0
+The active PASI Project's **Quarter** and **Iteration** are both native iteration fields. Iteration 1 through Iteration 23 are reconciled to the phase schedule with inclusive Start/End windows. Quarter membership is not derived from calendar labels such as Q3/Q4; it is selected by containment in the Project's configured Quarter windows.
 
-This does not replace the strict P0–P22 phase templates. Phase issues continue to use the canonical PASI metadata block so their schedule and iteration values cannot drift. The structured roadmap form is for roadmap items whose dates, relationships, milestone text, and status should be directly editable from the issue.
+GitHub's native issue Relationships UI supports parent/sub-issue and blocking/blocked-by relationships, while issue dependencies can also be managed by the REST API/GraphQL. GitHub's Development section supports creating a branch linked to an issue; linking an existing branch remains a manual UI operation. citeturn456805search0turn456805search3turn456805search1turn456805search2
 
+The synchronizer no longer creates or uses custom Project text fields for Relationship, Milestone, or Development. Any legacy custom fields that were created by an earlier synchronizer revision are not authoritative and can be removed from the Project manually after the native controls are verified.
+
+The issue form is the data-entry surface. GitHub renders submitted issue-form values into the issue body as Markdown, so the synchronizer parses the labeled sections rather than expecting JSON.
