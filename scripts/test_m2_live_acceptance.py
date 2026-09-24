@@ -59,6 +59,20 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         )
 
 
+    def test_managed_bridge_worktree_is_accepted_outside_acceptance_checkout(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tempdir:
+            bridge_path = Path(tempdir) / "automation" / "orchestrator"
+            bridge_path.mkdir(parents=True)
+            (bridge_path / "bridge.py").write_text("# managed bridge\n", encoding="utf-8")
+            self.assertTrue(
+                is_managed_bridge_process(
+                    "/opt/pasi/.venv/bin/python -m automation.orchestrator.bridge",
+                    tempdir,
+                )
+            )
+
     def test_direct_managed_bridge_is_discovered_from_listener(self) -> None:
         repo = str(Path.cwd())
         commands = {
