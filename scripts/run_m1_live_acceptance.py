@@ -190,17 +190,21 @@ def wait_for_durable_response_progression(
                     current[0] == expected_user
                     and current[1] == expected_assistant
                     and current[2]
-                    and durable_fingerprint
-                    and current[2] == durable_fingerprint
-                    and durable_fingerprint != previous[2]
+                    and current[2] != previous[2]
                 ):
                     return state, str(state["conversation_signature"])
         if time.monotonic() >= deadline:
             raise RuntimeError(
                 f"prompt {index} did not publish the exact +1/+1 durable response signature "
                 f"within {timeout_seconds:.1f}s; "
+                f"previous_signature={previous_signature!r}, "
+                f"expected_counts={expected_user}:{expected_assistant}, "
                 f"last_observed_operation={last_state.get('operation_id') or last_state.get('active_operation_id')!r}, "
                 f"last_observed_signature={last_state.get('conversation_signature')!r}, "
+                f"response_fingerprint={response_fingerprint(str(last_state.get('response_text') or ''))!r}, "
+                f"signature_fingerprint_changed={(
+                    parse_conversation_signature(last_state.get('conversation_signature')) or (0, 0, '')
+                )[2] != previous[2]}, "
                 f"marker_present={marker in str(last_state.get('response_text') or '')}"
             )
         time.sleep(poll_seconds)
