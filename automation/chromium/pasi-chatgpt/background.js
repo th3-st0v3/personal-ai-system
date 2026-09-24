@@ -257,13 +257,6 @@ async function injectExistingChatTabs() {
   }
 }
 async function inspect() {
-  const status = await bridgeJson('/status');
-  const payload = await bridgeJson('/browser/observation');
-  if (!status || !payload) return;
-  const health = healthData(payload);
-  if (!health) return;
-  if (health.data.auth_required === true) return;
-  if (typeof health.data.chat_url !== 'striasync function inspect() {
   await injectExistingChatTabs();
 
   const status = await bridgeJson('/status');
@@ -289,6 +282,7 @@ async function inspect() {
     }
   }
 }
+
 async function applyTimeoutPolicy() {
   try {
     const response = await fetch(chrome.runtime.getURL('timeout-policy.json'), { cache: 'no-store' });
