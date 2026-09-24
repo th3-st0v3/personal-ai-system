@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import json
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from automation.computer_use.chatgpt import ChatGPTAdapter, UrllibBridgeTransport
 
