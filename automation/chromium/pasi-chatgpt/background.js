@@ -451,8 +451,17 @@ function selectChatGptTab(tabs, targetChatUrl) {
 
 async function ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId = null) {
   if (!pendingWork) return null;
+  const requestedUrl = validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL;
+  const requireExactTarget = Boolean(
+    typeof resumeOperationId === 'string' &&
+    resumeOperationId &&
+    validChatConversationUrl(targetChatUrl)
+  );
   const existingTabs = await listChatGptTabs();
-  if (existingTabs.length > 0) {
+  const exactExistingTabs = validChatConversationUrl(targetChatUrl)
+    ? existingTabs.filter((tab) => sameChatConversationUrl(tab?.url, targetChatUrl))
+    : [];
+  if (existingTabs.length > 0 && !(requireExactTarget && exactExistingTabs.length === 0)) {
     const selectedTab = selectChatGptTab(existingTabs, targetChatUrl);
     const selectedTabId = typeof selectedTab?.id === 'number' ? selectedTab.id : null;
     const injectionReady = selectedTabId !== null
@@ -492,7 +501,6 @@ async function ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId = 
     return tabCreateInFlight;
   }
 
-  const requestedUrl = validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL;
   tabCreateInFlight = (async () => {
     try {
       const stored = await chrome.storage.local.get(TAB_CREATE_COOLDOWN_KEY);
@@ -510,7 +518,10 @@ async function ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId = 
       // Re-check immediately before creation so two watchdog passes cannot race
       // between the first tab query and chrome.tabs.create().
       const currentTabs = await listChatGptTabs();
-      if (currentTabs.length > 0) {
+      const currentExactTabs = validChatConversationUrl(targetChatUrl)
+        ? currentTabs.filter((tab) => sameChatConversationUrl(tab?.url, targetChatUrl))
+        : [];
+      if (currentTabs.length > 0 && !(requireExactTarget && currentExactTabs.length === 0)) {
         void reportTabProvisioning({
           action: 'race_existing_tabs_no_create',
           existing_tab_count: currentTabs.length,
@@ -789,14 +800,31 @@ async function inspect() {
     health &&
     observationAge(health.observation) <= STALE_MS
   ) ? health : null;
-  const targetChatUrl = (
-    typeof liveHealth?.data?.chat_url === 'string'
-  ) ? liveHealth.data.chat_url : '';
   const pendingWork = bridgeHasPendingWork(status, liveHealth);
 
-  let resumeOperationId = typeof liveHealth?.data?.active_operation_id === 'string'
-    ? liveHealth.data.active_operation_id
-    : null;
+  let durableRecoveryTarget = null;
+  try {
+    const storedRecovery = await chrome.storage.local.get('pasi:m2-recovery-target');
+    const candidate = storedRecovery?.['pasi:m2-recovery-target'];
+    if (
+      candidate &&
+      typeof candidate.operation_id === 'string' &&
+      typeof candidate.chat_url === 'string' &&
+      sameChatConversationUrl(candidate.chat_url, candidate.chat_url)
+    ) {
+      durableRecoveryTarget = candidate;
+    }
+  } catch (_) {}
+
+  const targetChatUrl = (
+    durableRecoveryTarget?.chat_url
+    || (typeof liveHealth?.data?.chat_url === 'string' ? liveHealth.data.chat_url : '')
+  );
+
+  let resumeOperationId = durableRecoveryTarget?.operation_id
+    || (typeof liveHealth?.data?.active_operation_id === 'string'
+      ? liveHealth.data.active_operation_id
+      : null);
   if (!resumeOperationId && pendingWork) {
     const browserState = await bridgeJson('/browser/state');
     const stateData = browserState?.data;
