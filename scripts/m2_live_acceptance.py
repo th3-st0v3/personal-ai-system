@@ -106,7 +106,13 @@ def observation(path: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise M2AcceptanceError("browser", f"{path} did not return an observation")
     data = value.get("data")
-    return data if isinstance(data, dict) else value
+    if not isinstance(data, dict):
+        return value
+    normalized = dict(data)
+    for key in ("captured_at", "schema_version"):
+        if key not in normalized and key in value:
+            normalized[key] = value[key]
+    return normalized
 
 
 def browser_health() -> dict[str, Any]:
