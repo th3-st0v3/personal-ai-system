@@ -315,6 +315,20 @@ def descendants(pid: int) -> list[int]:
     return result
 
 
+def try_kill_managed_tree(
+    runtime_dir: Path,
+    pid_name: str,
+    expected_fragment: str | tuple[str, ...],
+) -> dict[str, Any]:
+    pid = read_pid(runtime_dir, pid_name)
+    if pid is None or not process_exists(pid):
+        return {"pid": pid, "skipped": True}
+    try:
+        return kill_managed_tree(runtime_dir, pid_name, expected_fragment)
+    except M2AcceptanceError as exc:
+        return {"pid": pid, "skipped": False, "error": str(exc)}
+
+
 def kill_managed_tree(
     runtime_dir: Path,
     pid_name: str,
@@ -475,6 +489,9 @@ def main() -> int:
         evidence["finished_at"] = utc_now()
         artifact_path.write_text(json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
+    runner_started = False
+    bridge_was_stopped = False
+    bridge_restart_succeeded = False
     try:
         runner_pid = read_pid(runtime_dir, "runner.pid")
         supervisor_pid = read_pid(runtime_dir, "supervisor.pid")
@@ -540,6 +557,7 @@ def main() -> int:
         )
         branch = f"pasi/m2-live-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         worktree, actual_branch, start_output = start_managed_run(runtime_dir, branch, task)
+        runner_started = True
 
         operation_id = wait_for(
             lambda: next(
@@ -603,9 +621,11 @@ def main() -> int:
             "bridge.pid",
             ("pasi_log_router.py", "automation.orchestrator.bridge"),
         )
+        bridge_was_stopped = True
         wait_for(lambda: not bridge_is_healthy(), 10, "bridge outage")
         bridge_down_at = utc_now()
         bridge_start = start_bridge(runtime_dir)
+        bridge_restart_succeeded = True
         after_bridge = operation(operation_id)
         if after_bridge.get("status") in {"completed", "failed", "cancelled"}:
             raise M2AcceptanceError("bridge_restart", "operation became terminal during bridge restart")
@@ -642,6 +662,7 @@ def main() -> int:
                 "runner_kill",
                 f"M2 marker operation changed or duplicated while the runner was killed: {marker_ids_after_runner_kill!r}",
             )
+        runner_started = False
         evidence["stages"]["runner_kill"] = {
             "runner_pid": runner_pid_before,
             "supervisor_pid": supervisor_pid_before,
@@ -707,6 +728,7 @@ def main() -> int:
             "marker_operation_ids": marker_ids_after_resume,
         }
 
+        runner_started = True
         final_operation = wait_for(
             lambda: operation(operation_id) if operation(operation_id).get("status") in {"completed", "failed", "cancelled"} else None,
             args.timeout,
@@ -753,6 +775,26 @@ def main() -> int:
         print(f"Evidence: {artifact_path}")
         return 0
     except M2AcceptanceError as exc:
+        cleanup: dict[str, Any] = {}
+        if runner_started:
+            supervisor_cleanup = try_kill_managed_tree(
+                runtime_dir,
+                "supervisor.pid",
+                ("pasi_168h_supervisor.sh",),
+            )
+            runner_cleanup = try_kill_managed_tree(
+                runtime_dir,
+                "runner.pid",
+                ("pasi_extended_runtime_entrypoint.py",),
+            )
+            cleanup["supervisor"] = supervisor_cleanup
+            cleanup["runner"] = runner_cleanup
+        if bridge_was_stopped and not bridge_restart_succeeded and not bridge_is_healthy():
+            try:
+                cleanup["bridge_restore"] = start_bridge(runtime_dir)
+            except Exception as restore_exc:
+                cleanup["bridge_restore_error"] = str(restore_exc)
+        evidence["cleanup"] = cleanup
         evidence["failure"] = {"stage": exc.stage, "message": str(exc)}
         save()
         print(f"M2 FAIL ({exc.stage}): {exc}", file=sys.stderr)
