@@ -737,30 +737,6 @@ def add_item(project_id: str, content_id: str) -> str:
     return data["addProjectV2ItemById"]["item"]["id"]
 
 
-def frontend_phase_from_issue(issue: dict[str, Any]) -> str | None:
-    title = str(issue.get("title") or "")
-    title_match = FRONTEND_PHASE_TITLE_RE.match(title)
-    title_phase = title_match.group("phase") if title_match else None
-
-    metadata_phase: str | None = None
-    body = issue.get("body") or ""
-    if "PASI_PROJECT_METADATA" in body:
-        try:
-            metadata = parse_metadata(body)
-        except ValueError:
-            metadata = None
-        else:
-            if metadata.issue_type == "frontend":
-                metadata_phase = metadata.phase
-
-    if title_phase and metadata_phase and title_phase != metadata_phase:
-        return None
-    phase = title_phase or metadata_phase
-    if phase not in PHASES:
-        return None
-    return phase
-
-
 def all_frontend_phase_issues() -> list[dict[str, Any]]:
     raw = run_gh(
         [
@@ -1285,13 +1261,14 @@ def verify_issue(project_items_by_number: dict[int, dict[str, Any]], issue_numbe
 
 
 def synchronize(issue_numbers: list[int]) -> None:
-    issue_numbers = sorted(
-        set(issue_numbers)
-        | set(FRONTEND_PHASE_ISSUES.values())
-        | {FRONTEND_ROADMAP_ISSUE}
-    )
     project = ensure_schema(project_snapshot())
     resolved_phase_issues, invalid_frontend_phases = resolve_frontend_phase_map()
+    canonical_frontend_issue_numbers = set(FRONTEND_PHASE_ISSUES.values())
+    issue_numbers = sorted(
+        (set(issue_numbers) - canonical_frontend_issue_numbers)
+        | set(resolved_phase_issues.values())
+        | {FRONTEND_ROADMAP_ISSUE}
+    )
     field_names = {
         "startField": START_FIELD,
         "endField": END_FIELD,
