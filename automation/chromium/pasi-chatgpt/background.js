@@ -18,6 +18,7 @@ let controllerClaimTail = Promise.resolve();
 let tabCreateInFlight = null;
 const tabBootstrapInFlight = new Map();
 const tabBootstrapReadyAt = new Map();
+const tabBootstrapContext = new Map();
 let cachedBridgeToken = null;
 let bridgeTokenPromise = null;
 
@@ -454,10 +455,11 @@ async function ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId = 
   if (existingTabs.length > 0) {
     const selectedTab = selectChatGptTab(existingTabs, targetChatUrl);
     const selectedTabId = typeof selectedTab?.id === 'number' ? selectedTab.id : null;
-    let injectionReady = false;
+    const injectionReady = selectedTabId !== null
+      ? await injectChatGptTab(selectedTabId, { source: 'existing_tab_pending_work' })
+      : false;
     let workWakeSent = false;
-    if (selectedTabId !== null) {
-      injectionReady = await injectChatGptTab(selectedTabId, { source: 'existing_tab_pending_work' });
+    if (selectedTabId !== null && injectionReady) {
       if (injectionReady) {
         try {
           await chrome.tabs.sendMessage(selectedTabId, { type: 'pasi-work-wake' });
@@ -528,20 +530,33 @@ async function ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId = 
       });
       const created = await chrome.tabs.create({ url: requestedUrl, active: false });
       const afterCreateTabs = await listChatGptTabs();
-      await reportTabProvisioning({
-        action: 'created',
-        existing_tab_count: 0,
-        requested_url: requestedUrl,
-        created_tab_id: typeof created?.id === 'number' ? created.id : null,
-        created_tab_url: String(created?.url || ''),
-        after_create_tab_count: afterCreateTabs.length,
-        after_create_tab_ids: afterCreateTabs.map((tab) => tab.id).filter((id) => typeof id === 'number'),
-        after_create_tab_urls: afterCreateTabs.map((tab) => String(tab.url || '')).filter(Boolean),
-        cooldown_started_at: attemptedAtMs
-      });
       const createdTabId = typeof created?.id === 'number' ? created.id : null;
+      const effectiveResumeOperationId = typeof resumeOperationId === 'string' && resumeOperationId
+        ? resumeOperationId
+        : null;
       if (createdTabId !== null) {
-        void bootstrapCreatedChatGptTab(createdTabId);
+        const bootstrapContext = {
+          requestedUrl,
+          attemptedAtMs,
+          afterCreateTabs,
+          resumeOperationId: effectiveResumeOperationId
+        };
+        tabBootstrapContext.set(createdTabId, bootstrapContext);
+        void reportTabProvisioning({
+          action: 'created_pending_bootstrap',
+          existing_tab_count: 0,
+          requested_url: requestedUrl,
+          created_tab_id: createdTabId,
+          created_tab_url: String(created?.url || ''),
+          after_create_tab_count: afterCreateTabs.length,
+          after_create_tab_ids: afterCreateTabs.map((tab) => tab.id).filter((id) => typeof id === 'number'),
+          after_create_tab_urls: afterCreateTabs.map((tab) => String(tab.url || '')).filter(Boolean),
+          cooldown_started_at: attemptedAtMs,
+          injection_ready: false,
+          resume_operation_id: effectiveResumeOperationId,
+          resume_handoff_sent: false
+        });
+        void bootstrapCreatedChatGptTab(createdTabId, bootstrapContext);
       }
       return createdTabId;
     } catch (error) {
@@ -734,6 +749,9 @@ async function bootstrapCreatedChatGptTab(tabId, context = {}) {
     if (tabBootstrapInFlight.get(tabId) === run) {
       tabBootstrapInFlight.delete(tabId);
     }
+    if (tabBootstrapContext.get(tabId) === context) {
+      tabBootstrapContext.delete(tabId);
+    }
   }
 }
 
@@ -866,5 +884,5 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete') return;
   const url = String(tab?.url || '');
   if (!/^https:\/\/(?:www\.)?chatgpt\.com\//.test(url)) return;
-  void bootstrapCreatedChatGptTab(tabId);
+  void bootstrapCreatedChatGptTab(tabId, tabBootstrapContext.get(tabId) || {});
 });

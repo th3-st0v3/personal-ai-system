@@ -25,7 +25,7 @@ def test_m2_harness_requires_exactly_one_browser_reclaim() -> None:
 def test_m2_harness_requires_browser_reload_recovery_events() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert 'event.get("phase") == "reloading"' in source
-    assert 'event.get("phase") == "preserve_current_chat"' in source
+    assert 'event.get("phase") in {"preserve_current_chat", "resume_handoff"}' in source
     assert '"recovery_events": op.get("recovery_events") or []' in source
 
 

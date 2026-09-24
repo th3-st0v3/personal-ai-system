@@ -73,7 +73,7 @@ test('native content controller reuses a fresh lease for the immediate completio
 });
 
 test('native background watchdog provisions one ChatGPT tab only when work is pending', () => {
-  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
+  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork(?:, resumeOperationId = null)?\)/);
   assert.match(background, /if \(!pendingWork\) return null/);
   assert.match(background, /const existingTabs = await listChatGptTabs\(\)/);
   assert.match(background, /action: 'existing_tabs_no_create'/);
@@ -163,7 +163,7 @@ test('native extension injects into existing ChatGPT tabs and provisions missing
   assert.match(background, /chrome\.scripting\.executeScript/);
   assert.match(background, /content\.js/);
   assert.match(background, /recovery\.js/);
-  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
+  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork(?:, resumeOperationId = null)?\)/);
   assert.match(background, /chrome\.tabs\.create/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });
@@ -176,11 +176,13 @@ test('native existing-tab injection is serialized so concurrent watchdog passes 
 });
 
 test('native created-tab provisioning explicitly bootstraps the controller and retries telemetry', () => {
-  assert.match(background, /async function bootstrapCreatedChatGptTab\(tabId\)/);
-  assert.match(background, /void bootstrapCreatedChatGptTab\(createdTabId\)/);
+  assert.match(background, /async function bootstrapCreatedChatGptTab\(tabId(?:, context = \{\})?\)/);
+  assert.match(background, /void bootstrapCreatedChatGptTab\(createdTabId, bootstrapContext\)/);
   assert.match(background, /chrome\.tabs\.onUpdated\.addListener/);
   assert.match(background, /TAB_PROVISIONING_PENDING_KEY/);
   assert.match(background, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/);
+  assert.match(background, /void bootstrapCreatedChatGptTab\(createdTabId, bootstrapContext\)/);
+  assert.match(background, /resumeOperationId: effectiveResumeOperationId/);
 });
 
 test('native existing-tab provisioning is not considered ready when controller injection fails', () => {
@@ -214,7 +216,9 @@ test('native created-tab injection verifies the controller after execute_script'
   const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId, context = {})');
   assert.ok(start >= 0 && end > start);
   const source = background.slice(start, end);
-  assert.ok(source.indexOf("files: [") < source.indexOf("await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });"));
+  const filesIndex = source.indexOf("files: [");
+  const verifiedPingIndex = source.lastIndexOf("await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });");
+  assert.ok(filesIndex >= 0 && verifiedPingIndex > filesIndex);
 });
 
 test('native controller accepts an exact resume handoff without resubmitting a persisted response', () => {
@@ -237,7 +241,7 @@ test('native controller and recovery companion expose disposable handles for ext
 
 test('native background resets both controller and recovery contexts before fresh injection', () => {
   const start = background.indexOf('async function injectChatGptTab(tabId, context = {})');
-  const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId)', start);
+  const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId, context = {})', start);
   assert.ok(start >= 0 && end > start);
   const source = background.slice(start, end);
   assert.match(source, /__PASI_NATIVE_CONTROLLER_HANDLE__/);
@@ -249,7 +253,7 @@ test('native background resets both controller and recovery contexts before fres
 
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
   const start = background.indexOf('async function injectChatGptTab(tabId, context = {})');
-  const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId)', start);
+  const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId, context = {})', start);
   assert.ok(start >= 0 && end > start);
   const source = background.slice(start, end);
   assert.match(source, /await chrome\.tabs\.sendMessage\(tabId, \{ type: 'pasi-health-ping' \}\);/);
@@ -676,7 +680,7 @@ test('created-tab bootstrap reports the underlying executeScript runtime error',
 });
 
 test('background watchdog creates a missing ChatGPT tab only through the guarded provisioning path', () => {
-  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
+  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork(?:, resumeOperationId = null)?\)/);
   assert.match(background, /if \(!pendingWork\) return null/);
   assert.match(background, /const existingTabs = await listChatGptTabs\(\)/);
   assert.match(background, /action: 'existing_tabs_no_create'/);
