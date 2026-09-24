@@ -15,7 +15,7 @@ def test_build_uses_an_allowlist_and_excludes_python_cache() -> None:
     with TemporaryDirectory() as temporary:
         output = build_extension(Path(temporary) / "pasi-chatgpt")
         copied = sorted(path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file())
-        expected = list(EXTENSION_FILES)
+        expected: list[str] = list(EXTENSION_FILES)
         if (Path.home() / ".pasi" / "bridge-token").is_file():
             expected.append(".bridge-token")
         assert copied == sorted(expected)
