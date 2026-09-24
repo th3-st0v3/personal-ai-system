@@ -24,6 +24,7 @@
   const MISSING_OPERATION_GRACE_MS = 60 * 1000;
   const MISSING_OPERATION_REPORT_MS = 10 * 1000;
   const RECOVERY_VERSION = '1.0.6';
+  const M2_MANUAL_RELOAD_GATE_MARKER = 'PASI_M2_MANUAL_RELOAD_GATE: true';
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
   let inspecting = false;
   let progressTracker = null;
@@ -413,6 +414,20 @@
     }
   }
 
+  function manualReloadGateActive(operation) {
+    if (!operation || operation.manual_reload_gate_released === true) return false;
+    if (typeof operation.prompt !== 'string' || !operation.prompt.includes(M2_MANUAL_RELOAD_GATE_MARKER)) return false;
+    try {
+      const active = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+      return Boolean(
+        active?.manual_reload_gate === true &&
+        String(active?.operation_id || '') === String(operation.operation_id || '')
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
   function writeRecoveryState(value) {
     localStorage.setItem(RECOVERY_KEY, JSON.stringify(value));
   }
@@ -776,6 +791,14 @@
     if (!operationId) return;
 
     const current = await operation(operationId);
+    if (manualReloadGateActive(current)) {
+      await report('chatgpt_recovery', {
+        phase: 'm2_manual_reload_gate_waiting',
+        operation_id: operationId,
+        recovery_action: 'await_manual_reload_gate_release'
+      });
+      return;
+    }
     if (current?.status === 'completed' || current?.status === 'failed' || current?.status === 'cancelled') {
       if (await finishVisibleResponse(operationId, current, state.baseline)) {
         clearRecoveryState();
@@ -922,6 +945,14 @@
         delete recoveredState.missing_operation_last_report_ms;
         writeRecoveryState(recoveredState);
         state = recoveredState;
+      }
+      if (manualReloadGateActive(current)) {
+        await report('chatgpt_recovery', {
+          phase: 'm2_manual_reload_gate_waiting',
+          operation_id: state.operation_id,
+          recovery_action: 'await_manual_reload_gate_release'
+        });
+        return;
       }
       if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
         if (await finishVisibleResponse(state.operation_id, current, state.baseline)) {
