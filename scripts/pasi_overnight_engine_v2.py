@@ -1417,8 +1417,9 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
         branch=state.branch,
         worktree=state.worktree,
         phase=state.phase,
+        task_id=state.current_task_id,
         recent_tasks=state.recent_tasks,
-        roadmap_tasks=AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS,
+        roadmap_tasks=(),
         previous_failure=failure,
     )
 
