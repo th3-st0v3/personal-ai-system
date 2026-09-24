@@ -1681,31 +1681,9 @@
           return;
         }
         if (current.manual_reload_gate_released === true) {
-          const persistedResponse = typeof stored.manual_reload_gate_response === 'string'
-            ? stored.manual_reload_gate_response
-            : '';
-          const operationResponse = typeof current.response_text === 'string'
-            ? current.response_text
-            : '';
-          const visibleResponse = typeof latestAssistant === 'function' ? latestAssistant() : '';
-          const responseText = persistedResponse.trim() || operationResponse.trim() || String(visibleResponse || '').trim();
-          if (responseText.trim()) {
-            await finishOperation(stored.operation_id, responseText, true, stored.manual_reload_gate_timing);
-            localStorage.removeItem(ACTIVE_KEY);
-            activeRecoveryState = null;
-            manualReloadGateMonitorActive = false;
-            return;
-          }
-          const resumedState = { ...stored };
-          delete resumedState.manual_reload_gate;
-          delete resumedState.manual_reload_gate_response;
-          delete resumedState.manual_reload_gate_timing;
-          delete resumedState.manual_reload_gate_chat_url;
-          delete resumedState.manual_reload_gate_armed_at;
-          localStorage.setItem(ACTIVE_KEY, JSON.stringify(resumedState));
-          activeRecoveryState = null;
           manualReloadGateMonitorActive = false;
-          await recoverInterruptedOperation();
+          activeRecoveryState = null;
+          await resumeOperationFromBackground(stored.operation_id);
           return;
         }
         if (current.status === 'failed' || current.status === 'cancelled') {
@@ -2409,14 +2387,33 @@
         operation.manual_reload_gate === true &&
         operation.manual_reload_gate_released !== true
       );
+      let effectiveOperation = operation;
+
+      if (operation.status === 'queued') {
+        const claimed = await bridge('/chat/claim', {
+          method: 'POST',
+          body: { operation_id: operationId }
+        });
+        if (claimed.ok) {
+          const claimedOperation = claimed.json()?.operation;
+          if (claimedOperation?.operation_id === operationId) {
+            effectiveOperation = claimedOperation;
+          }
+        }
+      }
+
+      const effectiveManualGateWaiting = (
+        effectiveOperation.manual_reload_gate === true &&
+        effectiveOperation.manual_reload_gate_released !== true
+      );
       if (
-        operation.operation_type === 'prompt' &&
-        operation.response_text_available === true &&
-        typeof operation.response_text === 'string' &&
-        operation.response_text.trim() &&
-        !manualGateWaiting
+        effectiveOperation.operation_type === 'prompt' &&
+        effectiveOperation.response_text_available === true &&
+        typeof effectiveOperation.response_text === 'string' &&
+        effectiveOperation.response_text.trim() &&
+        !effectiveManualGateWaiting
       ) {
-        await finishOperation(operationId, operation.response_text, true);
+        await finishOperation(operationId, effectiveOperation.response_text, true);
         localStorage.removeItem(ACTIVE_KEY);
         activeRecoveryState = null;
         clearMonitoringStateFor(operationId);
@@ -2430,18 +2427,9 @@
         return true;
       }
 
-      if (operation.status === 'queued') {
-        const claimed = await bridge('/chat/claim', {
-          method: 'POST',
-          body: { operation_id: operationId }
-        });
-        if (claimed.ok) {
-          const claimedOperation = claimed.json()?.operation;
-          if (claimedOperation?.operation_id === operationId) {
-            await processOperation(claimedOperation);
-            return true;
-          }
-        }
+      if (effectiveOperation.status === 'claimed') {
+        await processOperation(effectiveOperation);
+        return true;
       }
 
       void reportObservation('chatgpt_state', {
