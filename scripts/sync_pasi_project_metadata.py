@@ -95,7 +95,7 @@ PHASE_SCHEDULE = [
     ("P19", "Iteration 20", "2027-09-26", "2027-10-16", "Quarter 1"),
     ("P20", "Iteration 21", "2027-10-17", "2027-11-13", "Quarter 1"),
     ("P21", "Iteration 22", "2027-11-14", "2027-12-11", "Quarter 1"),
-    ("P22", "Iteration 23", "2027-12-12", "2028-01-15", "Quarter 2"),
+    ("P22", "Iteration 23", "2027-12-12", "2028-01-15", "Quarter 1"),
 ]
 
 QUARTER_SCHEDULE = [
