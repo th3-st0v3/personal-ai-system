@@ -966,14 +966,16 @@ test('native M2 manual reload gate is wired through the extension bridge', () =>
   assert.match(background, /POST \/chat\/manual-reload-gate\/release/);
 });
 
-test('native M2 gate arms immediately after send evidence', () => {
+test('native M2 gate arms only after response evidence', () => {
   const processStart = content.indexOf('async function processOperation(operation)');
   const responseWait = content.indexOf('const response = await waitForResponse(', processStart);
   const earlyArm = content.indexOf("armM2ManualReloadGate(operation, '', submission.timing || null)", processStart);
+  const finalArm = content.indexOf('await armM2ManualReloadGate(operation, response, browserTiming);', responseWait);
   assert.ok(processStart >= 0);
   assert.ok(responseWait > processStart);
-  assert.ok(earlyArm > processStart);
-  assert.ok(earlyArm < responseWait);
+  assert.equal(earlyArm, -1);
+  assert.ok(finalArm > responseWait);
+  assert.equal(content.match(/await armM2ManualReloadGate(operation, response, browserTiming);/g)?.length, 1);
 });
 
 
