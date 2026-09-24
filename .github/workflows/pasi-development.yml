@@ -98,7 +98,7 @@ jobs:
 
   m0_live_acceptance:
     concurrency:
-      group: ${{ format('{0}-{1}-m0-live', github.workflow, github.repository) }}
+      group: ${{ format('{0}-{1}-{2}-m0-live', github.workflow, github.repository, github.ref) }}
       cancel-in-progress: true
     # M0 owns its own live browser + canonical-validation gate. It must not
     # wait behind the general verify job, whose broad validation can be long-running.
