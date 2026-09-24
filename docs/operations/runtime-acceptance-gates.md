@@ -80,10 +80,10 @@ The sequence is deliberately fail-closed:
 2. The harness waits until its exact prompt operation is `claimed` or `generating`.
 3. It pauses for one manual action: close or reload the **exact ChatGPT conversation tab carrying that operation**. No replacement tab or human message is allowed.
 4. It terminates only the managed bridge PID tree, waits for the bridge to become unavailable, restarts the same bridge runtime, and verifies the original operation ID still exists and is non-terminal.
-5. It terminates only the managed runner PID tree. The test sets `PASI_SUPERVISOR_MAX_RESTARTS=0` so the supervisor cannot silently hide the runner kill with an automatic replacement.
-6. It resumes with `bash scripts/start_pasi_168h.sh --resume --no-push` using the exact persisted branch/worktree identity.
-7. Resume evidence must explicitly say `Resuming persisted ChatGPT operation: <original-id>`; a new `Prompt operation` ID or a `Retry prompt operation` is a failure.
-8. Final evidence must show the same operation ID completed, the same ChatGPT conversation URL, the required unique marker, durable `user_messages_added: 1`, verified acknowledgement, and an exact +1 user/+1 assistant conversation-signature progression from the pre-operation baseline.
+5. It terminates only the managed runner PID tree. The test sets `PASI_SUPERVISOR_MAX_RESTARTS=0` and requires runner-log evidence that the supervisor exhausted that zero-restart budget, so the test cannot pass merely because a supervisor happened to disappear.
+6. It resumes with `bash scripts/start_pasi_168h.sh --resume --no-push` using the exact persisted branch/worktree identity. Because the launcher detaches the supervisor, the acceptance reads the appended `runner.log` evidence rather than trusting launcher stdout.
+7. Resume evidence must explicitly say `Resuming persisted ChatGPT operation: <original-id>`; a new `Retry prompt operation` for that M2 task, or more than one queue operation bound to the unique marker, is a failure.
+8. Final evidence must show the same operation ID completed, the same ChatGPT conversation URL, the required unique marker bound to exactly one operation, durable `user_messages_added: 1`, verified acknowledgement, and an exact +1 user/+1 assistant conversation-signature progression from the pre-operation baseline.
 
 The harness writes an evidence artifact even on failure:
 
