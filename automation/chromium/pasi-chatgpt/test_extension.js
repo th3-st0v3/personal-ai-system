@@ -40,6 +40,15 @@ test('native health stops cleanly when the extension context is invalidated', ()
   assert.match(content, /stopControllerTimers\(\);/);
 });
 
+test('native controller can restart after an invalidated content-script context', () => {
+  assert.match(content, /__PASI_NATIVE_CONTROLLER_STARTED__/);
+  assert.match(content, /__PASI_NATIVE_CONTROLLER_INVALIDATED__/);
+  assert.match(content, /controllerStarted && !controllerInvalidated/);
+  assert.match(content, /markExtensionContextInvalidated\(\)/);
+  assert.match(content, /globalThis\.__PASI_NATIVE_CONTROLLER_INVALIDATED__ = false/);
+});
+
+
 test('native timeout defaults remain fast enough for the browser freshness gate', () => {
   const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
   assert.match(timeoutConfig, /heartbeatMs: 15 \* 1000/);
