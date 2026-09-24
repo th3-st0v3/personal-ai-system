@@ -109,6 +109,33 @@ test('operation prompt carries the operation nonce', () => {
   dom.window.close();
 });
 
+test('native response evidence rejects pre-prompt assistant messages and accepts only a new reply after the operation prompt', () => {
+  const dom = loadController(
+    '<main>' +
+      '<div data-message-author-role="assistant"><div class="markdown">old assistant response</div></div>' +
+      '<div data-message-author-role="user"><div>[PASI_OPERATION op-123]\nDo the task</div></div>' +
+      '</main>'
+  );
+  const api = dom.window.PASI_NATIVE_TEST_API;
+  const snapshot = api.snapshotAssistantMessages();
+
+  assert.equal(
+    api.assistantResponseEvidence(snapshot, '[PASI_OPERATION op-123]\nDo the task', 'older baseline'),
+    ''
+  );
+
+  const reply = dom.window.document.createElement('div');
+  reply.setAttribute('data-message-author-role', 'assistant');
+  reply.innerHTML = '<div class="markdown">new assistant response</div>';
+  dom.window.document.querySelector('main').append(reply);
+
+  assert.equal(
+    api.assistantResponseEvidence(snapshot, '[PASI_OPERATION op-123]\nDo the task', 'older baseline'),
+    'new assistant response'
+  );
+  dom.window.close();
+});
+
 test('whitespace-collapse mutation fails the multiline extraction contract', () => {
   const fixture = '<div data-message-author-role="assistant"><div class="markdown">line one\nline two</div></div>';
   const current = loadController(fixture);

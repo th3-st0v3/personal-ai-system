@@ -2,15 +2,18 @@ importScripts('timeout-config.js');
 
 const BRIDGE = 'http://127.0.0.1:8765';
 const ALARM = 'pasi-watchdog';
-const MAX_REFRESHES = 3;
-const WINDOW_MS = 15 * 60 * 1000;
 let STALE_MS = 45 * 1000;
-const CREATE_RETRY_MS = 60 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
 let controllerClaimTail = Promise.resolve();
 let cachedBridgeToken = null;
 let bridgeTokenPromise = null;
+
+if (chrome.sidePanel?.setPanelBehavior) {
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.warn('[PASI side panel]', error));
+}
 
 function serializeControllerClaim(task) {
   const next = controllerClaimTail.then(task, task);
@@ -218,79 +221,66 @@ function sameChatConversationUrl(candidate, target) {
   }
 }
 
-async function refreshBudget(tabId) {
-  const key = `refresh:${tabId}`;
-  const stored = (await chrome.storage.local.get(key))[key] || { startedAt: Date.now(), count: 0 };
-  if (Date.now() - stored.startedAt > WINDOW_MS) return { startedAt: Date.now(), count: 0 };
-  return stored;
+async function injectExistingChatTabs() {
+  if (!chrome.scripting?.executeScript) return;
+  const tabs = await chrome.tabs.query({
+    url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
+  });
+  for (const tab of tabs) {
+    if (typeof tab.id !== 'number') continue;
+
+    // A previously injected controller can answer this ping. Do not
+    // re-execute the full support-script bundle on an already-live tab,
+    // because the support scripts are intentionally global and are not
+    // themselves controller lifecycle owners.
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
+      continue;
+    } catch (_) {
+      // No live controller listener is present; inject into the existing tab.
+    }
+
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: [
+          'timeout-config.js',
+          'detectors.js',
+          'recovery_progress.js',
+          'content.js',
+          'recovery.js'
+        ]
+      });
+    } catch (_) {
+      // Retry later without creating, navigating, or reloading a tab.
+    }
+  }
 }
-
-async function createCooldown(targetChatUrl) {
-  const key = `create:${targetChatUrl}`;
-  const stored = (await chrome.storage.local.get(key))[key];
-  if (!stored || Date.now() - stored > CREATE_RETRY_MS) return false;
-  return true;
-}
-
-async function markCreateAttempt(targetChatUrl) {
-  await chrome.storage.local.set({ [`create:${targetChatUrl}`]: Date.now() });
-}
-
-async function reloadBoundedTab(tab) {
-  if (!tab || typeof tab.id !== 'number') return;
-
-  const budget = await refreshBudget(tab.id);
-  if (budget.count >= MAX_REFRESHES) return;
-  budget.count += 1;
-  await chrome.storage.local.set({ [`refresh:${tab.id}`]: budget });
-  await chrome.tabs.reload(tab.id);
-}
-
 async function inspect() {
+  await injectExistingChatTabs();
+
   const status = await bridgeJson('/status');
   const payload = await bridgeJson('/browser/observation');
   if (!status || !payload) return;
   const health = healthData(payload);
-  if (!health) return;
-  if (health.data.auth_required === true) return;
-  if (typeof health.data.chat_url !== 'string' || !health.data.chat_url.trim()) return;
-  const activeOperation = typeof health.data.active_operation_id === 'string' && Boolean(health.data.active_operation_id.trim());
-  const connectionFailure = health.data.connection_failure === true;
-  const observationStale = observationAge(health.observation) > STALE_MS;
-  if (!connectionFailure && !observationStale) return;
+  if (!health || health.data.auth_required === true) return;
 
-  const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*'] });
-  const targetChatUrl = typeof health.data.chat_url === 'string' ? health.data.chat_url : '';
-  const matchingTab = targetChatUrl
-    ? tabs.find((tab) => sameChatConversationUrl(tab.url, targetChatUrl))
-    : null;
-  if (matchingTab && observationStale) {
-    // A service-worker alarm can outlive a throttled/frozen content-script timer.
-    // Wake the exact verified tab first; the content script immediately publishes
-    // a fresh health observation without adding a polling loop to the hot path.
+  const targetChatUrl = typeof health.data.chat_url === 'string'
+    ? health.data.chat_url
+    : '';
+  if (!targetChatUrl) return;
+
+  const tabs = await chrome.tabs.query({
+    url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
+  });
+  const matchingTab = tabs.find((tab) => sameChatConversationUrl(tab.url, targetChatUrl));
+  if (matchingTab && typeof matchingTab.id === 'number') {
     try {
       await chrome.tabs.sendMessage(matchingTab.id, { type: 'pasi-health-ping' });
-    } catch (_) {}
-  }
-
-  if (!matchingTab) {
-    // Missing-tab recreation is intentionally restricted to an active operation.
-    // Idle stale state must never create a new ChatGPT tab on its own.
-    if (!activeOperation) return;
-    if (await createCooldown(targetChatUrl)) return;
-    await markCreateAttempt(targetChatUrl);
-    try {
-      await chrome.tabs.create({ url: targetChatUrl });
     } catch (_) {
-      // Keep the cooldown so a transient browser rejection does not create
-      // repeated tabs on every watchdog alarm.
+      // Existing-tab injection will be retried on the next watchdog pass.
     }
-    return;
   }
-  await chrome.storage.local.remove(`create:${targetChatUrl}`);
-  // Only actively reload when the observation itself is stale. A connection
-  // failure on an otherwise fresh idle page is just a wake-up signal.
-  if (observationStale) await reloadBoundedTab(matchingTab);
 }
 
 async function applyTimeoutPolicy() {
@@ -318,13 +308,16 @@ async function ensureWatchdogAlarm() {
 
 chrome.runtime.onInstalled.addListener(() => {
   void ensureWatchdogAlarm();
+  void injectExistingChatTabs();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void ensureWatchdogAlarm();
+  void injectExistingChatTabs();
 });
 
 void ensureWatchdogAlarm();
+void injectExistingChatTabs();
 
 if (chrome.sidePanel?.setPanelBehavior) {
   chrome.sidePanel
@@ -335,8 +328,4 @@ if (chrome.sidePanel?.setPanelBehavior) {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) inspect();
-});
-
-chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.local.remove(`refresh:${tabId}`);
 });

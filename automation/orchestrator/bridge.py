@@ -1409,6 +1409,10 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         ).path
 
         if not self._request_is_authorized(require_token=True):
+            # Rejecting before consuming the body must close the HTTP/1.1
+            # connection; otherwise unread JSON bytes can be parsed as the next
+            # request line and produce misleading 501 errors.
+            self.close_connection = True
             self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
             return
 

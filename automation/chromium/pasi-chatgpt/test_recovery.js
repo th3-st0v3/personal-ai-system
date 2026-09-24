@@ -29,6 +29,13 @@ test('recovery preserves a verified response and includes response text in compl
   assert.match(source, /grace_wait/);
 });
 
+test('recovery binds visible response capture to the current operation prompt', () => {
+  assert.match(source, /function latestAssistantForOperation\(operation\)/);
+  assert.match(source, /function userMessageMatchesOperation\(node, operation\)/);
+  assert.match(source, /matchedUsers\.some\(\(user\) => nodeFollows\(user, node\)\)/);
+  assert.match(source, /const response = latestAssistantForOperation\(current\)/);
+});
+
 test('recovery observations identify the active prompt operation so the bridge can persist response evidence', () => {
   assert.match(source, /active_operation_id: operationId/);
   assert.match(source, /schema_version: 'pasi-chatgpt-recovery-v3'/);
@@ -81,8 +88,8 @@ test('recovery tracks monitoring state across reloads and handles context exhaus
 
 test('recovery never finalizes a partial assistant response during generation', () => {
   assert.match(source, /function generating\(\)/);
-  const guardedFinalizers = source.match(/if \(!generating\(\) && response && currentFingerprint/g) || [];
-  assert.equal(guardedFinalizers.length, 2);
+  assert.match(source, /const response = latestAssistantForOperation\(current\)/);
+  assert.match(source, /if \(generating\(\) \|\| !response\) return false/);
 });
 
 test('recovery preserves response text casing while still normalizing marker checks', () => {
@@ -211,7 +218,7 @@ test('response recovery retries a lost completion acknowledgement within a bound
 test('terminal recovery attempts a bound visible assistant response before clearing state', () => {
   assert.match(source, /async function finishVisibleResponse\(operationId, current, baseline\)/);
   assert.match(source, /if \(await finishVisibleResponse\(operationId, current, state\.baseline\)\)/);
-  assert.match(source, /if \(generating\(\) \|\| !response \|\| currentFingerprint === String\(baseline \|\| ''\)\) return false/);
+  assert.match(source, /if \(generating\(\) \|\| !response\) return false/);
 });
 
 

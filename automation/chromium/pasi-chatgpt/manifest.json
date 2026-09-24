@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "PASI ChatGPT Controller",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Native Chromium controller and watchdog for Personal AI System ChatGPT automation.",
   "permissions": [
     "alarms",
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "scripting"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -34,7 +35,6 @@
         "https://www.chatgpt.com/*"
       ],
       "js": [
-        "activity.js",
         "timeout-config.js",
         "detectors.js",
         "recovery_progress.js",

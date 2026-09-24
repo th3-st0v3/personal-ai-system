@@ -13,7 +13,6 @@ test('native background bridge respects content-side request timeouts', () => {
 const root = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
-const activity = fs.readFileSync(path.join(root, 'activity.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
@@ -72,19 +71,23 @@ test('native content controller reuses a fresh lease for the immediate completio
   assert.match(content, /if \(!finalized\) \{/);
 });
 
-test('native background watchdog reacts to explicit connection failures even with a fresh observation', () => {
-  assert.match(background, /const connectionFailure = health\.data\.connection_failure === true/);
-  assert.match(background, /const observationStale = observationAge\(health\.observation\) > STALE_MS/);
-  assert.match(background, /if \(!connectionFailure && !observationStale\) return;/);
-  assert.match(background, /if \(!connectionFailure && !observationStale\) return;/);
-  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
-});
+test('native background watchdog never navigates ChatGPT tabs', () => {
+  assert.match(background, /await injectExistingChatTabs\(\)/);
+  assert.match(background, /chrome\.tabs\.sendMessage/);
+  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.doesNotMatch(background, /chrome\.tabs\.reload/);
+});;
 
 test('native recovery companion expires vanished operations after the bounded grace period', () => {
   assert.match(recovery, /MISSING_OPERATION_GRACE_MS = 60 \* 1000/);
   assert.match(recovery, /operation_missing_expired/);
   assert.match(recovery, /clearInterruptedState\(\)/);
   assert.match(recovery, /missing_operation_age_ms: age/);
+});
+
+test('native content and recovery scripts are safe to reinject', () => {
+  assert.match(content, /__PASI_NATIVE_CONTROLLER_STARTED__/);
+  assert.match(recovery, /__PASI_NATIVE_RECOVERY_STARTED__/);
 });
 
 test('native recovery companion uses the shared long-response timeout policy', () => {
@@ -99,8 +102,32 @@ test('native controller and recovery companion have unique recovery declarations
   assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
 });
 
+test('native extension injects into already-open ChatGPT tabs', () => {
+  assert.ok(manifest.permissions.includes('scripting'));
+  assert.match(background, /async function injectExistingChatTabs\(\)/);
+  assert.match(background, /chrome\.scripting\.executeScript/);
+  assert.match(background, /content\.js/);
+  assert.match(background, /recovery\.js/);
+  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.doesNotMatch(background, /chrome\.tabs\.reload/);
+});
+
+test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
+  const start = background.indexOf('async function injectExistingChatTabs()');
+  const end = background.indexOf('async function inspect()', start);
+  assert.ok(start >= 0 && end > start);
+  const source = background.slice(start, end);
+  assert.match(source, /await chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}\);/);
+  assert.match(source, /await chrome\.scripting\.executeScript/);
+  assert.ok(
+    source.indexOf("await chrome.tabs.sendMessage") <
+      source.indexOf("await chrome.scripting.executeScript")
+  );
+  assert.match(source, /continue;/);
+});
+
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
-  assert.equal(manifest.version, '1.1.1');
+  assert.equal(manifest.version, '1.1.2');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.ok(manifest.permissions.includes('alarms'));
@@ -109,7 +136,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['activity.js', 'timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller keeps response telemetry off the completion critical path', () => {
@@ -270,11 +297,21 @@ test('native prompt submission uses a single send strategy and never duplicates 
   assert.doesNotMatch(content, /newestUserMatches/);
 });
 
+test('native completion binds capture to a new assistant reply for the active operation', () => {
+  assert.match(content, /function snapshotAssistantMessages\(\)/);
+  assert.match(content, /function assistantResponseEvidence\(snapshot, prompt\)/);
+  assert.match(content, /function userMessageMatchesPrompt\(node, prompt\)/);
+  assert.match(content, /matchedUsers\.some\(\(user\) => nodeFollows\(user, node\)\)/);
+  assert.match(content, /const assistantSnapshot = snapshotAssistantMessages\(\)/);
+  assert.match(content, /Boolean\(assistantResponseEvidence\(assistantSnapshot, promptText, baseline\)\)/);
+  assert.match(content, /\{ assistantSnapshot, prompt: promptText \}/);
+});
+
 test('native completion captures responses through the event-driven waiter and bounded evidence', () => {
   assert.match(content, /async function waitForResponse\(baseline(?:,|\))/);
   assert.match(content, /let sawGeneration = false/);
   assert.match(content, /const response = await waitUntil\(\(\) =>/);
-  assert.match(content, /const responseText = latestAssistant\(\)/);
+  assert.match(content, /const responseText = responseEvidence\(\)/);
   assert.match(content, /PASI_NATIVE: ChatGPT generation timed out/);
   assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
   assert.match(content, /response_text: responseText\.slice\(0, MAX_RESPONSE_TEXT_CHARS\)/);
@@ -299,27 +336,6 @@ test('native new-chat creation requires a changed conversation identity or genui
   assert.match(content, /differentChat/);
   assert.match(content, /initialChatReady/);
   assert.match(content, /new chat control did not change conversation identity/);
-});
-
-test('activity indicator reconciles stale browser state with terminal backend operations', () => {
-  assert.match(activity, /async function backendOperation\(operationId\)/);
-  assert.ok(activity.includes("path: '/operation?operation_id=' + encodeURIComponent(String(operationId))"));
-  assert.match(activity, /\['completed', 'failed', 'cancelled'\]\.includes\(backend\.status\)/);
-  assert.doesNotMatch(activity, /localStorage\.removeItem\(ACTIVE_KEY\)/);
-  assert.match(activity, /The controller owns lifecycle cleanup/);
-  assert.match(activity, /let syncInFlight = false/);
-  assert.match(activity, /if \(syncInFlight\) return/);
-});
-
-test('activity indicator is isolated, non-interactive, and reduced-motion aware', () => {
-  assert.match(activity, /pasi-activity-indicator/);
-  assert.match(activity, /attachShadow\(\{ mode: 'closed' \}\)/);
-  assert.match(activity, /pointer-events: none/);
-  assert.match(activity, /prefers-reduced-motion: reduce/);
-  assert.match(activity, /const state = isGenerating \? 'Thinking' : sawGeneration \? 'Finishing' : 'Working'/);
-  assert.match(activity, /label\.textContent = `PASI · \$\{state\}`/);
-  assert.match(activity, /const POLL_MS = 2000;/);
-  assert.match(activity, /setInterval\(sync, POLL_MS\)/);
 });
 
 test('native recovery retries completed prompt evidence before clearing the active marker', () => {
@@ -355,7 +371,8 @@ test('native controller can poll the queue through the MV3 worker', () => {
 test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.doesNotMatch(background, /targetAddressSpace/);
   assert.ok(background.includes("cache: 'no-store'"));
-  assert.ok(!activity.includes("fetch(`http://127.0.0.1:8765"));
+  assert.doesNotMatch(content, /127\.0\.0\.1:8765/);
+  assert.doesNotMatch(recovery, /127\.0\.0\.1:8765/);
   assert.ok(!recovery.includes("fetch(BRIDGE"));
   assert.ok(background.includes("const BRIDGE_ROUTES = new Set(["));
   assert.ok(background.includes("function allowedBridgeRequest(method, path)"));
@@ -370,17 +387,17 @@ test('loopback bridge access is confined to the MV3 service worker', () => {
   assert.ok(manifest.host_permissions.includes("http://127.0.0.1:8765/*"));
   assert.ok(!content.includes("fetch(BRIDGE"));
   assert.ok(!content.includes("http://127.0.0.1:8765/operation"));
-  assert.ok(!activity.includes("http://127.0.0.1:8765/operation"));
   assert.ok(!recovery.includes("fetch(BRIDGE"));
 });
 
-test('background service worker performs bounded stale-tab recovery', () => {
+test('background service worker injects and pings existing tabs only', () => {
   assert.match(background, /chrome\.alarms\.create/);
   assert.match(background, /chrome\.tabs\.query/);
-  assert.match(background, /chrome\.tabs\.reload/);
-  assert.match(background, /MAX_REFRESHES/);
-  assert.match(background, /auth_required/);
-});
+  assert.match(background, /chrome\.scripting\.executeScript/);
+  assert.match(background, /chrome\.tabs\.sendMessage/);
+  assert.doesNotMatch(background, /MAX_REFRESHES/);
+  assert.doesNotMatch(background, /chrome\.tabs\.reload/);
+});;
 
 test('native controller defers first context-exhaustion failure to bounded recovery', () => {
   assert.match(content, /RECOVERY_KEY = 'pasi:chatgpt-recovery'/);
@@ -391,18 +408,19 @@ test('native controller defers first context-exhaustion failure to bounded recov
   assert.match(content, /void reportObservation\('chatgpt_response'/);
 });
 
-test('background watchdog targets the tab matching the reported ChatGPT conversation before fallback recency', () => {
+test('background watchdog targets the reported ChatGPT conversation without reload', () => {
   assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string'/);
   assert.match(background, /tabs\.find\(\(tab\) => sameChatConversationUrl\(tab\.url, targetChatUrl\)\)/);
-  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
-});
+  assert.match(background, /chrome\.tabs\.sendMessage/);
+  assert.doesNotMatch(background, /reloadBoundedTab/);
+});;
 
-test('background bounded reload helper retains per-tab refresh budget', () => {
-  assert.match(background, /async function reloadBoundedTab\(tab\)/);
-  assert.match(background, /const budget = await refreshBudget\(tab\.id\)/);
-  assert.match(background, /chrome\.storage\.local\.set/);
-  assert.match(background, /chrome\.tabs\.reload\(tab\.id\)/);
-});
+test('background watchdog has no reload helper', () => {
+  assert.doesNotMatch(background, /async function reloadBoundedTab/);
+  assert.doesNotMatch(background, /MAX_REFRESHES/);
+  assert.doesNotMatch(background, /refreshBudget/);
+  assert.doesNotMatch(background, /chrome\.tabs\.reload/);
+});;
 
 test('native controller pauses ordinary queue polling while a recovery state is active', () => {
   assert.ok(
@@ -468,15 +486,11 @@ test('native controller preserves prompt operations for bounded response recover
   assert.match(content, /finalized = false/);
 });
 
-test('background watchdog wakes stale exact tabs without creating idle replacement tabs', () => {
-  assert.match(background, /const activeOperation = typeof health\.data\.active_operation_id === 'string'/);
-  assert.match(background, /await chrome\.tabs\.sendMessage\(matchingTab\.id, \{ type: 'pasi-health-ping' \}\)/);
-  assert.match(background, /if \(!activeOperation\) return/);
-  assert.match(background, /if \(!matchingTab\) \{/);
-  assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
-  assert.match(background, /sameChatConversationUrl\(tab\.url, targetChatUrl\)/);
-  assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
-});
+test('background watchdog wakes existing tabs without navigation', () => {
+  assert.match(background, /chrome\.tabs\.sendMessage/);
+  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.doesNotMatch(background, /chrome\.tabs\.reload/);
+});;
 
 test('native controller answers background health pings and visibility transitions', () => {
   assert.match(content, /message\?\.type === 'pasi-health-ping'/);
@@ -484,26 +498,22 @@ test('native controller answers background health pings and visibility transitio
   assert.match(content, /document\.addEventListener\('visibilitychange'/);
 });
 
-test('background watchdog recreates only the verified conversation when its tab is missing', () => {
-  assert.match(background, /if \(!matchingTab\) \{/);
-  assert.match(background, /await chrome\.tabs\.create\(\{ url: targetChatUrl \}\)/);
-  assert.match(background, /sameChatConversationUrl\(tab\.url, targetChatUrl\)/);
-  assert.doesNotMatch(background, /tabs\.sort\(\(a, b\) => Number\(b\.lastAccessed/);
-});
+test('background watchdog never creates a missing ChatGPT tab', () => {
+  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.doesNotMatch(background, /createCooldown/);
+  assert.doesNotMatch(background, /markCreateAttempt/);
+});;
 
-test('background watchdog rate-limits missing-tab recreation after browser creation failures', () => {
-  assert.match(background, /const CREATE_RETRY_MS = 60 \* 1000/);
-  assert.match(background, /const key = `create:\$\{targetChatUrl\}`/);
-  assert.match(background, /if \(await createCooldown\(targetChatUrl\)\) return/);
-  assert.match(background, /await markCreateAttempt\(targetChatUrl\)/);
-  assert.match(background, /try \{\s*await chrome\.tabs\.create\(\{ url: targetChatUrl \}\);\s*\} catch \(_\)/);
-});
+test('background watchdog has no missing-tab creation cooldown', () => {
+  assert.doesNotMatch(background, /CREATE_RETRY_MS/);
+  assert.doesNotMatch(background, /createCooldown/);
+  assert.doesNotMatch(background, /markCreateAttempt/);
+});;
 
-test('background watchdog clears a stale creation cooldown after the exact tab is restored', () => {
-  assert.match(background, /if \(!matchingTab\) \{/);
-  assert.match(background, /await chrome\.storage\.local\.remove\(`create:\$\{targetChatUrl\}`\);/);
-  assert.match(background, /await reloadBoundedTab\(matchingTab\)/);
-});
+test('background watchdog does not persist creation cooldown state', () => {
+  assert.doesNotMatch(background, /create:\$\{targetChatUrl\}/);
+  assert.doesNotMatch(background, /chrome\.storage\.local\.remove\(`create:/);
+});;
 
 
 test('native restart recovery uses the persisted pre-prompt baseline when terminal response text is missing', () => {
@@ -574,14 +584,14 @@ test('native generating detection uses one grouped selector', () => {
   assert.doesNotMatch(source, /firstVisible\(\['button\[data-testid="stop-button"/);
 });
 
-test('native response completion reuses the extracted assistant text for fingerprinting', () => {
+test('native response completion reuses operation-associated assistant evidence', () => {
   const start = content.indexOf('async function waitForResponse(');
   const end = content.indexOf('  function rememberContextRecovery(', start);
   assert.ok(start >= 0 && end > start);
   const source = content.slice(start, end);
-  assert.match(source, /const responseText = latestAssistant\(\)/);
-  assert.match(source, /fingerprintFromText\(responseText\) !== baseline/);
-  assert.doesNotMatch(source, /const responseText = latestAssistant\(\);[\s\S]*fingerprint\(\) !== baseline/);
+  assert.match(source, /const responseText = responseEvidence\(\)/);
+  assert.match(source, /const responseEvidence = \(\) => assistantResponseEvidence\(/);
+  assert.doesNotMatch(source, /const responseText = latestAssistant\(\)/);
 });
 
 test('native lost lease path clears operation state before returning', () => {
@@ -702,3 +712,10 @@ test('native response settle fallback remains aligned with the 10ms latency targ
   assert.match(content, /const RESPONSE_SETTLE_MS = TIMEOUT_POLICY\.responseSettleMs \|\| 10;/);
 });
 
+
+
+test('native ChatGPT pages never receive a PASI activity indicator', () => {
+  assert.ok(!fs.existsSync(path.join(root, 'activity.js')));
+  assert.doesNotMatch(JSON.stringify(manifest), /activity\.js/);
+  assert.doesNotMatch(content, /pasi-activity-indicator|PASI · (Thinking|Working|Finishing)/);
+});

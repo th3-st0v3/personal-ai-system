@@ -17,12 +17,12 @@ test('native extension manifest exposes the side panel without broadening page p
   assert.deepEqual(manifest.side_panel, { default_path: 'sidepanel.html' });
   assert.equal(manifest.action.default_title, 'Open PASI Control Center');
   assert.ok(!manifest.permissions.includes('webRequest'));
-  assert.ok(!manifest.permissions.includes('scripting'));
+  assert.ok(manifest.permissions.includes('scripting'));
   assert.ok(!manifest.permissions.includes('activeTab'));
 });
 
 test('background opens the side panel from the extension action and keeps control-center bridge routes narrow', () => {
-  assert.match(background, /chrome\.sidePanel\.setPanelBehavior\(\{ openPanelOnActionClick: true \}\)/);
+  assert.match(background, /chrome\.sidePanel\s*\.\s*setPanelBehavior\(\{ openPanelOnActionClick: true \}\)/);
   assert.match(background, /pasi-control-center-bridge-request/);
   assert.match(background, /\/runner\/capabilities/);
   assert.match(background, /POST \/runner\/control/);

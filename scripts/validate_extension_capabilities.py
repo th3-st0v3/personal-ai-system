@@ -20,6 +20,7 @@ API_CONTRACT: dict[str, dict[str, object]] = {
     "alarms": {"permission": "alarms"},
     "storage": {"permission": "storage"},
     "sidePanel": {"permission": "sidePanel"},
+    "scripting": {"permission": "scripting"},
     "tabs": {
         "permission": None,
         "host_patterns": [
@@ -179,7 +180,14 @@ def validate_extension_capabilities(
         for match in PYTHON_STRING_URL_RE.finditer(source):
             url = match.group(1)
             parsed = urlparse(url)
-            if parsed.hostname == "127.0.0.1" and parsed.port == 8765:
+            try:
+                port = parsed.port
+            except ValueError:
+                # Test fixtures may intentionally use a template such as
+                # http://127.0.0.1:{port}/...; it is not a deployable literal
+                # endpoint and should not be interpreted as an invalid bridge.
+                continue
+            if parsed.hostname == "127.0.0.1" and port == 8765:
                 if not _host_pattern_matches(url, LOCAL_BRIDGE_HOST_PATTERN):
                     errors.append(
                         f"Python bridge URL is outside the native extension bridge contract: {url}"

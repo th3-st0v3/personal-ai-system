@@ -1,6 +1,8 @@
 name: pasi-development
 
 on:
+  push:
+    branches: ['pasi/**']
   workflow_dispatch:
     inputs:
       ref:
@@ -25,13 +27,12 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: pasi-development
-  cancel-in-progress: false
-
 jobs:
   verify:
-    if: ${{ inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
+    concurrency:
+      group: ${{ format('{0}-{1}-verify', github.workflow, github.ref) }}
+      cancel-in-progress: false
+    if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '(m0)')) || inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -65,7 +66,7 @@ jobs:
 
       - name: Validate roadmap
         env:
-          ROADMAP: ${{ inputs.roadmap }}
+          ROADMAP: ${{ inputs.roadmap || 'roadmaps/pasi-default.json' }}
         run: |
           python - "$ROADMAP" <<'PY'
           import sys
@@ -95,7 +96,36 @@ jobs:
       - name: Run canonical validation
         run: bash scripts/check_all.sh
 
+  m0_live_acceptance:
+    concurrency:
+      group: ${{ format('{0}-{1}-m0-live', github.workflow, github.repository) }}
+      cancel-in-progress: true
+    # M0 owns its own live browser + canonical-validation gate. It must not
+    # wait behind the general verify job, whose broad validation can be long-running.
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '(m0)') }}
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 360
+    steps:
+      - name: Resolve branch
+        id: ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ github.ref_name }}
+        run: printf 'ref=%s\n' "$REQUESTED_REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 1
+
+      - name: Run M0 live authenticated ChatGPT acceptance
+        shell: bash
+        run: env -u PYTHONPATH bash scripts/run_m0_live_acceptance.sh
+
   desktop:
+    concurrency:
+      group: ${{ format('{0}-{1}-desktop-control', github.workflow, github.repository) }}
+      cancel-in-progress: false
     needs: [verify]
     if: ${{ github.event_name == 'workflow_dispatch' && always() && (inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop') && (inputs.mode != 'start-automation' || needs.verify.result == 'success') }}
     runs-on: [self-hosted, linux, x64, pasi-desktop]

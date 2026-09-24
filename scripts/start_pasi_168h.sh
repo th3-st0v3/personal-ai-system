@@ -74,6 +74,7 @@ PY
 
 TOKEN_FILE="$HOME/.pasi/bridge-token"
 EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"
+STAGING_TOKEN_FILE="$REPO_ROOT/.runtime/chromium/pasi-chatgpt/.bridge-token"
 mkdir -p "$HOME/.pasi"
 bridge_already_healthy=0
 if curl -fsS --max-time 3 'http://127.0.0.1:8765/health' >/dev/null 2>&1; then
@@ -91,6 +92,10 @@ elif [[ ! -s "$TOKEN_FILE" ]]; then
 fi
 cp "$TOKEN_FILE" "$EXTENSION_TOKEN_FILE"
 chmod 600 "$EXTENSION_TOKEN_FILE"
+if [[ -d "$(dirname -- "$STAGING_TOKEN_FILE")" ]]; then
+    cp "$TOKEN_FILE" "$STAGING_TOKEN_FILE"
+    chmod 600 "$STAGING_TOKEN_FILE"
+fi
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 
 printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'

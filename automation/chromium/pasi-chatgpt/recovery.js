@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  if (globalThis.__PASI_NATIVE_RECOVERY_STARTED__ === true) return;
+  globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = true;
+
   const ACTIVE_KEY = 'pasi:active-operation';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
@@ -198,6 +201,47 @@
       if (text) return text.slice(0, MAX_RESPONSE_TEXT_CHARS);
     }
     return compact(node.innerText || node.textContent || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
+  }
+
+  function promptFingerprints(prompt) {
+    const text = normalize(prompt);
+    return { head: text.slice(0, 80), tail: text.slice(-80) };
+  }
+
+  function userMessages() {
+    return Array.from(document.querySelectorAll('[data-message-author-role="user"]')).filter(visibleElement);
+  }
+
+  function nodeFollows(earlier, later) {
+    if (!earlier || !later || typeof earlier.compareDocumentPosition !== 'function') return false;
+    return Boolean(earlier.compareDocumentPosition(later) & 4);
+  }
+
+  function userMessageMatchesOperation(node, operation) {
+    if (!node || !operation) return false;
+    const prefix = '[PASI_OPERATION ' + String(operation.operation_id || '') + ']';
+    const prompt = typeof operation.prompt === 'string' && operation.prompt.trim()
+      ? prefix + '\\n' + operation.prompt
+      : prefix;
+    const text = normalize(node.innerText || node.textContent || '');
+    const { head, tail } = promptFingerprints(prompt);
+    return Boolean((head && text.includes(head)) || (tail && text.includes(tail)));
+  }
+
+  function latestAssistantForOperation(operation) {
+    if (!operation) return '';
+    const matchedUsers = userMessages().filter((node) => userMessageMatchesOperation(node, operation));
+    if (!matchedUsers.length) return '';
+
+    const nodes = assistants();
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const node = nodes[index];
+      if (!matchedUsers.some((user) => nodeFollows(user, node))) continue;
+      const text = compact(node.innerText || node.textContent || '');
+      if (!text) continue;
+      return text.slice(0, MAX_RESPONSE_TEXT_CHARS);
+    }
+    return '';
   }
 
   function fingerprint() { return latestAssistant().slice(-4000); }
@@ -453,9 +497,8 @@
   async function finishVisibleResponse(operationId, current, baseline) {
     if (!current || current.operation_type !== 'prompt') return false;
     if (await finishPersistedResponse(current)) return true;
-    const response = latestAssistant();
-    const currentFingerprint = fingerprint();
-    if (generating() || !response || currentFingerprint === String(baseline || '')) return false;
+    const response = latestAssistantForOperation(current);
+    if (generating() || !response) return false;
     return finishExisting(operationId, response);
   }
 

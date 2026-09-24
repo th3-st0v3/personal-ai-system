@@ -105,6 +105,18 @@ def test_http_rejects_missing_bridge_token(tmp_path: Path) -> None:
         thread.join(timeout=2)
 
 
+def test_unauthorized_post_closes_connection_before_returning() -> None:
+    source = Path(bridge_module.__file__).read_text(encoding="utf-8")
+    start = source.index("    def do_POST(self) -> None:")
+    end = source.index("    def _claim(", start)
+    block = source[start:end]
+    close_marker = '        self.close_connection = True'
+    unauthorized_marker = '        self._send_json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)'
+    assert close_marker in block
+    assert unauthorized_marker in block
+    assert block.index(close_marker) < block.index(unauthorized_marker)
+
+
 def test_bridge_suppresses_successful_http_access_log_noise() -> None:
     assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 200 42') is False
     assert _bridge_access_log_should_emit('"GET /health HTTP/1.1" 204 0') is False

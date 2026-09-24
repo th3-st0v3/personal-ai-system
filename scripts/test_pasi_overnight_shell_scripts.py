@@ -98,11 +98,42 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
         self.assertIn("Managed services:", status_script)
         self.assertIn("MANAGED (PID", status_script)
 
+    def test_m0_live_acceptance_has_portable_python_and_bridge_token_setup(self) -> None:
+        script = (ROOT / "scripts" / "run_m0_live_acceptance.sh").read_text(encoding="utf-8")
+        result = subprocess.run(["bash", "-n", str(ROOT / "scripts" / "run_m0_live_acceptance.sh")], capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for required in (
+            'PYTHON="${PASI_PYTHON:-$REPO_ROOT/.venv/bin/python}"',
+            'if [[ ! -x "$PYTHON" && -x "$HOME/.pasi/venv/bin/python" ]]',
+            'PASI_PRIMARY_CHATGPT_ONLY=1',
+            'TOKEN_FILE="$HOME/.pasi/bridge-token"',
+            'install -m 600 "$TOKEN_FILE" "$extension_dir/.bridge-token"',
+            'BRIDGE_URL="http://127.0.0.1:8765/health"',
+            'BRIDGE_STARTED=0',
+            'bridge_already_healthy=0',
+            'refusing to rotate credentials behind the live bridge',
+            '"$PYTHON" -m automation.orchestrator.bridge >"$BRIDGE_LOG" 2>&1 &',
+            'pasi_desktop_preflight.py --repo "$WORKTREE" --wait-seconds 45 --max-age-seconds 30',
+            'git worktree remove --force "$WORKTREE"',
+            'M0 live qualification:',
+            'one sustained qualification task, not a one-file task',
+            'Do not stop after creating the proof file, producing a small patch, or getting one test to pass.',
+            'Continue working until every M0 acceptance criterion has direct evidence.',
+            'git worktree add --quiet -b "$BRANCH" "$WORKTREE" HEAD',
+            'scripts/pasi_chat_guard.py "$TASK" --github public --timeout 3600 --repo "$WORKTREE"',
+            'completion_contract, parse_response, verify_and_commit',
+            'authenticated_live_dom_required": True',
+            '"gate": "M0"',
+            '"status": "PASS"',
+        ):
+            self.assertIn(required, script)
     def test_168h_launcher_provisions_managed_bridge_token(self) -> None:
         script = (ROOT / "scripts" / "start_pasi_168h.sh").read_text(encoding="utf-8")
         for required in (
             'TOKEN_FILE="$HOME/.pasi/bridge-token"',
             'EXTENSION_TOKEN_FILE="$REPO_ROOT/automation/chromium/pasi-chatgpt/.bridge-token"',
+            'STAGING_TOKEN_FILE="$REPO_ROOT/.runtime/chromium/pasi-chatgpt/.bridge-token"',
+            'if [[ -d "$(dirname -- "$STAGING_TOKEN_FILE")" ]]',
             'secrets.token_urlsafe(48)',
             'export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"',
             'Authorization": f"Bearer {token}',

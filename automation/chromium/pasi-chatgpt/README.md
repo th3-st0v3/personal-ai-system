@@ -4,9 +4,15 @@ This is the native Chromium replacement for the PASI Tampermonkey controller.
 
 ## Install
 
-Open `chrome://extensions` in Chromium or Chrome, enable **Developer mode**, choose **Load unpacked**, and select this directory:
+Build the clean native extension before loading it. From the repository root, run:
 
-`automation/chromium/pasi-chatgpt`
+`./.venv/bin/python scripts/build_chromium_extension.py --archive`
+
+Open `chrome://extensions` in Chromium or Chrome, enable **Developer mode**, choose **Load unpacked**, and select the generated staging directory:
+
+`.runtime/chromium/pasi-chatgpt`
+
+The build is allowlisted and rejects reserved underscore-prefixed entries and Python bytecode, so `__pycache__`/`.pyc` files cannot enter the unpacked extension. The optional archive is also validated before it is produced.
 
 Open `https://chatgpt.com/` and verify the PASI bridge is running on `127.0.0.1:8765`.
 
@@ -30,7 +36,6 @@ A page reload during an active operation is recorded in browser-local storage. T
 Use the native extension as the only active ChatGPT controller. Keep the existing Tampermonkey controller disabled but installed until the native path has been validated on the local machine.
 
 Do not run both controllers simultaneously; both can consume the same bridge queue and would create duplicate operations.
-
 
 ## PASI Control Center
 

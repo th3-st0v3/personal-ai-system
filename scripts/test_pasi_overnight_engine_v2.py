@@ -10,6 +10,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts import pasi_overnight_engine_v2 as engine
+from scripts.pasi_overnight_engine_v2 import (
+    PROTECTED_UNATTENDED_PATHS,
+    completion_effort_floor_reason,
+    consume_runner_control,
+    write_handoff_summary,
+)
 from scripts import pasi_hybrid_planner
 from scripts import pasi_prompt_compiler as prompt_compiler
 
@@ -44,6 +50,69 @@ PASI_RESULT_PATCH_END
         self.assertFalse(allow_delete)
         self.assertEqual(values["requirements"], "complete")
 
+
+    def test_response_contract_parse_failure_retries_current_task(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="contract-retry-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=1)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task=engine.AUTOMATION_TASKS[0],
+        )
+        attempts: list[int] = []
+        failures: list[str] = []
+        success_values = {
+            "requirements": "complete",
+            "limitations": "handled",
+            "research": "not_applicable",
+            "ux": "verified",
+            "backend": "verified",
+            "evidence": "contract retry evidence is verified and complete",
+            "repository_progress": "changed",
+        }
+        parser_results = iter([
+            ValueError("missing summary/evidence/allow_delete"),
+            ("complete", "completed after contract repair", "", "diff --git a/example.txt b/example.txt\n", False, success_values),
+        ])
+
+        def invoke(_task, state_arg, failure):
+            attempts.append(state_arg.current_attempt)
+            failures.append(failure)
+            return 0, "fixture response"
+
+        def parse(_response):
+            value = next(parser_results)
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        def verify(*_args, **_kwargs):
+            engine.STOP = True
+            return "deadbeef", "verified"
+
+        original_stop = engine.STOP
+        try:
+            engine.STOP = False
+            with mock.patch.object(engine, "runtime_watchdog_is_live", return_value=True):
+                with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                    with mock.patch.object(engine, "parse_response", side_effect=parse):
+                        with mock.patch.object(engine, "completion_contract", return_value=True):
+                            with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                with mock.patch.object(engine, "record_task_ledger"):
+                                    with mock.patch.object(engine, "save_state"):
+                                        with mock.patch.object(engine, "log_event"):
+                                            engine.run(state, push=False)
+        finally:
+            engine.STOP = original_stop
+
+        self.assertEqual(attempts, [1, 2])
+        self.assertEqual(failures[0], "")
+        self.assertIn("response_contract:", failures[1])
+        self.assertEqual(state.completed_tasks, 1)
 
     def test_parse_response_records_optional_automation_continue(self) -> None:
         response = """PASI_RESULT_STATUS: complete
@@ -444,13 +513,13 @@ branch refs/heads/main
             "evidence": "attempt failed before a usable patch was produced",
             "repository_progress": "stopped",
         }
-        success_values = dict(failure_values, evidence="verified patch for next task", repository_progress="changed")
+        success_values = dict(failure_values, evidence="verified patch for the next task and deterministic acceptance checks", repository_progress="changed")
         parsed = iter(
             [
                 ("needs_revision", "first failure", "", "", False, failure_values),
                 ("needs_revision", "second failure", "", "", False, failure_values),
                 ("needs_revision", "third failure", "", "", False, failure_values),
-                ("complete", "next task completed", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
+                ("complete", "completed the next verified task successfully", engine.AUTOMATION_TASKS[2], "diff --git a/example.txt b/example.txt\n", False, success_values),
             ]
         )
 
@@ -483,14 +552,15 @@ branch refs/heads/main
                         reason="planner selected the next eligible task",
                     ),
                 ):
-                    with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
-                        with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
-                            with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
-                                with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
-                                    with mock.patch.object(engine, "record_task_ledger"):
-                                        with mock.patch.object(engine, "save_state"):
-                                            with mock.patch.object(engine, "log_event"):
-                                                engine.run(state, push=False)
+                    with mock.patch.object(engine, "completed_task_keys", return_value=set()):
+                        with mock.patch.object(engine, "invoke_chat", side_effect=invoke):
+                            with mock.patch.object(engine, "parse_response", side_effect=lambda _response: next(parsed)):
+                                with mock.patch.object(engine, "completion_contract", side_effect=lambda status, _values: status == "complete"):
+                                    with mock.patch.object(engine, "verify_and_commit", side_effect=verify):
+                                        with mock.patch.object(engine, "record_task_ledger"):
+                                            with mock.patch.object(engine, "save_state"):
+                                                with mock.patch.object(engine, "log_event"):
+                                                    engine.run(state, push=False)
         finally:
             engine.STOP = original_stop
 
@@ -983,34 +1053,34 @@ branch refs/heads/main
             "automation/chromium/pasi-chatgpt/timeout-policy.json",
         }
         self.assertTrue(expected.issubset(hardening.PROTECTED_UNATTENDED_PATHS))
-        self.assertTrue(expected.issubset(engine.PROTECTED_UNATTENDED_PATHS))
+        self.assertTrue(expected.issubset(PROTECTED_UNATTENDED_PATHS))
         for path in sorted(expected):
             patch = (
-                f"diff --git a/{path} b/{path}\\n"
-                f"--- a/{path}\\n"
-                f"+++ b/{path}\\n"
-                "@@ -1 +1 @@\\n"
-                "-old\\n"
-                "+new\\n"
+                f"diff --git a/{path} b/{path}\n"
+                f"--- a/{path}\n"
+                f"+++ b/{path}\n"
+                "@@ -1 +1 @@\n"
+                "-old\n"
+                "+new\n"
             )
             with self.assertRaisesRegex(ValueError, "protected unattended"):
                 engine.validate_patch_paths(patch, False, Path.cwd())
 
     def test_completion_effort_floor_rejects_low_content_new_task(self) -> None:
         values = {"evidence": "verified"}
-        self.assertIn("summary is too short", engine.completion_effort_floor_reason("complete", "done", values, False))
+        self.assertIn("summary is too short", completion_effort_floor_reason("complete", "done", values, False))
         self.assertIn(
             "evidence is too short",
-            engine.completion_effort_floor_reason(
+            completion_effort_floor_reason(
                 "complete", "Implemented and verified the requested change.", values, False
             ),
         )
 
     def test_completion_effort_floor_allows_existing_no_change_task(self) -> None:
-        self.assertEqual(engine.completion_effort_floor_reason("complete", "done", {"evidence": ""}, True), "")
+        self.assertEqual(completion_effort_floor_reason("complete", "done", {"evidence": ""}, True), "")
 
     def test_completion_effort_floor_only_applies_to_complete_status(self) -> None:
-        self.assertEqual(engine.completion_effort_floor_reason("needs_revision", "done", {"evidence": ""}, False), "")
+        self.assertEqual(completion_effort_floor_reason("needs_revision", "done", {"evidence": ""}, False), "")
 
     def test_handoff_summary_is_durable_and_bounded(self) -> None:
         now = datetime.now(timezone.utc)
@@ -1027,7 +1097,7 @@ branch refs/heads/main
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "handoff.json"
             with mock.patch.object(engine, "HANDOFF_PATH", path), mock.patch.object(engine, "RUNTIME_DIR", Path(temp_dir)):
-                engine.write_handoff_summary(state, reason="deadline_reached")
+                write_handoff_summary(state, reason="deadline_reached")
                 payload = __import__("json").loads(path.read_text(encoding="utf-8"))
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["run_id"], "handoff-test")
@@ -1084,7 +1154,7 @@ branch refs/heads/main
                 mock.patch.object(engine, "STATE_PATH", root / "state.json"),
                 mock.patch.object(engine, "log_event"),
             ):
-                assert engine.consume_runner_control(state) is True
+                assert consume_runner_control(state) is True
             self.assertEqual(state.task_retry_cycle, 0)
             self.assertEqual(state.current_attempt, 0)
             self.assertEqual(state.last_failure_signature, "")
@@ -1117,7 +1187,7 @@ branch refs/heads/main
                 mock.patch.object(engine, "RUNNER_CONTROL_PATH", control),
                 mock.patch.object(engine, "log_event"),
             ):
-                assert engine.consume_runner_control(state) is False
+                assert consume_runner_control(state) is False
             self.assertEqual(state.task_retry_cycle, 4)
             self.assertEqual(state.current_attempt, 3)
             self.assertEqual(state.last_failure_signature, "failure")

@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  if (globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ === true) return;
+  globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = true;
+
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
   const POLL_MS = TIMEOUT_POLICY.pollMs || 2000;
@@ -544,6 +547,50 @@
       if (!known) count += 1;
     }
     return count;
+  }
+
+  function snapshotAssistantMessages() {
+    const nodes = assistantMessages();
+    return {
+      keys: new Set(nodes.map((node) => node.getAttribute?.('data-message-id')).filter(Boolean)),
+      nodes: new WeakSet(nodes),
+      count: nodes.length
+    };
+  }
+
+  function assistantNodeIsNew(node, snapshot) {
+    if (!node || !snapshot) return false;
+    const key = node.getAttribute?.('data-message-id');
+    if (key && snapshot.keys.has(key)) return false;
+    return !snapshot.nodes.has(node);
+  }
+
+  function nodeFollows(earlier, later) {
+    if (!earlier || !later || typeof earlier.compareDocumentPosition !== 'function') return false;
+    return Boolean(earlier.compareDocumentPosition(later) & 4);
+  }
+
+  function userMessageMatchesPrompt(node, prompt) {
+    const text = normalize(messageText(node));
+    const { head, tail } = promptFingerprints(prompt);
+    return Boolean((head && text.includes(head)) || (tail && text.includes(tail)));
+  }
+
+  function assistantResponseEvidence(snapshot, prompt) {
+    if (!snapshot || typeof prompt !== 'string' || !prompt.trim()) return '';
+    const matchedUsers = userMessages().filter((node) => userMessageMatchesPrompt(node, prompt));
+    if (!matchedUsers.length) return '';
+
+    const nodes = assistantMessages();
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      const node = nodes[index];
+      if (!assistantNodeIsNew(node, snapshot)) continue;
+      if (!matchedUsers.some((user) => nodeFollows(user, node))) continue;
+      const text = extractAssistant(node);
+      if (!text) continue;
+      return text;
+    }
+    return '';
   }
 
   function captureUiDiagnostics() {
@@ -1333,8 +1380,12 @@
     );
   }
 
-  async function waitForResponse(baseline, completionMarkers = []) {
+  async function waitForResponse(baseline, completionMarkers = [], evidenceContext = null) {
     let sawGeneration = false;
+    const responseEvidence = () => assistantResponseEvidence(
+      evidenceContext?.assistantSnapshot,
+      evidenceContext?.prompt
+    );
     let generationEndedAt = 0;
     let failureReason = null;
 
@@ -1363,22 +1414,16 @@
       if (sawGeneration) {
         if (!generationEndedAt) generationEndedAt = Date.now();
         if (Date.now() - generationEndedAt < RESPONSE_SETTLE_MS) return null;
-        const responseText = latestAssistant();
-        return (
-          responseText &&
-          fingerprintFromText(responseText) !== baseline &&
-          completionMarkersSatisfied(responseText, completionMarkers)
-        ) ? responseText : null;
-      }
-
-      const current = fingerprint();
-      if (current !== baseline && current) {
-        const responseText = latestAssistant();
-        return completionMarkersSatisfied(responseText, completionMarkers)
+        const responseText = responseEvidence();
+        return responseText && completionMarkersSatisfied(responseText, completionMarkers)
           ? responseText
           : null;
       }
-      return null;
+
+      const responseText = responseEvidence();
+      return completionMarkersSatisfied(responseText, completionMarkers)
+        ? responseText
+        : null;
     }, TIMEOUTS.generation, DOM_POLL_MS);
 
     if (failureReason) throw new Error(failureReason);
@@ -1597,6 +1642,8 @@
           const baseline = typeof operation.__pasi_baseline_fingerprint === 'string'
             ? operation.__pasi_baseline_fingerprint
             : fingerprint();
+          const promptText = operationPrompt(operation);
+          const assistantSnapshot = snapshotAssistantMessages();
           if (!activeRecoveryState || activeRecoveryState.operation_id !== operation.operation_id) {
             activeRecoveryState = {
               operation_id: operation.operation_id,
@@ -1610,7 +1657,6 @@
           }
           activeRecoveryState.baseline = baseline;
           localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeRecoveryState));
-          const promptText = operationPrompt(operation);
           const submission = await submitPrompt(promptText, {
             fastPath: fastHandoff,
             readyBox: box
@@ -1655,7 +1701,7 @@
           }
           let generationStartMs = null;
           if (!(await waitUntil(() => {
-            const started = generating() || fingerprint() !== baseline;
+            const started = generating() || Boolean(assistantResponseEvidence(assistantSnapshot, promptText, baseline));
             if (started && generationStartMs === null) generationStartMs = Date.now();
             return started;
           }, GENERATION_START_WAIT_MS, DOM_POLL_MS))) {
@@ -1666,7 +1712,8 @@
             baseline,
             Array.isArray(operation.completion_markers)
               ? operation.completion_markers
-              : []
+              : [],
+            { assistantSnapshot, prompt: promptText }
           );
           browserTiming.completed_at_ms = Date.now();
           const completion = await finishOperation(operation.operation_id, response, true, browserTiming);
@@ -1895,6 +1942,8 @@
       composerContainsPrompt,
       userMessages,
       assistantMessages,
+      snapshotAssistantMessages,
+      assistantResponseEvidence,
       conversationSignature,
       operationPrompt,
       findNewChatControl,
