@@ -562,8 +562,14 @@ async function injectChatGptTab(tabId, context = {}) {
           const handle = globalThis.__PASI_NATIVE_CONTROLLER_HANDLE__;
           if (handle && typeof handle.stop === 'function') handle.stop();
         } catch (_) {}
+        try {
+          const handle = globalThis.__PASI_NATIVE_RECOVERY_HANDLE__;
+          if (handle && typeof handle.stop === 'function') handle.stop();
+        } catch (_) {}
         delete globalThis.__PASI_NATIVE_CONTROLLER_HANDLE__;
         delete globalThis.__PASI_NATIVE_CONTROLLER_STARTED__;
+        delete globalThis.__PASI_NATIVE_RECOVERY_HANDLE__;
+        delete globalThis.__PASI_NATIVE_RECOVERY_STARTED__;
       }
     });
 
