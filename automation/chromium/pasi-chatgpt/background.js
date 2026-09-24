@@ -5,7 +5,11 @@ const ALARM = 'pasi-watchdog';
 let STALE_MS = 45 * 1000;
 const CONTROLLER_LEASE_KEY = 'pasi:controller-lease';
 const CONTROLLER_LEASE_MS = 10 * 1000;
+const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
+const TAB_CREATE_COOLDOWN_KEY = 'pasi:chatgpt-tab-create-cooldown';
+const TAB_CREATE_COOLDOWN_MS = 15 * 1000;
 let controllerClaimTail = Promise.resolve();
+let tabCreateInFlight = null;
 let cachedBridgeToken = null;
 let bridgeTokenPromise = null;
 
@@ -221,11 +225,66 @@ function sameChatConversationUrl(candidate, target) {
   }
 }
 
-async function injectExistingChatTabs() {
-  if (!chrome.scripting?.executeScript) return;
-  const tabs = await chrome.tabs.query({
+async function listChatGptTabs() {
+  return chrome.tabs.query({
     url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
   });
+}
+
+function validChatConversationUrl(value) {
+  return sameChatConversationUrl(value, value) ? String(value) : '';
+}
+
+function bridgeHasPendingWork(status, health) {
+  if (health?.data?.active_operation_id) return true;
+  const queueSize = Number(status?.queue_size);
+  if (Number.isFinite(queueSize) && queueSize > 0) return true;
+  const counts = status?.counts && typeof status.counts === 'object' ? status.counts : {};
+  return ['queued', 'claimed', 'generating', 'running'].some((key) => {
+    const value = Number(counts[key]);
+    return Number.isFinite(value) && value > 0;
+  });
+}
+
+async function ensureChatGptTab(targetChatUrl, pendingWork) {
+  if (!pendingWork) return null;
+  const existingTabs = await listChatGptTabs();
+  if (existingTabs.length > 0) return null;
+  if (tabCreateInFlight) return tabCreateInFlight;
+
+  const requestedUrl = validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL;
+  tabCreateInFlight = (async () => {
+    try {
+      const stored = await chrome.storage.local.get(TAB_CREATE_COOLDOWN_KEY);
+      const attemptedAt = Number(stored?.[TAB_CREATE_COOLDOWN_KEY]?.attempted_at || 0);
+      if (attemptedAt > 0 && Date.now() - attemptedAt < TAB_CREATE_COOLDOWN_MS) return null;
+
+      // Re-check immediately before creation so two watchdog passes cannot race
+      // between the first tab query and chrome.tabs.create().
+      const currentTabs = await listChatGptTabs();
+      if (currentTabs.length > 0) return null;
+
+      await chrome.storage.local.set({
+        [TAB_CREATE_COOLDOWN_KEY]: {
+          attempted_at: Date.now(),
+          url: requestedUrl
+        }
+      });
+      const created = await chrome.tabs.create({ url: requestedUrl, active: false });
+      return typeof created?.id === 'number' ? created.id : null;
+    } catch (error) {
+      console.warn('[PASI tab provisioning]', String(error?.message || error));
+      return null;
+    } finally {
+      tabCreateInFlight = null;
+    }
+  })();
+  return tabCreateInFlight;
+}
+
+async function injectExistingChatTabs() {
+  if (!chrome.scripting?.executeScript) return;
+  const tabs = await listChatGptTabs();
   for (const tab of tabs) {
     if (typeof tab.id !== 'number') continue;
 
@@ -261,22 +320,25 @@ async function inspect() {
 
   const status = await bridgeJson('/status');
   const payload = await bridgeJson('/browser/observation');
-  if (!status || !payload) return;
+  if (!status) return;
   const health = healthData(payload);
-  if (!health || health.data.auth_required === true) return;
-
-  const targetChatUrl = typeof health.data.chat_url === 'string'
+  const targetChatUrl = health && typeof health.data.chat_url === 'string'
     ? health.data.chat_url
     : '';
-  if (!targetChatUrl) return;
+  const pendingWork = bridgeHasPendingWork(status, health);
 
-  const tabs = await chrome.tabs.query({
-    url: ['https://chatgpt.com/*', 'https://www.chatgpt.com/*']
-  });
-  const matchingTab = tabs.find((tab) => sameChatConversationUrl(tab.url, targetChatUrl));
-  if (matchingTab && typeof matchingTab.id === 'number') {
+  const createdTabId = await ensureChatGptTab(targetChatUrl, pendingWork);
+  if (createdTabId !== null) return;
+  if (!health) return;
+
+  const tabs = await listChatGptTabs();
+  const matchingTab = targetChatUrl
+    ? tabs.find((tab) => sameChatConversationUrl(tab.url, targetChatUrl))
+    : null;
+  const fallbackTab = matchingTab || tabs[0];
+  if (fallbackTab && typeof fallbackTab.id === 'number') {
     try {
-      await chrome.tabs.sendMessage(matchingTab.id, { type: 'pasi-health-ping' });
+      await chrome.tabs.sendMessage(fallbackTab.id, { type: 'pasi-health-ping' });
     } catch (_) {
       // Existing-tab injection will be retried on the next watchdog pass.
     }
