@@ -698,6 +698,8 @@ class BridgeState:
                 item["manual_reload_gate"] = True
                 item["manual_reload_gate_armed"] = True
                 item["manual_reload_gate_released"] = False
+                if isinstance(chat_url, str) and chat_url.strip():
+                    item["chat_url"] = chat_url.strip()
                 if isinstance(response_text, str) and response_text.strip():
                     bounded_response = response_text[:MAX_RESPONSE_TEXT_CHARS]
                     item["response_text"] = bounded_response
