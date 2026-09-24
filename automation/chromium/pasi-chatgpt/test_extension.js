@@ -242,6 +242,8 @@ test('native M2 released gate claims the single retry before consuming persisted
   assert.ok(persistedIndex > claimIndex);
   assert.match(source, /let effectiveOperation = operation;/);
   assert.match(source, /effectiveOperation.status === 'claimed'/);
+  assert.match(source, /phase: 'reloading'/);
+  assert.match(source, /resume_exact_operation_after_manual_reload/);
 });
 
 test('native M2 manual gate monitor resumes the exact operation after release instead of directly completing it', () => {
