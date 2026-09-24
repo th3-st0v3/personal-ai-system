@@ -557,6 +557,18 @@ async function injectChatGptTab(tabId, context = {}) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
+      func: () => {
+        try {
+          const handle = globalThis.__PASI_NATIVE_CONTROLLER_HANDLE__;
+          if (handle && typeof handle.stop === 'function') handle.stop();
+        } catch (_) {}
+        delete globalThis.__PASI_NATIVE_CONTROLLER_HANDLE__;
+        delete globalThis.__PASI_NATIVE_CONTROLLER_STARTED__;
+      }
+    });
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
       files: [
         'timeout-config.js',
         'detectors.js',
