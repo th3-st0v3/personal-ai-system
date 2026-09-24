@@ -706,7 +706,7 @@ def synchronize_frontend_roadmap_checkboxes(
     project_items_by_number: dict[int, dict[str, Any]],
 ) -> str:
     pattern = re.compile(
-        r"^(?P<prefix>\s*-\s*)\[(?P<checked>[ xX])\](?P<rest>\s+\[FE-P(?P<phase>\d+)\s+—[^\n]*\]\(https://github\\.com/th3-st0v3/personal-ai-system/issues/(?P<issue>\d+)\))\s*$",
+        r"^(?P<prefix>\s*-\s*)\[(?P<checked>[ xX])\](?P<rest>\s+\[FE-P(?P<phase>\d+)\s+—[^\n]*\]\(https://github\.com/th3-st0v3/personal-ai-system/issues/(?P<issue>\d+)\))\s*$",
         re.MULTILINE,
     )
     seen: set[str] = set()
