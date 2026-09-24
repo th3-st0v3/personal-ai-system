@@ -279,11 +279,11 @@ def fake_frontend_issues() -> list[dict]:
                 "<!-- PASI_PROJECT_METADATA\n"
                 "TYPE: frontend\n"
                 f"PHASE: P{index}\n"
-                f"ITERATION: Iteration {index + 1}\n"
-                "START_DATE: 2026-09-22\n"
-                "END_DATE: 2026-10-04\n"
+                f"ITERATION: {sync_module.PHASES[f'P{index}']['iteration']}\n"
+                f"START_DATE: {sync_module.PHASES[f'P{index}']['start']}\n"
+                f"END_DATE: {sync_module.PHASES[f'P{index}']['end']}\n"
                 "TEAM: Frontend\n"
-                "QUARTER: Q3-2026\n"
+                f"QUARTER: {sync_module.PHASES[f'P{index}']['quarter']}\n"
                 "PASI_PROJECT_METADATA\n-->"
             ),
         }
@@ -336,3 +336,22 @@ def test_invalid_phase_checkbox_is_left_unchanged() -> None:
     )
     p0_line = next(line for line in changed.splitlines() if "[FE-P0" in line)
     assert p0_line.startswith("- [ ]")
+
+
+def test_wrong_roadmap_link_fails_closed() -> None:
+    body = roadmap_body().replace(
+        "https://github.com/th3-st0v3/personal-ai-system/issues/319",
+        "https://github.com/th3-st0v3/personal-ai-system/issues/999",
+        1,
+    )
+    try:
+        verify_frontend_roadmap_checkboxes(
+            body,
+            project_items_with_status(STATUS_DONE),
+            FRONTEND_PHASE_ISSUES,
+            set(),
+        )
+    except RuntimeError as exc:
+        assert "mapping drifted" in str(exc)
+    else:
+        raise AssertionError("Expected wrong FE-P0 roadmap link to fail closed")
