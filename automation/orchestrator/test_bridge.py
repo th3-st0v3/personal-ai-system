@@ -1771,7 +1771,7 @@ def test_runner_capability_report_is_sanitized(tmp_path: Path, monkeypatch: pyte
     assert "secret" not in payload
 
 
-def test_manual_reload_gate_arms_and_releases_without_terminal_transition(tmp_path: Path) -> None:
+def test_manual_reload_gate_release_requeues_once_and_preserves_response(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "PASI_M2_MANUAL_RELOAD_GATE: true")
     bridge.claim_next_operation()
@@ -1791,7 +1791,23 @@ def test_manual_reload_gate_arms_and_releases_without_terminal_transition(tmp_pa
     released = bridge.release_manual_reload_gate(operation.operation_id)
     assert released is not None
     assert released["manual_reload_gate_released"] is True
-    assert released["status"] == "generating"
+    assert released["status"] == "queued"
+    assert released["retry_count"] == 1
+    assert released["retry_counts"]["controller"] == 1
+    assert released["response_text"] == response_text
+    assert released["response_text_available"] is True
+
+    claimed = bridge.claim_operation(operation.operation_id)
+    assert claimed is not None
+    assert claimed["status"] == "claimed"
+    completed = bridge.complete_operation(
+        operation.operation_id,
+        chat_url="https://chatgpt.com/c/m2",
+        response_text=response_text,
+        response_text_available=True,
+    )
+    assert completed is not None
+    assert completed["status"] == "completed"
 
 
 def test_http_manual_reload_gate_routes_are_durable(tmp_path: Path) -> None:
