@@ -138,6 +138,22 @@ test('native extension injects into already-open ChatGPT tabs', () => {
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });
 
+test('native health ping identifies the exact controller build', () => {
+  assert.match(content, /message\?\.type === 'pasi-health-ping'/);
+  assert.match(content, /controller_version: CONTROLLER_VERSION/);
+  assert.match(content, /extension_manifest_version: EXTENSION_MANIFEST_VERSION/);
+});
+
+test('native watchdog reinjects when the existing controller is stale', () => {
+  const start = background.indexOf('async function injectExistingChatTabs()');
+  const end = background.indexOf('async function inspect()', start);
+  assert.ok(start >= 0 && end > start);
+  const source = background.slice(start, end);
+  assert.match(source, /controller\.controller_version === '2\.4\.11'/);
+  assert.match(source, /controller\.extension_manifest_version === expectedVersion/);
+  assert.match(source, /No live controller listener is present; inject into the existing tab/);
+});
+
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
   const start = background.indexOf('async function injectExistingChatTabs()');
   const end = background.indexOf('async function inspect()', start);
