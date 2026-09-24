@@ -27,6 +27,7 @@ CHAT_URL_RE = re.compile(r"^https://chatgpt\.com/c/")
 PROMPT_OP_RE = re.compile(r"Prompt operation:\s*([A-Za-z0-9._:-]+)")
 RESUME_OP_RE = re.compile(r"Resuming persisted ChatGPT operation:\s*([A-Za-z0-9._:-]+)")
 RETRY_OP_RE = re.compile(r"Retry prompt operation:\s*([A-Za-z0-9._:-]+)")
+RUNNER_LOG_FILENAME = "runner.log"
 
 
 class M2AcceptanceError(RuntimeError):
@@ -134,6 +135,20 @@ def find_operation(marker: str) -> str | None:
             if isinstance(value, str) and value.strip():
                 return value
     return None
+
+
+def queue_operation_ids(marker: str) -> list[str]:
+    values: list[str] = []
+    for item in queue_items():
+        if marker not in str(item.get("prompt") or ""):
+            continue
+        value = item.get("operation_id")
+        if not isinstance(value, str) or not value.strip():
+            continue
+        operation_id = value.strip()
+        if operation_id not in values:
+            values.append(operation_id)
+    return values
 
 
 def read_pid(runtime_dir: Path, name: str) -> int | None:
@@ -352,6 +367,20 @@ def kill_managed_tree(
     }
 
 
+def runner_log_path(runtime_dir: Path) -> Path:
+    return runtime_dir / RUNNER_LOG_FILENAME
+
+
+def read_log_since(path: Path, offset: int = 0, max_chars: int = 30_000) -> str:
+    try:
+        with path.open("rb") as handle:
+            handle.seek(max(0, offset))
+            payload = handle.read(max(1, max_chars * 4))
+    except OSError:
+        return ""
+    return payload.decode("utf-8", "ignore")[-max_chars:]
+
+
 def wait_for(predicate, timeout: float, description: str):
     deadline = time.monotonic() + timeout
     last: Any = None
@@ -529,6 +558,12 @@ def main() -> int:
             120,
             f"operation {operation_id} to become active",
         )
+        marker_operation_ids = queue_operation_ids(marker)
+        if marker_operation_ids != [operation_id]:
+            raise M2AcceptanceError(
+                "operation_start",
+                f"M2 marker is not uniquely bound to the original operation: {marker_operation_ids!r}",
+            )
         evidence["stages"]["operation_start"] = {
             "completed_at": utc_now(),
             "operation_id": operation_id,
@@ -539,9 +574,10 @@ def main() -> int:
             "start_output": start_output,
             "worktree": worktree,
             "branch": actual_branch,
+            "marker_operation_ids": marker_operation_ids,
         }
 
-        print("\n=== M2 MANUAL CHECKPOINT ===")
+        print("\n=== M2 MANUAL CHECKPOINT ==="
         print(f"Operation ID: {operation_id}")
         print(f"Chat URL:     {chat_url}")
         print(f"Marker:       {marker}")
@@ -582,6 +618,8 @@ def main() -> int:
 
         runner_pid_before = read_pid(runtime_dir, "runner.pid")
         supervisor_pid_before = read_pid(runtime_dir, "supervisor.pid")
+        runner_log = runner_log_path(runtime_dir)
+        runner_kill_log_offset = runner_log.stat().st_size if runner_log.exists() else 0
         current = operation(operation_id)
         if current.get("status") in {"completed", "failed", "cancelled"}:
             raise M2AcceptanceError("runner_kill", "operation became terminal before runner kill")
@@ -589,14 +627,33 @@ def main() -> int:
         wait_for(lambda: not process_exists(runner_pid_before), 10, "runner shutdown")
         if supervisor_pid_before is not None:
             wait_for(lambda: not process_exists(supervisor_pid_before), 20, "zero-restart supervisor shutdown")
+        restart_budget_log = wait_for(
+            lambda: (
+                read_log_since(runner_log, runner_kill_log_offset)
+                if "restart budget exhausted after 0 rapid engine exits" in read_log_since(runner_log, runner_kill_log_offset)
+                else None
+            ),
+            20,
+            "zero-restart supervisor budget exhaustion evidence",
+        )
+        marker_ids_after_runner_kill = queue_operation_ids(marker)
+        if marker_ids_after_runner_kill != [operation_id]:
+            raise M2AcceptanceError(
+                "runner_kill",
+                f"M2 marker operation changed or duplicated while the runner was killed: {marker_ids_after_runner_kill!r}",
+            )
         evidence["stages"]["runner_kill"] = {
             "runner_pid": runner_pid_before,
             "supervisor_pid": supervisor_pid_before,
             "operation_before_kill": current,
             "stopped": runner_stop,
             "killed_at": utc_now(),
+            "restart_budget_evidence": restart_budget_log[-12000:],
+            "marker_operation_ids": marker_ids_after_runner_kill,
         }
 
+        resume_log = runner_log_path(runtime_dir)
+        resume_log_offset = resume_log.stat().st_size if resume_log.exists() else 0
         env = os.environ.copy()
         env.update({
             "PASI_RUNTIME_DIR": str(runtime_dir),
@@ -617,21 +674,37 @@ def main() -> int:
         resume_output = resumed.stdout[-12000:]
         if resumed.returncode != 0:
             raise M2AcceptanceError("resume", f"resume command failed: {resume_output}\n{resumed.stderr[-4000:]}")
-        resume_ids = RESUME_OP_RE.findall(resume_output)
-        prompt_ids = PROMPT_OP_RE.findall(resume_output)
-        retry_ids = RETRY_OP_RE.findall(resume_output)
+        resume_log_delta = wait_for(
+            lambda: (
+                read_log_since(resume_log, resume_log_offset)
+                if f"Resuming persisted ChatGPT operation: {operation_id}" in read_log_since(resume_log, resume_log_offset)
+                else None
+            ),
+            120,
+            f"persisted ChatGPT operation {operation_id} to be resumed in runner.log",
+        )
+        resume_ids = RESUME_OP_RE.findall(resume_log_delta)
+        prompt_ids = PROMPT_OP_RE.findall(resume_log_delta)
+        retry_ids = RETRY_OP_RE.findall(resume_log_delta)
         if operation_id not in resume_ids:
-            raise M2AcceptanceError("resume", f"original operation {operation_id} was not explicitly resumed: {resume_ids!r}")
-        if any(value != operation_id for value in prompt_ids):
-            raise M2AcceptanceError("resume", f"a different prompt operation was created: {prompt_ids!r}")
+            raise M2AcceptanceError("resume", f"original operation {operation_id} was not explicitly resumed in runner.log: {resume_ids!r}")
         if retry_ids:
             raise M2AcceptanceError("resume", f"resume created an unexpected retry operation: {retry_ids!r}")
+        marker_ids_after_resume = queue_operation_ids(marker)
+        if marker_ids_after_resume != [operation_id]:
+            raise M2AcceptanceError(
+                "resume",
+                f"M2 marker produced duplicate or changed operations after resume: {marker_ids_after_resume!r}",
+            )
         evidence["stages"]["resume"] = {
             "completed_at": utc_now(),
             "resume_stdout": resume_output,
+            "runner_log_offset": resume_log_offset,
+            "runner_log_delta": resume_log_delta[-12000:],
             "resumed_operation_ids": resume_ids,
             "prompt_operation_ids": prompt_ids,
             "retry_operation_ids": retry_ids,
+            "marker_operation_ids": marker_ids_after_resume,
         }
 
         final_operation = wait_for(
@@ -657,6 +730,12 @@ def main() -> int:
             raise M2AcceptanceError("final_verification", "submission mechanism is missing from timing evidence")
         final_signature = final_response.get("conversation_signature")
         validate_signature_progression(baseline_signature, final_signature)
+        marker_operation_ids_final = queue_operation_ids(marker)
+        if marker_operation_ids_final != [operation_id]:
+            raise M2AcceptanceError(
+                "final_verification",
+                f"M2 marker is bound to unexpected operation IDs at completion: {marker_operation_ids_final!r}",
+            )
         evidence["final"] = {
             "operation_id": operation_id,
             "marker": marker,
@@ -666,6 +745,7 @@ def main() -> int:
             "final_signature": final_signature,
             "chat_url": chat_url,
             "reload_confirmed_at": reload_confirmed_at,
+            "marker_operation_ids": marker_operation_ids_final,
         }
         evidence["status"] = "PASS"
         save()
