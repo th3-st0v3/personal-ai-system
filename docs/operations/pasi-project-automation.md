@@ -37,13 +37,11 @@ For roadmap items that need editable Project metadata at creation time, use **PA
 
 | Issue Form field | Native GitHub target | Behavior |
 | --- | --- | --- |
-| Description | Project Description | Stored in the Project text field |
 | Start Date | Project Start date | Stored as the native Project date |
 | End Date | Project Target date | Stored as the native Project date |
-| Relationship | Issue Relationships | Supports parent, blocked-by, and blocking specifications; unsupported relationship types are reported without creating a custom field |
-| Milestone | Issue Milestone | Must match an existing repository milestone; the issue's native Milestone setting is updated |
-| Development | Issue Development | `create branch: <name>` creates a linked branch; `link <existing-branch>` is reported as a manual-link operation |
 | Status | Project Status | Stored in the native Project Status field |
+
+The issue form does **not** contain Description, Relationship, Milestone, or Development text inputs. Description remains the normal issue body. Milestone, Relationships, and Development are the native GitHub issue controls and are edited directly on each phase when needed.
 
 The active PASI Project's **Quarter** and **Iteration** are both native iteration fields. Quarter uses a repeating four-quarter cycle: **Quarter 1, Quarter 2, Quarter 3, Quarter 4, then Quarter 1 again with new dates**. The first Quarter 1 is **2026-09-22 through 2026-12-19**; the next Quarter 1 begins **2027-09-26**. Quarter membership is selected by the phase Start/End dates, not by calendar-year labels. Iteration 1 through Iteration 23 retain the phase-specific date windows.
 
