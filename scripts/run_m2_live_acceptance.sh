@@ -333,6 +333,9 @@ while time.time() < deadline:
         op.get("manual_reload_gate") is True
         and op.get("manual_reload_gate_armed") is True
         and op.get("manual_reload_gate_released") is not True
+        and op.get("response_text_available") is True
+        and isinstance(op.get("response_text"), str)
+        and bool(op.get("response_text").strip())
     ):
         print(json.dumps(op))
         raise SystemExit(0)
@@ -344,7 +347,7 @@ raise SystemExit(3)
 PY
 }
 
-echo "Waiting for the durable M2 manual reload gate to arm..."
+echo "Waiting for the durable M2 manual reload gate to arm with persisted response evidence..."
 wait_for_manual_reload_gate || { echo "error: M2 manual reload gate did not arm after the original send" >&2; exit 2; }
 "$PYTHON" - "$OUT" <<'PY'
 import json, sys
