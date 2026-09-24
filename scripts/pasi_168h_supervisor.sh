@@ -114,6 +114,31 @@ except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
 PY
 }
 
+resume_requested() {
+    local argument
+    for argument in "${passthrough[@]}"; do
+        if [[ "$argument" == "--resume" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+resumable_stopped_state() {
+    [[ -f "$RUNTIME_DIR/state.json" ]] || return 1
+    "$PYTHON" - "$RUNTIME_DIR/state.json" <<'PY'
+import json
+import sys
+
+try:
+    state = json.loads(open(sys.argv[1], encoding="utf-8").read())
+    reason = str(state.get("stop_reason", "")).strip().casefold()
+    raise SystemExit(0 if reason in {"stopped", "keyboard_interrupt", "run_failed"} else 1)
+except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(1)
+PY
+}
+
 log_supervisor() {
     printf '[PASI supervisor] %s\n' "$*" >&2
 }
@@ -149,8 +174,14 @@ backoff="$BASE_BACKOFF_SECONDS"
 resume=0
 
 while true; do
-    if [[ -f "$STOP_FILE" ]] || state_deadline_reached || state_is_terminal; then
+    if [[ -f "$STOP_FILE" ]] || state_deadline_reached; then
         exit 0
+    fi
+    if state_is_terminal; then
+        if ! resume_requested || ! resumable_stopped_state; then
+            exit 0
+        fi
+        log_supervisor "allowing --resume to restart a previously stopped runtime state"
     fi
 
     started_at="$(date +%s)"
