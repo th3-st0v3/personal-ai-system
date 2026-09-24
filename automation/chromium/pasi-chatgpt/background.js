@@ -303,22 +303,27 @@ async function reportTabProvisioning(event) {
 
 
 let runtimeTelemetryFlushInFlight = null;
+let runtimeTelemetryQueueTail = Promise.resolve();
 
 function runtimeErrorText(error) {
   return String(error?.message || error || 'unknown runtime error').slice(0, MAX_RUNTIME_ERROR_CHARS);
 }
 
-async function queueRuntimeTelemetry(observation) {
-  try {
-    const stored = await chrome.storage.local.get(RUNTIME_TELEMETRY_PENDING_KEY);
-    const queue = Array.isArray(stored?.[RUNTIME_TELEMETRY_PENDING_KEY])
-      ? stored[RUNTIME_TELEMETRY_PENDING_KEY]
-      : [];
-    queue.push(observation);
-    await chrome.storage.local.set({
-      [RUNTIME_TELEMETRY_PENDING_KEY]: queue.slice(-MAX_RUNTIME_TELEMETRY_QUEUE)
-    });
-  } catch (_) {}
+function queueRuntimeTelemetry(observation) {
+  const task = runtimeTelemetryQueueTail.then(async () => {
+    try {
+      const stored = await chrome.storage.local.get(RUNTIME_TELEMETRY_PENDING_KEY);
+      const queue = Array.isArray(stored?.[RUNTIME_TELEMETRY_PENDING_KEY])
+        ? stored[RUNTIME_TELEMETRY_PENDING_KEY]
+        : [];
+      queue.push(observation);
+      await chrome.storage.local.set({
+        [RUNTIME_TELEMETRY_PENDING_KEY]: queue.slice(-MAX_RUNTIME_TELEMETRY_QUEUE)
+      });
+    } catch (_) {}
+  });
+  runtimeTelemetryQueueTail = task.catch(() => undefined);
+  return task;
 }
 
 async function flushRuntimeTelemetry() {
