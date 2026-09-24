@@ -1758,7 +1758,7 @@
       return normalizedLines.some((line) => (
         line === normalizedMarker
         || line.startsWith(normalizedMarker + ':')
-        || line.startsWith(normalizedMarker + ' ')
+
       ))
         || collapsed === normalizedMarker
         || collapsed.endsWith(' ' + normalizedMarker)
