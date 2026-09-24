@@ -602,15 +602,17 @@ async function injectChatGptTab(tabId, context = {}) {
   }
 
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });
-    reportRuntimeTelemetry({
-      event: 'INJECTION_SUCCESS',
-      status: 'success',
-      tab_id: tabId,
-      source: context.source || 'unknown',
-      mode: 'existing_controller'
-    });
-    return true;
+    const healthPing = await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });
+    if (healthPing?.ok === true && healthPing?.health_reported === true) {
+      reportRuntimeTelemetry({
+        event: 'INJECTION_SUCCESS',
+        status: 'success',
+        tab_id: tabId,
+        source: context.source || 'unknown',
+        mode: 'existing_controller'
+      });
+      return true;
+    }
   } catch (error) {
     // No live controller listener is present; inject into the existing tab.
   }
@@ -644,7 +646,10 @@ async function injectChatGptTab(tabId, context = {}) {
         'recovery.js'
       ]
     });
-    await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });
+    const healthPing = await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });
+    if (healthPing?.ok !== true || healthPing?.health_reported !== true) {
+      throw new Error('PASI_RUNTIME: injected controller did not publish a fresh health observation');
+    }
     reportRuntimeTelemetry({
       event: 'INJECTION_SUCCESS',
       status: 'success',
