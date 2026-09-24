@@ -165,6 +165,7 @@ def main() -> int:
 
     bridge_process = ensure_bridge()
     try:
+        require_live_browser()
         evidence_dir = Path(".runtime/acceptance")
         evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = evidence_dir / "m1-live.json"
