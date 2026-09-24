@@ -36,6 +36,7 @@
   };
   const ACTIVE_KEY = 'pasi:active-operation';
   const M2_MANUAL_RELOAD_GATE_MARKER = 'PASI_M2_MANUAL_RELOAD_GATE: true';
+  const M2_PRE_GATE_FAILURE_PREFIX = 'PASI_M2_PRE_GATE_FAILURE:';
   const M2_RECOVERY_TARGET_KEY = 'pasi:m2-recovery-target';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
@@ -1750,8 +1751,47 @@
     );
     let generationEndedAt = 0;
     let failureReason = null;
+    const progressStartedAt = Date.now();
+    let lastProgressTelemetryAt = 0;
+    let lastHeartbeatAt = 0;
+    let heartbeatInFlight = null;
+    const progressTimerId = setInterval(() => {
+      const now = Date.now();
+      if (now - lastProgressTelemetryAt >= 5000) {
+        lastProgressTelemetryAt = now;
+        const responseText = responseEvidence() || '';
+        const detected = detectorState();
+        reportRuntimeTelemetry({
+          event: 'RESPONSE_WAIT_PROGRESS',
+          status: 'active',
+          operation_id: activeOperationId,
+          elapsed_ms: now - progressStartedAt,
+          generating: generating(),
+          saw_generation: sawGeneration,
+          generation_ended_at_ms: generationEndedAt || null,
+          assistant_message_count: assistantMessages().length,
+          response_text_chars: responseText.length,
+          context_exhausted: detected.context_exhausted === true,
+          usage_limited: detected.usage_limited === true,
+          completion_markers_satisfied: completionMarkersSatisfied(responseText, completionMarkers),
+          chat_url: chatUrl()
+        });
+      }
+      if (now - lastHeartbeatAt >= 10000 && !heartbeatInFlight && activeOperationId) {
+        lastHeartbeatAt = now;
+        heartbeatInFlight = bridge('/chat/heartbeat', {
+          method: 'POST',
+          timeout: 5000,
+          body: { operation_id: activeOperationId }
+        }).catch(() => {}).finally(() => {
+          heartbeatInFlight = null;
+        });
+      }
+    }, 1000);
 
-    const response = await waitUntil(() => {
+    let response;
+    try {
+      response = await waitUntil(() => {
       // While generation is active, the stop control is the only state needed
       // for this hot loop. Avoid a full failure-marker DOM scan on every mutation.
       if (generating()) {
@@ -1952,6 +1992,18 @@
   async function processOperation(operation) {
     activeOperationId = operation.operation_id;
     processing = true;
+    reportRuntimeTelemetry({
+      event: 'OPERATION_STARTED',
+      status: 'started',
+      operation_id: operation.operation_id,
+      operation_type: operation.operation_type,
+      chat_url: chatUrl(),
+      generating: generating(),
+      composer_present: Boolean(composer()),
+      user_message_count: userMessages().length,
+      assistant_message_count: assistantMessages().length,
+      is_m2_manual_reload_gate: isM2ManualReloadGate(operation)
+    });
     if (leaseTimerId !== null) clearInterval(leaseTimerId);
     if (!hasFreshControllerLease()) {
       const claimed = await controllerClaim();
@@ -2002,7 +2054,24 @@
             const current = composer();
             return current && !generating() ? current : null;
           })() : null;
+          let lastComposerProgressAt = 0;
+          const composerWaitStartedAt = Date.now();
           const box = immediateBox || await waitUntil(() => {
+            const now = Date.now();
+            if (now - lastComposerProgressAt >= 5000) {
+              lastComposerProgressAt = now;
+              reportRuntimeTelemetry({
+                event: 'COMPOSER_WAIT_PROGRESS',
+                status: 'active',
+                operation_id: operation.operation_id,
+                elapsed_ms: now - composerWaitStartedAt,
+                generating: generating(),
+                composer_present: Boolean(composer()),
+                user_message_count: userMessages().length,
+                assistant_message_count: assistantMessages().length,
+                chat_url: chatUrl()
+              });
+            }
             const current = composer();
             return current && !generating() ? current : null;
           }, PREVIOUS_RESPONSE_WAIT_MS, DOM_POLL_MS);
@@ -2026,7 +2095,10 @@
             status: 'success',
             operation_id: operation.operation_id,
             chat_url: chatUrl(),
-            fast_handoff: fastHandoff
+            fast_handoff: fastHandoff,
+            generating: generating(),
+            user_message_count: userMessages().length,
+            assistant_message_count: assistantMessages().length
           });
           const baseline = typeof operation.__pasi_baseline_fingerprint === 'string'
             ? operation.__pasi_baseline_fingerprint
@@ -2049,6 +2121,16 @@
           const submission = await submitPrompt(promptText, {
             fastPath: fastHandoff,
             readyBox: box
+          });
+          reportRuntimeTelemetry({
+            event: 'SUBMISSION_ACCEPTED',
+            status: 'success',
+            operation_id: operation.operation_id,
+            submission_via: submission.via,
+            submission_attempt: submission.attempt,
+            submission_verified: submission.verified,
+            user_messages_added: Number(submission.timing?.user_messages_added || 0),
+            chat_url: chatUrl()
           });
           const browserTiming = { ...(submission.timing || {}) };
           const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);
@@ -2089,13 +2171,56 @@
             });
           }
           let generationStartMs = null;
-          if (!(await waitUntil(() => {
+          let lastGenerationProgressAt = 0;
+          const generationWaitStartedAt = Date.now();
+          const generationStarted = await waitUntil(() => {
+            const now = Date.now();
+            if (now - lastGenerationProgressAt >= 5000) {
+              lastGenerationProgressAt = now;
+              const evidence = assistantResponseEvidence(assistantSnapshot, promptText, baseline);
+              reportRuntimeTelemetry({
+                event: 'GENERATION_START_PROGRESS',
+                status: 'active',
+                operation_id: operation.operation_id,
+                elapsed_ms: now - generationWaitStartedAt,
+                generating: generating(),
+                assistant_message_count: assistantMessages().length,
+                response_evidence_chars: typeof evidence === 'string' ? evidence.length : 0,
+                chat_url: chatUrl()
+              });
+            }
             const started = generating() || Boolean(assistantResponseEvidence(assistantSnapshot, promptText, baseline));
             if (started && generationStartMs === null) generationStartMs = Date.now();
             return started;
-          }, GENERATION_START_WAIT_MS, DOM_POLL_MS))) {
-            throw new Error('PASI_NATIVE: submission accepted but generation did not start');
+          }, GENERATION_START_WAIT_MS, DOM_POLL_MS);
+          if (!generationStarted) {
+            const error = new Error('PASI_NATIVE: submission accepted but generation did not start');
+            reportRuntimeTelemetry({
+              event: 'GENERATION_START_FAILED',
+              status: 'failure',
+              operation_id: operation.operation_id,
+              elapsed_ms: Date.now() - generationWaitStartedAt,
+              generating: generating(),
+              assistant_message_count: assistantMessages().length,
+              chat_url: chatUrl(),
+              error: runtimeErrorText(error)
+            });
+            throw new Error(
+              isM2ManualReloadGate(operation)
+                ? `${M2_PRE_GATE_FAILURE_PREFIX} ${error.message}`
+                : error.message
+            );
           }
+          reportRuntimeTelemetry({
+            event: 'GENERATION_STARTED',
+            status: 'success',
+            operation_id: operation.operation_id,
+            generation_start_ms: generationStartMs,
+            elapsed_ms: Date.now() - generationWaitStartedAt,
+            generating: generating(),
+            assistant_message_count: assistantMessages().length,
+            chat_url: chatUrl()
+          });
           browserTiming.generation_start_ms = generationStartMs;
           const response = await waitForResponse(
             baseline,
@@ -2135,7 +2260,27 @@
           errorMessage.startsWith('PASI_NATIVE: ChatGPT generation timed out')
         );
 
-      if (contextRecoveryEligible) {
+      const m2PreGateFailure =
+        isM2ManualReloadGate(operation) &&
+        !manualReloadGateState()?.manual_reload_gate;
+
+      if (m2PreGateFailure) {
+        const failure = errorMessage.startsWith(M2_PRE_GATE_FAILURE_PREFIX)
+          ? error
+          : new Error(`${M2_PRE_GATE_FAILURE_PREFIX} ${errorMessage}`);
+        reportRuntimeTelemetry({
+          event: 'M2_PRE_GATE_FAILURE',
+          status: 'failure',
+          operation_id: operation.operation_id,
+          error: runtimeErrorText(failure),
+          chat_url: chatUrl(),
+          generating: generating(),
+          composer_present: Boolean(composer()),
+          user_message_count: userMessages().length,
+          assistant_message_count: assistantMessages().length
+        });
+        finalized = await failOperation(operation.operation_id, failure);
+      } else if (contextRecoveryEligible) {
         activeRecoveryState = null;
         rememberContextRecovery(operation, error);
         finalized = false;
