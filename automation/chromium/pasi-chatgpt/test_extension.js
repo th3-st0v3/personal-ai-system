@@ -518,9 +518,9 @@ test('native controller preserves prompt operations for bounded response recover
 
 test('background watchdog wakes existing tabs without navigation', () => {
   assert.match(background, /chrome\.tabs\.sendMessage/);
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.match(background, /await injectExistingChatTabs\(\)/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
-});;
+});
 
 test('native controller answers background health pings and visibility transitions', () => {
   assert.match(content, /message\?\.type === 'pasi-health-ping'/);
