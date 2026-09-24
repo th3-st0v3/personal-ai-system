@@ -420,8 +420,17 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
     const selectedTab = selectChatGptTab(existingTabs, targetChatUrl);
     const selectedTabId = typeof selectedTab?.id === 'number' ? selectedTab.id : null;
     let injectionReady = false;
+    let workWakeSent = false;
     if (selectedTabId !== null) {
       injectionReady = await injectChatGptTab(selectedTabId, { source: 'existing_tab_pending_work' });
+      if (injectionReady) {
+        try {
+          await chrome.tabs.sendMessage(selectedTabId, { type: 'pasi-work-wake' });
+          workWakeSent = true;
+        } catch (_) {
+          workWakeSent = false;
+        }
+      }
     }
     void reportTabProvisioning({
       action: 'existing_tabs_no_create',
@@ -432,7 +441,8 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
       selected_tab_id: selectedTabId,
       selected_tab_url: String(selectedTab?.url || ''),
       selected_tab_active: selectedTab?.active === true,
-      injection_ready: injectionReady
+      injection_ready: injectionReady,
+      work_wake_sent: workWakeSent
     });
     return selectedTabId;
   }
