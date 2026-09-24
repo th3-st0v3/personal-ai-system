@@ -700,8 +700,6 @@ class BridgeState:
         data = observation.get("data")
         kind = data.get("kind") if isinstance(data, dict) else None
 
-        if schema_version == "pasi-native-chromium-v2" and kind == "chatgpt_tab_provisioning":
-            return 110
         if schema_version == "pasi-native-chromium-v2" and kind in {
             "chatgpt_health",
             "chatgpt_state",
@@ -723,7 +721,9 @@ class BridgeState:
             data = observation.get("data")
             if isinstance(data, dict):
                 kind = data.get("kind")
-                if kind == "chatgpt_response":
+                if kind == "chatgpt_tab_provisioning":
+                    self.state_manager.save_browser_provisioning(observation)
+                elif kind == "chatgpt_response":
                     timing = data.get("timing")
                     active_operation_id = data.get("active_operation_id")
                     if isinstance(active_operation_id, str) and timing is not None:
@@ -789,6 +789,13 @@ class BridgeState:
                 return None
 
             return observation
+
+    def get_browser_provisioning(
+        self,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            provisioning = self.state_manager.load_browser_provisioning()
+            return provisioning if provisioning else None
 
     def get_status(self) -> dict[str, Any]:
         with self.lock:
@@ -1320,6 +1327,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     "observation": observation
+                }
+            )
+            return
+
+        if path == "/browser/provisioning":
+            self._send_json(
+                {
+                    "observation": self.bridge_state.get_browser_provisioning()
                 }
             )
             return
