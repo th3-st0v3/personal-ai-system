@@ -802,7 +802,7 @@ test('native M2 manual reload gate persists the response and blocks normal queue
   assert.match(content, /function isM2ManualReloadGate\(operation\)/);
   assert.match(content, /manual_reload_gate_response/);
   assert.match(content, /chat\/manual-reload-gate\/arm/);
-  assert.match(content, /chat\/manual-reload-gate\/release/);
+  assert.match(content, /manual_reload_gate_released/);
   assert.match(content, /function scheduleManualReloadGateMonitor\(\)/);
   assert.match(content, /manualReloadGateState\(\)/);
   assert.match(content, /if \(manualReloadGateState\(\)\) \{/);
