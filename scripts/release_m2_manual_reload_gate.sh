@@ -47,6 +47,9 @@ if "PASI_M2_MANUAL_RELOAD_GATE: true" not in prompt:
 if operation.get("manual_reload_gate") is not True or operation.get("manual_reload_gate_armed") is not True:
     raise SystemExit("M2 manual reload gate is not armed")
 
+if operation.get("response_text_available") is not True or not str(operation.get("response_text") or "").strip():
+    raise SystemExit("M2 manual reload gate is armed before the original response was durably captured")
+
 if operation.get("manual_reload_gate_released") is True:
     print("M2 manual reload gate is already released.")
     raise SystemExit(0)
