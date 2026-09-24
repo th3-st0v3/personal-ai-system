@@ -725,8 +725,18 @@ class BridgeState:
                 item["manual_reload_gate_released"] = True
                 item["updated_at"] = time.time()
                 self._save_queue(queue)
-                return dict(item)
-        return None
+                break
+            else:
+                return None
+
+        return self._retry_operation(
+            operation_id=operation_id,
+            error=(
+                "PASI_NATIVE: browser page reloaded during operation; "
+                "M2 manual reload gate was released after the replacement tab appeared; "
+                "preserve the current chat and complete from the persisted response without resubmitting."
+            ),
+        )
 
     @staticmethod
     def _browser_observation_time(observation: dict[str, Any]) -> float | None:
@@ -1035,9 +1045,15 @@ class BridgeState:
                     }
                 retry_class = self._retry_class(error)
                 count = int(retry_counts.get(retry_class, 0) or 0)
+                manual_reload_gate_retry = (
+                    item.get("operation_type") == "prompt"
+                    and item.get("manual_reload_gate") is True
+                    and item.get("manual_reload_gate_released") is True
+                )
 
                 if (
-                    item.get("operation_type") == "prompt"
+                    not manual_reload_gate_retry
+                    and item.get("operation_type") == "prompt"
                     and item.get("response_text_available") is True
                     and isinstance(item.get("response_text"), str)
                     and bool(str(item.get("response_text")).strip())
