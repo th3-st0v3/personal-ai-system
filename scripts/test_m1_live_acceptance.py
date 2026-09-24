@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import unittest
 
 from scripts.run_m1_live_acceptance import (
@@ -10,6 +12,16 @@ from scripts.run_m1_live_acceptance import (
 
 
 class TestM1LiveAcceptance(unittest.TestCase):
+    def test_documented_direct_script_invocation_bootstraps_repository_imports(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "scripts/run_m1_live_acceptance.py", "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Run the M1 20-prompt live duplicate-send/false-verdict gate.", result.stdout)
+
     def test_parse_conversation_signature_requires_counts_and_fingerprint(self) -> None:
         self.assertEqual(
             parse_conversation_signature("3:4:assistant response"),
