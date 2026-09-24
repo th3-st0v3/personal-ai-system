@@ -93,6 +93,15 @@ PHASE_SCHEDULE = [
     ("P22", "Iteration 23", "2027-12-12", "2028-01-15", "Q4-2027"),
 ]
 
+QUARTER_SCHEDULE = [
+    ("Quarter 1", "2026-09-22", "2026-12-19"),
+    ("Quarter 2", "2026-12-20", "2027-03-20"),
+    ("Quarter 3", "2027-03-21", "2027-06-19"),
+    ("Quarter 4", "2027-06-20", "2027-09-25"),
+    ("Quarter 5", "2027-09-26", "2027-12-11"),
+    ("Quarter 6", "2027-12-12", "2028-01-15"),
+]
+
 PHASES = {
     phase: {
         "iteration": iteration,
@@ -936,6 +945,30 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
         project = project_snapshot()
         team = field_by_name(project, TEAM_FIELD, "ProjectV2SingleSelectField")
 
+    current_quarters = quarter["configuration"]["iterations"]
+    current_quarter_signature = [
+        {
+            "title": value["title"],
+            "startDate": value["startDate"],
+            "duration": value["duration"],
+        }
+        for value in current_quarters
+    ]
+    if current_quarter_signature != expected_quarter_values:
+        update_iteration_field(
+            project["id"],
+            quarter["id"],
+            {
+                "startDate": expected_quarter_values[0]["startDate"],
+                "duration": expected_quarter_values[0]["duration"],
+                "iterations": expected_quarter_values,
+            },
+        )
+        project = project_snapshot()
+        quarter = field_by_name(project, QUARTER_FIELD, "ProjectV2IterationField")
+        if not quarter:
+            raise RuntimeError("Required native Project Quarter iteration field could not be resolved after reconciliation.")
+
     expected_iterations = [
         {
             "title": info["iteration"],
@@ -945,6 +978,22 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
             ).days + 1,
         }
         for info in PHASES.values()
+    ]
+    expected_quarters = [
+        {
+            "title": title,
+            "startDate": start,
+            "duration": date.fromisoformat(end) - date.fromisoformat(start) + date.resolution,
+        }
+        for title, start, end in QUARTER_SCHEDULE
+    ]
+    expected_quarter_values = [
+        {
+            "title": item["title"],
+            "startDate": item["startDate"],
+            "duration": (item["duration"].days + 1) if hasattr(item["duration"], "days") else item["duration"],
+        }
+        for item in expected_quarters
     ]
     current_iterations = iteration["configuration"]["iterations"]
     current_signature = [
