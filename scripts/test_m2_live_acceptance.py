@@ -93,6 +93,8 @@ def test_m2_manual_gate_can_be_released_from_a_second_terminal() -> None:
     assert "manual-reload-gate/release" in release
     assert "PASI_M2_MANUAL_RELOAD_GATE: true" in release
     assert "manual_reload_gate_armed" in release
+    assert "response_text_available" in release
+    assert "armed before the original response was durably captured" in release
 
 
 def test_m2_harness_and_runtime_admin_scripts_have_valid_shell_syntax() -> None:
@@ -110,7 +112,23 @@ def test_m2_harness_waits_through_watchdog_and_uses_safe_cleanup_argument_passin
     assert 'error: native tab provisioning did not produce a usable ChatGPT tab within 45 seconds' in source
     assert '"$PYTHON" - "$operation_id" <<\'PY\'' in source
     assert 'sys.argv[1]' in source
+    assert 'op.get("response_text_available") is True' in source
+    assert 'bool(op.get("response_text").strip())' in source
     assert '| "$PYTHON" -c \'import json,sys; print(json.dumps({"operation_id":sys.argv[1]' not in source
+
+
+def test_native_controller_arms_m2_gate_only_after_response_capture() -> None:
+    source = Path("automation/chromium/pasi-chatgpt/content.js").read_text(encoding="utf-8")
+    early_arm = """          if (
+            isM2ManualReloadGate(operation) &&
+            (submission.verified || Number(submission?.timing?.user_messages_added || 0) > 0)
+          ) {
+            await armM2ManualReloadGate(operation, '', submission.timing || null);
+            scheduleManualReloadGateMonitor();
+          }
+"""
+    assert early_arm not in source
+    assert source.count("await armM2ManualReloadGate(operation, response, browserTiming);") == 1
 
 
 def test_native_controller_reconciles_stale_manual_gate_before_polling() -> None:
