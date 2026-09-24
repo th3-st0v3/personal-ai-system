@@ -17,6 +17,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from scripts.pasi_desktop_preflight import (
+    expected_controller_version,
+    expected_extension_manifest_version,
+    heartbeat_age_seconds,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_URL = "http://127.0.0.1:8765"
 TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
@@ -28,6 +34,7 @@ PROMPT_OP_RE = re.compile(r"Prompt operation:\s*([A-Za-z0-9._:-]+)")
 RESUME_OP_RE = re.compile(r"Resuming persisted ChatGPT operation:\s*([A-Za-z0-9._:-]+)")
 RETRY_OP_RE = re.compile(r"Retry prompt operation:\s*([A-Za-z0-9._:-]+)")
 RUNNER_LOG_FILENAME = "runner.log"
+BROWSER_MAX_HEARTBEAT_AGE_SECONDS = 30.0
 
 
 class M2AcceptanceError(RuntimeError):
@@ -536,6 +543,47 @@ def main() -> int:
         health = browser_health()
         chat_url = str(health.get("chat_url") or "")
         baseline_signature = health.get("conversation_signature")
+        captured_at = health.get("captured_at")
+        if not isinstance(captured_at, str) or not captured_at.strip():
+            raise M2AcceptanceError("preflight", "browser health is missing captured_at; exact live browser state cannot be trusted")
+        try:
+            heartbeat_age = heartbeat_age_seconds(captured_at)
+        except RuntimeError as exc:
+            raise M2AcceptanceError("preflight", str(exc)) from exc
+        controller_expected = expected_controller_version(REPO_ROOT)
+        extension_expected = expected_extension_manifest_version(REPO_ROOT)
+        health_diagnostics = {
+            "captured_at": captured_at,
+            "heartbeat_age_seconds": round(heartbeat_age, 3),
+            "controller_version_expected": controller_expected,
+            "controller_version_actual": health.get("controller_version"),
+            "extension_manifest_version_expected": extension_expected,
+            "extension_manifest_version_actual": health.get("extension_manifest_version"),
+            "native_controller": health.get("native_controller"),
+            "composer_present": health.get("composer_present"),
+            "chat_url": chat_url,
+        }
+        evidence["stages"]["browser_preflight"] = health_diagnostics
+        if health.get("kind") != "chatgpt_health":
+            raise M2AcceptanceError("preflight", f"browser health kind is not chatgpt_health: {health.get('kind')!r}")
+        if health.get("native_controller") is not True:
+            raise M2AcceptanceError("preflight", "native PASI Chromium controller is not active")
+        if health.get("controller_version") != controller_expected:
+            raise M2AcceptanceError(
+                "preflight",
+                f"native PASI controller version mismatch: expected {controller_expected!r}, observed {health.get('controller_version')!r}",
+            )
+        if health.get("extension_manifest_version") != extension_expected:
+            raise M2AcceptanceError(
+                "preflight",
+                "loaded PASI extension is stale or unidentified: "
+                f"expected {extension_expected!r}, observed {health.get('extension_manifest_version')!r}",
+            )
+        if heartbeat_age < -5 or heartbeat_age > BROWSER_MAX_HEARTBEAT_AGE_SECONDS:
+            raise M2AcceptanceError(
+                "preflight",
+                f"browser heartbeat is stale: age={heartbeat_age:.1f}s, limit={BROWSER_MAX_HEARTBEAT_AGE_SECONDS:.1f}s",
+            )
         if not CHAT_URL_RE.match(chat_url):
             raise M2AcceptanceError("preflight", f"invalid ChatGPT URL: {chat_url!r}")
         if health.get("auth_required") is True:
