@@ -109,6 +109,7 @@ wait_for_tab_provisioning() {
     action="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("action") or "")')"
     count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("after_create_tab_count") or 0)')"
     if [[ "$action" == "created" && "$count" == "1" ]]; then
+      PROVISIONING_CREATED_JSON="$result"
       printf 'Native tab provisioning verified: %s\n' "$result"
       return 0
     fi
@@ -203,7 +204,22 @@ PY
 }
 
 echo "Waiting for native PASI tab provisioning: zero ChatGPT tabs -> exactly one created tab..."
+PROVISIONING_CREATED_JSON=""
 wait_for_tab_provisioning || exit 2
+export PROVISIONING_CREATED_JSON
+"$PYTHON" - "$OUT" <<'PY'
+import json, os, sys
+path=sys.argv[1]
+raw=os.environ.get("PROVISIONING_CREATED_JSON", "")
+try:
+    provisioning=json.loads(raw)
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"invalid provisioning evidence: {exc}")
+p=json.load(open(path,encoding="utf-8"))
+p["tab_provisioning_created"]=provisioning
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"
+")
+PY
 
 echo "Waiting for the exact M2 operation to be claimed/generating..."
 wait_for_active || { echo "error: M2 operation was not claimed within 180 seconds after tab provisioning" >&2; exit 2; }
