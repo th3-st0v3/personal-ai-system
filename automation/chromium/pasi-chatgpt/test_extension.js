@@ -94,10 +94,9 @@ test('native content controller reuses a fresh lease for the immediate completio
   assert.match(content, /if \(!finalized\) \{/);
 });
 
-test('native background watchdog never navigates ChatGPT tabs', () => {
+test('native background watchdog never reloads or navigates an existing ChatGPT tab', () => {
   assert.match(background, /await injectExistingChatTabs\(\)/);
   assert.match(background, /chrome\.tabs\.sendMessage/);
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });;
 
@@ -143,7 +142,7 @@ test('native extension injects into already-open ChatGPT tabs', () => {
   assert.match(background, /chrome\.scripting\.executeScript/);
   assert.match(background, /content\.js/);
   assert.match(background, /recovery\.js/);
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
+  assert.match(background, /chrome\.tabs\.create/);
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });
 
