@@ -34,6 +34,27 @@ def test_project_uses_native_github_date_fields_and_dedicated_quarter_field() ->
     assert sync_module.END_FIELD == "Target date"
     assert sync_module.QUARTER_FIELD == "PASI Quarter"
 
+
+def test_project_status_option_lookup_is_case_insensitive() -> None:
+    project = {
+        "fields": {
+            "nodes": [
+                {
+                    "__typename": "ProjectV2SingleSelectField",
+                    "id": "status-field",
+                    "name": "Status",
+                    "options": [
+                        {"id": "todo", "name": "Todo"},
+                        {"id": "progress", "name": "In progress"},
+                        {"id": "done", "name": "Done"},
+                    ],
+                }
+            ]
+        }
+    }
+    option = sync_module.project_status_option(project, "In Progress")
+    assert option["id"] == "progress"
+
 def test_frontend_phase_mapping_is_complete_and_contiguous() -> None:
     assert len(FRONTEND_PHASE_ISSUES) == 23
     assert [FRONTEND_PHASE_ISSUES[f"P{i}"] for i in range(23)] == list(range(319, 342))
