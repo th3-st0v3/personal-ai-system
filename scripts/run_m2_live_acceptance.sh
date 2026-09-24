@@ -280,7 +280,7 @@ while (( SECONDS < bridge_deadline )); do
 done
 (( bridge_recovered == 1 )) || { echo "error: restarted bridge did not become healthy" >&2; exit 4; }
 
-"$PYTHON" - "$OUT" <<'PY'
+NEW_BRIDGE_PID="$NEW_BRIDGE_PID" "$PYTHON" - "$OUT" <<'PY'
 import json, os, sys
 path=sys.argv[1]
 p=json.load(open(path,encoding="utf-8"))
