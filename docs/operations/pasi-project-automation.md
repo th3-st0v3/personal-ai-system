@@ -87,6 +87,34 @@ This adds every existing `roadmap`-labeled issue to the Project, formats any iss
 
 The **metadata** bulk scope remains available for targeted reconciliation of only issues carrying the PASI metadata block.
 
+## Roadmap workflow integration
+
+The repository's existing `pasi-development` workflow now exposes a `project-sync` control mode. This is the preferred operator entry point when the Project needs a synchronized roadmap backfill or reconciliation.
+
+Run:
+
+1. **Actions → pasi-development → Run workflow**.
+2. Select the branch containing the roadmap workflow.
+3. Set **Development action** to `project-sync`.
+4. Set **Project synchronization scope** to `roadmap` for all roadmap-labeled issues, or `metadata` for only issues carrying the PASI metadata block.
+5. Keep the normal roadmap path at `roadmaps/pasi-default.json`.
+6. Run the workflow.
+
+The `pasi-development` verify job must pass first. The Project sync then calls the reusable `PASI Project Automation` workflow and passes `PASI_PROJECTS_TOKEN` explicitly. The reusable workflow remains independently triggered by roadmap issue events, so new or edited roadmap issues do not depend on a manual development run.
+
+GitHub supports reusable workflows through `workflow_call`, including explicit inputs and secrets. citeturn705596search2turn705596search3
+
+### Automation layers
+
+| Layer | Responsibility |
+| --- | --- |
+| Project **Auto-add to project** | Automatically adds matching `label:roadmap` issues to the PASI Project. |
+| Project **Item added to project** | Applies the initial Project status such as `Todo`. |
+| `pasi-development` → `project-sync` | Verifies the repository roadmap, then invokes Project reconciliation on demand. |
+| `PASI Project Automation` | Adds missing membership, formats PASI phase metadata, and verifies Project field state. |
+
+This keeps the Project UI responsible for membership automation while the repository workflows own deterministic metadata and verification.
+
 ## Ongoing behavior
 
 When the repository owner creates, edits, labels, or reopens a roadmap issue, the repository workflow receives the event and:
