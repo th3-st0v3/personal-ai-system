@@ -389,21 +389,24 @@ Allowed: automation/orchestrator/""",
             branch="pasi/test",
             worktree="/tmp/pasi-worktree",
             phase="engineering_os",
+            task_id="engineering.patch-handoff",
             recent_tasks=["previous verified task"],
             roadmap_tasks=["Roadmap task A", "Roadmap task B"],
         )
         execution_index = prompt.index("EXECUTE NOW:")
-        result_index = prompt.index("REPORT ONLY AFTER IMPLEMENTATION + VERIFICATION:")
+        result_index = prompt.index("REPORTING PROTOCOL — NOT THE ENGINEERING OBJECTIVE:")
         self.assertLess(execution_index, result_index)
+        self.assertIn("TASK ID:\nengineering.patch-handoff", prompt)
         self.assertIn("TITLE: Fix the browser-to-Git patch seam", prompt)
         self.assertIn("OBJECTIVE: Make the patch handoff durable.", prompt)
         self.assertIn("ACCEPTANCE CRITERIA:", prompt)
         self.assertIn("VERIFICATION:", prompt)
         self.assertIn("SCOPE:", prompt)
-        self.assertIn("The PASI_RESULT_* lines below are machine-readable reporting fields, not the task.", prompt)
-        self.assertIn("Do not focus on them, optimize for them, or return them before the implementation and verification work is finished.", prompt)
-        self.assertIn("Roadmap task A", prompt)
-        self.assertIn("previous verified task", prompt)
+        self.assertIn("The PASI_RESULT_* lines below are machine-readable output syntax only.", prompt)
+        self.assertIn("A plan, partial edit, single passing test, or status report is not completion.", prompt)
+        self.assertNotIn("Roadmap task A", prompt)
+        self.assertNotIn("Roadmap task B", prompt)
+        self.assertNotIn("previous verified task", prompt)
         self.assertIn("PASI_RESULT_STATUS:", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
         self.assertNotIn("PASI_RESULT_NEXT_TASK:", prompt)
@@ -418,14 +421,16 @@ Allowed: automation/orchestrator/""",
             branch="pasi/test",
             worktree="/tmp/pasi-worktree",
             phase="automation",
+            task_id="automation.patch-seam",
             recent_tasks=["completed task"],
             roadmap_tasks=["roadmap context"],
             previous_failure="git apply received an empty stdin payload",
         )
         self.assertIn("CURRENT TASK:\nFix the browser-to-Git patch seam.", prompt)
         self.assertIn("PREVIOUS FAILURE EVIDENCE:\ngit apply received an empty stdin payload", prompt)
-        self.assertIn("ROADMAP CONTEXT — informational only; stay on CURRENT TASK:", prompt)
-        self.assertIn("RECENTLY COMPLETED TASKS — do not repeat them:", prompt)
+        self.assertIn("TASK ID:\nautomation.patch-seam", prompt)
+        self.assertNotIn("ROADMAP CONTEXT", prompt)
+        self.assertNotIn("RECENTLY COMPLETED TASKS", prompt)
         self.assertLess(prompt.index("CURRENT TASK:"), prompt.index("PREVIOUS FAILURE EVIDENCE:"))
         self.assertLess(prompt.index("PREVIOUS FAILURE EVIDENCE:"), prompt.index("REPORT ONLY AFTER IMPLEMENTATION + VERIFICATION:"))
         self.assertNotIn("NEXT_TASK", prompt)
