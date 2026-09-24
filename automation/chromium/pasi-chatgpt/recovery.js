@@ -414,9 +414,21 @@
     const bounded = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
     const available = Boolean(bounded.trim());
     if (!available) return false;
+    const conversationSignature = (() => {
+      try {
+        const users = userMessages().length;
+        const assistantCount = assistants().length;
+        const latest = latestAssistant();
+        return String(users) + ':' + String(assistantCount) + ':' + latest;
+      } catch (_) {
+        return '';
+      }
+    })();
 
     await report('chatgpt_response', {
+      operation_id: operationId,
       active_operation_id: operationId,
+      conversation_signature: conversationSignature,
       response_text: bounded,
       response_text_available: true,
       chat_exhausted: contextExhausted(),
