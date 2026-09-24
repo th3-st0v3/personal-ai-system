@@ -419,6 +419,61 @@ def wait_for(predicate, timeout: float, description: str):
     raise M2AcceptanceError("wait", f"timed out waiting for {description}; last={last!r}")
 
 
+def validate_browser_health(
+    data: dict[str, Any],
+    expected_controller: str,
+    expected_extension: str,
+    max_heartbeat_age: float,
+    expected_chat_url: str | None = None,
+) -> float:
+    if data.get("kind") != "chatgpt_health":
+        raise M2AcceptanceError("browser", f"browser health kind is not chatgpt_health: {data.get('kind')!r}")
+    if data.get("native_controller") is not True:
+        raise M2AcceptanceError("browser", "native PASI Chromium controller is not active")
+    if data.get("controller_version") != expected_controller:
+        raise M2AcceptanceError(
+            "browser",
+            f"native PASI controller version mismatch: expected {expected_controller!r}, observed {data.get('controller_version')!r}",
+        )
+    if data.get("extension_manifest_version") != expected_extension:
+        raise M2AcceptanceError(
+            "browser",
+            "loaded PASI extension is stale or unidentified: "
+            f"expected {expected_extension!r}, observed {data.get('extension_manifest_version')!r}",
+        )
+    captured_at = data.get("captured_at")
+    if not isinstance(captured_at, str) or not captured_at.strip():
+        raise M2AcceptanceError("browser", "browser health is missing captured_at")
+    try:
+        heartbeat_age = heartbeat_age_seconds(captured_at)
+    except RuntimeError as exc:
+        raise M2AcceptanceError("browser", str(exc)) from exc
+    if heartbeat_age < -5 or heartbeat_age > max_heartbeat_age:
+        raise M2AcceptanceError(
+            "browser",
+            f"browser heartbeat is stale: age={heartbeat_age:.1f}s, limit={max_heartbeat_age:.1f}s",
+        )
+    chat_url = data.get("chat_url")
+    if not isinstance(chat_url, str) or not CHAT_URL_RE.match(chat_url):
+        raise M2AcceptanceError("browser", f"invalid ChatGPT URL: {chat_url!r}")
+    if expected_chat_url is not None and chat_url != expected_chat_url:
+        raise M2AcceptanceError(
+            "browser",
+            f"ChatGPT conversation URL changed: expected {expected_chat_url!r}, observed {chat_url!r}",
+        )
+    if data.get("auth_required") is True:
+        raise M2AcceptanceError("browser", "ChatGPT authentication/security verification is required")
+    if data.get("provider_usage_limited") is True:
+        raise M2AcceptanceError("browser", "provider usage is limited")
+    if data.get("conversation_context_exhausted") is True:
+        raise M2AcceptanceError("browser", "current conversation is context-exhausted")
+    if data.get("composer_present") is not True:
+        raise M2AcceptanceError("browser", "ChatGPT composer is not present")
+    if parse_signature(data.get("conversation_signature")) is None:
+        raise M2AcceptanceError("browser", "browser health does not provide a usable conversation signature")
+    return heartbeat_age
+
+
 def bridge_is_healthy() -> bool:
     request = urllib.request.Request(BRIDGE_URL + "/health", method="GET")
     try:
@@ -549,17 +604,16 @@ def main() -> int:
         health = browser_health()
         chat_url = str(health.get("chat_url") or "")
         baseline_signature = health.get("conversation_signature")
-        captured_at = health.get("captured_at")
-        if not isinstance(captured_at, str) or not captured_at.strip():
-            raise M2AcceptanceError("preflight", "browser health is missing captured_at; exact live browser state cannot be trusted")
-        try:
-            heartbeat_age = heartbeat_age_seconds(captured_at)
-        except RuntimeError as exc:
-            raise M2AcceptanceError("preflight", str(exc)) from exc
         controller_expected = expected_controller_version(REPO_ROOT)
         extension_expected = expected_extension_manifest_version(REPO_ROOT)
-        health_diagnostics = {
-            "captured_at": captured_at,
+        heartbeat_age = validate_browser_health(
+            health,
+            controller_expected,
+            extension_expected,
+            BROWSER_MAX_HEARTBEAT_AGE_SECONDS,
+        )
+        evidence["stages"]["browser_preflight"] = {
+            "captured_at": health.get("captured_at"),
             "heartbeat_age_seconds": round(heartbeat_age, 3),
             "controller_version_expected": controller_expected,
             "controller_version_actual": health.get("controller_version"),
@@ -567,39 +621,9 @@ def main() -> int:
             "extension_manifest_version_actual": health.get("extension_manifest_version"),
             "native_controller": health.get("native_controller"),
             "composer_present": health.get("composer_present"),
+            "conversation_signature": baseline_signature,
             "chat_url": chat_url,
         }
-        evidence["stages"]["browser_preflight"] = health_diagnostics
-        if health.get("kind") != "chatgpt_health":
-            raise M2AcceptanceError("preflight", f"browser health kind is not chatgpt_health: {health.get('kind')!r}")
-        if health.get("native_controller") is not True:
-            raise M2AcceptanceError("preflight", "native PASI Chromium controller is not active")
-        if health.get("controller_version") != controller_expected:
-            raise M2AcceptanceError(
-                "preflight",
-                f"native PASI controller version mismatch: expected {controller_expected!r}, observed {health.get('controller_version')!r}",
-            )
-        if health.get("extension_manifest_version") != extension_expected:
-            raise M2AcceptanceError(
-                "preflight",
-                "loaded PASI extension is stale or unidentified: "
-                f"expected {extension_expected!r}, observed {health.get('extension_manifest_version')!r}",
-            )
-        if heartbeat_age < -5 or heartbeat_age > BROWSER_MAX_HEARTBEAT_AGE_SECONDS:
-            raise M2AcceptanceError(
-                "preflight",
-                f"browser heartbeat is stale: age={heartbeat_age:.1f}s, limit={BROWSER_MAX_HEARTBEAT_AGE_SECONDS:.1f}s",
-            )
-        if not CHAT_URL_RE.match(chat_url):
-            raise M2AcceptanceError("preflight", f"invalid ChatGPT URL: {chat_url!r}")
-        if health.get("auth_required") is True:
-            raise M2AcceptanceError("preflight", "ChatGPT authentication/security verification is required")
-        if health.get("provider_usage_limited") is True:
-            raise M2AcceptanceError("preflight", "provider usage is limited")
-        if health.get("conversation_context_exhausted") is True:
-            raise M2AcceptanceError("preflight", "current conversation is context-exhausted")
-        if health.get("composer_present") is not True or parse_signature(baseline_signature) is None:
-            raise M2AcceptanceError("preflight", "browser preflight does not provide a usable conversation/composer/signature")
 
         marker = f"M2_ACCEPTANCE_{uuid.uuid4().hex[:10]}"
         task = (
@@ -658,10 +682,26 @@ def main() -> int:
         input("Press Enter after that exact tab is closed/reloaded: ")
         reload_confirmed_at = utc_now()
 
-        after_reload_health = browser_health()
+        def fresh_reload_health() -> dict[str, Any] | None:
+            candidate = browser_health()
+            try:
+                validate_browser_health(
+                    candidate,
+                    controller_expected,
+                    extension_expected,
+                    BROWSER_MAX_HEARTBEAT_AGE_SECONDS,
+                    expected_chat_url=chat_url,
+                )
+            except M2AcceptanceError:
+                return None
+            return candidate
+
+        after_reload_health = wait_for(
+            fresh_reload_health,
+            30,
+            "fresh native browser health after the manual exact-tab reload",
+        )
         after_reload = operation(operation_id)
-        if str(after_reload_health.get("chat_url") or "") != chat_url:
-            raise M2AcceptanceError("manual_reload", "ChatGPT conversation URL changed across the manual reload")
         if after_reload.get("status") in {"completed", "failed", "cancelled"}:
             raise M2AcceptanceError("manual_reload", f"operation became terminal before process recovery: {after_reload.get('status')!r}")
         evidence["stages"]["manual_reload"] = {
