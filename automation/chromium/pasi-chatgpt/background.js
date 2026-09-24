@@ -445,7 +445,7 @@ function selectChatGptTab(tabs, targetChatUrl) {
   );
 }
 
-async function ensureChatGptTab(targetChatUrl, pendingWork) {
+async function ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId = null) {
   if (!pendingWork) return null;
   const existingTabs = await listChatGptTabs();
   if (existingTabs.length > 0) {
@@ -476,7 +476,7 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
       injection_ready: injectionReady,
       work_wake_sent: workWakeSent
     });
-    return selectedTabId;
+    return injectionReady ? selectedTabId : null;
   }
   if (tabCreateInFlight) {
     void reportTabProvisioning({
@@ -636,7 +636,7 @@ async function injectChatGptTab(tabId, context = {}) {
   }
 }
 
-async function bootstrapCreatedChatGptTab(tabId) {
+async function bootstrapCreatedChatGptTab(tabId, context = {}) {
   for (let attempt = 1; attempt <= 10; attempt += 1) {
     reportRuntimeTelemetry({
       event: 'BOOTSTRAP_ATTEMPT',
@@ -647,7 +647,41 @@ async function bootstrapCreatedChatGptTab(tabId) {
       max_attempts: 10
     });
     const ok = await injectChatGptTab(tabId, { source: 'created_tab' });
-    if (ok) return true;
+    if (ok) {
+      let resumeHandoffSent = false;
+      const resumeOperationId = typeof context.resumeOperationId === 'string' && context.resumeOperationId
+        ? context.resumeOperationId
+        : null;
+      if (resumeOperationId) {
+        try {
+          const response = await chrome.tabs.sendMessage(tabId, {
+            type: 'pasi-resume-operation',
+            operation_id: resumeOperationId
+          });
+          resumeHandoffSent = response?.ok === true;
+        } catch (_) {
+          resumeHandoffSent = false;
+        }
+      }
+      void reportTabProvisioning({
+        action: 'created',
+        existing_tab_count: 0,
+        requested_url: String(context.requestedUrl || ''),
+        created_tab_id: tabId,
+        after_create_tab_count: Number(context.afterCreateTabs?.length || 1),
+        after_create_tab_ids: Array.isArray(context.afterCreateTabs)
+          ? context.afterCreateTabs.map((tab) => tab.id).filter((id) => typeof id === 'number')
+          : [tabId],
+        after_create_tab_urls: Array.isArray(context.afterCreateTabs)
+          ? context.afterCreateTabs.map((tab) => String(tab.url || '')).filter(Boolean)
+          : [],
+        cooldown_started_at: Number(context.attemptedAtMs || 0),
+        injection_ready: true,
+        resume_operation_id: resumeOperationId,
+        resume_handoff_sent: resumeHandoffSent
+      });
+      return true;
+    }
     await new Promise((resolve) => setTimeout(resolve, TAB_BOOTSTRAP_RETRY_MS));
   }
   reportRuntimeTelemetry({
@@ -657,6 +691,15 @@ async function bootstrapCreatedChatGptTab(tabId) {
     source: 'created_tab',
     phase: 'bootstrap_exhausted',
     error: 'PASI_RUNTIME: created-tab bootstrap exhausted all injection attempts'
+  });
+  void reportTabProvisioning({
+    action: 'create_bootstrap_failed',
+    existing_tab_count: 0,
+    requested_url: String(context.requestedUrl || ''),
+    created_tab_id: tabId,
+    injection_ready: false,
+    resume_operation_id: typeof context.resumeOperationId === 'string' ? context.resumeOperationId : null,
+    resume_handoff_sent: false
   });
   return false;
 }
@@ -700,7 +743,10 @@ async function inspect() {
   ) ? liveHealth.data.chat_url : '';
   const pendingWork = bridgeHasPendingWork(status, liveHealth);
 
-  const createdTabId = await ensureChatGptTab(targetChatUrl, pendingWork);
+  const resumeOperationId = typeof liveHealth?.data?.active_operation_id === 'string'
+    ? liveHealth.data.active_operation_id
+    : null;
+  const createdTabId = await ensureChatGptTab(targetChatUrl, pendingWork, resumeOperationId);
   if (createdTabId !== null) return;
   if (!health) return;
 
