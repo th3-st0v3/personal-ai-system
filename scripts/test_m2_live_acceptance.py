@@ -51,12 +51,33 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
                 "/tmp",
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             is_managed_bridge_process(
                 f"{repo}/.venv/bin/python -m automation.orchestrator.bridge",
                 repo,
             )
         )
+
+
+    def test_direct_managed_bridge_is_discovered_from_listener(self) -> None:
+        repo = str(Path.cwd())
+        commands = {
+            4201: f"{repo}/.venv/bin/python -m automation.orchestrator.bridge",
+        }
+        cwd = {4201: repo}
+        parents = {4201: 1}
+        with (
+            patch("scripts.m2_live_acceptance.listening_pids", return_value=[4201]),
+            patch("scripts.m2_live_acceptance.process_command", side_effect=commands.__getitem__),
+            patch("scripts.m2_live_acceptance.process_cwd", side_effect=cwd.__getitem__),
+            patch("scripts.m2_live_acceptance.process_parent", side_effect=parents.__getitem__),
+        ):
+            found = discover_managed_bridge_pid()
+        self.assertIsNotNone(found)
+        assert found is not None
+        pid, evidence = found
+        self.assertEqual(pid, 4201)
+        self.assertEqual(evidence["listener_pid"], 4201)
 
     def test_discovery_finds_managed_router_ancestor_of_listener(self) -> None:
         repo = str(Path.cwd())
