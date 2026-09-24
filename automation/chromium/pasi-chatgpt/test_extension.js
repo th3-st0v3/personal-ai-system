@@ -283,6 +283,17 @@ test('native controller starts heartbeat and polling timers before recovery or q
   assert.match(start, /if \(extensionContextInvalidated\) \{/);
 });
 
+test('native controller advertises the M2 manual reload gate capability and honors it before terminal reconciliation', () => {
+  assert.match(content, /manual_reload_gate_supported: true/);
+  const recoveryIndex = content.indexOf('async function recoverInterruptedOperation()');
+  const gateCheckIndex = content.indexOf('const gatedState = manualReloadGateState();', recoveryIndex);
+  const terminalIndex = content.indexOf("if (operation.status === 'completed')", recoveryIndex);
+  assert.ok(recoveryIndex >= 0);
+  assert.ok(gateCheckIndex > recoveryIndex);
+  assert.ok(gateCheckIndex < terminalIndex);
+  assert.match(content, /if \(gatedOperation && isM2ManualReloadGate\(operation\)\)/);
+});
+
 test('native controller reports health and preserves interrupted-operation recovery', () => {
   assert.match(content, /chatgpt_health/);
   assert.match(content, /chatgpt_chat_changed/);
