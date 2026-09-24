@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import hashlib
 import json
 import re
@@ -487,7 +488,7 @@ def route_chat(
 
     reasoning_mode = handoff.get("reasoning_mode")
     fast_start = (
-        str(__import__("os").environ.get("PASI_M2_FAST_START", "")).strip().casefold()
+        os.environ.get("PASI_M2_FAST_START", "").strip().casefold()
         in {"1", "true", "yes", "on"}
     )
     thinking_already_verified = (
