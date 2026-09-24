@@ -195,6 +195,13 @@ test('native zero-tab provisioning recovers an active operation from persisted b
   assert.match(background, /const browserResponse = await bridgeJson\('\/browser\/response'\);/);
 });
 
+test('native created-tab bootstrap is serialized per tab to avoid duplicate injection races', () => {
+  assert.match(background, /const tabBootstrapInFlight = new Map\(\);/);
+  assert.match(background, /const existing = tabBootstrapInFlight\.get\(tabId\);/);
+  assert.match(background, /if \(existing\) return existing;/);
+  assert.match(background, /const TAB_BOOTSTRAP_READY_TTL_MS = 15 \* 1000;/);
+});
+
 test('native created-tab provisioning records bootstrap readiness and exact-operation handoff', () => {
   assert.match(background, /action: 'created_pending_bootstrap'/);
   assert.match(background, /await chrome\.tabs\.sendMessage\(tabId, \{[\s\S]*type: 'pasi-resume-operation'/);
