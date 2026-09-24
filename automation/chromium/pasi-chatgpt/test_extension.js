@@ -970,6 +970,15 @@ test('native M2 manual reload gate is wired through the extension bridge', () =>
   assert.match(background, /POST \/chat\/manual-reload-gate\/release/);
 });
 
+test('native completion marker accepts a normalized terminal marker after whitespace collapse', () => {
+  assert.match(content, /const collapsed = collapseWhitespace\(text\);/);
+  assert.match(content, /const normalizedMarker = collapseWhitespace\(marker\);/);
+  assert.match(content, /collapsed === normalizedMarker/);
+  assert.match(content, /collapsed\.endsWith\(' ' \+ normalizedMarker\)/);
+  assert.match(content, /collapsed\.endsWith\(' ' \+ normalizedMarker \+ ':'\)/);
+});
+
+
 test('native M2 gate arms only after response evidence', () => {
   const processStart = content.indexOf('async function processOperation(operation)');
   const responseWait = content.indexOf('const response = await waitForResponse(', processStart);
