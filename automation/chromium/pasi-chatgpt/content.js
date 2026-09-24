@@ -1375,9 +1375,7 @@
       : [];
     if (!configured.length) return true;
     const lines = text.split(/\r?\n/).map((line) => line.trim());
-    return configured.some((marker) =>
-      lines.some((line) => line === marker || line.startsWith(marker + ':'))
-    );
+    return configured.some((marker) => text.includes(marker));
   }
 
   async function waitForResponse(baseline, completionMarkers = [], evidenceContext = null) {
@@ -1500,6 +1498,7 @@
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
+      conversation_signature: conversationSignature(),
       response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()),
       ack_only: true
@@ -1508,7 +1507,10 @@
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
     const publishResponseTelemetry = () => {
       void reportObservation('chatgpt_response', {
+        operation_id: body.operation_id,
+        active_operation_id: operationId,
         chat_url: body.chat_url,
+        conversation_signature: body.conversation_signature,
         response_text: body.response_text,
         response_text_available: body.response_text_available,
         ...(typeof responseText === 'string' ? completionProgress(responseText) : {}),
