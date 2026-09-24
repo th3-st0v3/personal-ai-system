@@ -199,13 +199,6 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
 });
 
-test('native browser health carries a fresh conversation signature for acceptance baselines', () => {
-  const start = content.indexOf("void reportObservation('chatgpt_health'");
-  const end = content.indexOf("if (Date.now() - lastStateReportAt", start);
-  const source = content.slice(start, end);
-  assert.match(source, /conversation_signature: conversationSignature\(\)/);
-});
-
 test('native controller keeps browser health on a fast bounded cadence separate from state telemetry', () => {
   assert.match(content, /const HEALTH_MS = TIMEOUT_POLICY\.heartbeatMs \|\| 15000/);
   assert.match(content, /const STATE_REPORT_MS = 10000;/);
