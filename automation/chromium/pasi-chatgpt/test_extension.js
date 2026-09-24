@@ -141,6 +141,8 @@ test('native extension is Manifest V3 with least-privilege required permissions'
 
 test('native controller keeps response telemetry off the completion critical path', () => {
   assert.match(content, /void reportObservation\('chatgpt_response'/);
+  assert.match(content, /operation_id: body\.operation_id/);
+  assert.match(content, /conversation_signature: body\.conversation_signature/);
   assert.match(content, /void reportObservation\('chatgpt_state'/);
   assert.match(content, /conversation_signature: conversationSignature\(\)/);
   assert.ok(content.includes('}).catch(() => {});'));
@@ -322,6 +324,7 @@ test('native completion captures responses through the event-driven waiter and b
   assert.match(content, /finishOperation\(operation\.operation_id, response, true, browserTiming\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
+  assert.match(content, /return configured\.some\(\(marker\) => text\.includes\(marker\)\)/);
   assert.match(content, /void reportObservation\('chatgpt_response'/);
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
@@ -358,6 +361,7 @@ test('native recovery companion preserves response text without blocking complet
   assert.match(recovery, /CHAT_RECOVERED_RETRY/);
   assert.match(recovery, /operation_type: 'new_chat'/);
   assert.match(recovery, /response_text: bounded/);
+  assert.match(recovery, /conversation_signature: conversationSignature/);
   assert.match(recovery, /await report\('chatgpt_response'/);
   assert.match(recovery, /current\.status === 'failed'/);
 });
