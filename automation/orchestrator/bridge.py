@@ -830,6 +830,14 @@ class BridgeState:
 
             return observation
 
+    def save_browser_provisioning(
+        self,
+        observation: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self.lock:
+            self.state_manager.save_browser_provisioning(observation)
+        return observation
+
     def get_browser_provisioning(
         self,
     ) -> dict[str, Any] | None:
@@ -1659,7 +1667,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        saved = self.bridge_state.save_browser_observation(observation)
+        saved = self.bridge_state.save_browser_provisioning(observation)
         self._send_json(
             {"observation": saved},
             HTTPStatus.CREATED,
