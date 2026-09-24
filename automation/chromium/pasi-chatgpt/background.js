@@ -322,10 +322,15 @@ async function inspect() {
   const payload = await bridgeJson('/browser/observation');
   if (!status) return;
   const health = healthData(payload);
-  const targetChatUrl = health && typeof health.data.chat_url === 'string'
-    ? health.data.chat_url
-    : '';
-  const pendingWork = bridgeHasPendingWork(status, health);
+  const liveHealth = (
+    health &&
+    observationAge(health.observation) <= STALE_MS
+  ) ? health : null;
+  const targetChatUrl = (
+    liveHealth?.data?.active_operation_id &&
+    typeof liveHealth.data.chat_url === 'string'
+  ) ? liveHealth.data.chat_url : '';
+  const pendingWork = bridgeHasPendingWork(status, liveHealth);
 
   const createdTabId = await ensureChatGptTab(targetChatUrl, pendingWork);
   if (createdTabId !== null) return;
