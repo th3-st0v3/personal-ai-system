@@ -8,6 +8,8 @@ const CONTROLLER_LEASE_MS = 10 * 1000;
 const CHATGPT_ROOT_URL = 'https://chatgpt.com/';
 const TAB_CREATE_COOLDOWN_KEY = 'pasi:chatgpt-tab-create-cooldown';
 const TAB_CREATE_COOLDOWN_MS = 15 * 1000;
+const TAB_PROVISIONING_PENDING_KEY = 'pasi:chatgpt-tab-provisioning-pending';
+const TAB_BOOTSTRAP_RETRY_MS = 1000;
 let controllerClaimTail = Promise.resolve();
 let tabCreateInFlight = null;
 let cachedBridgeToken = null;
@@ -239,18 +241,52 @@ async function listChatGptTabs() {
 }
 
 async function reportTabProvisioning(event) {
+  const observation = {
+    schema_version: 'pasi-native-chromium-v2',
+    captured_at: new Date().toISOString(),
+    data: {
+      kind: 'chatgpt_tab_provisioning',
+      ...event
+    }
+  };
   try {
-    await bridgeFetch('/browser/provisioning', 'POST', {
-      schema_version: 'pasi-native-chromium-v2',
-      captured_at: new Date().toISOString(),
-      data: {
-        kind: 'chatgpt_tab_provisioning',
-        ...event
-      }
-    }, 2000);
+    await chrome.storage.local.set({ [TAB_PROVISIONING_PENDING_KEY]: observation });
   } catch (_) {
-    // Provisioning telemetry must never block recovery.
+    // Local persistence is best-effort; the bridge post below remains the primary path.
   }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await bridgeFetch('/browser/provisioning', 'POST', observation, 2000);
+      if (response.ok) {
+        try {
+          await chrome.storage.local.remove(TAB_PROVISIONING_PENDING_KEY);
+        } catch (_) {}
+        return true;
+      }
+    } catch (_) {
+      // Retry transient bridge/service-worker failures without blocking tab recovery.
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+  }
+  return false;
+}
+
+async function flushPendingTabProvisioning() {
+  try {
+    const stored = await chrome.storage.local.get(TAB_PROVISIONING_PENDING_KEY);
+    const observation = stored?.[TAB_PROVISIONING_PENDING_KEY];
+    if (!observation || typeof observation !== 'object') return false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await bridgeFetch('/browser/provisioning', 'POST', observation, 2000);
+      if (response.ok) {
+        await chrome.storage.local.remove(TAB_PROVISIONING_PENDING_KEY);
+        return true;
+      }
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  } catch (_) {}
+  return false;
 }
 
 function validChatConversationUrl(value) {
@@ -328,7 +364,7 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
       });
       const created = await chrome.tabs.create({ url: requestedUrl, active: false });
       const afterCreateTabs = await listChatGptTabs();
-      void reportTabProvisioning({
+      await reportTabProvisioning({
         action: 'created',
         existing_tab_count: 0,
         requested_url: requestedUrl,
@@ -339,7 +375,11 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
         after_create_tab_urls: afterCreateTabs.map((tab) => String(tab.url || '')).filter(Boolean),
         cooldown_started_at: attemptedAtMs
       });
-      return typeof created?.id === 'number' ? created.id : null;
+      const createdTabId = typeof created?.id === 'number' ? created.id : null;
+      if (createdTabId !== null) {
+        void bootstrapCreatedChatGptTab(createdTabId);
+      }
+      return createdTabId;
     } catch (error) {
       void reportTabProvisioning({
         action: 'create_error',
@@ -358,6 +398,41 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
 
 let injectExistingTabsInFlight = null;
 
+async function injectChatGptTab(tabId) {
+  if (!chrome.scripting?.executeScript || typeof tabId !== 'number') return false;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });
+    return true;
+  } catch (_) {
+    // No live controller listener is present; inject into the existing tab.
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [
+        'timeout-config.js',
+        'detectors.js',
+        'recovery_progress.js',
+        'content.js',
+        'recovery.js'
+      ]
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function bootstrapCreatedChatGptTab(tabId) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const ok = await injectChatGptTab(tabId);
+    if (ok) return true;
+    await new Promise((resolve) => setTimeout(resolve, TAB_BOOTSTRAP_RETRY_MS));
+  }
+  return false;
+}
+
 async function injectExistingChatTabs() {
   if (!chrome.scripting?.executeScript) return;
   if (injectExistingTabsInFlight) return injectExistingTabsInFlight;
@@ -366,32 +441,7 @@ async function injectExistingChatTabs() {
     const tabs = await listChatGptTabs();
     for (const tab of tabs) {
       if (typeof tab.id !== 'number') continue;
-
-      // A previously injected controller can answer this ping. Do not
-      // re-execute the full support-script bundle on an already-live tab,
-      // because the support scripts are intentionally global and are not
-      // themselves controller lifecycle owners.
-      try {
-        await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
-        continue;
-      } catch (_) {
-        // No live controller listener is present; inject into the existing tab.
-      }
-
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: [
-            'timeout-config.js',
-            'detectors.js',
-            'recovery_progress.js',
-            'content.js',
-            'recovery.js'
-          ]
-        });
-      } catch (_) {
-        // Retry later without creating, navigating, or reloading a tab.
-      }
+      await injectChatGptTab(tab.id);
     }
   })();
 
@@ -405,6 +455,7 @@ async function injectExistingChatTabs() {
   }
 }
 async function inspect() {
+  await flushPendingTabProvisioning();
   await injectExistingChatTabs();
 
   const status = await bridgeJson('/status');
@@ -486,4 +537,12 @@ if (chrome.sidePanel?.setPanelBehavior) {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) inspect();
+});
+
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete') return;
+  const url = String(tab?.url || '');
+  if (!/^https:\/\/(?:www\.)?chatgpt\.com\//.test(url)) return;
+  void bootstrapCreatedChatGptTab(tabId);
 });
