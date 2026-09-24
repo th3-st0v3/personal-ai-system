@@ -162,6 +162,87 @@ def process_command(pid: int) -> str:
     return raw.replace(b"\x00", b" ").decode("utf-8", "ignore")
 
 
+def process_cwd(pid: int) -> str:
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return ""
+
+
+def process_parent(pid: int) -> int | None:
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    try:
+        parent = int(completed.stdout.strip())
+    except ValueError:
+        return None
+    return parent if parent > 1 else None
+
+
+def listening_pids(port: int = 8765) -> list[int]:
+    commands = [
+        ["ss", "-ltnp", f"sport = :{port}"],
+        ["ss", "-ltnp"],
+    ]
+    for command in commands:
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        except OSError:
+            continue
+        if completed.returncode != 0:
+            continue
+        if command[-1] == "-ltnp":
+            if f":{port}" not in completed.stdout:
+                continue
+        pids: list[int] = []
+        for match in re.finditer(r"pid=(\d+)", completed.stdout):
+            value = int(match.group(1))
+            if value not in pids:
+                pids.append(value)
+        if pids:
+            return pids
+    return []
+
+
+def is_managed_bridge_process(command_line: str, cwd: str) -> bool:
+    if "pasi_log_router.py" not in command_line:
+        return False
+    repo = str(REPO_ROOT)
+    return repo in command_line or cwd == repo or cwd.startswith(repo + os.sep)
+
+
+def discover_managed_bridge_pid() -> tuple[int, dict[str, Any]] | None:
+    for listener_pid in listening_pids():
+        current = listener_pid
+        visited: set[int] = set()
+        for _ in range(16):
+            if current in visited or current <= 1:
+                break
+            visited.add(current)
+            command_line = process_command(current)
+            cwd = process_cwd(current)
+            if is_managed_bridge_process(command_line, cwd):
+                return current, {
+                    "listener_pid": listener_pid,
+                    "owner_pid": current,
+                    "owner_command_line": command_line,
+                    "owner_cwd": cwd,
+                    "discovered_at": utc_now(),
+                }
+            parent = process_parent(current)
+            if parent is None:
+                break
+            current = parent
+    return None
+
+
 def descendants(pid: int) -> list[int]:
     pending = [pid]
     result: list[int] = []
@@ -328,8 +409,41 @@ def main() -> int:
         supervisor_pid = read_pid(runtime_dir, "supervisor.pid")
         if process_exists(runner_pid) or process_exists(supervisor_pid):
             raise M2AcceptanceError("preflight", f"M2 requires an idle managed runtime; runner={runner_pid}, supervisor={supervisor_pid}")
-        if bridge_is_healthy() and not process_exists(read_pid(runtime_dir, "bridge.pid")):
-            raise M2AcceptanceError("preflight", "port 8765 is occupied by an unmanaged bridge; refusing to kill an unknown process")
+
+        bridge_preflight: dict[str, Any] = {"healthy_before_start": bridge_is_healthy()}
+        if bridge_preflight["healthy_before_start"]:
+            managed_bridge_pid = read_pid(runtime_dir, "bridge.pid")
+            if managed_bridge_pid is not None:
+                command_line = process_command(managed_bridge_pid)
+                if (
+                    process_exists(managed_bridge_pid)
+                    and is_managed_bridge_process(command_line, process_cwd(managed_bridge_pid))
+                ):
+                    bridge_preflight["bridge_pid"] = managed_bridge_pid
+                    bridge_preflight["adopted_existing_bridge"] = False
+                else:
+                    managed_bridge_pid = None
+            if managed_bridge_pid is None:
+                discovered = discover_managed_bridge_pid()
+                if discovered is None:
+                    raise M2AcceptanceError(
+                        "preflight",
+                        "port 8765 is occupied by an unmanaged bridge; refusing to kill an unknown process",
+                    )
+                managed_bridge_pid, discovery = discovered
+                runtime_dir.mkdir(parents=True, exist_ok=True)
+                (runtime_dir / "bridge.pid").write_text(f"{managed_bridge_pid}\n", encoding="utf-8")
+                bridge_preflight.update(
+                    {
+                        "bridge_pid": managed_bridge_pid,
+                        "adopted_existing_bridge": True,
+                        "discovery": discovery,
+                    }
+                )
+        else:
+            bridge_preflight["bridge_pid"] = None
+            bridge_preflight["adopted_existing_bridge"] = False
+        evidence["stages"]["preflight"] = bridge_preflight
 
         health = browser_health()
         chat_url = str(health.get("chat_url") or "")
