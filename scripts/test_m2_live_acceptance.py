@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import subprocess
 
 
 SCRIPT = Path("scripts/run_m2_live_acceptance.sh")
@@ -69,3 +70,36 @@ def test_m2_harness_accepts_existing_chatgpt_tabs_without_creating_one() -> None
     assert "selected_tab_id" in source
     assert "tab_provisioning_initial" in source
     assert "initial tab provisioning evidence" in source
+
+def test_m2_harness_preflight_is_single_instance_and_cleans_stale_state() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    cleanup = Path("scripts/m2_live_cleanup.sh").read_text(encoding="utf-8")
+    assert "m2-live.lock" in source
+    assert "flock -n 9" in source
+    assert "scripts/m2_live_cleanup.sh" in source
+    assert "PASI_M2_MANUAL_RELOAD_GATE: true" in cleanup
+    assert "M2 cleanup: stale operation from an interrupted acceptance run" in cleanup
+    assert "pasi_extended_runtime_entrypoint.py" in cleanup
+    assert "--worktree $REPO_ROOT" in cleanup
+    assert "run_m2_live_acceptance.sh" in cleanup
+
+
+def test_m2_manual_gate_can_be_released_from_a_second_terminal() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    release = Path("scripts/release_m2_manual_reload_gate.sh").read_text(encoding="utf-8")
+    assert "scripts/release_m2_manual_reload_gate.sh" in source
+    assert "wait_for_manual_reload_release" in source
+    assert "no Enter key is required" in source
+    assert "manual-reload-gate/release" in release
+    assert "PASI_M2_MANUAL_RELOAD_GATE: true" in release
+    assert "manual_reload_gate_armed" in release
+
+
+def test_m2_harness_and_runtime_admin_scripts_have_valid_shell_syntax() -> None:
+    for path in (
+        SCRIPT,
+        Path("scripts/m2_live_cleanup.sh"),
+        Path("scripts/release_m2_manual_reload_gate.sh"),
+    ):
+        subprocess.run(["bash", "-n", str(path)], check=True)
+
