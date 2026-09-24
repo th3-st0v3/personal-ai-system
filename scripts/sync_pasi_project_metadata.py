@@ -945,6 +945,11 @@ def verify_issue(project_items_by_number: dict[int, dict[str, Any]], issue_numbe
 
 
 def synchronize(issue_numbers: list[int]) -> None:
+    issue_numbers = sorted(
+        set(issue_numbers)
+        | set(FRONTEND_PHASE_ISSUES.values())
+        | {FRONTEND_ROADMAP_ISSUE}
+    )
     project = ensure_schema(project_snapshot())
     field_names = {
         "startField": START_FIELD,
