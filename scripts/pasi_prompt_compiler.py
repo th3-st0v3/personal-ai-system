@@ -27,6 +27,7 @@ def compile_task_prompt(
     branch: str,
     worktree: str,
     phase: str,
+    task_id: str = "",
     recent_tasks: tuple[str, ...] | list[str] = (),
     roadmap_tasks: tuple[str, ...] | list[str] = (),
     previous_failure: str = "",
@@ -36,56 +37,41 @@ def compile_task_prompt(
     if not task_text:
         raise ValueError("task must not be empty")
 
-    recent = tuple(
-        item for item in (_bounded_block(value, 600) for value in recent_tasks)
-        if item
-    )[-4:]
-    roadmap = tuple(
-        item for item in (_bounded_block(value, 600) for value in roadmap_tasks)
-        if item
-    )[:8]
-
     lines = [
-        "PASi TASK EXECUTION MODE:",
+        "PASI TASK EXECUTION MODE:",
         "The CURRENT TASK below is the only engineering objective for this operation.",
-        "Do not replace it with a broader project, brainstorm, audit, or a generic improvement.",
-        "Do not choose a different task. The runner owns task selection and will provide another task after this one is verified complete.",
+        "Do not replace it with a broader project, brainstorm, audit, or generic improvement.",
+        "Do not choose a different task. The deterministic PASI scheduler owns task selection.",
+        "Use as many implementation and verification steps as necessary inside this one operation.",
         "",
+    ]
+    task_id = _bounded_block(task_id, 160)
+    if task_id:
+        lines.extend(["TASK ID:", task_id, ""])
+
+    lines.extend([
         "CURRENT TASK:",
         task_text,
         "",
         "EXECUTE NOW:",
         "1. Inspect the relevant repository architecture, current implementation, tests, and recent changes.",
-        "2. Implement the task's objective and every acceptance criterion; do not stop after a partial or cosmetic change.",
-        "3. Run the task's stated verification plus targeted integration/runtime checks that are practical in this environment.",
-        "4. If verification fails, diagnose the concrete failure, repair it, and rerun the failed check before declaring completion.",
-        "5. Keep the change inside the task's stated scope. Do not spend this operation preparing the next roadmap task.",
+        "2. Implement the objective and every acceptance criterion contained in CURRENT TASK.",
+        "3. Run the stated verification plus targeted integration/runtime checks that are practical in this environment.",
+        "4. If verification fails, diagnose the concrete failure, repair it, and rerun the failed check.",
+        "5. Continue until the acceptance criteria are actually satisfied. A plan, partial edit, single passing test, or status report is not completion.",
+        "6. Keep the change inside CURRENT TASK scope. Do not prepare the next roadmap task.",
         "",
-        "IMPORTANT:",
-        "The PASI_RESULT_* lines below are machine-readable reporting fields, not the task.",
-        "Do not focus on them, optimize for them, or return them before the implementation and verification work is finished.",
-        "Do not claim completion from a plan, source inspection, or a test you did not actually run.",
-    ]
+        "REPORTING PROTOCOL — NOT THE ENGINEERING OBJECTIVE:",
+        "The PASI_RESULT_* lines below are machine-readable output syntax only.",
+        "Do not optimize for these markers, stop to discuss them, or emit them before implementation and verification are finished.",
+        "Do not claim completion from source inspection or unexecuted tests.",
+    ])
 
     if previous_failure.strip():
         lines.extend([
             "",
-            "PREVIOUS FAILURE EVIDENCE — use this only to avoid repeating the same failed approach:",
+            "PREVIOUS FAILURE EVIDENCE — use only to avoid repeating the failed approach:",
             _bounded_block(previous_failure, MAX_FAILURE_CHARS),
-        ])
-
-    if roadmap:
-        lines.extend([
-            "",
-            "ROADMAP CONTEXT — informational only; stay on CURRENT TASK:",
-            *[f"- {item}" for item in roadmap],
-        ])
-
-    if recent:
-        lines.extend([
-            "",
-            "RECENTLY COMPLETED TASKS — do not repeat them:",
-            *[f"- {item}" for item in recent],
         ])
 
     lines.extend([
