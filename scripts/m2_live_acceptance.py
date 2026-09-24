@@ -7,6 +7,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -514,7 +515,7 @@ def main() -> int:
     except M2AcceptanceError as exc:
         evidence["failure"] = {"stage": exc.stage, "message": str(exc)}
         save()
-        print(f"M2 FAIL ({exc.stage}): {exc}", file=os.sys.stderr)
+        print(f"M2 FAIL ({exc.stage}): {exc}", file=sys.stderr)
         print(f"Evidence: {artifact_path}", file=os.sys.stderr)
         return 1
 
