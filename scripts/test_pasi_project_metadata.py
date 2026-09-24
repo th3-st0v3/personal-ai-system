@@ -100,11 +100,16 @@ def test_canonical_quarter_windows_cover_all_phase_starts() -> None:
                 quarter=info["quarter"],
             ),
         )
-        assert selected["title"] == info["quarter"]
+        start = __import__("datetime").date.fromisoformat(info["start"])
+        assert selected["startDate"] <= info["start"]
+        selected_start = __import__("datetime").date.fromisoformat(selected["startDate"])
+        selected_end = selected_start.fromordinal(
+            selected_start.toordinal() + selected["duration"] - 1
+        )
+        assert selected_start <= start <= selected_end
 
 
-def test_every_quarter_window_ends_on_the_19th() -> None:
-    assert len(sync_module.QUARTER_SCHEDULE) == 6
+def test_quarter_windows_are_contiguous_and_end_on_the_21st() -> None:
     expected_titles = [
         "Quarter 1",
         "Quarter 2",
@@ -112,11 +117,14 @@ def test_every_quarter_window_ends_on_the_19th() -> None:
         "Quarter 4",
         "Quarter 1",
         "Quarter 2",
+        "Quarter 3",
+        "Quarter 4",
     ]
+    assert len(sync_module.QUARTER_SCHEDULE) == len(expected_titles)
     assert [title for title, _, _ in sync_module.QUARTER_SCHEDULE] == expected_titles
 
     for _, start, end in sync_module.QUARTER_SCHEDULE:
-        assert __import__("datetime").date.fromisoformat(end).day == 19
+        assert __import__("datetime").date.fromisoformat(end).day == 21
         start_date = __import__("datetime").date.fromisoformat(start)
         end_date = __import__("datetime").date.fromisoformat(end)
         assert end_date >= start_date
@@ -136,8 +144,8 @@ def test_quarter_iteration_selection_uses_project_date_windows() -> None:
                     "name": "Quarter",
                     "configuration": {
                         "iterations": [
-                            {"id": "q1", "title": "Quarter 1", "startDate": "2026-09-22", "duration": 89},
-                            {"id": "q2", "title": "Quarter 2", "startDate": "2026-12-20", "duration": 84},
+                            {"id": "q1", "title": "Quarter 1", "startDate": "2026-09-22", "duration": 91},
+                            {"id": "q2", "title": "Quarter 2", "startDate": "2026-12-22", "duration": 90},
                         ]
                     },
                 }
@@ -159,11 +167,11 @@ def test_quarter_iteration_selection_uses_project_date_windows() -> None:
     q2 = sync_module.quarter_iteration_for_metadata(
         project,
         sync_module.Metadata(
-            phase="P7",
+            phase="P8",
             issue_type="frontend",
-            iteration="Iteration 8",
-            start_date="2026-12-20",
-            end_date="2027-01-09",
+            iteration="Iteration 9",
+            start_date="2027-01-10",
+            end_date="2027-01-30",
             team="Frontend",
             quarter="legacy-calendar-label",
         ),
