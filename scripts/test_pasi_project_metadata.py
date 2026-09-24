@@ -439,6 +439,25 @@ def test_legacy_project_fields_are_identified_for_cleanup() -> None:
     }
 
 
+def test_delete_project_field_uses_scalar_mutation_result(monkeypatch) -> None:
+    calls = []
+
+    def fake_graphql(query, variables=None, retryable=True):
+        calls.append((query, variables, retryable))
+        return {"deleteProjectV2Field": {"clientMutationId": "ok"}}
+
+    monkeypatch.setattr(sync_module, "graphql", fake_graphql)
+    sync_module.delete_project_field("field-1")
+
+    assert calls == [(
+        calls[0][0],
+        {"input": {"fieldId": "field-1"}},
+        False,
+    )]
+    assert "projectV2Field { id }" not in calls[0][0]
+    assert "clientMutationId" in calls[0][0]
+
+
 def test_remove_legacy_project_fields_deletes_only_custom_fields(monkeypatch) -> None:
     project = {
         "fields": {
