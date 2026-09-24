@@ -11,8 +11,8 @@ class TestPasiCIWorkflow(unittest.TestCase):
     def test_pasi_branches_run_authoritative_validation_on_push(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
         self.assertIn("branches: [main, beta-foundation, 'pasi/**']", workflow)
-        self.assertNotIn("pull_request:", workflow)
-        self.assertIn("untrusted fork pull requests", workflow)
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("All repository validation runs on GitHub-hosted runners", workflow)
 
     def test_fast_validation_is_authoritative_and_live_acceptance_is_manual(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
