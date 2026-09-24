@@ -161,6 +161,13 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         age = validate_browser_health(health, "2.4.11", "1.1.3", 30.0, "https://chatgpt.com/c/example")
         self.assertGreaterEqual(age, -5.0)
         self.assertLessEqual(age, 30.0)
+    def test_manual_reload_gate_requires_armed_nonterminal_operation_and_release(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("PASI_M2_MANUAL_RELOAD_GATE: true", source)
+        self.assertIn("manual_reload_gate_armed", source)
+        self.assertIn('"/chat/manual-reload-gate/release"', source)
+        self.assertIn("PASI_M2_MANUAL_RELOAD_GATE_RELEASE", source)
+
     def test_m2_preflight_rejects_stale_browser_health(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
         self.assertIn("BROWSER_MAX_HEARTBEAT_AGE_SECONDS", source)
