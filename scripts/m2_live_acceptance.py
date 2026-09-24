@@ -35,6 +35,7 @@ RESUME_OP_RE = re.compile(r"Resuming persisted ChatGPT operation:\s*([A-Za-z0-9.
 RETRY_OP_RE = re.compile(r"Retry prompt operation:\s*([A-Za-z0-9._:-]+)")
 RUNNER_LOG_FILENAME = "runner.log"
 BROWSER_MAX_HEARTBEAT_AGE_SECONDS = 30.0
+OPERATION_QUEUE_TIMEOUT_SECONDS = 360.0
 
 
 class M2AcceptanceError(RuntimeError):
@@ -419,6 +420,20 @@ def wait_for(predicate, timeout: float, description: str):
     raise M2AcceptanceError("wait", f"timed out waiting for {description}; last={last!r}")
 
 
+def runtime_startup_diagnostics(runtime_dir: Path, max_chars: int = 12000) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {}
+    state_path = runtime_dir / "state.json"
+    log_path = runner_log_path(runtime_dir)
+    try:
+        diagnostics["state"] = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        diagnostics["state"] = None
+    diagnostics["runner_pid"] = read_pid(runtime_dir, "runner.pid")
+    diagnostics["supervisor_pid"] = read_pid(runtime_dir, "supervisor.pid")
+    diagnostics["runner_log_tail"] = read_log_since(log_path, 0, max_chars=max_chars)
+    return diagnostics
+
+
 def validate_browser_health(
     data: dict[str, Any],
     expected_controller: str,
@@ -647,18 +662,26 @@ def main() -> int:
         worktree, actual_branch, start_output = start_managed_run(runtime_dir, branch, task)
         runner_started = True
 
-        operation_id = wait_for(
-            lambda: next(
-                (
-                    item.get("operation_id")
-                    for item in queue_items()
-                    if marker in str(item.get("prompt") or "") and isinstance(item.get("operation_id"), str)
+        try:
+            operation_id = wait_for(
+                lambda: next(
+                    (
+                        item.get("operation_id")
+                        for item in queue_items()
+                        if marker in str(item.get("prompt") or "") and isinstance(item.get("operation_id"), str)
+                    ),
+                    None,
                 ),
-                None,
-            ),
-            180,
-            f"M2 operation {marker} to be queued",
-        )
+                OPERATION_QUEUE_TIMEOUT_SECONDS,
+                f"M2 operation {marker} to be queued",
+            )
+        except M2AcceptanceError as exc:
+            diagnostics = runtime_startup_diagnostics(runtime_dir)
+            evidence["stages"]["operation_start_timeout"] = diagnostics
+            raise M2AcceptanceError(
+                "operation_start",
+                f"{exc}; runtime startup diagnostics: {json.dumps(diagnostics, ensure_ascii=False)[:16000]}",
+            ) from exc
         wait_for(
             lambda: operation(operation_id) if operation(operation_id).get("status") in {"claimed", "generating"} else None,
             120,
