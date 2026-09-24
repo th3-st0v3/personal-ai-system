@@ -1434,9 +1434,12 @@
         throw error;
       }
 
-      // Once a send strategy has fired, never invoke another send mechanism:
-      // the delayed acknowledgement may simply trail the real submission, and
-      // a second click can duplicate work.
+      // A strategy firing is not sufficient evidence that ChatGPT accepted
+      // the prompt. Some UI revisions expose a synthetic form/requestSubmit path
+      // that returns without producing a visible user-message or generation.
+      // Retry only while the exact prompt is still in the composer and there is
+      // no new-message or generation evidence; this prevents a second send after
+      // a real submission has already taken effect.
       const injectedAtMs = Date.now();
       let fired = false;
       try {
@@ -1465,28 +1468,62 @@
       }
 
       via = await waitUntil(accepted, SUBMISSION_ACK_MS, DOM_POLL_MS);
+      if (via) {
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'success',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          submission_via: via,
+          verified: via === 'verified'
+        });
+        return {
+          via,
+          attempt,
+          verified: via === 'verified',
+          timing: {
+            injected_at_ms: injectedAtMs,
+            ack_at_ms: Date.now(),
+            user_messages_added: countNewUserMessages(userMessages(), snapshot),
+            ack_verified: via === 'verified',
+            submission_via: via
+          }
+        };
+      }
+
+      const currentBox = composer();
+      const retrySafe = (
+        attempt < strategies.length
+        && !generating()
+        && newMessageState() === null
+        && Boolean(currentBox)
+        && composerContainsPrompt(currentBox, expected)
+      );
+      if (retrySafe) {
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'failure',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          error: 'PASI_NATIVE: submission acknowledgement not observed; exact prompt remains in composer, falling through to the next bounded strategy'
+        });
+        continue;
+      }
+
+      const error = new Error(
+        'PASI_NATIVE: submission acknowledgement not observed after a fired strategy'
+      );
       reportRuntimeTelemetry({
         event: 'SUBMISSION_ATTEMPT',
-        status: 'success',
+        status: 'failure',
         operation_id: activeOperationId,
         attempt,
         strategy,
-        submission_via: via || 'sent_unverified',
-        verified: via === 'verified'
+        error: runtimeErrorText(error)
       });
-      const finalVia = via || 'sent_unverified';
-      return {
-        via: finalVia,
-        attempt,
-        verified: via === 'verified',
-        timing: {
-          injected_at_ms: injectedAtMs,
-          ack_at_ms: Date.now(),
-          user_messages_added: countNewUserMessages(userMessages(), snapshot),
-          ack_verified: via === 'verified',
-          submission_via: finalVia
-        }
-      };
+      throw error;
     }
 
     if (contextExhausted()) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
