@@ -1,3 +1,4 @@
+import scripts.sync_pasi_project_metadata as sync_module
 from scripts.sync_pasi_project_metadata import (
     FRONTEND_PHASE_ISSUES,
     STATUS_DONE,
@@ -149,3 +150,100 @@ Todo
         assert "precedes" in str(exc)
     else:
         raise AssertionError("Expected reversed roadmap dates to be rejected")
+
+
+def test_closed_frontend_phase_sets_done_status(monkeypatch) -> None:
+    project = {
+        "id": "project-1",
+        "fields": {
+            "nodes": [
+                {
+                    "__typename": "ProjectV2SingleSelectField",
+                    "id": "status-field",
+                    "name": "Status",
+                    "options": [
+                        {"id": "todo", "name": "Todo"},
+                        {"id": "progress", "name": "In Progress"},
+                        {"id": "done", "name": "Done"},
+                    ],
+                }
+            ]
+        },
+    }
+    items = {
+        319: {"id": "item-319", "status": {"name": "Todo"}},
+    }
+    calls = []
+
+    monkeypatch.setattr(
+        sync_module,
+        "update_item_field",
+        lambda project_id, item_id, field_id, value: calls.append(
+            (project_id, item_id, field_id, value)
+        ),
+    )
+
+    sync_module.sync_frontend_statuses(
+        project,
+        items,
+        {319: "CLOSED"},
+    )
+
+    assert calls == [
+        (
+            "project-1",
+            "item-319",
+            "status-field",
+            {"singleSelectOptionId": "done"},
+        )
+    ]
+
+
+def test_reopened_frontend_phase_returns_to_todo(monkeypatch) -> None:
+    project = {
+        "id": "project-1",
+        "fields": {
+            "nodes": [
+                {
+                    "__typename": "ProjectV2SingleSelectField",
+                    "id": "status-field",
+                    "name": "Status",
+                    "options": [
+                        {"id": "todo", "name": "Todo"},
+                        {"id": "progress", "name": "In Progress"},
+                        {"id": "done", "name": "Done"},
+                    ],
+                }
+            ]
+        },
+    }
+    items = {
+        319: {"id": "item-319", "status": {"name": "Done"}},
+    }
+    calls = []
+
+    monkeypatch.setattr(
+        sync_module,
+        "update_item_field",
+        lambda project_id, item_id, field_id, value: calls.append(
+            (project_id, item_id, field_id, value)
+        ),
+    )
+    old_action = sync_module.PROJECT_EVENT_ACTION
+    old_issue = sync_module.PROJECT_EVENT_ISSUE_NUMBER_RAW
+    sync_module.PROJECT_EVENT_ACTION = "reopened"
+    sync_module.PROJECT_EVENT_ISSUE_NUMBER_RAW = "319"
+    try:
+        sync_module.sync_frontend_statuses(project, items, {319: "OPEN"})
+    finally:
+        sync_module.PROJECT_EVENT_ACTION = old_action
+        sync_module.PROJECT_EVENT_ISSUE_NUMBER_RAW = old_issue
+
+    assert calls == [
+        (
+            "project-1",
+            "item-319",
+            "status-field",
+            {"singleSelectOptionId": "todo"},
+        )
+    ]
