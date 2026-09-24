@@ -14,7 +14,7 @@ OUT="$EVIDENCE_DIR/live-capture-$STAMP.json"
 mkdir -p "$EVIDENCE_DIR"
 [[ -s "$TOKEN_FILE" ]] || { echo "error: bridge token is missing: $TOKEN_FILE" >&2; exit 1; }
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
-export PYTHONPATH="$REPO_ROOT:\${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 
 echo "=== PASI LIVE SINGLE-SHOT CAPTURE ==="
 echo "Marker: $MARKER"
