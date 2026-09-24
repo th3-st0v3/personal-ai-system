@@ -1621,6 +1621,30 @@ def test_runner_control_route_requires_bridge_auth(tmp_path: Path) -> None:
         thread.join(timeout=2)
 
 
+
+def test_manual_reload_gate_arms_and_releases_without_terminal_transition(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "PASI_M2_MANUAL_RELOAD_GATE: true")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    armed = bridge.arm_manual_reload_gate(operation.operation_id)
+    assert armed is not None
+    assert armed["status"] == "generating"
+    assert armed["manual_reload_gate"] is True
+    assert armed["manual_reload_gate_armed"] is True
+    assert armed["manual_reload_gate_released"] is False
+
+    still_active = bridge.get_operation(operation.operation_id)
+    assert still_active is not None
+    assert still_active["status"] == "generating"
+
+    released = bridge.release_manual_reload_gate(operation.operation_id)
+    assert released is not None
+    assert released["manual_reload_gate_released"] is True
+    assert released["status"] == "generating"
+
+
 def test_runner_capability_report_is_sanitized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     report = tmp_path / "capabilities.json"
     report.write_text(json.dumps({
