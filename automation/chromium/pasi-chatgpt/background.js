@@ -32,10 +32,12 @@ const BRIDGE_ROUTES = new Set([
   'GET /runner/state',
   'POST /runner/control',
   'GET /browser/observation',
+  'GET /browser/provisioning',
   'GET /browser/health',
   'GET /browser/state',
   'GET /browser/response',
-    'POST /browser/observation',
+  'POST /browser/observation',
+  'POST /browser/provisioning',
   'POST /queue',
   'POST /chat/claim',
   'POST /chat/heartbeat',
@@ -233,7 +235,7 @@ async function listChatGptTabs() {
 
 async function reportTabProvisioning(event) {
   try {
-    await bridgeFetch('/browser/observation', 'POST', {
+    await bridgeFetch('/browser/provisioning', 'POST', {
       schema_version: 'pasi-native-chromium-v2',
       captured_at: new Date().toISOString(),
       data: {
