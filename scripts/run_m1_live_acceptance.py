@@ -31,9 +31,13 @@ def parse_conversation_signature(value: object) -> tuple[int, int, str] | None:
     if len(parts) != 3:
         return None
     user_text, assistant_text, fingerprint = parts
-    if not user_text.isdigit() or not assistant_text.isdigit() or not fingerprint:
+    if not user_text.isdigit() or not assistant_text.isdigit():
         return None
-    return int(user_text), int(assistant_text), fingerprint
+    user_count = int(user_text)
+    assistant_count = int(assistant_text)
+    if not fingerprint and (user_count != 0 or assistant_count != 0):
+        return None
+    return user_count, assistant_count, fingerprint
 
 
 def signature_counts(value: object) -> tuple[int, int] | None:
@@ -43,7 +47,7 @@ def signature_counts(value: object) -> tuple[int, int] | None:
 
 def wait_for_conversation_signature(
     adapter: ChatGPTAdapter,
-    expected_chat_url: str | None,
+    expected_chat_url: str | None = None,
     *,
     timeout_seconds: float = 15.0,
     poll_seconds: float = 0.5,
@@ -56,17 +60,65 @@ def wait_for_conversation_signature(
         current_url = str(state.get("chat_url") or "")
         if current_url:
             last_url = current_url
+        parsed = parse_conversation_signature(signature)
+        valid_baseline = parsed is not None and (
+            parsed[2] or parsed[:2] == (0, 0)
+        )
         if (
-            parse_conversation_signature(signature) is not None
+            valid_baseline
             and current_url.startswith("https://chatgpt.com/c/")
             and (expected_chat_url is None or current_url == expected_chat_url)
         ):
             return state, str(signature)
         if time.monotonic() >= deadline:
-            target = expected_chat_url or "<any fresh ChatGPT conversation>"
+            target = expected_chat_url or "<current ChatGPT conversation>"
             raise RuntimeError(
-                f"fresh chat did not publish a parseable conversation_signature within "
+                f"current chat did not publish a valid conversation_signature within "
                 f"{timeout_seconds:.1f}s: expected={target!r}, observed={last_url!r}"
+            )
+        time.sleep(poll_seconds)
+
+
+def wait_for_signature_progression(
+    adapter: ChatGPTAdapter,
+    expected_chat_url: str,
+    previous_signature: str,
+    index: int,
+    *,
+    timeout_seconds: float = 15.0,
+    poll_seconds: float = 0.5,
+) -> tuple[dict[str, Any], str]:
+    previous = parse_conversation_signature(previous_signature)
+    if previous is None:
+        raise RuntimeError(f"prompt {index} had an invalid previous conversation_signature")
+    expected_user = previous[0] + 1
+    expected_assistant = previous[1] + 1
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        state = data_from_observation(adapter.read_browser_state())
+        current_url = str(state.get("chat_url") or "")
+        if current_url and current_url != expected_chat_url:
+            raise RuntimeError(
+                f"prompt {index} changed ChatGPT conversation URL: {current_url!r}"
+            )
+        current = parse_conversation_signature(state.get("conversation_signature"))
+        if current is not None:
+            if current[0] > expected_user or current[1] > expected_assistant:
+                raise RuntimeError(
+                    f"prompt {index} observed conversation-signature counts beyond the expected "
+                    f"{expected_user}:{expected_assistant}: got {current[0]}:{current[1]}"
+                )
+            if (
+                current[0] == expected_user
+                and current[1] == expected_assistant
+                and current[2]
+                and current[2] != previous[2]
+            ):
+                return state, str(state["conversation_signature"])
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"prompt {index} did not publish the exact +1/+1 conversation-signature "
+                f"progression within {timeout_seconds:.1f}s"
             )
         time.sleep(poll_seconds)
 
@@ -97,7 +149,6 @@ def data_from_observation(value: Any) -> dict[str, Any]:
         return {}
     data = value.get("data")
     return data if isinstance(data, dict) else value
-
 
 
 def bridge_is_healthy() -> bool:
@@ -179,8 +230,23 @@ def require_live_browser() -> None:
         )
 
 
+def require_usable_current_chat(state: dict[str, Any]) -> None:
+    if state.get("conversation_context_exhausted") is True or state.get("chat_exhausted") is True:
+        raise RuntimeError(
+            "M1 requires a usable current ChatGPT conversation; verified context exhaustion "
+            "is a separate recovery gate and must not trigger an automatic new chat here"
+        )
+    if state.get("provider_usage_limited") is True:
+        raise RuntimeError(
+            "M1 requires provider usage to be available; provider usage limits are a separate "
+            "condition and must not trigger a new chat here"
+        )
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the M1 20-prompt live duplicate-send/false-verdict gate.")
+    parser = argparse.ArgumentParser(
+        description="Run the M1 20-prompt live duplicate-send/false-verdict gate in the current ChatGPT conversation."
+    )
     parser.add_argument("--count", type=int, default=20)
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--session-id", default="")
@@ -202,18 +268,15 @@ def main() -> int:
         evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = evidence_dir / "m1-live.json"
 
-        adapter.new_session()
-        baseline, baseline_signature = wait_for_conversation_signature(
-            adapter,
-            adapter.last_chat_url,
-        )
+        baseline, baseline_signature = wait_for_conversation_signature(adapter)
+        require_usable_current_chat(baseline)
         baseline_counts = signature_counts(baseline_signature)
         if baseline_counts is None:
-            raise RuntimeError("fresh chat did not expose valid conversation-signature counts")
-        chat_url = str(baseline.get("chat_url") or adapter.last_chat_url or "")
+            raise RuntimeError("current chat did not expose valid conversation-signature counts")
+        chat_url = str(baseline.get("chat_url") or "")
         if not chat_url.startswith("https://chatgpt.com/c/"):
             raise RuntimeError(
-                f"fresh chat did not produce a verified ChatGPT conversation URL: {chat_url!r}"
+                f"current chat did not expose a verified ChatGPT conversation URL: {chat_url!r}"
             )
         previous_signature = baseline_signature
         expected_user, expected_assistant = baseline_counts
@@ -223,7 +286,10 @@ def main() -> int:
 
         for index in range(1, 21):
             marker = f"PASI_M1_ACCEPTANCE_{index:02d}_{uuid.uuid4().hex[:8]}"
-            prompt = f"Reply with exactly this marker and no other text: {marker}. This is a PASI live acceptance prompt."
+            prompt = (
+                f"Reply with exactly this marker and no other text: {marker}. "
+                "This is a PASI live acceptance prompt."
+            )
             if marker in seen_markers:
                 raise RuntimeError(f"prompt {index} generated a duplicate marker")
             seen_markers.add(marker)
@@ -234,25 +300,39 @@ def main() -> int:
             response = adapter.wait_for_completion(operation_id, timeout_seconds=args.timeout)
 
             if response.completion != "complete":
-                raise RuntimeError(f"prompt {index} did not complete: {response.completion!r} {response.error!r}")
+                raise RuntimeError(
+                    f"prompt {index} did not complete: {response.completion!r} {response.error!r}"
+                )
             if response.error and str(response.error).startswith("CHAT_"):
-                raise RuntimeError(f"prompt {index} produced terminal CHAT_* verdict: {response.error}")
+                raise RuntimeError(
+                    f"prompt {index} produced terminal CHAT_* verdict: {response.error}"
+                )
             if marker not in response.text:
                 raise RuntimeError(f"prompt {index} response missing unique marker")
 
-            state = data_from_observation(adapter.read_browser_state())
-            current_signature = state.get("conversation_signature")
             before_signature = previous_signature
-            expected_user, expected_assistant = validate_signature_progression(before_signature, current_signature, index)
+            state, current_signature = wait_for_signature_progression(
+                adapter,
+                chat_url,
+                before_signature,
+                index,
+            )
+            expected_user, expected_assistant = validate_signature_progression(
+                before_signature, current_signature, index
+            )
             before_parsed = parse_conversation_signature(before_signature)
             if before_parsed is None:
-                raise RuntimeError(f"prompt {index} had an invalid previous conversation_signature")
+                raise RuntimeError(
+                    f"prompt {index} had an invalid previous conversation_signature"
+                )
             user_delta = expected_user - before_parsed[0]
             assistant_delta = expected_assistant - before_parsed[1]
             previous_signature = current_signature
             observed_chat_url = str(response.chat_url or state.get("chat_url") or "")
             if observed_chat_url != chat_url:
-                raise RuntimeError(f"prompt {index} changed ChatGPT conversation URL: {observed_chat_url!r}")
+                raise RuntimeError(
+                    f"prompt {index} changed ChatGPT conversation URL: {observed_chat_url!r}"
+                )
             results.append(
                 {
                     "index": index,
@@ -270,22 +350,35 @@ def main() -> int:
 
         final_signature = parse_conversation_signature(previous_signature)
         if len(seen_operation_ids) != 20 or len(seen_markers) != 20 or final_signature is None:
-            raise RuntimeError("M1 did not complete 20 unique operations and markers with a final conversation signature")
-        if final_signature[0] != baseline_counts[0] + 20 or final_signature[1] != baseline_counts[1] + 20:
+            raise RuntimeError(
+                "M1 did not complete 20 unique operations and markers with a final conversation signature"
+            )
+        if (
+            final_signature[0] != baseline_counts[0] + 20
+            or final_signature[1] != baseline_counts[1] + 20
+        ):
             raise RuntimeError("M1 final conversation signature counts are not exactly baseline + 20")
 
         payload = {
             "gate": "M1",
             "status": "PASS",
             "count": 20,
+            "created_new_chat": False,
             "false_terminal_chat_verdicts": 0,
             "duplicate_message_deltas": 0,
-            "baseline": {"chat_url": chat_url, "user": baseline_counts[0], "assistant": baseline_counts[1]},
+            "baseline": {
+                "chat_url": chat_url,
+                "user": baseline_counts[0],
+                "assistant": baseline_counts[1],
+            },
             "results": results,
             "completed_at": time.time(),
         }
-        evidence_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print("M1 PASS: 20 prompts; zero duplicate message deltas; zero terminal CHAT_* verdicts")
+        evidence_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        print("M1 PASS: 20 prompts in the existing chat; zero duplicate message deltas; zero terminal CHAT_* verdicts")
         print(f"Evidence: {evidence_path}")
         return 0
     finally:

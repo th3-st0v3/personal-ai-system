@@ -34,7 +34,7 @@ Required evidence:
 
 The evidence is valid only when the task completed through ChatGPT response extraction, completion-contract parsing, `git apply`, canonical validation, and a local commit. The acceptance branch must not be pushed.
 
-## M1 — 20 consecutive prompts
+## M1 — 20 consecutive prompts in the existing conversation
 
 Run:
 
@@ -42,9 +42,13 @@ Run:
 python scripts/run_m1_live_acceptance.py
 ```
 
-The harness creates a fresh ChatGPT conversation and sends exactly 20 uniquely marked prompts. For every prompt it verifies a terminal `complete` operation, checks the unique response marker, and compares the durable conversation signature before and after the prompt.
+The harness uses the already-open authenticated ChatGPT conversation. It does **not** call `new_session`, queue a `new_chat` operation, or replace the conversation at the beginning of the test. It sends exactly 20 uniquely marked prompts in that same conversation.
 
-M1 passes only when all 20 operations complete, every response contains its unique marker, each operation changes the signature by exactly +1 user message and +1 assistant message, and zero terminal `CHAT_*` verdicts occur.
+Before operation 1, the harness requires a usable current conversation: no verified conversation-context exhaustion and no provider usage limit. If the current conversation is already exhausted, M1 fails rather than creating a replacement chat.
+
+For every prompt it verifies a terminal `complete` operation, checks the unique response marker, and waits for the durable conversation signature to publish the exact +1 user/+1 assistant progression. The conversation URL must remain unchanged for all 20 operations.
+
+M1 passes only when all 20 operations complete, every response contains its unique marker, each operation changes the signature by exactly +1 user message and +1 assistant message, zero terminal `CHAT_*` verdicts occur, and the final signature equals the baseline counts plus 20.
 
 Evidence:
 
@@ -52,7 +56,13 @@ Evidence:
 .runtime/acceptance/m1-live.json
 ```
 
-Any non-1/+1 delta, missing response marker, non-complete operation, terminal `CHAT_*` error, or transport failure is a gate failure and must remain visible.
+The evidence records `created_new_chat: false`.
+
+### Context-exhaustion recovery is a separate live behavior
+
+PASI's recovery path is intentionally conditional: a replacement chat is prepared only after the browser verifies conversation-context exhaustion. Provider usage-limit exhaustion is handled separately and does not by itself justify deleting or replacing the current conversation.
+
+Do not use M1 to simulate that condition by creating a new chat with usage remaining. A real context-exhaustion acceptance should begin from a verified exhausted conversation state, observe the recovery's reason as `context_exhausted`, verify the replacement `new_chat` operation, and then verify that the original operation is resumed exactly once in the replacement conversation. Unit tests can cover the branching logic, but only live browser evidence can close the live recovery gate.
 
 ## M2 — kill/restart recovery
 
