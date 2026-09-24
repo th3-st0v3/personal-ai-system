@@ -149,7 +149,10 @@ class TestM1LiveAcceptance(unittest.TestCase):
             poll_seconds=0,
         )
         self.assertEqual(state["operation_id"], "op-1")
-        self.assertEqual(signature, "4:5:current")
+        self.assertEqual(
+            signature,
+            "4:5:The requested marker is PASI_M1_ACCEPTANCE_01_abcd1234.",
+        )
 
     def test_validate_signature_progression_accepts_exact_next_message_pair(self) -> None:
         self.assertEqual(
