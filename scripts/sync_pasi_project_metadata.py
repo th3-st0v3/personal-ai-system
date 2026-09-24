@@ -624,16 +624,13 @@ def add_item(project_id: str, content_id: str) -> str:
     return data["addProjectV2ItemById"]["item"]["id"]
 
 
-def sync_issue(
+def apply_metadata_to_item(
     project: dict[str, Any],
+    item_id: str,
     metadata: Metadata,
     issue_number: int,
-) -> None:
-    content_id, title, body = fetch_issue(issue_number)
-    parsed = parse_metadata(body)
-    if parsed != metadata:
-        raise RuntimeError("Issue metadata changed between validation and synchronization.")
-
+    title: str,
+) -> dict[str, Any]:
     project = ensure_schema(project)
     fields = {field["name"]: field for field in project["fields"]["nodes"]}
 
@@ -656,7 +653,6 @@ def sync_issue(
     if not team_option or not quarter_option or not iteration:
         raise RuntimeError(f"Project options are incomplete for {metadata.phase}.")
 
-    item_id = add_item(project["id"], content_id)
     update_item_field(
         project["id"], item_id, fields[START_FIELD]["id"], {"date": metadata.start_date}
     )
@@ -676,20 +672,23 @@ def sync_issue(
         {"iterationId": iteration["id"]},
     )
     print(f"Synced #{issue_number} {title} -> {metadata.phase}/{metadata.iteration}")
+    return project
 
 
-def all_metadata_issue_numbers() -> list[int]:
-    endpoint = f"repos/{REPO}/issues?state=all&per_page=100"
-    raw = run_gh(
-        [
-            "api",
-            endpoint,
-            "--paginate",
-            "--jq",
-            '.[] | select(.body != null) | select(.body | contains("PASI_PROJECT_METADATA")) | .number',
-        ]
-    )
-    return sorted({int(line) for line in raw.splitlines() if line.strip()})
+def sync_issue(
+    project: dict[str, Any],
+    issue_number: int,
+) -> tuple[dict[str, Any], Metadata | None]:
+    content_id, title, body = fetch_issue(issue_number)
+    item_id = add_item(project["id"], content_id)
+
+    if "PASI_PROJECT_METADATA" not in body:
+        print(f"Added #{issue_number} {title} to PASI Project (no phase metadata block).")
+        return project, None
+
+    metadata = parse_metadata(body)
+    project = apply_metadata_to_item(project, item_id, metadata, issue_number, title)
+    return project, metadata
 
 
 def metadata_for_issue(issue_number: int) -> Metadata:
@@ -796,16 +795,14 @@ def verify_issue(project_items_by_number: dict[int, dict[str, Any]], issue_numbe
 
 def synchronize(issue_numbers: list[int]) -> None:
     project = project_snapshot()
-    metadata_by_issue = {
-        issue_number: metadata_for_issue(issue_number)
-        for issue_number in issue_numbers
-    }
+    metadata_by_issue: dict[int, Metadata] = {}
 
-    for issue_number, metadata in metadata_by_issue.items():
-        sync_issue(project, metadata, issue_number)
+    for issue_number in issue_numbers:
+        project, metadata = sync_issue(project, issue_number)
+        if metadata is not None:
+            metadata_by_issue[issue_number] = metadata
 
     project = project_snapshot()
-    fields = {field["name"]: field for field in project["fields"]["nodes"]}
     field_names = {
         "startField": START_FIELD,
         "endField": END_FIELD,
@@ -813,35 +810,48 @@ def synchronize(issue_numbers: list[int]) -> None:
         "quarterField": QUARTER_FIELD,
         "iterationField": ITERATION_FIELD,
     }
-    missing_fields = [name for name in field_names.values() if name not in fields]
-    if missing_fields:
-        raise RuntimeError(
-            f"Post-sync verification cannot run; missing Project fields: {missing_fields}"
-        )
+    items = project_items(project, field_names)
 
-    expected_iterations = PHASES
-    iteration_field = fields[ITERATION_FIELD]
-    actual_iterations = iteration_field["configuration"]["iterations"]
-    for phase, expected in expected_iterations.items():
-        actual = next(
-            (value for value in actual_iterations if value["title"] == expected["iteration"]),
-            None,
-        )
-        expected_duration = (
-            date.fromisoformat(expected["end"]) - date.fromisoformat(expected["start"])
-        ).days + 1
-        if not actual or actual["startDate"] != expected["start"] or actual["duration"] != expected_duration:
-            raise RuntimeError(
-                f"Post-sync verification failed for {expected['iteration']}."
+    errors: list[str] = []
+    for issue_number in issue_numbers:
+        if issue_number not in items:
+            errors.append(
+                f"Project verification failed: issue #{issue_number} is not in the Project."
             )
 
-    items = project_items(project, field_names)
-    errors: list[str] = []
-    for issue_number, metadata in metadata_by_issue.items():
-        try:
-            verify_issue(items, issue_number, metadata)
-        except RuntimeError as exc:
-            errors.append(str(exc))
+    if metadata_by_issue:
+        fields = {field["name"]: field for field in project["fields"]["nodes"]}
+        missing_fields = [name for name in field_names.values() if name not in fields]
+        if missing_fields:
+            errors.append(
+                f"Metadata verification cannot run; missing Project fields: {missing_fields}"
+            )
+        else:
+            expected_iterations = PHASES
+            iteration_field = fields[ITERATION_FIELD]
+            actual_iterations = iteration_field["configuration"]["iterations"]
+            for phase, expected in expected_iterations.items():
+                actual = next(
+                    (value for value in actual_iterations if value["title"] == expected["iteration"]),
+                    None,
+                )
+                expected_duration = (
+                    date.fromisoformat(expected["end"]) - date.fromisoformat(expected["start"])
+                ).days + 1
+                if (
+                    not actual
+                    or actual["startDate"] != expected["start"]
+                    or actual["duration"] != expected_duration
+                ):
+                    errors.append(
+                        f"Post-sync verification failed for {expected['iteration']}."
+                    )
+
+            for issue_number, metadata in metadata_by_issue.items():
+                try:
+                    verify_issue(items, issue_number, metadata)
+                except RuntimeError as exc:
+                    errors.append(str(exc))
 
     if errors:
         raise RuntimeError(
@@ -849,26 +859,48 @@ def synchronize(issue_numbers: list[int]) -> None:
         )
 
     print(
-        f"POST-SYNC VERIFICATION PASSED: {len(metadata_by_issue)} issue(s), "
-        f"{len(actual_iterations)} configured iteration(s)."
+        f"POST-SYNC VERIFICATION PASSED: {len(issue_numbers)} issue(s) in Project; "
+        f"{len(metadata_by_issue)} phase issue(s) formatted."
     )
+
+
+def all_roadmap_issue_numbers() -> list[int]:
+    endpoint = f"repos/{REPO}/issues?state=all&labels=roadmap&per_page=100"
+    raw = run_gh(
+        [
+            "api",
+            endpoint,
+            "--paginate",
+            "--jq",
+            '.[] | select(.pull_request == null) | .number',
+        ]
+    )
+    return sorted({int(line) for line in raw.splitlines() if line.strip()})
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("issue", nargs="?", type=int)
-    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--all", action="store_true", help="Synchronize all issues carrying PASI metadata.")
+    parser.add_argument("--roadmap", action="store_true", help="Add all roadmap-labeled issues to the Project and format phase metadata where present.")
     args = parser.parse_args()
 
-    if args.all:
+    if args.all and args.roadmap:
+        raise SystemExit("Use only one of --all or --roadmap.")
+    if args.issue and (args.all or args.roadmap):
+        raise SystemExit("Issue number cannot be combined with --all or --roadmap.")
+
+    if args.roadmap:
+        numbers = all_roadmap_issue_numbers()
+    elif args.all:
         numbers = all_metadata_issue_numbers()
     elif args.issue:
         numbers = [args.issue]
     else:
-        raise SystemExit("Provide an issue number or --all")
+        raise SystemExit("Provide an issue number, --all, or --roadmap")
 
     if not numbers:
-        raise SystemExit("No issues with PASI_PROJECT_METADATA were found.")
+        raise SystemExit("No matching issues were found.")
 
     synchronize(numbers)
 
