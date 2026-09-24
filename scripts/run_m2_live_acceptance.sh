@@ -141,7 +141,8 @@ PY
 }
 
 wait_for_tab_provisioning() {
-  local deadline=$((SECONDS + 15))
+  # The native watchdog alarm is 30 seconds; allow one full alarm interval plus bootstrap margin.
+  local deadline=$((SECONDS + 45))
   while (( SECONDS < deadline )); do
     local result action count selected_tab_id accepted
     result="$(get_provisioning_observation 2>/dev/null || echo '{}')"
@@ -188,7 +189,7 @@ PY
     fi
     sleep 2
   done
-  echo "error: native tab provisioning did not produce a usable ChatGPT tab within 15 seconds" >&2
+  echo "error: native tab provisioning did not produce a usable ChatGPT tab within 45 seconds" >&2
   echo "last provisioning observation: $(get_provisioning_observation 2>/dev/null || true)" >&2
   return 1
 }

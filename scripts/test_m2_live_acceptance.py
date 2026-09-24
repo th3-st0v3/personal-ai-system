@@ -104,10 +104,10 @@ def test_m2_harness_and_runtime_admin_scripts_have_valid_shell_syntax() -> None:
         subprocess.run(["bash", "-n", str(path)], check=True)
 
 
-def test_m2_harness_fails_provisioning_fast_and_uses_safe_cleanup_argument_passing() -> None:
+def test_m2_harness_waits_through_watchdog_and_uses_safe_cleanup_argument_passing() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
-    assert "local deadline=$((SECONDS + 15))" in source
-    assert 'error: native tab provisioning did not produce a usable ChatGPT tab within 15 seconds' in source
+    assert "local deadline=$((SECONDS + 45))" in source
+    assert 'error: native tab provisioning did not produce a usable ChatGPT tab within 45 seconds' in source
     assert '"$PYTHON" - "$operation_id" <<\'PY\'' in source
     assert 'sys.argv[1]' in source
     assert '| "$PYTHON" -c \'import json,sys; print(json.dumps({"operation_id":sys.argv[1]' not in source
