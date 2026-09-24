@@ -327,8 +327,7 @@ async function inspect() {
     observationAge(health.observation) <= STALE_MS
   ) ? health : null;
   const targetChatUrl = (
-    liveHealth?.data?.active_operation_id &&
-    typeof liveHealth.data.chat_url === 'string'
+    typeof liveHealth?.data?.chat_url === 'string'
   ) ? liveHealth.data.chat_url : '';
   const pendingWork = bridgeHasPendingWork(status, liveHealth);
 
