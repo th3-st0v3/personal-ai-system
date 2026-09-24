@@ -69,6 +69,18 @@ def expected_controller_version(root: Path) -> str:
     return match.group(1).strip()
 
 
+def expected_extension_manifest_version(root: Path) -> str:
+    manifest = root / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json"
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"could not read extension manifest {manifest}: {exc}") from exc
+    version = payload.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise RuntimeError(f"extension manifest {manifest} has no usable version")
+    return version.strip()
+
+
 def browser_health_is_ready(
     data: dict[str, Any],
     expected_controller_version: str,
@@ -102,6 +114,7 @@ def main() -> int:
         raise RuntimeError(f"bridge health failed: {health!r}")
 
     expected = expected_controller_version(root)
+    expected_extension_version = expected_extension_manifest_version(root)
     deadline = time.monotonic() + max(0.0, args.wait_seconds)
     observation: dict[str, Any]
     data: dict[str, Any]
@@ -162,6 +175,8 @@ def main() -> int:
         "native_controller": native,
         "controller_version_expected": expected,
         "controller_version_actual": actual,
+        "extension_manifest_version_expected": expected_extension_version,
+        "extension_manifest_version_actual": actual_extension_version,
         "heartbeat_age_seconds": round(age, 3),
         "chat_url": data.get("chat_url"),
         "auth_required": data.get("auth_required"),
@@ -181,6 +196,12 @@ def main() -> int:
         raise RuntimeError("native PASI Chromium controller is not active")
     if actual != expected:
         raise RuntimeError(f"controller version mismatch: expected {expected!r}, observed {actual!r}")
+    if actual_extension_version != expected_extension_version:
+        raise RuntimeError(
+            "loaded PASI extension version mismatch: "
+            f"expected {expected_extension_version!r}, observed {actual_extension_version!r}; "
+            "reload the native PASI extension in Chromium/Opera and reload the ChatGPT tab"
+        )
     if age < -5 or age > args.max_age_seconds:
         raise RuntimeError(f"browser heartbeat is stale: age={age:.2f}s, limit={args.max_age_seconds:.2f}s")
     chat_url = data.get("chat_url")
