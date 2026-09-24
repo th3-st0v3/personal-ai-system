@@ -29,10 +29,12 @@ def project_items_with_status(status: str) -> dict[int, dict[str, dict[str, str]
 
 
 
-def test_project_uses_native_github_date_fields_and_dedicated_quarter_field() -> None:
+def test_project_uses_native_github_scheduling_fields() -> None:
     assert sync_module.START_FIELD == "Start date"
     assert sync_module.END_FIELD == "Target date"
-    assert sync_module.QUARTER_FIELD == "PASI Quarter"
+    assert sync_module.QUARTER_FIELD == "Quarter"
+    assert sync_module.ITERATION_FIELD == "Iteration"
+    assert sync_module.MILESTONE_FIELD == "Milestone"
 
 
 def test_project_status_option_lookup_is_case_insensitive() -> None:
@@ -54,6 +56,94 @@ def test_project_status_option_lookup_is_case_insensitive() -> None:
     }
     option = sync_module.project_status_option(project, "In Progress")
     assert option["id"] == "progress"
+
+
+def test_quarter_iteration_selection_uses_project_date_windows() -> None:
+    project = {
+        "fields": {
+            "nodes": [
+                {
+                    "__typename": "ProjectV2IterationField",
+                    "id": "quarter-field",
+                    "name": "Quarter",
+                    "configuration": {
+                        "iterations": [
+                            {"id": "q1", "title": "Quarter 1", "startDate": "2026-09-22", "duration": 90},
+                            {"id": "q2", "title": "Quarter 2", "startDate": "2026-12-21", "duration": 84},
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+    q1 = sync_module.quarter_iteration_for_metadata(
+        project,
+        sync_module.Metadata(
+            phase="P0",
+            issue_type="frontend",
+            iteration="Iteration 1",
+            start_date="2026-09-22",
+            end_date="2026-10-04",
+            team="Frontend",
+            quarter="legacy-calendar-label",
+        ),
+    )
+    q2 = sync_module.quarter_iteration_for_metadata(
+        project,
+        sync_module.Metadata(
+            phase="P7",
+            issue_type="frontend",
+            iteration="Iteration 8",
+            start_date="2026-12-21",
+            end_date="2027-01-09",
+            team="Frontend",
+            quarter="legacy-calendar-label",
+        ),
+    )
+    assert q1["title"] == "Quarter 1"
+    assert q2["title"] == "Quarter 2"
+
+
+def test_verify_issue_handles_unset_project_iteration_without_attribute_error(monkeypatch) -> None:
+    project = {
+        "fields": {
+            "nodes": [
+                {
+                    "__typename": "ProjectV2IterationField",
+                    "id": "quarter-field",
+                    "name": "Quarter",
+                    "configuration": {
+                        "iterations": [
+                            {"id": "q1", "title": "Quarter 1", "startDate": "2026-09-22", "duration": 90},
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(sync_module, "project_snapshot", lambda: project)
+    item = {
+        "start": {"date": "2026-09-22"},
+        "end": {"date": "2026-10-04"},
+        "team": {"name": "Frontend"},
+        "quarter": {"title": "Quarter 1"},
+        "iteration": None,
+    }
+    metadata = sync_module.Metadata(
+        phase="P0",
+        issue_type="frontend",
+        iteration="Iteration 1",
+        start_date="2026-09-22",
+        end_date="2026-10-04",
+        team="Frontend",
+        quarter="legacy-calendar-label",
+    )
+    try:
+        sync_module.verify_issue({319: item}, 319, metadata)
+    except RuntimeError as exc:
+        assert "Iteration" in str(exc)
+    else:
+        raise AssertionError("Expected missing native Iteration value to fail verification")
 
 def test_frontend_phase_mapping_is_complete_and_contiguous() -> None:
     assert len(FRONTEND_PHASE_ISSUES) == 23
@@ -120,8 +210,11 @@ Build the next control-plane surface.
 ### Relationship
 depends on #273; related to #319
 
-### Development Milestone
+### Milestone
 M1
+
+### Development
+create branch: pasi/example
 
 ### Status
 In Progress
@@ -133,6 +226,7 @@ In Progress
     assert form.end_date == "2026-10-12"
     assert form.relationship == "depends on #273; related to #319"
     assert form.development_milestone == "M1"
+    assert form.development == "create branch: pasi/example"
     assert form.status == "In Progress"
 
 
