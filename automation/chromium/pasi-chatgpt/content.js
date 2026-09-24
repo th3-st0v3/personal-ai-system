@@ -2067,7 +2067,7 @@
   }
 
   function poll() {
-    if (processing || activeOperationId !== null || extensionContextInvalidated) return Promise.resolve();
+    if (processing || activeOperationId !== null || extensionContextInvalidated || manualReloadGateState()) return Promise.resolve();
     if (pollInFlight) return pollInFlight;
     pollInFlight = (async () => {
       if (!(await controllerClaim())) return;
