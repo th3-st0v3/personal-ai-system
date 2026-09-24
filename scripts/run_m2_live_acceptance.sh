@@ -75,7 +75,14 @@ cleanup_current_m2_operation() {
   status="$(get_operation_status 2>/dev/null || true)"
   case "$status" in
     queued|claimed|generating|running)
-      curl -fsS --max-time 5         -X POST         -H "Authorization: Bearer $PASI_BRIDGE_TOKEN"         -H "Content-Type: application/json"         "$BRIDGE/chat/failed"         -d "$(printf '%s' "$operation_id" | "$PYTHON" -c 'import json,sys; print(json.dumps({"operation_id":sys.argv[1],"error":"M2 harness exited before completion; cleaning its owned operation"}))')"         >/dev/null 2>&1 || true
+      curl -fsS --max-time 5         -X POST         -H "Authorization: Bearer $PASI_BRIDGE_TOKEN"         -H "Content-Type: application/json"         "$BRIDGE/chat/failed"         -d "$("$PYTHON" - "$operation_id" <<'PY'
+import json, sys
+print(json.dumps({
+    "operation_id": sys.argv[1],
+    "error": "M2 harness exited before completion; cleaning its owned operation",
+}))
+PY
+)"         >/dev/null 2>&1 || true
       ;;
   esac
 }
@@ -134,7 +141,7 @@ PY
 }
 
 wait_for_tab_provisioning() {
-  local deadline=$((SECONDS + 120))
+  local deadline=$((SECONDS + 15))
   while (( SECONDS < deadline )); do
     local result action count selected_tab_id accepted
     result="$(get_provisioning_observation 2>/dev/null || echo '{}')"
@@ -174,7 +181,7 @@ PY
     fi
     sleep 2
   done
-  echo "error: native tab provisioning did not produce a usable ChatGPT tab within 120 seconds" >&2
+  echo "error: native tab provisioning did not produce a usable ChatGPT tab within 15 seconds" >&2
   echo "last provisioning observation: $(get_provisioning_observation 2>/dev/null || true)" >&2
   return 1
 }
