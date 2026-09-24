@@ -152,18 +152,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const senderUrl = String(sender?.url || '');
     const extensionPrefix = `chrome-extension://${chrome.runtime.id}/`;
     if (!senderUrl.startsWith(extensionPrefix)) {
-      sendResponse({ ok: false, status: 403, text: '' });
+      console.warn('[PASI control-center bridge] rejected non-extension sender', senderUrl.slice(0, 200));
+      sendResponse({ ok: false, status: 403, text: 'control-center sender rejected' });
       return undefined;
     }
 
     const method = String(message.method || 'GET').toUpperCase();
     const path = String(message.path || '');
     const allowed = (
-      (method === 'GET' && new Set(['/status', '/browser/observation', '/runner/capabilities', '/runner/state']).has(path))
+      (method === 'GET' && new Set(['/status', '/browser/observation', '/browser/provisioning', '/runner/capabilities', '/runner/state']).has(path))
       || (method === 'POST' && path === '/runner/control')
     );
     if (!allowed) {
-      sendResponse({ ok: false, status: 403, text: '' });
+      console.warn('[PASI control-center bridge] rejected route', method, path);
+      sendResponse({ ok: false, status: 403, text: 'control-center route rejected' });
       return undefined;
     }
 
