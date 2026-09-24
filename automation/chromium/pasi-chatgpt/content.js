@@ -2035,13 +2035,6 @@
             readyBox: box
           });
           const browserTiming = { ...(submission.timing || {}) };
-          if (
-            isM2ManualReloadGate(operation) &&
-            (submission.verified || Number(submission?.timing?.user_messages_added || 0) > 0)
-          ) {
-            await armM2ManualReloadGate(operation, '', submission.timing || null);
-            scheduleManualReloadGateMonitor();
-          }
           const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);
           if (
             Number.isFinite(previousCompletionAckAtMs) &&
