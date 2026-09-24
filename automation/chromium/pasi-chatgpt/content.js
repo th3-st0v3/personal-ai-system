@@ -2392,11 +2392,16 @@
         return true;
       }
 
+      const manualGateWaiting = (
+        operation.manual_reload_gate === true &&
+        operation.manual_reload_gate_released !== true
+      );
       if (
         operation.operation_type === 'prompt' &&
         operation.response_text_available === true &&
         typeof operation.response_text === 'string' &&
-        operation.response_text.trim()
+        operation.response_text.trim() &&
+        !manualGateWaiting
       ) {
         await finishOperation(operationId, operation.response_text, true);
         localStorage.removeItem(ACTIVE_KEY);
@@ -2431,8 +2436,12 @@
         active_operation_id: operationId,
         resume_handoff: 'deferred',
         observed_status: operation.status,
-        response_text_available: operation.response_text_available === true
+        response_text_available: operation.response_text_available === true,
+        manual_reload_gate_waiting: manualGateWaiting
       });
+      setTimeout(() => {
+        void resumeOperationFromBackground(operationId);
+      }, POLL_MS);
     } catch (error) {
       void reportObservation('chatgpt_state', {
         chat_url: chatUrl(),
