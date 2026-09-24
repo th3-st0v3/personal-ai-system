@@ -57,6 +57,26 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
             path.write_text("prefix\nResuming persisted ChatGPT operation: op-1\n", encoding="utf-8")
             self.assertIn("Resuming persisted ChatGPT operation: op-1", read_log_since(path, len("prefix\n".encode("utf-8"))))
 
+    def test_browser_health_preserves_native_v2_envelope_timestamp(self) -> None:
+        from unittest.mock import patch
+        with patch(
+            "scripts.m2_live_acceptance.request_json",
+            return_value={
+                "observation": {
+                    "schema_version": "pasi-native-chromium-v2",
+                    "captured_at": "2026-09-24T05:10:05.569Z",
+                    "data": {
+                        "kind": "chatgpt_health",
+                        "native_controller": True,
+                    },
+                }
+            },
+        ):
+            from scripts.m2_live_acceptance import observation
+            value = observation("/browser/health")
+        self.assertEqual(value["captured_at"], "2026-09-24T05:10:05.569Z")
+        self.assertEqual(value["schema_version"], "pasi-native-chromium-v2")
+
     def test_m2_preflight_rejects_stale_browser_health(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
         self.assertIn("BROWSER_MAX_HEARTBEAT_AGE_SECONDS", source)
