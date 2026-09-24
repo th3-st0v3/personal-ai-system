@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 test('native background bridge respects content-side request timeouts', () => {
   assert.match(background, /const requestedTimeout = Number\(message\.timeout\);/);
@@ -83,6 +84,18 @@ test('native recovery companion expires vanished operations after the bounded gr
   assert.match(recovery, /operation_missing_expired/);
   assert.match(recovery, /clearInterruptedState\(\)/);
   assert.match(recovery, /missing_operation_age_ms: age/);
+});
+
+test('native recovery progress support script is safe to reinject', () => {
+  const source = fs.readFileSync(path.join(root, 'recovery_progress.js'), 'utf8');
+  assert.match(source, /PASI_RECOVERY_PROGRESS/);
+  const context = vm.createContext({});
+  vm.runInContext(source, context, { filename: 'recovery_progress.js' });
+  const first = context.PASI_RECOVERY_PROGRESS;
+  assert.ok(first);
+  vm.runInContext(source, context, { filename: 'recovery_progress.js' });
+  assert.equal(context.PASI_RECOVERY_PROGRESS, first);
+  assert.equal(typeof context.PASI_RECOVERY_PROGRESS.ProgressTracker, 'function');
 });
 
 test('native content and recovery scripts are safe to reinject', () => {
