@@ -199,6 +199,16 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
 });
 
+test('native conversation signature persists exact per-chat progression outside DOM virtualization', () => {
+  assert.match(content, /const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature'/);
+  assert.match(content, /function conversationSignatureState\(\)/);
+  assert.match(content, /stored\.chat_url === currentUrl/);
+  assert.match(content, /state\.user_count \+= 1/);
+  assert.match(content, /state\.assistant_count \+= 1/);
+  assert.match(content, /completed_operation_ids/);
+  assert.match(content, /advanceConversationSignature\(operationId, responseText\)/);
+});
+
 test('native controller keeps browser health on a fast bounded cadence separate from state telemetry', () => {
   assert.match(content, /const HEALTH_MS = TIMEOUT_POLICY\.heartbeatMs \|\| 15000/);
   assert.match(content, /const STATE_REPORT_MS = 10000;/);
