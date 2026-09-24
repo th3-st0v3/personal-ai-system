@@ -143,8 +143,7 @@ PY
 )"
       if [[ "$fresh" == "1" ]]; then
         PROVISIONING_CREATED_JSON="$result"
-        printf 'Native tab provisioning accepted (existing tab is valid): %s
-' "$result"
+        printf 'Native tab provisioning accepted (existing tab is valid): %s\n' "$result"
         return 0
       fi
     fi
