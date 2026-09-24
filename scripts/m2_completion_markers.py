@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-_MARKDOWN_WRAPPER_RE = re.compile(r"^[\\s\\`*_~]+|[\\s\\`*_~]+$")
+_MARKDOWN_WRAPPER_RE = re.compile(r"^[\s`*_~]+|[\s`*_~]+$")
 
 
 def collapse_whitespace(value: str) -> str:
-    return re.sub(r"\\s+", " ", value).strip()
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def normalize_marker_line(value: str) -> str:
