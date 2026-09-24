@@ -231,6 +231,21 @@ async function listChatGptTabs() {
   });
 }
 
+async function reportTabProvisioning(event) {
+  try {
+    await bridgeFetch('/browser/observation', 'POST', {
+      schema_version: 'pasi-native-chromium-v2',
+      captured_at: new Date().toISOString(),
+      data: {
+        kind: 'chatgpt_tab_provisioning',
+        ...event
+      }
+    }, 2000);
+  } catch (_) {
+    // Provisioning telemetry must never block recovery.
+  }
+}
+
 function validChatConversationUrl(value) {
   return sameChatConversationUrl(value, value) ? String(value) : '';
 }
@@ -249,30 +264,82 @@ function bridgeHasPendingWork(status, health) {
 async function ensureChatGptTab(targetChatUrl, pendingWork) {
   if (!pendingWork) return null;
   const existingTabs = await listChatGptTabs();
-  if (existingTabs.length > 0) return null;
-  if (tabCreateInFlight) return tabCreateInFlight;
+  if (existingTabs.length > 0) {
+    void reportTabProvisioning({
+      action: 'existing_tabs_no_create',
+      existing_tab_count: existingTabs.length,
+      existing_tab_ids: existingTabs.map((tab) => tab.id).filter((id) => typeof id === 'number'),
+      existing_tab_urls: existingTabs.map((tab) => String(tab.url || '')).filter(Boolean),
+      requested_url: validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL
+    });
+    return null;
+  }
+  if (tabCreateInFlight) {
+    void reportTabProvisioning({
+      action: 'in_flight_no_create',
+      existing_tab_count: 0,
+      requested_url: validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL
+    });
+    return tabCreateInFlight;
+  }
 
   const requestedUrl = validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL;
   tabCreateInFlight = (async () => {
     try {
       const stored = await chrome.storage.local.get(TAB_CREATE_COOLDOWN_KEY);
       const attemptedAt = Number(stored?.[TAB_CREATE_COOLDOWN_KEY]?.attempted_at || 0);
-      if (attemptedAt > 0 && Date.now() - attemptedAt < TAB_CREATE_COOLDOWN_MS) return null;
+      if (attemptedAt > 0 && Date.now() - attemptedAt < TAB_CREATE_COOLDOWN_MS) {
+        void reportTabProvisioning({
+          action: 'cooldown_no_create',
+          existing_tab_count: 0,
+          requested_url: requestedUrl,
+          cooldown_age_ms: Date.now() - attemptedAt
+        });
+        return null;
+      }
 
       // Re-check immediately before creation so two watchdog passes cannot race
       // between the first tab query and chrome.tabs.create().
       const currentTabs = await listChatGptTabs();
-      if (currentTabs.length > 0) return null;
+      if (currentTabs.length > 0) {
+        void reportTabProvisioning({
+          action: 'race_existing_tabs_no_create',
+          existing_tab_count: currentTabs.length,
+          existing_tab_ids: currentTabs.map((tab) => tab.id).filter((id) => typeof id === 'number'),
+          existing_tab_urls: currentTabs.map((tab) => String(tab.url || '')).filter(Boolean),
+          requested_url: requestedUrl
+        });
+        return null;
+      }
 
+      const attemptedAtMs = Date.now();
       await chrome.storage.local.set({
         [TAB_CREATE_COOLDOWN_KEY]: {
-          attempted_at: Date.now(),
+          attempted_at: attemptedAtMs,
           url: requestedUrl
         }
       });
       const created = await chrome.tabs.create({ url: requestedUrl, active: false });
+      const afterCreateTabs = await listChatGptTabs();
+      void reportTabProvisioning({
+        action: 'created',
+        existing_tab_count: 0,
+        requested_url: requestedUrl,
+        created_tab_id: typeof created?.id === 'number' ? created.id : null,
+        created_tab_url: String(created?.url || ''),
+        after_create_tab_count: afterCreateTabs.length,
+        after_create_tab_ids: afterCreateTabs.map((tab) => tab.id).filter((id) => typeof id === 'number'),
+        after_create_tab_urls: afterCreateTabs.map((tab) => String(tab.url || '')).filter(Boolean),
+        cooldown_started_at: attemptedAtMs
+      });
       return typeof created?.id === 'number' ? created.id : null;
     } catch (error) {
+      void reportTabProvisioning({
+        action: 'create_error',
+        existing_tab_count: 0,
+        requested_url: requestedUrl,
+        error: String(error?.message || error).slice(0, 300)
+      });
       console.warn('[PASI tab provisioning]', String(error?.message || error));
       return null;
     } finally {
