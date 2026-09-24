@@ -143,7 +143,7 @@ cat "$BROWSER_ATTACH_LOG" | tee -a "$LOG" || true
 # M0 deliberately does not launch Opera, create tabs, or reload the operator's
 # ChatGPT session. The native controller must already be attached to the
 # authenticated tab that the operator has chosen for acceptance.
-TASK="P0.1 — M0 live task acceptance: Prove one real task can travel from authenticated ChatGPT response through contract parsing, patch application, canonical validation, and a clean committed worktree, producing the required evidence artifact."
+TASK="P0.1 — M0 live task acceptance: Prove one real task can travel from the authenticated ChatGPT response through contract parsing, patch application, canonical validation, and a clean committed worktree. Produce a patch that adds acceptance/M0-LIVE-PROOF.txt containing exactly one line, PASI M0 LIVE PROOF. Keep every local computer-capability request repository-relative to this dedicated acceptance worktree; never request absolute paths or access to the parent checkout, home directory, browser profile, or other host files. Use public GitHub repository context for source inspection when available. The PASI harness performs git apply, canonical validation, commit, and clean-worktree checks, so return the normal completion contract and one unified patch rather than claiming those harness-side steps were already performed."
 
 # M0 live qualification: one sustained qualification task, not a one-file task.
 # Do not stop after creating the proof file, producing a small patch, or getting one test to pass.
