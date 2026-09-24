@@ -130,10 +130,31 @@ test('native response evidence rejects pre-prompt assistant messages and accepts
   dom.window.document.querySelector('main').append(reply);
 
   assert.equal(
-    api.assistantResponseEvidence(snapshot, '[PASI_OPERATION op-123]\nDo the task', 'older baseline'),
+    api.assistantResponseEvidence(snapshot, '[PASI_OPERATION op-123]\\nDo the task', 'older baseline'),
     'new assistant response'
   );
   dom.window.close();
+
+  const reused = loadController(
+    '<main>' +
+      '<div id="assistant" data-message-author-role="assistant"><div class="markdown">old assistant response</div></div>' +
+      '<div data-message-author-role="user"><div>[PASI_OPERATION op-456]\\nDo the task</div></div>' +
+      '</main>'
+  );
+  const reusedApi = reused.window.PASI_NATIVE_TEST_API;
+  const reusedAssistant = reused.window.document.querySelector('#assistant');
+  const reusedSnapshot = reusedApi.snapshotAssistantMessages();
+  reusedAssistant.querySelector('.markdown').textContent = 'new assistant response';
+  reused.window.document.querySelector('main').append(reusedAssistant);
+  assert.equal(
+    reusedApi.assistantResponseEvidence(
+      reusedSnapshot,
+      '[PASI_OPERATION op-456]\\nDo the task',
+      'old assistant response'
+    ),
+    'new assistant response'
+  );
+  reused.window.close();
 });
 
 test('whitespace-collapse mutation fails the multiline extraction contract', () => {
