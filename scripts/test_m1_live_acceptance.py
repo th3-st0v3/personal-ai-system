@@ -112,16 +112,22 @@ class TestM1LiveAcceptance(unittest.TestCase):
 
     def test_durable_response_waiter_accepts_marker_inside_surrounding_response_text(self) -> None:
         class FakeAdapter:
+            def __init__(self) -> None:
+                self.responses = [
+                    {"data": {"kind": "chatgpt_response", "operation_id": "old-op"}},
+                    {
+                        "data": {
+                            "kind": "chatgpt_response",
+                            "operation_id": "op-1",
+                            "chat_url": "https://chatgpt.com/c/live",
+                            "response_text": "The requested marker is PASI_M1_ACCEPTANCE_01_abcd1234.",
+                            "conversation_signature": "4:5:current",
+                        }
+                    },
+                ]
+
             def read_browser_response_observation(self) -> dict[str, object]:
-                return {
-                    "data": {
-                        "kind": "chatgpt_response",
-                        "operation_id": "op-1",
-                        "chat_url": "https://chatgpt.com/c/live",
-                        "response_text": "The requested marker is PASI_M1_ACCEPTANCE_01_abcd1234.",
-                        "conversation_signature": "4:5:current",
-                    }
-                }
+                return self.responses.pop(0)
 
         state, signature = wait_for_durable_response_progression(
             FakeAdapter(),
