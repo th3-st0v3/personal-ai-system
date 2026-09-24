@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.run_m1_live_acceptance import parse_conversation_signature, signature_counts, validate_signature_progression
+from scripts.run_m1_live_acceptance import (
+    parse_conversation_signature,
+    signature_counts,
+    validate_signature_progression,
+)
 
 
 class TestM1LiveAcceptance(unittest.TestCase):
