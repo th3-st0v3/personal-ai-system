@@ -44,6 +44,13 @@ ITERATION_FIELD = "Iteration"
 STATUS_FIELD = "Status"
 STATUS_DONE = "Done"
 STATUS_TODO = "Todo"
+LEGACY_PROJECT_FIELDS = {
+    "Description",
+    "Relationship",
+    "Development",
+    "Development Milestone",
+    "PASI Quarter",
+}
 FRONTEND_ROADMAP_ISSUE = 318
 FRONTEND_PHASE_ISSUES = {f"P{index}": 319 + index for index in range(23)}
 FRONTEND_PHASE_TITLE_RE = re.compile(r"^FE-(?P<phase>P\d+)\s+—\s+")
@@ -648,7 +655,7 @@ def project_snapshot() -> dict[str, Any]:
           fields(first:100) {
             nodes {
               __typename
-              ... on ProjectV2Field { id name }
+              ... on ProjectV2Field { id name isIssueField }
               ... on ProjectV2IterationField {
                 id name
                 configuration {
@@ -658,7 +665,7 @@ def project_snapshot() -> dict[str, Any]:
                 }
               }
               ... on ProjectV2SingleSelectField {
-                id name
+                id name isIssueField
                 options { id name description color }
               }
             }
@@ -697,8 +704,7 @@ def field_by_name(project: dict[str, Any], name: str, typename: str) -> dict[str
             return field    return None
 
 
-def create_field(project_id: str, field_input: dict[str, object]) -> dict[str, Any]:
-    query = """
+def create_field(project_id: str, field_input: dict[str, object]) -> dict[str, Any]:    query = """
     mutation($input:CreateProjectV2FieldInput!) {
       createProjectV2Field(input:$input) {
         projectV2Field {
@@ -779,7 +785,44 @@ def update_single_select_field(
     )
 
 
+def delete_project_field(field_id: str) -> None:
+    mutation = """
+    mutation($input:DeleteProjectV2FieldInput!) {
+      deleteProjectV2Field(input:$input) {
+        projectV2Field { id }
+      }
+    }
+    """
+    graphql(
+        mutation,
+        {"input": {"fieldId": field_id}},
+        retryable=False,
+    )
+
+
+def remove_legacy_project_fields(project: dict[str, Any]) -> dict[str, Any]:
+    removed: list[str] = []
+    for field in project["fields"]["nodes"]:
+        name = field.get("name")
+        if name not in LEGACY_PROJECT_FIELDS:
+            continue
+        if field.get("isIssueField", True):
+            continue
+        delete_project_field(field["id"])
+        removed.append(name)
+
+    if not removed:
+        return project
+
+    print(
+        "Removed legacy custom Project fields: "
+        + ", ".join(sorted(removed))
+    )
+    return project_snapshot()
+
+
 def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
+    project = remove_legacy_project_fields(project)
     fields = {field["name"]: field for field in project["fields"]["nodes"]}
 
     # Reuse GitHub's native scheduling fields where available.
@@ -1397,8 +1440,7 @@ def all_metadata_issue_numbers() -> list[int]:
     raw = run_gh(
         [
             "api",
-            endpoint,
-            "--paginate",
+            endpoint,            "--paginate",
             "--jq",
             '.[] | select(.body != null) | select(.body | contains("PASI_PROJECT_METADATA")) | .number',
         ]
