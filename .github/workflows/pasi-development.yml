@@ -127,7 +127,7 @@ jobs:
       group: ${{ format('{0}-{1}-desktop-control', github.workflow, github.repository) }}
       cancel-in-progress: false
     needs: [verify]
-    if: ${{ always() && (inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop') && (inputs.mode != 'start-automation' || needs.verify.result == 'success') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && always() && (inputs.mode == 'start-automation' || inputs.mode == 'status' || inputs.mode == 'stop') && (inputs.mode != 'start-automation' || needs.verify.result == 'success') }}
     runs-on: [self-hosted, linux, x64, pasi-desktop]
     timeout-minutes: 15
     steps:
