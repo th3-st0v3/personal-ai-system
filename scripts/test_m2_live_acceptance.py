@@ -71,6 +71,16 @@ def test_m2_harness_accepts_existing_chatgpt_tabs_without_creating_one() -> None
     assert "tab_provisioning_initial" in source
     assert "initial tab provisioning evidence" in source
 
+def test_m2_harness_rejects_stale_browser_health_before_queueing() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert 'get_fresh_browser_health()' in source
+    assert 'PREFLIGHT_STARTED_AT=' in source
+    assert 'stale PASI browser health' in source
+    assert 'before M2 operation queueing' in source
+    assert 'reload the PASI extension in opera://extensions' in source
+    assert source.index('get_fresh_browser_health()') < source.index('idempotency_key = "m2-"')
+
+
 def test_m2_harness_preflight_is_single_instance_and_cleans_stale_state() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     cleanup = Path("scripts/m2_live_cleanup.sh").read_text(encoding="utf-8")
