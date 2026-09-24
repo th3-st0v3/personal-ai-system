@@ -681,9 +681,13 @@ test('background watchdog wakes existing tabs without navigation', () => {
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });
 
-test('native controller answers background health pings and visibility transitions', () => {
+test('native controller answers background health pings only after fresh health reporting', () => {
   assert.match(content, /message\?\.type === 'pasi-health-ping'/);
-  assert.match(content, /void reportHealth\(\)/);
+  assert.match(content, /reportHealth\(\)[\s\S]*health_reported: healthReported === true/);
+  assert.match(content, /return true;\s*\}\s*if \(extensionContextInvalidated\)/);
+  assert.match(background, /const healthPing = await chrome\.tabs\.sendMessage\(tabId, \{ type: 'pasi-health-ping' \}\);/);
+  assert.match(background, /healthPing\?\.ok === true && healthPing\?\.health_reported === true/);
+  assert.match(background, /injected controller did not publish a fresh health observation/);
   assert.match(content, /document\.addEventListener\('visibilitychange'/);
 });
 
