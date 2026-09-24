@@ -486,7 +486,18 @@ def route_chat(
         print(f"Reusing ChatGPT conversation: {known_url}")
 
     reasoning_mode = handoff.get("reasoning_mode")
-    if not isinstance(reasoning_mode, str) or reasoning_mode not in {"thinking", "think"}:
+    fast_start = (
+        str(__import__("os").environ.get("PASI_M2_FAST_START", "")).strip().casefold()
+        in {"1", "true", "yes", "on"}
+    )
+    thinking_already_verified = (
+        state.get("thinking_enabled") is True
+        and state.get("thinking_capability") in {"available", "enabled"}
+    )
+    if fast_start and thinking_already_verified:
+        reasoning_mode = "thinking"
+        print("Thinking mode already verified by the live browser preflight; skipping redundant reasoning-selection operation.")
+    elif not isinstance(reasoning_mode, str) or reasoning_mode not in {"thinking", "think"}:
         adapter.select_reasoning_mode("thinking")
         reasoning_mode = "thinking"
         print("Thinking mode enabled for task.")
