@@ -37,11 +37,17 @@ jobs:
       PASI_PROJECT_RETRIES: "4"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Validate synchronizer syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/sync_pasi_project_metadata.py
 
       - name: Validate Project configuration and token
         shell: bash
@@ -74,12 +80,20 @@ jobs:
                   id
                   number
                   title
+                  viewerCanUpdate
                 }
               }
             }'             -f login="${PASI_PROJECT_OWNER}"             -F number="${PASI_PROJECT_NUMBER}"             --jq '.data.user.projectV2 // error("Project not found or not accessible")' > project.json
 
           project_title="$(python3 -c 'import json; print(json.load(open("project.json"))["title"])')"
+          can_update="$(python3 -c 'import json; print(str(json.load(open("project.json"))["viewerCanUpdate"]).lower())')"
           echo "Target Project: ${project_title} (#${PASI_PROJECT_NUMBER})"
+          echo "Project viewerCanUpdate: ${can_update}"
+
+          if [ "${can_update}" != "true" ]; then
+            echo "::error::The PASI_PROJECTS_TOKEN can read the Project but cannot update it."
+            exit 1
+          fi
 
           if [ -n "${PASI_PROJECT_TITLE:-}" ] && [ "${project_title}" != "${PASI_PROJECT_TITLE}" ]; then
             echo "::error::PASI_PROJECT_TITLE does not match the deterministic Project number."
