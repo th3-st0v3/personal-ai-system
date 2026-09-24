@@ -10,11 +10,17 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.error import URLError
 from urllib.request import urlopen
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+class BrowserStateReader(Protocol):
+    def read_browser_state(self) -> Any: ...
+
+
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
@@ -46,7 +52,7 @@ def signature_counts(value: object) -> tuple[int, int] | None:
 
 
 def wait_for_conversation_signature(
-    adapter: ChatGPTAdapter,
+    adapter: BrowserStateReader,
     expected_chat_url: str | None = None,
     *,
     timeout_seconds: float = 15.0,
@@ -80,7 +86,7 @@ def wait_for_conversation_signature(
 
 
 def wait_for_signature_progression(
-    adapter: ChatGPTAdapter,
+    adapter: BrowserStateReader,
     expected_chat_url: str,
     previous_signature: str,
     index: int,
