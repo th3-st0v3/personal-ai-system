@@ -43,7 +43,7 @@ def test_standard_ci_and_security_use_hosted_runners_and_fork_safe() -> None:
     assert "[self-hosted, linux, x64, pasi-wsl]" not in test_workflow
     assert "runs-on: ubuntu-latest" in security_workflow
     assert "[self-hosted, linux, x64, pasi-wsl]" not in security_workflow
-    assert "untrusted fork pull requests" in test_workflow
+    assert "Hosted GitHub Actions is the authoritative repository validation path" in test_workflow
     assert "github.event.pull_request.head.repo.full_name == github.repository" in security_workflow
 
 
