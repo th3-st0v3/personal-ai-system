@@ -145,6 +145,9 @@ cat "$BROWSER_ATTACH_LOG" | tee -a "$LOG" || true
 # authenticated tab that the operator has chosen for acceptance.
 TASK="P0.1 — M0 live task acceptance: Prove one real task can travel from authenticated ChatGPT response through contract parsing, patch application, canonical validation, and a clean committed worktree, producing the required evidence artifact."
 
+# M0 live qualification: one sustained qualification task, not a one-file task.
+# Do not stop after creating the proof file, producing a small patch, or getting one test to pass.
+# Continue working until every M0 acceptance criterion has direct evidence.
 # M0 P0.1 is one live acceptance seam. The browser response, contract, patch,
 # canonical gate, and commit are all part of the same bounded qualification task.
 [[ -n "$WORKTREE" ]] || { echo "error: M0 acceptance worktree path is empty" >&2; exit 10; }
