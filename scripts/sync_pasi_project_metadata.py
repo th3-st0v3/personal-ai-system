@@ -1262,15 +1262,28 @@ def apply_roadmap_form_to_item(
     update_item_field(
         project["id"], item_id, fields[END_FIELD]["id"], {"date": form.end_date}
     )
-    update_item_field(
-        project["id"], item_id, fields[RELATIONSHIP_FIELD]["id"], {"text": form.relationship}
-    )
-    update_item_field(
-        project["id"],
-        item_id,
-        fields[DEVELOPMENT_MILESTONE_FIELD]["id"],
-        {"text": form.development_milestone},
-    )
+
+    # Relationship, Milestone, and Development are native issue controls, not
+    # custom Project text fields.
+    sync_issue_relationships(issue_number, form.relationship)
+    set_issue_milestone(issue_number, form.development_milestone)
+    development = form.development.strip()
+    if development and development.casefold() not in {"none", "n/a", "na"}:
+        match = re.match(r"(?i)create(?:\s+branch)?\s*:?\s*(.+)$", development)
+        if match:
+            create_linked_development_branch(issue_number, match.group(1).strip())
+        elif development.casefold().startswith("link "):
+            print(
+                f"::warning::Native Development link requested for #{issue_number}: "
+                "linking an existing branch is currently a GitHub UI operation; "
+                "the synchronizer only creates linked branches."
+            )
+        else:
+            raise ValueError(
+                f"Unsupported Development value for #{issue_number}: {development!r}. "
+                "Use 'create branch: <name>' or 'link <existing-branch>'."
+            )
+
     status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
     if not status:
         raise RuntimeError("Required PASI Project Status field could not be resolved.")
@@ -1310,10 +1323,6 @@ def apply_metadata_to_item(
         (option for option in fields[TEAM_FIELD]["options"] if option["name"] == metadata.team),
         None,
     )
-    quarter_option = next(
-        (option for option in fields[QUARTER_FIELD]["options"] if option["name"] == metadata.quarter),
-        None,
-    )
     iteration = next(
         (
             item
@@ -1322,8 +1331,9 @@ def apply_metadata_to_item(
         ),
         None,
     )
-    if not team_option or not quarter_option or not iteration:
-        raise RuntimeError(f"Project options are incomplete for {metadata.phase}.")
+    quarter = quarter_iteration_for_metadata(project, metadata)
+    if not team_option or not iteration or not quarter:
+        raise RuntimeError(f"Project scheduling options are incomplete for {metadata.phase}.")
 
     update_item_field(
         project["id"], item_id, fields[START_FIELD]["id"], {"date": metadata.start_date}
@@ -1337,13 +1347,16 @@ def apply_metadata_to_item(
     )
     update_item_field(
         project["id"], item_id, fields[QUARTER_FIELD]["id"],
-        {"singleSelectOptionId": quarter_option["id"]},
+        {"iterationId": quarter["id"]},
     )
     update_item_field(
         project["id"], item_id, fields[ITERATION_FIELD]["id"],
         {"iterationId": iteration["id"]},
     )
-    print(f"Synced #{issue_number} {title} -> {metadata.phase}/{metadata.iteration}")
+    print(
+        f"Synced #{issue_number} {title} -> {metadata.phase}/{metadata.iteration}/"
+        f"{quarter['title']}"
+    )
     return project
 
 
@@ -1376,6 +1389,7 @@ def sync_issue(
                 end_date=form.end_date,
                 relationship=form.relationship,
                 development_milestone=form.development_milestone,
+                development=form.development,
                 status=STATUS_DONE,
             )
         elif PROJECT_EVENT_ACTION == "reopened":
@@ -1385,6 +1399,7 @@ def sync_issue(
                 end_date=form.end_date,
                 relationship=form.relationship,
                 development_milestone=form.development_milestone,
+                development=form.development,
                 status=STATUS_TODO,
             )
         project = apply_roadmap_form_to_item(project, item_id, form, issue_number, title)
@@ -1428,9 +1443,7 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
       $quarterField:String!,
       $iterationField:String!,
       $statusField:String!,
-      $descriptionField:String!,
-      $relationshipField:String!,
-      $developmentMilestoneField:String!
+      $descriptionField:String!
     ) {
       node(id:$project) {
         ... on ProjectV2 {
@@ -1455,7 +1468,12 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
                 ... on ProjectV2ItemFieldSingleSelectValue { name }
               }
               quarter: fieldValueByName(name:$quarterField) {
-                ... on ProjectV2ItemFieldSingleSelectValue { name }
+                ... on ProjectV2ItemFieldIterationValue {
+                  iterationId
+                  title
+                  startDate
+                  duration
+                }
               }
               iteration: fieldValueByName(name:$iterationField) {
                 ... on ProjectV2ItemFieldIterationValue {
@@ -1472,12 +1490,6 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
                 }
               }
               description: fieldValueByName(name:$descriptionField) {
-                ... on ProjectV2ItemFieldTextValue { text }
-              }
-              relationship: fieldValueByName(name:$relationshipField) {
-                ... on ProjectV2ItemFieldTextValue { text }
-              }
-              developmentMilestone: fieldValueByName(name:$developmentMilestoneField) {
                 ... on ProjectV2ItemFieldTextValue { text }
               }
             }
@@ -1523,17 +1535,14 @@ def verify_roadmap_form(
         )
 
     checks = [
-        ("Description", item.get("description", {}).get("text"), form.description),
-        ("Start Date", item.get("start", {}).get("date"), form.start_date),
-        ("End Date", item.get("end", {}).get("date"), form.end_date),
-        ("Relationship", item.get("relationship", {}).get("text"), form.relationship),
-        (
-            "Development Milestone",
-            item.get("developmentMilestone", {}).get("text"),
-            form.development_milestone,
-        ),
-        ("Status", item.get("status", {}).get("name"), form.status),
+        ("Description", (item.get("description") or {}).get("text"), form.description),
+        ("Start Date", (item.get("start") or {}).get("date"), form.start_date),
+        ("End Date", (item.get("end") or {}).get("date"), form.end_date),
+        ("Status", (item.get("status") or {}).get("name"), form.status),
     ]
+    milestone = (fetch_issue_context(issue_number).get("milestone") or {}).get("title")
+    if form.development_milestone.strip().casefold() not in {"", "none", "n/a", "na"}:
+        checks.append(("Milestone", milestone, form.development_milestone.strip()))
     mismatches = [
         f"{name}: expected {expected!r}, got {actual!r}"
         for name, actual, expected in checks
@@ -1546,18 +1555,33 @@ def verify_roadmap_form(
         )
 
 
-def verify_issue(project_items_by_number: dict[int, dict[str, Any]], issue_number: int, metadata: Metadata) -> None:
+def verify_issue(
+    project_items_by_number: dict[int, dict[str, Any]],
+    issue_number: int,
+    metadata: Metadata,
+) -> None:
     item = project_items_by_number.get(issue_number)
     if not item:
-        raise RuntimeError(f"Project verification failed: issue #{issue_number} is not in the Project.")
+        raise RuntimeError(
+            f"Project verification failed: issue #{issue_number} is not in the Project."
+        )
 
+    actual_quarter = item.get("quarter") or {}
+    actual_iteration = item.get("iteration") or {}
     checks = [
-        ("Start Date", item.get("start", {}).get("date"), metadata.start_date),
-        ("End Date", item.get("end", {}).get("date"), metadata.end_date),
-        ("Team", item.get("team", {}).get("name"), metadata.team),
-        ("Quarter", item.get("quarter", {}).get("name"), metadata.quarter),
-        ("Iteration", item.get("iteration", {}).get("title"), metadata.iteration),
+        ("Start Date", (item.get("start") or {}).get("date"), metadata.start_date),
+        ("End Date", (item.get("end") or {}).get("date"), metadata.end_date),
+        ("Team", (item.get("team") or {}).get("name"), metadata.team),
+        ("Iteration", actual_iteration.get("title"), metadata.iteration),
     ]
+    try:
+        expected_quarter = quarter_iteration_for_metadata(
+            project_snapshot(),
+            metadata,
+        )["title"]
+    except RuntimeError as exc:
+        raise RuntimeError(f"Quarter verification failed for {metadata.phase}: {exc}") from exc
+    checks.append(("Quarter", actual_quarter.get("title"), expected_quarter))
     mismatches = [
         f"{name}: expected {expected!r}, got {actual!r}"
         for name, actual, expected in checks
@@ -1586,8 +1610,6 @@ def synchronize(issue_numbers: list[int]) -> None:
         "iterationField": ITERATION_FIELD,
         "statusField": STATUS_FIELD,
         "descriptionField": DESCRIPTION_FIELD,
-        "relationshipField": RELATIONSHIP_FIELD,
-        "developmentMilestoneField": DEVELOPMENT_MILESTONE_FIELD,
     }
     existing_items = project_items(project, field_names)
     metadata_by_issue: dict[int, Metadata] = {}
