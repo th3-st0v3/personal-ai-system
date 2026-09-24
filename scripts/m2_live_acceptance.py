@@ -657,7 +657,7 @@ def main() -> int:
             "repository/worktree. Inspect the recovery implementation and relevant tests, run the smallest "
             "relevant deterministic checks, and return a substantive engineering report. Do not modify tracked "
             f"files. Include the exact token {marker} on its own line near the end of the final response. "
-            "PASI_M2_MANUAL_RELOAD_GATE: true. Do not treat the task as terminal until this same operation is explicitly released after the manual tab reload and process recovery.",
+            "PASI_M2_MANUAL_RELOAD_GATE: true. Do not treat the task as terminal until this same operation is explicitly released after the manual tab reload and process recovery. "
             "This is a live M2 kill/restart recovery acceptance operation."
         )
         branch = f"pasi/m2-live-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
