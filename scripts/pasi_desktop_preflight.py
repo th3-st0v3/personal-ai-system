@@ -142,10 +142,12 @@ def main() -> int:
         native = data.get("native_controller") is True
         kind = data.get("kind")
         actual = data.get("controller_version")
+        actual_extension_version = data.get("extension_manifest_version")
         compatible = (
             kind == "chatgpt_health"
             and native
             and actual == expected
+            and actual_extension_version == expected_extension_version
             and -5 <= age <= args.max_age_seconds
         )
         terminal_browser_block = (
