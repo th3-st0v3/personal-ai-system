@@ -27,8 +27,17 @@ test('native bridge caches the token and refreshes once after unauthorized respo
   assert.match(background, /token = await bridgeToken\(true\)/);
 });
 
-test('native health reports the loaded extension manifest version', () => {
-  assert.match(content, /extension_manifest_version: String\(chrome\.runtime\.getManifest\?\.\(\)\.version \|\| ''\)/);
+test('native health reports the loaded extension manifest version without runtime API dependency', () => {
+  assert.match(content, /const EXTENSION_MANIFEST_VERSION = '1\.1\.3';/);
+  assert.match(content, /extension_manifest_version: EXTENSION_MANIFEST_VERSION/);
+  assert.doesNotMatch(content, /extension_manifest_version: String\(chrome\.runtime\.getManifest/);
+});
+
+test('native health stops cleanly when the extension context is invalidated', () => {
+  assert.match(content, /function stopControllerTimers\(\)/);
+  assert.match(content, /extensionContextInvalidated = true;/);
+  assert.match(content, /if \(isExtensionContextInvalidatedError\(error\)\) \{/);
+  assert.match(content, /stopControllerTimers\(\);/);
 });
 
 test('native timeout defaults remain fast enough for the browser freshness gate', () => {
