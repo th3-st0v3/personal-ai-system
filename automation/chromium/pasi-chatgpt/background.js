@@ -399,18 +399,42 @@ function bridgeHasPendingWork(status, health) {
   });
 }
 
+function selectChatGptTab(tabs, targetChatUrl) {
+  const candidates = Array.isArray(tabs) ? tabs.filter((tab) => tab && typeof tab === 'object') : [];
+  const exact = validChatConversationUrl(targetChatUrl)
+    ? candidates.filter((tab) => sameChatConversationUrl(tab?.url, targetChatUrl))
+    : [];
+  return (
+    exact.find((tab) => tab.active === true)
+    || exact[0]
+    || candidates.find((tab) => tab.active === true)
+    || candidates[0]
+    || null
+  );
+}
+
 async function ensureChatGptTab(targetChatUrl, pendingWork) {
   if (!pendingWork) return null;
   const existingTabs = await listChatGptTabs();
   if (existingTabs.length > 0) {
+    const selectedTab = selectChatGptTab(existingTabs, targetChatUrl);
+    const selectedTabId = typeof selectedTab?.id === 'number' ? selectedTab.id : null;
+    let injectionReady = false;
+    if (selectedTabId !== null) {
+      injectionReady = await injectChatGptTab(selectedTabId, { source: 'existing_tab_pending_work' });
+    }
     void reportTabProvisioning({
       action: 'existing_tabs_no_create',
       existing_tab_count: existingTabs.length,
       existing_tab_ids: existingTabs.map((tab) => tab.id).filter((id) => typeof id === 'number'),
       existing_tab_urls: existingTabs.map((tab) => String(tab.url || '')).filter(Boolean),
-      requested_url: validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL
+      requested_url: validChatConversationUrl(targetChatUrl) || CHATGPT_ROOT_URL,
+      selected_tab_id: selectedTabId,
+      selected_tab_url: String(selectedTab?.url || ''),
+      selected_tab_active: selectedTab?.active === true,
+      injection_ready: injectionReady
     });
-    return null;
+    return selectedTabId;
   }
   if (tabCreateInFlight) {
     void reportTabProvisioning({
