@@ -1452,8 +1452,21 @@ def main() -> None:
             raise SystemExit(
                 f"Issue #{args.complete_frontend} is not a PASI FE-P0..FE-P22 phase."
             )
-        state = fetch_issue(args.complete_frontend)[3]
-        if state.upper() != "CLOSED":
+        completion_record = next(
+            (
+                issue
+                for issue in all_frontend_phase_issues()
+                if int(issue["number"]) == args.complete_frontend
+            ),
+            None,
+        )
+        if completion_record is None:
+            print(
+                f"::warning::FE-{phase} completion skipped: canonical issue #{args.complete_frontend} "
+                "is missing from the repository."
+            )
+            return
+        if str(completion_record.get("state", "")).upper() != "CLOSED":
             raise SystemExit(
                 f"FE-{phase} issue #{args.complete_frontend} is not closed; completion sync requires state=closed."
             )
