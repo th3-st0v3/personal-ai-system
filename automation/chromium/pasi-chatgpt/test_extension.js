@@ -439,11 +439,11 @@ test('native controller defers first context-exhaustion failure to bounded recov
   assert.match(content, /void reportObservation\('chatgpt_response'/);
 });
 
-test('background watchdog targets the fresh active ChatGPT conversation without reload', () => {
+test('background watchdog targets the fresh persisted ChatGPT conversation without reload', () => {
   assert.match(background, /const liveHealth = \(/);
-  assert.match(background, /liveHealth\?\.data\?\.active_operation_id/);
-  assert.match(background, /typeof liveHealth\.data\.chat_url === 'string'/);
-  assert.match(background, /const targetChatUrl = \([\s\S]*liveHealth\?\.data\?\.active_operation_id/);
+  assert.doesNotMatch(background, /liveHealth\?\.data\?\.active_operation_id\s*&&\s*typeof liveHealth\.data\.chat_url/);
+  assert.match(background, /typeof liveHealth\?\.data\?\.chat_url === 'string'/);
+  assert.match(background, /const targetChatUrl = \([\s\S]*typeof liveHealth\?\.data\?\.chat_url === 'string'/);
   assert.match(background, /tabs\.find\(\(tab\) => sameChatConversationUrl\(tab\.url, targetChatUrl\)\)/);
   assert.match(background, /chrome\.tabs\.sendMessage/);
   assert.doesNotMatch(background, /reloadBoundedTab/);
