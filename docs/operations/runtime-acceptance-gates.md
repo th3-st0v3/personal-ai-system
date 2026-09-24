@@ -44,7 +44,7 @@ python scripts/run_m1_live_acceptance.py
 
 The harness uses the already-open authenticated ChatGPT conversation. It does **not** call `new_session`, queue a `new_chat` operation, or replace the conversation at the beginning of the test. It sends exactly 20 uniquely marked prompts in that same conversation.
 
-Before operation 1, the harness requires a usable current conversation: no verified conversation-context exhaustion and no provider usage limit. If the current conversation is already exhausted, M1 fails rather than creating a replacement chat.
+Before operation 1, the harness requires a usable current conversation: no verified conversation-context exhaustion, no provider usage limit, and a clean composer with no unsent human draft text. If the current conversation is already exhausted, or the composer contains unrelated draft text, M1 fails rather than replacing or overwriting the conversation state.
 
 For every prompt it verifies a terminal `complete` operation, checks the unique response marker, and waits for the durable conversation signature to publish the exact +1 user/+1 assistant progression. The conversation URL must remain unchanged for all 20 operations.
 
