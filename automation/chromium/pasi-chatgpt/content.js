@@ -36,6 +36,7 @@
   };
   const ACTIVE_KEY = 'pasi:active-operation';
   const M2_MANUAL_RELOAD_GATE_MARKER = 'PASI_M2_MANUAL_RELOAD_GATE: true';
+  const M2_RECOVERY_TARGET_KEY = 'pasi:m2-recovery-target';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
@@ -1640,6 +1641,18 @@
       manual_reload_gate_armed_at: new Date().toISOString()
     };
     localStorage.setItem(ACTIVE_KEY, JSON.stringify(nextState));
+    try {
+      const recoveryChatUrl = chatUrl();
+      if (typeof recoveryChatUrl === 'string' && /^https:\/\/chatgpt\.com\/c\//.test(recoveryChatUrl)) {
+        await chrome.storage.local.set({
+          [M2_RECOVERY_TARGET_KEY]: {
+            operation_id: operation.operation_id,
+            chat_url: recoveryChatUrl,
+            armed_at: Date.now()
+          }
+        });
+      }
+    } catch (_) {}
     const boundedResponse = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
     const response = await bridge('/chat/manual-reload-gate/arm', {
       method: 'POST',
@@ -1877,6 +1890,12 @@
                 payload.next_operation.__pasi_baseline_fingerprint = fingerprintFromText(responseText);
               }
             }
+            try {
+              const storedTarget = await chrome.storage.local.get(M2_RECOVERY_TARGET_KEY);
+              if (storedTarget?.[M2_RECOVERY_TARGET_KEY]?.operation_id === operationId) {
+                await chrome.storage.local.remove(M2_RECOVERY_TARGET_KEY);
+              }
+            } catch (_) {}
             setTimeout(publishResponseTelemetry, RESPONSE_TELEMETRY_DEFER_MS);
             return payload;
           } catch (_) {
