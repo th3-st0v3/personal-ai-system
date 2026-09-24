@@ -1648,13 +1648,32 @@
     const nextState = {
       ...stored,
       operation_id: operation.operation_id,
-      manual_reload_gate: true,
+      manual_reload_gate_pending: true,
       manual_reload_gate_response: String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS),
       manual_reload_gate_timing: timing && typeof timing === 'object' ? timing : null,
       manual_reload_gate_chat_url: chatUrl(),
       manual_reload_gate_armed_at: new Date().toISOString()
     };
     localStorage.setItem(ACTIVE_KEY, JSON.stringify(nextState));
+    const boundedResponse = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
+    const response = await bridge('/chat/manual-reload-gate/arm', {
+      method: 'POST',
+      body: {
+        operation_id: operation.operation_id,
+        response_text: boundedResponse,
+        response_text_available: Boolean(boundedResponse.trim()),
+        chat_url: chatUrl()
+      }
+    });
+    if (!response.ok) {
+      localStorage.removeItem(ACTIVE_KEY);
+      throw new Error(`PASI_NATIVE: manual reload gate arm rejected (HTTP ${response.status})`);
+    }
+    const armedState = {
+      ...nextState,
+      manual_reload_gate: true
+    };
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(armedState));
     try {
       const recoveryChatUrl = chatUrl();
       if (typeof recoveryChatUrl === 'string' && /^https:\/\/chatgpt\.com\/c\//.test(recoveryChatUrl)) {
@@ -1667,19 +1686,6 @@
         });
       }
     } catch (_) {}
-    const boundedResponse = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
-    const response = await bridge('/chat/manual-reload-gate/arm', {
-      method: 'POST',
-      body: {
-        operation_id: operation.operation_id,
-        response_text: boundedResponse,
-        response_text_available: Boolean(boundedResponse.trim()),
-        chat_url: chatUrl()
-      }
-    });
-    if (!response.ok) {
-      throw new Error(`PASI_NATIVE: manual reload gate arm rejected (HTTP ${response.status})`);
-    }
     void reportObservation('chatgpt_state', {
       chat_url: chatUrl(),
       active_operation_id: operation.operation_id,
