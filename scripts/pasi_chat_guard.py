@@ -283,6 +283,7 @@ For computer.resource.acquire, use either kind=public_download with an HTTPS URL
 Each request is executed by PASI, not by you. Writes, arbitrary commands, application launch, desktop control, credential access, and financial execution are not available through this protocol.
 If a resource request is blocked because no matching preapproval exists, PASI records an action-list obstacle. Treat the result as non-blocking: do not wait for approval, continue with the original task using alternatives, and return the normal completion contract when ready.
 After PASI supplies computer results, continue the task. Do not repeat a request unless the returned evidence shows that it is necessary.
+For local file capabilities, use only repository-relative paths under the target worktree supplied by PASI. Do not request absolute host paths or access the parent checkout, home directory, browser profile, or other files outside that task worktree. Prefer the public GitHub repository context for source inspection when available; use computer capabilities only for local evidence that the task actually needs.
 Maximum capability rounds per task: {MAX_COMPUTER_ROUNDS}.
 """
 
