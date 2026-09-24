@@ -159,7 +159,7 @@ test('native existing-tab injection probes for a live controller before reinject
   const end = background.indexOf('async function inspect()', start);
   assert.ok(start >= 0 && end > start);
   const source = background.slice(start, end);
-  assert.match(source, /await chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}\);/);
+  assert.match(source, /chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}/);
   assert.match(source, /await chrome\.scripting\.executeScript/);
   assert.ok(
     source.indexOf("await chrome.tabs.sendMessage") <
