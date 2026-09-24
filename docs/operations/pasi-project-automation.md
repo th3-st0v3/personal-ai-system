@@ -157,3 +157,24 @@ The PASI issue templates establish those defaults. Existing frontend phase issue
 ## Operational note
 
 The repository-side workflow and the Project built-in Auto-add workflow can both observe the same issue. The synchronizer first reads the Project membership and only performs the Project-add mutation when the issue is not already present, so duplicate workflow activity does not intentionally create duplicate Project items.
+
+
+## Structured roadmap issue form
+
+For roadmap items that need editable Project metadata at creation time, use **PASI Roadmap Item** from the issue-template chooser.
+
+The form fields map to Project fields:
+
+| Issue Form field | PASI Project field | Type |
+| --- | --- | --- |
+| Description | Description | Text |
+| Start Date | Start Date | Date |
+| End Date | End Date | Date |
+| Relationship | Relationship | Text |
+| Development Milestone | Development Milestone | Text |
+| Status | Status | Single select |
+
+The issue form is the data-entry surface. GitHub renders submitted issue-form values into the issue body as Markdown, so the repository synchronizer parses the labeled sections and writes the corresponding Project values; the form body is not JSON. GitHub documents input, textarea, and dropdown issue-form elements, while Project v2 supports updating text, date, single-select, and iteration field values. citeturn524843search1turn524843search0
+
+This does not replace the strict P0–P22 phase templates. Phase issues continue to use the canonical PASI metadata block so their schedule and iteration values cannot drift. The structured roadmap form is for roadmap items whose dates, relationships, milestone text, and status should be directly editable from the issue.
+
