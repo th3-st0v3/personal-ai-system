@@ -329,13 +329,27 @@ while time.time() < deadline:
     )
     with urllib.request.urlopen(req, timeout=5) as response:
         op = (json.loads(response.read(2000000).decode()).get("operation") or {})
+    response_text = op.get("response_text")
+    completion_markers = op.get("completion_markers") or []
+    response_has_marker = (
+        isinstance(response_text, str)
+        and any(
+            isinstance(marker, str)
+            and marker.strip()
+            and any(
+                line.strip() == marker.strip()
+                or line.strip().startswith(marker.strip() + ":")
+                for line in response_text.splitlines()
+            )
+            for marker in completion_markers
+        )
+    )
     if (
         op.get("manual_reload_gate") is True
         and op.get("manual_reload_gate_armed") is True
         and op.get("manual_reload_gate_released") is not True
         and op.get("response_text_available") is True
-        and isinstance(op.get("response_text"), str)
-        and bool(op.get("response_text").strip())
+        and response_has_marker
     ):
         print(json.dumps(op))
         raise SystemExit(0)
