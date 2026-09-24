@@ -170,9 +170,17 @@ test('native extension injects into existing ChatGPT tabs and provisions missing
 
 test('native existing-tab injection is serialized so concurrent watchdog passes cannot reinject scripts', () => {
   assert.match(background, /let injectExistingTabsInFlight = null/);
-  assert.match(background, /if \\(injectExistingTabsInFlight\\) return injectExistingTabsInFlight/);
+  assert.match(background, /if \(injectExistingTabsInFlight\) return injectExistingTabsInFlight/);
   assert.match(background, /injectExistingTabsInFlight = run/);
   assert.match(background, /injectExistingTabsInFlight === run/);
+});
+
+test('native created-tab provisioning explicitly bootstraps the controller and retries telemetry', () => {
+  assert.match(background, /async function bootstrapCreatedChatGptTab\(tabId\)/);
+  assert.match(background, /void bootstrapCreatedChatGptTab\(createdTabId\)/);
+  assert.match(background, /chrome\.tabs\.onUpdated\.addListener/);
+  assert.match(background, /TAB_PROVISIONING_PENDING_KEY/);
+  assert.match(background, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/);
 });
 
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
