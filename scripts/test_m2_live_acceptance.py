@@ -21,6 +21,13 @@ from scripts.m2_live_acceptance import (
 
 
 class TestM2LiveAcceptanceContract(unittest.TestCase):
+    def test_m2_runtime_defaults_to_fresh_isolated_directory(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn('DEFAULT_RUNTIME_BASE_DIR = Path.home() / ".pasi" / "m2-acceptance"', source)
+        self.assertIn('runtime_dir_source = "isolated"', source)
+        self.assertIn('uuid.uuid4().hex[:8]', source)
+        self.assertNotIn('DEFAULT_RUNTIME_DIR = Path.home() / ".pasi" / "overnight"', source)
+
     def test_entrypoint_and_runtime_contracts_are_present(self) -> None:
         entrypoint = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
