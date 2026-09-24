@@ -2024,9 +2024,15 @@
     }
   }
 
-  chrome.runtime?.onMessage?.addListener?.((message) => {
+  chrome.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === 'pasi-health-ping' && !extensionContextInvalidated) {
+      sendResponse?.({
+        ok: true,
+        controller_version: CONTROLLER_VERSION,
+        extension_manifest_version: EXTENSION_MANIFEST_VERSION
+      });
       void reportHealth();
+      return true;
     }
   });
 
