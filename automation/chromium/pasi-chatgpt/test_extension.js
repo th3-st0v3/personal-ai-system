@@ -99,6 +99,16 @@ test('native background applies a persistent tab-creation cooldown and in-flight
   assert.match(background, /Re-check immediately before creation/);
 });
 
+test('native background reports durable tab provisioning telemetry without blocking recovery', () => {
+  assert.match(background, /async function reportTabProvisioning\(event\)/);
+  assert.match(background, /kind: 'chatgpt_tab_provisioning'/);
+  assert.match(background, /action: 'created'/);
+  assert.match(background, /after_create_tab_count: afterCreateTabs\.length/);
+  assert.match(background, /action: 'existing_tabs_no_create'/);
+  assert.match(background, /void reportTabProvisioning\(/);
+  assert.match(background, /chatgpt_tab_provisioning/);
+});
+
 test('native background only provisions when bridge reports queued or active work', () => {
   assert.match(background, /function bridgeHasPendingWork\(status, health\)/);
   assert.match(background, /queue_size/);
