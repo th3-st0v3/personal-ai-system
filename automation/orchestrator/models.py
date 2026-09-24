@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .operation_state import OperationState
 from .orchestration_types import ProjectPhase, TaskPhase
 
 
@@ -87,4 +88,6 @@ class ChatOperation:
     updated_at: str = field(default_factory=utc_now)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["operation_state"] = OperationState.from_chat_operation(payload).to_dict()
+        return payload
