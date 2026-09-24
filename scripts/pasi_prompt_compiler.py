@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-PROMPT_PATTERN_VERSION = "2.1.0"
+PROMPT_PATTERN_VERSION = "2.2.0"
 MAX_TASK_CHARS = 4000
 MAX_FAILURE_CHARS = 12000
 
@@ -43,7 +43,7 @@ def compile_task_prompt(
         "CURRENT TASK:",
         task_text,
         "",
-        "Work on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.",
+        "Complete the task as an implementation task when implementation is required; tracked-file changes are allowed unless the task explicitly scopes them out. Keep working until the stated acceptance criteria are met. Run every relevant test, type check, lint, or other deterministic verification check needed for the task; repair failures and do not report completion while required checks are failing. Keep the response focused on the task and actionable results; do not expose internal routing, planner, browser-controller, capability-gateway, or orchestration details.",
     ]
     if previous_failure.strip():
         lines.extend([
@@ -62,7 +62,7 @@ def compile_task_prompt(
         "PASI_RESULT_RESEARCH: performed|not_applicable",
         "PASI_RESULT_UX: verified|not_applicable",
         "PASI_RESULT_BACKEND: verified|not_applicable",
-        "PASI_RESULT_EVIDENCE: concise tests/verification evidence",
+        "PASI_RESULT_EVIDENCE: concise actionable verification evidence; report failures, warnings, type-check/analyzer diagnostics, or other relevant findings and omit routine internal processing details",
         "PASI_RESULT_REPOSITORY_PROGRESS: changed|stopped",
         "PASI_RESULT_ALLOW_DELETE: true|false",
         "PASI_RESULT_PATCH_BEGIN",
