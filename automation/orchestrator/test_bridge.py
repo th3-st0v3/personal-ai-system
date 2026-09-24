@@ -83,7 +83,7 @@ def post_queue(
 
 
 
-def test_tab_provisioning_observation_has_authoritative_priority(tmp_path: Path) -> None:
+def test_tab_provisioning_observation_is_persisted_separately(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     observation = {
         "schema_version": "pasi-native-chromium-v2",
@@ -91,16 +91,18 @@ def test_tab_provisioning_observation_has_authoritative_priority(tmp_path: Path)
         "data": {
             "kind": "chatgpt_tab_provisioning",
             "action": "created",
+            "existing_tab_count": 0,
             "after_create_tab_count": 1,
+            "requested_url": "https://chatgpt.com/c/example",
         },
     }
 
     saved = bridge.save_browser_observation(observation)
 
     assert saved == observation
-    assert bridge.get_browser_observation() == observation
+    assert bridge.get_browser_provisioning() == observation
 
-    newer_chat_state = {
+    chat_state = {
         "schema_version": "pasi-native-chromium-v2",
         "captured_at": "2026-09-24T13:45:01Z",
         "data": {
@@ -108,9 +110,10 @@ def test_tab_provisioning_observation_has_authoritative_priority(tmp_path: Path)
             "chat_url": "https://chatgpt.com/c/example",
         },
     }
-    bridge.save_browser_observation(newer_chat_state)
+    bridge.save_browser_observation(chat_state)
 
-    assert bridge.get_browser_observation() == observation
+    assert bridge.get_browser_observation() == chat_state
+    assert bridge.get_browser_provisioning() == observation
 
 def test_bridge_module_resolves_from_repository() -> None:
     assert Path(bridge_module.__file__).resolve() == (Path(__file__).parent / "bridge.py").resolve()
