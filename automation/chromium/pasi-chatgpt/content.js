@@ -645,19 +645,25 @@
     return Boolean((head && text.includes(head)) || (tail && text.includes(tail)));
   }
 
-  function assistantResponseEvidence(snapshot, prompt) {
+  function assistantResponseEvidence(snapshot, prompt, baseline = '') {
     if (!snapshot || typeof prompt !== 'string' || !prompt.trim()) return '';
     const matchedUsers = userMessages().filter((node) => userMessageMatchesPrompt(node, prompt));
     if (!matchedUsers.length) return '';
 
+    const normalizedBaseline = typeof baseline === 'string' ? baseline : '';
     const nodes = assistantMessages();
     for (let index = nodes.length - 1; index >= 0; index -= 1) {
       const node = nodes[index];
-      if (!assistantNodeIsNew(node, snapshot)) continue;
       if (!matchedUsers.some((user) => nodeFollows(user, node))) continue;
       const text = extractAssistant(node);
       if (!text) continue;
-      return text;
+      if (assistantNodeIsNew(node, snapshot)) return text;
+      if (
+        normalizedBaseline &&
+        fingerprintFromText(text) !== normalizedBaseline
+      ) {
+        return text;
+      }
     }
     return '';
   }
