@@ -56,6 +56,15 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
             path.write_text("prefix\nResuming persisted ChatGPT operation: op-1\n", encoding="utf-8")
             self.assertIn("Resuming persisted ChatGPT operation: op-1", read_log_since(path, len("prefix\n".encode("utf-8"))))
 
+    def test_failure_path_cleans_up_managed_runtime(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("runner_started = False", source)
+        self.assertIn("bridge_was_stopped = False", source)
+        self.assertIn("try_kill_managed_tree(", source)
+        self.assertIn('"supervisor.pid"', source)
+        self.assertIn('"runner.pid"', source)
+        self.assertIn('"bridge_restore"', source)
+
     def test_runner_kill_requires_zero_restart_budget_evidence(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
         self.assertIn("restart budget exhausted after 0 rapid engine exits", source)
