@@ -789,6 +789,7 @@
           active_operation_id: activeOperationId,
           native_controller: true
         });
+      }
       } catch (error) {
         if (isExtensionContextInvalidatedError(error)) {
           extensionContextInvalidated = true;
