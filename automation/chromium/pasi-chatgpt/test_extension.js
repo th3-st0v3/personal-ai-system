@@ -246,6 +246,28 @@ test('native M2 released gate claims the single retry before consuming persisted
   assert.match(source, /resume_exact_operation_after_manual_reload/);
 });
 
+test('native M2 gate durably records its exact conversation target for tab-loss recovery', () => {
+  assert.match(content, /const M2_RECOVERY_TARGET_KEY = 'pasi:m2-recovery-target'/);
+  assert.match(content, /chrome\.storage\.local\.set\(\{[\s\S]*M2_RECOVERY_TARGET_KEY/);
+  assert.match(content, /operation_id: operation\.operation_id/);
+  assert.match(content, /chat_url: recoveryChatUrl/);
+  assert.match(content, /chrome\.storage\.local\.remove\(M2_RECOVERY_TARGET_KEY\)/);
+});
+
+test('native background uses the durable M2 target when the live ChatGPT heartbeat is stale', () => {
+  assert.match(background, /chrome\.storage\.local\.get\('pasi:m2-recovery-target'\)/);
+  assert.match(background, /durableRecoveryTarget/);
+  assert.match(background, /durableRecoveryTarget\?\.chat_url/);
+  assert.match(background, /durableRecoveryTarget\?\.operation_id/);
+});
+
+test('native background never substitutes another ChatGPT tab when exact M2 target recovery is required', () => {
+  assert.match(background, /const requireExactTarget = Boolean\(/);
+  assert.match(background, /const exactExistingTabs =/);
+  assert.match(background, /requireExactTarget && exactExistingTabs\.length === 0/);
+  assert.match(background, /const currentExactTabs =/);
+});
+
 test('native M2 manual gate monitor resumes the exact operation after release instead of directly completing it', () => {
   const start = content.indexOf('function scheduleManualReloadGateMonitor()');
   const end = content.indexOf('function completionMarkersSatisfied', start);
