@@ -43,6 +43,7 @@ STATUS_DONE = "Done"
 STATUS_TODO = "Todo"
 FRONTEND_ROADMAP_ISSUE = 318
 FRONTEND_PHASE_ISSUES = {f"P{index}": 319 + index for index in range(23)}
+FRONTEND_PHASE_TITLE_RE = re.compile(r"^FE-(?P<phase>P\d+)\s+—\s+")
 PROJECT_EVENT_ACTION = os.environ.get("PASI_PROJECT_EVENT_ACTION", "").strip().lower()
 PROJECT_EVENT_ISSUE_NUMBER_RAW = os.environ.get("PASI_PROJECT_EVENT_ISSUE_NUMBER", "").strip()
 
@@ -736,6 +737,128 @@ def add_item(project_id: str, content_id: str) -> str:
     return data["addProjectV2ItemById"]["item"]["id"]
 
 
+def frontend_phase_from_issue(issue: dict[str, Any]) -> str | None:
+    title = str(issue.get("title") or "")
+    title_match = FRONTEND_PHASE_TITLE_RE.match(title)
+    title_phase = title_match.group("phase") if title_match else None
+
+    metadata_phase: str | None = None
+    body = issue.get("body") or ""
+    if "PASI_PROJECT_METADATA" in body:
+        try:
+            metadata = parse_metadata(body)
+        except ValueError:
+            metadata = None
+        else:
+            if metadata.issue_type == "frontend":
+                metadata_phase = metadata.phase
+
+    if title_phase and metadata_phase and title_phase != metadata_phase:
+        return None
+    phase = title_phase or metadata_phase
+    if phase not in PHASES:
+        return None
+    return phase
+
+
+def all_frontend_phase_issues() -> list[dict[str, Any]]:
+    raw = run_gh(
+        [
+            "api",
+            f"repos/{REPO}/issues?state=all&per_page=100",
+            "--paginate",
+            "--jq",
+            (
+                ".[] | select(.pull_request == null) | "
+                "{number,title,state,body,labels:[.labels[].name]}"
+            ),
+        ]
+    )
+    issues: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        if line.strip():
+            issues.append(json.loads(line))
+    return issues
+
+
+def resolve_frontend_phase_map() -> tuple[dict[str, int], set[str]]:
+    candidates: dict[str, list[dict[str, Any]]] = {phase: [] for phase in PHASES}
+    for issue in all_frontend_phase_issues():
+        title = str(issue.get("title") or "")
+        declared_title = FRONTEND_PHASE_TITLE_RE.match(title)
+        body = issue.get("body") or ""
+        declared_metadata: str | None = None
+        if "PASI_PROJECT_METADATA" in body:
+            try:
+                metadata = parse_metadata(body)
+            except ValueError:
+                metadata = None
+            else:
+                if metadata.issue_type == "frontend":
+                    declared_metadata = metadata.phase
+
+        phases = {phase for phase in (declared_title.group("phase") if declared_title else None, declared_metadata) if phase}
+        for phase in phases:
+            if phase in candidates:
+                candidates[phase].append(issue)
+
+    resolved: dict[str, int] = {}
+    invalid: set[str] = set()
+
+    for phase, expected_issue in FRONTEND_PHASE_ISSUES.items():
+        phase_candidates = candidates[phase]
+        if not phase_candidates:
+            print(
+                f"::warning::FE-{phase} mapping skipped: no unique frontend phase issue found "
+                f"(expected canonical issue #{expected_issue})."
+            )
+            invalid.add(phase)
+            continue
+
+        unique_numbers = sorted({int(issue["number"]) for issue in phase_candidates})
+        if len(unique_numbers) != 1:
+            print(
+                f"::warning::FE-{phase} mapping skipped: duplicate frontend phase issues "
+                f"detected at #{', #'.join(str(number) for number in unique_numbers)}."
+            )
+            invalid.add(phase)
+            continue
+
+        issue = phase_candidates[0]
+        actual_issue = int(issue["number"])
+        title = str(issue.get("title") or "")
+        title_match = FRONTEND_PHASE_TITLE_RE.match(title)
+
+        if actual_issue != expected_issue:
+            print(
+                f"::warning::FE-{phase} mapping skipped: canonical issue #{expected_issue} "
+                f"is not the unique FE-{phase} issue; discovered issue #{actual_issue} instead."
+            )
+            invalid.add(phase)
+            continue
+
+        if not title_match or title_match.group("phase") != phase:
+            print(
+                f"::warning::FE-{phase} mapping skipped: canonical issue #{expected_issue} "
+                f"has been renamed and no longer carries the FE-{phase} phase identity."
+            )
+            invalid.add(phase)
+            continue
+
+        labels = set(issue.get("labels") or [])
+        if "frontend" not in labels or "roadmap" not in labels:
+            print(
+                f"::warning::FE-{phase} mapping skipped: canonical issue #{expected_issue} "
+                f"is missing required frontend/roadmap labels."
+            )
+            invalid.add(phase)
+            continue
+
+        resolved[phase] = actual_issue
+
+    return resolved, invalid
+
+
 def project_status_option(project: dict[str, Any], status_name: str) -> dict[str, Any]:
     status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
     if not status:
@@ -763,9 +886,10 @@ def sync_frontend_statuses(
     project: dict[str, Any],
     items: dict[int, dict[str, Any]],
     issue_states: dict[int, str],
+    resolved_phase_issues: dict[str, int],
 ) -> None:
     event_issue = int(PROJECT_EVENT_ISSUE_NUMBER_RAW) if PROJECT_EVENT_ISSUE_NUMBER_RAW.isdigit() else None
-    for phase, issue_number in FRONTEND_PHASE_ISSUES.items():
+    for phase, issue_number in resolved_phase_issues.items():
         item = items.get(issue_number)
         if not item:
             continue
@@ -787,6 +911,8 @@ def sync_frontend_statuses(
 def synchronize_frontend_roadmap_checkboxes(
     body: str,
     project_items_by_number: dict[int, dict[str, Any]],
+    resolved_phase_issues: dict[str, int],
+    invalid_phases: set[str],
 ) -> str:
     pattern = re.compile(
         r"^(?P<prefix>\s*-\s*)\[(?P<checked>[ xX])\](?P<rest>\s+\[FE-P(?P<phase>\d+)\s+—[^\n]*\]\(https://github\.com/th3-st0v3/personal-ai-system/issues/(?P<issue>\d+)\))\s*$",
@@ -797,10 +923,17 @@ def synchronize_frontend_roadmap_checkboxes(
     def replace(match: re.Match[str]) -> str:
         phase = f"P{match.group('phase')}"
         issue_number = int(match.group("issue"))
-        expected_issue = FRONTEND_PHASE_ISSUES.get(phase)
-        if expected_issue != issue_number:
+        if phase in invalid_phases:
+            print(
+                f"::warning::FE-{phase} roadmap checkbox skipped because its phase issue mapping is invalid."
+            )
+            seen.add(phase)
+            return match.group(0)
+        resolved_issue = resolved_phase_issues.get(phase)
+        if resolved_issue != issue_number:
             raise RuntimeError(
-                f"Frontend roadmap mapping drifted for FE-{phase}: expected issue #{expected_issue}, got #{issue_number}."
+                f"Frontend roadmap mapping drifted for FE-{phase}: expected resolved issue "
+                f"#{resolved_issue}, got #{issue_number}."
             )
         status_name = (project_items_by_number.get(issue_number, {}).get("status") or {}).get("name")
         checked = status_name == STATUS_DONE
@@ -819,8 +952,12 @@ def synchronize_frontend_roadmap_checkboxes(
 def verify_frontend_roadmap_checkboxes(
     body: str,
     project_items_by_number: dict[int, dict[str, Any]],
+    resolved_phase_issues: dict[str, int],
+    invalid_phases: set[str],
 ) -> None:
-    expected = synchronize_frontend_roadmap_checkboxes(body, project_items_by_number)
+    expected = synchronize_frontend_roadmap_checkboxes(
+        body, project_items_by_number, resolved_phase_issues, invalid_phases
+    )
     if expected != body:
         raise RuntimeError("Frontend roadmap checkbox state is out of sync with Project Status.")
 
@@ -1154,6 +1291,7 @@ def synchronize(issue_numbers: list[int]) -> None:
         | {FRONTEND_ROADMAP_ISSUE}
     )
     project = ensure_schema(project_snapshot())
+    resolved_phase_issues, invalid_frontend_phases = resolve_frontend_phase_map()
     field_names = {
         "startField": START_FIELD,
         "endField": END_FIELD,
@@ -1182,15 +1320,20 @@ def synchronize(issue_numbers: list[int]) -> None:
     items = project_items(project, field_names)
     frontend_states = {
         issue_number: issue_states.get(issue_number) or fetch_issue(issue_number)[3]
-        for issue_number in FRONTEND_PHASE_ISSUES.values()
+        for issue_number in resolved_phase_issues.values()
         if issue_number in items
     }
-    sync_frontend_statuses(project, items, frontend_states)
+    sync_frontend_statuses(project, items, frontend_states, resolved_phase_issues)
 
     project = project_snapshot()
     items = project_items(project, field_names)
     _, _, roadmap_body, _ = fetch_issue(FRONTEND_ROADMAP_ISSUE)
-    updated_body = synchronize_frontend_roadmap_checkboxes(roadmap_body, items)
+    updated_body = synchronize_frontend_roadmap_checkboxes(
+        roadmap_body,
+        items,
+        resolved_phase_issues,
+        invalid_frontend_phases,
+    )
     if updated_body != roadmap_body:
         update_issue_body(FRONTEND_ROADMAP_ISSUE, updated_body)
         print(f"Synchronized FE roadmap #{FRONTEND_ROADMAP_ISSUE} checkboxes from Project Status.")
@@ -1244,8 +1387,13 @@ def synchronize(issue_numbers: list[int]) -> None:
 
     try:
         _, _, roadmap_body, _ = fetch_issue(FRONTEND_ROADMAP_ISSUE)
-        verify_frontend_roadmap_checkboxes(roadmap_body, items)
-        for phase, issue_number in FRONTEND_PHASE_ISSUES.items():
+        verify_frontend_roadmap_checkboxes(
+            roadmap_body,
+            items,
+            resolved_phase_issues,
+            invalid_frontend_phases,
+        )
+        for phase, issue_number in resolved_phase_issues.items():
             item = items.get(issue_number)
             if not item:
                 errors.append(
@@ -1257,6 +1405,12 @@ def synchronize(issue_numbers: list[int]) -> None:
                 errors.append(
                     f"Frontend Project verification failed for FE-{phase}: invalid Status {status_name!r}."
                 )
+
+        if invalid_frontend_phases:
+            print(
+                "::warning::FE roadmap automation skipped invalid phase mappings: "
+                + ", ".join(f"FE-{phase}" for phase in sorted(invalid_frontend_phases, key=lambda value: int(value[1:])))
+            )
     except RuntimeError as exc:
         errors.append(str(exc))
 
