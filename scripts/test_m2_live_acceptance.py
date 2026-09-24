@@ -101,6 +101,7 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         health = {
             "kind": "chatgpt_health",
             "native_controller": True,
+            "manual_reload_gate_supported": True,
             "controller_version": "2.4.11",
             "composer_present": True,
             "conversation_signature": "1:0:fingerprint",
@@ -144,6 +145,36 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertIn("expected_chat_url=chat_url", source)
         self.assertIn("fresh native browser health after the manual exact-tab reload", source)
         self.assertIn("wait_for(", source)
+
+    def test_m2_requires_controller_manual_reload_gate_capability(self) -> None:
+        from datetime import datetime, timezone
+
+        health = {
+            "kind": "chatgpt_health",
+            "native_controller": True,
+            "controller_version": "2.4.11",
+            "extension_manifest_version": "1.1.3",
+            "composer_present": True,
+            "conversation_signature": "1:0:fingerprint",
+            "chat_url": "https://chatgpt.com/c/example",
+            "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        with self.assertRaisesRegex(M2AcceptanceError, "manual reload gate capability"):
+            validate_browser_health(
+                health,
+                "2.4.11",
+                "1.1.3",
+                30.0,
+                require_manual_reload_gate_capability=True,
+            )
+        health["manual_reload_gate_supported"] = True
+        validate_browser_health(
+            health,
+            "2.4.11",
+            "1.1.3",
+            30.0,
+            require_manual_reload_gate_capability=True,
+        )
 
     def test_browser_health_accepts_fresh_same_conversation(self) -> None:
         from datetime import datetime, timezone
