@@ -41,6 +41,8 @@ const BRIDGE_ROUTES = new Set([
   'POST /queue',
   'POST /chat/claim',
   'POST /chat/heartbeat',
+  'POST /chat/manual-reload-gate/arm',
+  'POST /chat/manual-reload-gate/release',
   'POST /chat/finished',
   'POST /chat/failed',
   'POST /chat/cancel',
