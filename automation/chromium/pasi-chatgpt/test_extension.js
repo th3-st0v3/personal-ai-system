@@ -496,7 +496,7 @@ test('native completion binds capture to a new assistant reply for the active op
 test('native completion captures responses through the event-driven waiter and bounded evidence', () => {
   assert.match(content, /async function waitForResponse\(baseline(?:,|\))/);
   assert.match(content, /let sawGeneration = false/);
-  assert.match(content, /const response = await waitUntil\(\(\) =>/);
+  assert.match(content, /response = await waitUntil\(\(\) =>/);
   assert.match(content, /const responseText = responseEvidence\(\)/);
   assert.match(content, /PASI_NATIVE: ChatGPT generation timed out/);
   assert.match(content, /const MAX_RESPONSE_TEXT_CHARS = 120_000;/);
@@ -796,11 +796,11 @@ test('native DOM waits filter mutation attributes to controller-relevant state',
 });
 
 test('native response wait checks generation before failure-marker DOM scans', () => {
-  const start = content.indexOf('async function waitForResponse(');
-  const end = content.indexOf('  function rememberContextRecovery(', start);
+  const start = content.indexOf('response = await waitUntil(() => {');
+  const end = content.indexOf('}, TIMEOUTS.generation, DOM_POLL_MS);', start);
   const source = content.slice(start, end);
-  assert.match(source, /if \(generating\(\)\) \{/);
-  assert.match(source, /const detected = detectorState\(\);/);
+  assert.match(source, /if (generating()) {/);
+  assert.match(source, /const detected = detectorState();/);
   assert.ok(source.indexOf('if (generating())') < source.indexOf('const detected = detectorState()'));
   assert.doesNotMatch(source, /if \(contextExhausted\(\)[\s\S]*if \(usageLimited\(\)/);
 });
