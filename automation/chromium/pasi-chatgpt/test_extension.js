@@ -571,6 +571,38 @@ test('native controller answers background health pings and visibility transitio
   assert.match(content, /document\.addEventListener\('visibilitychange'/);
 });
 
+
+test('native runtime telemetry traces bootstrap, controller, operation, composer, and submission boundaries', () => {
+  const requiredEvents = [
+    'BOOTSTRAP_ATTEMPT',
+    'INJECTION_SUCCESS',
+    'INJECTION_FAILURE',
+    'CONTROLLER_STARTED',
+    'CLAIM_SUCCESS',
+    'CLAIM_FAILURE',
+    'OPERATION_RECEIVED',
+    'COMPOSER_READY',
+    'SUBMISSION_ATTEMPT'
+  ];
+  for (const event of requiredEvents) {
+    assert.ok((background + content).includes("event: '" + event + "'"), "missing telemetry event " + event);
+  }
+  assert.match(background, /RUNTIME_TELEMETRY_PENDING_KEY/);
+  assert.match(background, /MAX_RUNTIME_TELEMETRY_QUEUE/);
+  assert.match(background, /browser\/telemetry/);
+  assert.match(background, /runtimeErrorText\(error\)/);
+  assert.match(content, /function reportRuntimeTelemetry\(event\)/);
+  assert.match(content, /runtimeErrorText\(error\)/);
+  assert.match(content, /controller claim rejected:/);
+  assert.match(content, /submission strategy returned false/);
+});
+
+test('created-tab bootstrap reports the underlying executeScript runtime error', () => {
+  assert.match(background, /catch \(error\) \{[\s\S]*event: 'INJECTION_FAILURE'/);
+  assert.match(background, /error: runtimeErrorText\(error\)/);
+  assert.match(background, /phase: 'bootstrap_exhausted'/);
+});
+
 test('background watchdog creates a missing ChatGPT tab only through the guarded provisioning path', () => {
   assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
   assert.match(background, /if \(!pendingWork\) return null/);
