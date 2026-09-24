@@ -31,3 +31,12 @@ def test_development_workflow_validates_roadmap_scope() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
     assert "roadmap must remain inside the checked-out repository" in source
     assert "roadmap must be repository-relative" in source
+
+def test_development_workflow_integrates_project_roadmap_sync() -> None:
+    source = WORKFLOW.read_text(encoding="utf-8")
+    assert "project-sync" in source
+    assert "project_scope:" in source
+    assert "Synchronize roadmap with PASI Project" in source
+    assert "uses: ./.github/workflows/pasi-project-metadata.yml" in source
+    assert "secrets:" in source
+    assert "PASI_PROJECTS_TOKEN" in source
