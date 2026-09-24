@@ -105,19 +105,30 @@ def build_extension_archive(output: Path = DEFAULT_OUTPUT) -> Path:
     """Build a zip containing only the sanitized unpacked-extension directory."""
     output = build_extension(output)
     archive_base = output.with_suffix("")
-    archive = Path(shutil.make_archive(
-        str(archive_base),
-        "zip",
-        root_dir=output.parent,
-        base_dir=output.name,
-    ))
+    staging_token = output / ".bridge-token"
+    token_contents = staging_token.read_bytes() if staging_token.is_file() else None
+    try:
+        # The unpacked runtime needs the token, but the distributable archive
+        # must never contain the user's bridge credential.
+        if staging_token.exists():
+            staging_token.unlink()
+        archive = Path(shutil.make_archive(
+            str(archive_base),
+            "zip",
+            root_dir=output.parent,
+            base_dir=output.name,
+        ))
+    finally:
+        if token_contents is not None:
+            staging_token.write_bytes(token_contents)
+            staging_token.chmod(0o600)
     with ZipFile(archive) as handle:
         for member in handle.infolist():
             relative = Path(member.filename)
             if any(component.startswith(FORBIDDEN_COMPONENT_PREFIX) for component in relative.parts):
                 raise RuntimeError(f"invalid Chromium extension archive entry: {member.filename}")
             if not member.is_dir() and relative.suffix.lower() in FORBIDDEN_SUFFIXES:
-                raise RuntimeError(f"Python bytecode is forbidden in Chromium extension archive: {member.filename}")
+                raise RuntimeError(f"Python bytecode is forbidden in Chromium extension archive: {relative}")
     return archive
 
 
