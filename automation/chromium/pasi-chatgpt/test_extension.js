@@ -795,3 +795,17 @@ test('native ChatGPT pages never receive a PASI activity indicator', () => {
   assert.doesNotMatch(JSON.stringify(manifest), /activity\.js/);
   assert.doesNotMatch(content, /pasi-activity-indicator|PASI · (Thinking|Working|Finishing)/);
 });
+
+
+test('native M2 manual reload gate persists the response and blocks normal queue polling', () => {
+  assert.match(content, /PASI_M2_MANUAL_RELOAD_GATE: true/);
+  assert.match(content, /function isM2ManualReloadGate\(operation\)/);
+  assert.match(content, /manual_reload_gate_response/);
+  assert.match(content, /chat\/manual-reload-gate\/arm/);
+  assert.match(content, /chat\/manual-reload-gate\/release/);
+  assert.match(content, /function scheduleManualReloadGateMonitor\(\)/);
+  assert.match(content, /manualReloadGateState\(\)/);
+  assert.match(content, /if \(manualReloadGateState\(\)\) \{/);
+  assert.match(content, /finishOperation\(\s*stored\.operation_id,\s*responseText,\s*true,\s*stored\.manual_reload_gate_timing/);
+});
+
