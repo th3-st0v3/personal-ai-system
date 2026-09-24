@@ -1521,6 +1521,48 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
     return found
 
 
+def project_items_with_readback_retry(
+    project: dict[str, Any],
+    field_names: dict[str, str],
+    required_issue_numbers: set[int],
+) -> dict[int, dict[str, Any]]:
+    last_items: dict[int, dict[str, Any]] = {}
+    missing: list[tuple[int, str]] = []
+    for attempt in range(1, MAX_RETRIES + 1):
+        last_items = project_items(project, field_names)
+        missing = []
+        for issue_number in sorted(required_issue_numbers):
+            item = last_items.get(issue_number)
+            if not item:
+                missing.append((issue_number, "membership"))
+                continue
+            if not (item.get("start") or {}).get("date"):
+                missing.append((issue_number, "Start date"))
+            if not (item.get("end") or {}).get("date"):
+                missing.append((issue_number, "Target date"))
+            if not (item.get("iteration") or {}).get("title"):
+                missing.append((issue_number, "Iteration"))
+            if not (item.get("quarter") or {}).get("title"):
+                missing.append((issue_number, "Quarter"))
+
+        if not missing:
+            return last_items
+
+        if attempt < MAX_RETRIES:
+            print(
+                f"Project readback pending ({len(missing)} field value(s)); "
+                f"retrying in {retry_delay(attempt):.0f}s."
+            )
+            time.sleep(retry_delay(attempt))
+
+    details = ", ".join(
+        f"#{issue_number} {field_name}" for issue_number, field_name in missing
+    )
+    print(
+        f"::warning::Project readback still incomplete after {MAX_RETRIES} attempts: {details}"
+    )
+    return last_items
+
 def verify_roadmap_form(
     project_items_by_number: dict[int, dict[str, Any]],
     issue_number: int,
@@ -1623,7 +1665,12 @@ def synchronize(issue_numbers: list[int]) -> None:
             form_by_issue[issue_number] = form
 
     project = project_snapshot()
-    items = project_items(project, field_names)
+    required_scheduled_issues = set(metadata_by_issue)
+    items = project_items_with_readback_retry(
+        project,
+        field_names,
+        required_scheduled_issues,
+    )
     frontend_states = {
         issue_number: issue_states.get(issue_number) or fetch_issue(issue_number)[3]
         for issue_number in resolved_phase_issues.values()
