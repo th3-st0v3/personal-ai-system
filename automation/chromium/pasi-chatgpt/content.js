@@ -36,6 +36,7 @@
   };
   const ACTIVE_KEY = 'pasi:active-operation';
   const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature';
+  const M2_MANUAL_RELOAD_GATE_MARKER = 'PASI_M2_MANUAL_RELOAD_GATE: true';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
@@ -62,6 +63,7 @@
   let immediateOperationQueued = false;
   let lastCompletionAckAtMs = 0;
   let activeRecoveryState = null;
+  let manualReloadGateMonitorActive = false;
 
   function scheduleImmediateOperation(operation) {
     if (immediateOperationQueued || extensionContextInvalidated || !operation?.operation_id) return;
@@ -1457,6 +1459,100 @@
     return `[PASI_OPERATION ${operation.operation_id}]\n${operation.prompt}`;
   }
 
+  function isM2ManualReloadGate(operation) {
+    return (
+      operation?.operation_type === 'prompt' &&
+      typeof operation?.prompt === 'string' &&
+      operation.prompt.includes(M2_MANUAL_RELOAD_GATE_MARKER)
+    );
+  }
+
+  function manualReloadGateState() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
+      return stored?.manual_reload_gate === true ? stored : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function armM2ManualReloadGate(operation, responseText, timing) {
+    const stored = manualReloadGateState() || {};
+    const nextState = {
+      ...stored,
+      operation_id: operation.operation_id,
+      manual_reload_gate: true,
+      manual_reload_gate_response: String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS),
+      manual_reload_gate_timing: timing && typeof timing === 'object' ? timing : null,
+      manual_reload_gate_chat_url: chatUrl(),
+      manual_reload_gate_armed_at: new Date().toISOString()
+    };
+    localStorage.setItem(ACTIVE_KEY, JSON.stringify(nextState));
+    const response = await bridge('/chat/manual-reload-gate/arm', {
+      method: 'POST',
+      body: { operation_id: operation.operation_id }
+    });
+    if (!response.ok) {
+      throw new Error(`PASI_NATIVE: manual reload gate arm rejected (HTTP ${response.status})`);
+    }
+    void reportObservation('chatgpt_state', {
+      chat_url: chatUrl(),
+      active_operation_id: operation.operation_id,
+      manual_reload_gate_armed: true,
+      manual_reload_gate_released: false
+    }).catch(() => {});
+  }
+
+  function scheduleManualReloadGateMonitor() {
+    if (manualReloadGateMonitorActive || !manualReloadGateState()) return;
+    manualReloadGateMonitorActive = true;
+    const tick = async () => {
+      const stored = manualReloadGateState();
+      if (!stored?.operation_id) {
+        manualReloadGateMonitorActive = false;
+        return;
+      }
+      try {
+        const currentResponse = await bridge(
+          `/operation?operation_id=${encodeURIComponent(stored.operation_id)}`
+        );
+        const payload = currentResponse.ok ? currentResponse.json() : null;
+        const current = payload?.operation;
+        if (!current) {
+          setTimeout(tick, POLL_MS);
+          return;
+        }
+        if (current.manual_reload_gate_released === true) {
+          const responseText =
+            typeof stored.manual_reload_gate_response === 'string'
+              ? stored.manual_reload_gate_response
+              : '';
+          if (!responseText.trim()) {
+            throw new Error('PASI_NATIVE: manual reload gate response evidence is missing');
+          }
+          await finishOperation(
+            stored.operation_id,
+            responseText,
+            true,
+            stored.manual_reload_gate_timing
+          );
+          localStorage.removeItem(ACTIVE_KEY);
+          activeRecoveryState = null;
+          manualReloadGateMonitorActive = false;
+          return;
+        }
+        if (current.status === 'failed' || current.status === 'cancelled') {
+          localStorage.removeItem(ACTIVE_KEY);
+          activeRecoveryState = null;
+          manualReloadGateMonitorActive = false;
+          return;
+        }
+      } catch (_) {}
+      setTimeout(tick, POLL_MS);
+    };
+    void tick();
+  }
+
   function completionMarkersSatisfied(responseText, markers) {
     const text = typeof responseText === 'string' ? responseText : '';
     if (!text.trim()) return false;
@@ -1823,6 +1919,12 @@
             { assistantSnapshot, prompt: promptText }
           );
           browserTiming.completed_at_ms = Date.now();
+          if (isM2ManualReloadGate(operation)) {
+            await armM2ManualReloadGate(operation, response, browserTiming);
+            scheduleManualReloadGateMonitor();
+            finalized = false;
+            return;
+          }
           const completion = await finishOperation(operation.operation_id, response, true, browserTiming);
           chainedOperation = completion?.next_operation || null;
           finalized = true;
@@ -1884,6 +1986,7 @@
           localStorage.removeItem(RECOVERY_KEY);
         }
         clearMonitoringStateFor(operation.operation_id);
+        manualReloadGateMonitorActive = false;
       }
       if (finalized) {
         // Schedule the next operation before any health telemetry so the
@@ -1935,6 +2038,9 @@
         localStorage.removeItem(ACTIVE_KEY);
       } else if (operation.status === 'failed' || operation.status === 'cancelled') {
         localStorage.removeItem(ACTIVE_KEY);
+      }
+      if (isM2ManualReloadGate(operation)) {
+        scheduleManualReloadGateMonitor();
       }
       // Preserve non-terminal operations for the dedicated bounded recovery companion.
     } catch (_) {}
@@ -2020,6 +2126,10 @@
       return;
     }
 
+    if (manualReloadGateState()) {
+      scheduleManualReloadGateMonitor();
+      return;
+    }
     await poll();
     if (extensionContextInvalidated) {
       if (pollTimerId !== null) clearInterval(pollTimerId);
