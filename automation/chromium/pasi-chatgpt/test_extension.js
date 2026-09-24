@@ -342,7 +342,7 @@ test('native prompt submission uses best-effort Thinking and event-driven acknow
   assert.match(content, /clearMonitoringStateFor\(operation\.operation_id\)/);
 });
 
-test('native prompt submission uses a single send strategy and never duplicates a fired send', () => {
+test('native prompt submission uses bounded strategies and never duplicates an observed send', () => {
   assert.match(content, /const SUBMISSION_ACK_MS = TIMEOUT_POLICY\.submissionAckMs \|\| 1000/);
   assert.match(content, /const SUBMISSION_ATTEMPTS = 3/);
   assert.match(content, /const COMPLETION_RETRY_DELAY_MS = 20/);
@@ -356,13 +356,13 @@ test('native prompt submission uses a single send strategy and never duplicates 
   assert.match(content, /nativeMouseActivate\(button\)/);
   assert.match(content, /dispatchEnter\(box\)/);
   assert.match(content, /let fired = false;[\s\S]*fired = await strategies\[attempt - 1\]\(readyBox, button\)/);
-  assert.match(content, /Once a send strategy has fired, never/);
+  assert.match(content, /A strategy firing is not sufficient evidence that ChatGPT accepted/);
   assert.match(content, /const injectedAtMs = Date\.now\(\)/);
   assert.match(content, /injected_at_ms: injectedAtMs/);
   assert.match(content, /ack_at_ms: Date\.now\(\)/);
   assert.match(content, /user_messages_added: countNewUserMessages\(userMessages\(\), snapshot\)/);
   assert.match(content, /ack_verified: via === 'verified'/);
-  assert.match(content, /submission_via: finalVia/);
+  assert.match(content, /submission_via: via/);
   assert.match(content, /composer holds unrelated text; refusing to overwrite/);
   assert.doesNotMatch(content, /newestUserMatches/);
 });
