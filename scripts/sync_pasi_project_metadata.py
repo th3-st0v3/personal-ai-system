@@ -573,6 +573,9 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
         project = project_snapshot()
         iteration = field_by_name(project, ITERATION_FIELD, "ProjectV2IterationField")
 
+    if iteration is None:
+        raise RuntimeError("Required PASI Project iteration field could not be resolved after reconciliation.")
+
     actual_by_title = {
         item["title"]: item for item in iteration["configuration"]["iterations"]
     }
@@ -700,6 +703,20 @@ def sync_issue(
 
     project = apply_metadata_to_item(project, item_id, metadata, issue_number, title)
     return project, metadata
+
+
+def all_metadata_issue_numbers() -> list[int]:
+    endpoint = f"repos/{REPO}/issues?state=all&per_page=100"
+    raw = run_gh(
+        [
+            "api",
+            endpoint,
+            "--paginate",
+            "--jq",
+            '.[] | select(.body != null) | select(.body | contains("PASI_PROJECT_METADATA")) | .number',
+        ]
+    )
+    return sorted({int(line) for line in raw.splitlines() if line.strip()})
 
 
 def metadata_for_issue(issue_number: int) -> Metadata:
