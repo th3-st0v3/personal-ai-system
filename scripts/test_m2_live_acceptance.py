@@ -12,6 +12,8 @@ if str(ROOT) not in sys.path:
 from scripts.m2_live_acceptance import (
     discover_managed_bridge_pid,
     is_managed_bridge_process,
+    queue_operation_ids,
+    read_log_since,
 )
 
 
@@ -25,6 +27,40 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertIn("bridge.pid", source)
         self.assertIn("start_pasi_168h.sh", source)
         self.assertIn('"--resume"', source)
+
+    def test_marker_operation_ids_are_unique_and_order_preserving(self) -> None:
+        with patch(
+            "scripts.m2_live_acceptance.queue_items",
+            return_value=[
+                {"prompt": "M2_ACCEPTANCE_TOKEN", "operation_id": "op-1"},
+                {"prompt": "M2_ACCEPTANCE_TOKEN", "operation_id": "op-1"},
+                {"prompt": "M2_ACCEPTANCE_TOKEN", "operation_id": "op-2"},
+                {"prompt": "other", "operation_id": "op-other"},
+            ],
+        ):
+            self.assertEqual(queue_operation_ids("M2_ACCEPTANCE_TOKEN"), ["op-1", "op-2"])
+
+    def test_resume_acceptance_reads_detached_runner_log(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn('RUNNER_LOG_FILENAME = "runner.log"', source)
+        self.assertIn("runner_log_path(runtime_dir)", source)
+        self.assertIn("read_log_since(", source)
+        self.assertIn("Resuming persisted ChatGPT operation:", source)
+        self.assertIn("M2 marker produced duplicate or changed operations after resume", source)
+
+    def test_read_log_since_is_bounded_to_runtime_log_tail(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "runner.log"
+            path.write_text("prefix\nResuming persisted ChatGPT operation: op-1\n", encoding="utf-8")
+            self.assertIn("Resuming persisted ChatGPT operation: op-1", read_log_since(path, len("prefix\n".encode("utf-8"))))
+
+    def test_runner_kill_requires_zero_restart_budget_evidence(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("restart budget exhausted after 0 rapid engine exits", source)
+        self.assertIn("zero-restart supervisor budget exhaustion evidence", source)
+        self.assertIn("PASI_SUPERVISOR_MAX_RESTARTS", source)
 
     def test_m2_does_not_request_a_new_chat(self) -> None:
         source = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
