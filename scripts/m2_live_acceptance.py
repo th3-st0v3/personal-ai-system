@@ -252,6 +252,7 @@ def discover_managed_bridge_pid() -> tuple[int, dict[str, Any]] | None:
     for listener_pid in listening_pids():
         current = listener_pid
         visited: set[int] = set()
+        direct_candidate: tuple[int, dict[str, Any]] | None = None
         for _ in range(16):
             if current in visited or current <= 1:
                 break
@@ -259,17 +260,23 @@ def discover_managed_bridge_pid() -> tuple[int, dict[str, Any]] | None:
             command_line = process_command(current)
             cwd = process_cwd(current)
             if is_managed_bridge_process(command_line, cwd):
-                return current, {
+                evidence = {
                     "listener_pid": listener_pid,
                     "owner_pid": current,
                     "owner_command_line": command_line,
                     "owner_cwd": cwd,
                     "discovered_at": utc_now(),
                 }
+                if "pasi_log_router.py" in command_line:
+                    return current, evidence
+                if direct_candidate is None:
+                    direct_candidate = (current, evidence)
             parent = process_parent(current)
             if parent is None:
                 break
             current = parent
+        if direct_candidate is not None:
+            return direct_candidate
     return None
 
 
