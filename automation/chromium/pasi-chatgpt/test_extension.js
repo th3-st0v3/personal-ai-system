@@ -183,6 +183,29 @@ test('native created-tab provisioning explicitly bootstraps the controller and r
   assert.match(background, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/);
 });
 
+test('native controller exposes a disposal handle so extension reloads can replace stale content contexts', () => {
+  assert.match(content, /__PASI_NATIVE_CONTROLLER_HANDLE__/);
+  assert.match(content, /function disposeController\(\)/);
+  assert.match(content, /clearInterval\(pollTimerId\)/);
+  assert.match(content, /clearInterval\(healthTimerId\)/);
+  assert.match(content, /stop: disposeController/);
+  assert.match(content, /existingControllerHandle/);
+});
+
+test('native existing-tab reinjection resets stale controller state before loading fresh scripts', () => {
+  const start = background.indexOf('async function injectChatGptTab(tabId, context = {})');
+  const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId)', start);
+  assert.ok(start >= 0 && end > start);
+  const source = background.slice(start, end);
+  assert.match(source, /__PASI_NATIVE_CONTROLLER_HANDLE__/);
+  assert.match(source, /delete globalThis\.__PASI_NATIVE_CONTROLLER_HANDLE__/);
+  assert.match(source, /delete globalThis\.__PASI_NATIVE_CONTROLLER_STARTED__/);
+  assert.ok(
+    source.indexOf('delete globalThis.__PASI_NATIVE_CONTROLLER_STARTED__') <
+      source.indexOf("files: [")
+  );
+});
+
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
   const start = background.indexOf('async function injectChatGptTab(tabId, context = {})');
   const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId)', start);
