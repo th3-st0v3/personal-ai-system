@@ -14,6 +14,7 @@ from scripts.run_m1_live_acceptance import (
     signature_counts,
     validate_signature_progression,
     wait_for_conversation_signature,
+    wait_for_durable_response_progression,
     wait_for_signature_progression,
 )
 
@@ -108,6 +109,32 @@ class TestM1LiveAcceptance(unittest.TestCase):
         self.assertIsNone(parse_conversation_signature("3:4:"))
         self.assertIsNone(parse_conversation_signature("3:assistant:response"))
         self.assertIsNone(parse_conversation_signature("invalid"))
+
+    def test_durable_response_waiter_accepts_marker_inside_surrounding_response_text(self) -> None:
+        class FakeAdapter:
+            def read_browser_response_observation(self) -> dict[str, object]:
+                return {
+                    "data": {
+                        "kind": "chatgpt_response",
+                        "operation_id": "op-1",
+                        "chat_url": "https://chatgpt.com/c/live",
+                        "response_text": "The requested marker is PASI_M1_ACCEPTANCE_01_abcd1234.",
+                        "conversation_signature": "4:5:current",
+                    }
+                }
+
+        state, signature = wait_for_durable_response_progression(
+            FakeAdapter(),
+            "https://chatgpt.com/c/live",
+            "op-1",
+            "PASI_M1_ACCEPTANCE_01_abcd1234",
+            "3:4:previous",
+            1,
+            timeout_seconds=0.1,
+            poll_seconds=0,
+        )
+        self.assertEqual(state["operation_id"], "op-1")
+        self.assertEqual(signature, "4:5:current")
 
     def test_validate_signature_progression_accepts_exact_next_message_pair(self) -> None:
         self.assertEqual(
