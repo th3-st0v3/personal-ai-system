@@ -1524,22 +1524,36 @@
           return;
         }
         if (current.manual_reload_gate_released === true) {
-          const responseText =
+          const persistedResponse =
             typeof stored.manual_reload_gate_response === 'string'
               ? stored.manual_reload_gate_response
               : '';
-          if (!responseText.trim()) {
-            throw new Error('PASI_NATIVE: manual reload gate response evidence is missing');
+          const operationResponse =
+            typeof current.response_text === 'string'
+              ? current.response_text
+              : '';
+          const visibleResponse = latestAssistantForOperation(current);
+          const responseText = persistedResponse.trim() || operationResponse.trim() || visibleResponse.trim();
+          if (responseText.trim()) {
+            await finishOperation(
+              stored.operation_id,
+              responseText,
+              true,
+              stored.manual_reload_gate_timing
+            );
+            localStorage.removeItem(ACTIVE_KEY);
+            activeRecoveryState = null;
+            manualReloadGateMonitorActive = false;
+            return;
           }
-          await finishOperation(
-            stored.operation_id,
-            responseText,
-            true,
-            stored.manual_reload_gate_timing
-          );
+
+          // Release never changes operation identity. If the operation is still
+          // nonterminal, clear only the gate and hand control back to the normal
+          // same-operation recovery path instead of resubmitting the prompt.
           localStorage.removeItem(ACTIVE_KEY);
           activeRecoveryState = null;
           manualReloadGateMonitorActive = false;
+          await recoverInterruptedOperation();
           return;
         }
         if (current.status === 'failed' || current.status === 'cancelled') {
