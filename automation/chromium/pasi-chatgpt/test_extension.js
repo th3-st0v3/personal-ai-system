@@ -883,7 +883,7 @@ test('native prompt submission has a bounded fallback after a no-op first strate
   assert.match(source, /const retrySafe = \(/);
   assert.match(source, /attempt < strategies.length/);
   assert.match(source, /!generating()/);
-  assert.match(source, /newMessageState() === null/);
+  assert.match(source, /newMessageState\(\) === null/);
   assert.match(source, /composerContainsPrompt(currentBox, expected)/);
   assert.match(source, /submission acknowledgement not observed after a fired strategy/);
 });
