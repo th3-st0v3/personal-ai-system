@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.m2_live_acceptance import (
+    BROWSER_MAX_HEARTBEAT_AGE_SECONDS,
     discover_managed_bridge_pid,
     is_managed_bridge_process,
     queue_operation_ids,
@@ -55,6 +56,14 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
             path = Path(tempdir) / "runner.log"
             path.write_text("prefix\nResuming persisted ChatGPT operation: op-1\n", encoding="utf-8")
             self.assertIn("Resuming persisted ChatGPT operation: op-1", read_log_since(path, len("prefix\n".encode("utf-8"))))
+
+    def test_m2_preflight_rejects_stale_browser_health(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("BROWSER_MAX_HEARTBEAT_AGE_SECONDS", source)
+        self.assertIn("browser heartbeat is stale", source)
+        self.assertIn("expected_controller_version(REPO_ROOT)", source)
+        self.assertIn("expected_extension_manifest_version(REPO_ROOT)", source)
+        self.assertEqual(BROWSER_MAX_HEARTBEAT_AGE_SECONDS, 30.0)
 
     def test_failure_path_cleans_up_managed_runtime(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
