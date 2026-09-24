@@ -887,3 +887,13 @@ test('native prompt submission has a bounded fallback after a no-op first strate
   assert.match(source, /composerContainsPrompt(currentBox, expected)/);
   assert.match(source, /submission acknowledgement not observed after a fired strategy/);
 });
+
+
+test('native existing-tab work handoff verifies the controller and explicitly wakes pending queue work', () => {
+  assert.match(background, /chrome\.tabs\.sendMessage\(selectedTabId, \{ type: 'pasi-work-wake' \}\)/);
+  assert.match(background, /work_wake_sent: workWakeSent/);
+  assert.match(content, /message\?\.type === 'pasi-health-ping'/);
+  assert.match(content, /sendResponse\?\.\(\{ ok: true, controller: true \}\)/);
+  assert.match(content, /message\?\.type === 'pasi-work-wake'/);
+  assert.match(content, /void poll\(\)/);
+});
