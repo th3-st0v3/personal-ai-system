@@ -533,6 +533,7 @@ def update_single_select_field(
 def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
     fields = {field["name"]: field for field in project["fields"]["nodes"]}
 
+    # Reuse GitHub's native scheduling fields where available.
     if START_FIELD not in fields:
         create_field(
             project["id"],
@@ -563,34 +564,31 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-    if QUARTER_FIELD not in fields:
+    if DESCRIPTION_FIELD not in fields:
         create_field(
             project["id"],
             {
                 "projectId": project["id"],
-                "name": QUARTER_FIELD,
-                "dataType": "SINGLE_SELECT",
-                "singleSelectOptions": [
-                    {"name": name, "description": f"PASI quarter {name}", "color": "GRAY"}
-                    for name in sorted({info["quarter"] for info in PHASES.values()})
-                ],
+                "name": DESCRIPTION_FIELD,
+                "dataType": "TEXT",
             },
         )
+    elif fields[DESCRIPTION_FIELD]["__typename"] != "ProjectV2Field":
+        raise RuntimeError(
+            f"{DESCRIPTION_FIELD!r} exists but is not a TEXT project field."
+        )
 
-    for field_name in (
-        DESCRIPTION_FIELD,
-        RELATIONSHIP_FIELD,
-        DEVELOPMENT_MILESTONE_FIELD,
-    ):
-        if field_name not in fields:
-            create_field(
-                project["id"],
-                {"projectId": project["id"], "name": field_name, "dataType": "TEXT"},
-            )
-        elif fields[field_name]["__typename"] != "ProjectV2Field":
-            raise RuntimeError(
-                f"{field_name!r} exists but is not a TEXT project field."
-            )
+    # Quarter is a native Iteration field in the active PASI Project. Do not
+    # replace it with a custom single-select quarter field.
+    if QUARTER_FIELD not in fields:
+        raise RuntimeError(
+            "Required native Project Quarter iteration field is missing."
+        )
+    if fields[QUARTER_FIELD]["__typename"] != "ProjectV2IterationField":
+        raise RuntimeError(
+            f"{QUARTER_FIELD!r} exists as {fields[QUARTER_FIELD]['__typename']}; "
+            "expected a ProjectV2IterationField."
+        )
 
     if ITERATION_FIELD not in fields:
         iterations = [
@@ -617,19 +615,19 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-    # Re-read after field creation.
+    # Re-read after field creation/reconciliation.
     project = project_snapshot()
-    fields = {field["name"]: field for field in project["fields"]["nodes"]}
-
     team = field_by_name(project, TEAM_FIELD, "ProjectV2SingleSelectField")
-    quarter = field_by_name(project, QUARTER_FIELD, "ProjectV2SingleSelectField")
+    quarter = field_by_name(project, QUARTER_FIELD, "ProjectV2IterationField")
     iteration = field_by_name(project, ITERATION_FIELD, "ProjectV2IterationField")
     status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
 
     if not team or not quarter or not iteration or not status:
         raise RuntimeError("Required PASI Project fields could not be resolved.")
 
-    status_names = {normalize_status_name(option["name"]) for option in status["options"]}
+    status_names = {
+        normalize_status_name(option["name"]) for option in status["options"]
+    }
     desired_statuses = (STATUS_TODO, "In Progress", STATUS_DONE)
     missing_statuses = [
         name
@@ -649,7 +647,9 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
         status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
 
     if not status:
-        raise RuntimeError("Required PASI Project Status field could not be resolved after reconciliation.")
+        raise RuntimeError(
+            "Required PASI Project Status field could not be resolved after reconciliation."
+        )
 
     remaining_statuses = {
         normalize_status_name(option["name"]) for option in status["options"]
@@ -665,30 +665,21 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
             + ", ".join(still_missing)
         )
 
-    # Reconcile Team/Quarter options while preserving existing option IDs.
     desired_team = ["Backend", "Frontend"]
     existing_team = {option["name"] for option in team["options"]}
     missing_team = [name for name in desired_team if name not in existing_team]
     if missing_team:
         options = list(team["options"]) + [
-            {"name": name, "description": f"PASI {name.lower()} phase", "color": "GRAY"}
+            {
+                "name": name,
+                "description": f"PASI {name.lower()} phase",
+                "color": "GRAY",
+            }
             for name in missing_team
         ]
         update_single_select_field(team["id"], options)
         project = project_snapshot()
         team = field_by_name(project, TEAM_FIELD, "ProjectV2SingleSelectField")
-
-    desired_quarters = sorted({info["quarter"] for info in PHASES.values()})
-    existing_quarters = {option["name"] for option in quarter["options"]}
-    missing_quarters = [name for name in desired_quarters if name not in existing_quarters]
-    if missing_quarters:
-        options = list(quarter["options"]) + [
-            {"name": name, "description": f"PASI quarter {name}", "color": "GRAY"}
-            for name in missing_quarters
-        ]
-        update_single_select_field(quarter["id"], options)
-        project = project_snapshot()
-        quarter = field_by_name(project, QUARTER_FIELD, "ProjectV2SingleSelectField")
 
     expected_iterations = [
         {
@@ -701,8 +692,16 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
         for info in PHASES.values()
     ]
     current_iterations = iteration["configuration"]["iterations"]
+    current_signature = [
+        {
+            "title": value["title"],
+            "startDate": value["startDate"],
+            "duration": value["duration"],
+        }
+        for value in current_iterations
+    ]
 
-    if current_iterations != expected_iterations:
+    if current_signature != expected_iterations:
         update_iteration_field(
             project["id"],
             iteration["id"],
@@ -716,14 +715,20 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
         iteration = field_by_name(project, ITERATION_FIELD, "ProjectV2IterationField")
 
     if iteration is None:
-        raise RuntimeError("Required PASI Project iteration field could not be resolved after reconciliation.")
+        raise RuntimeError(
+            "Required PASI Project iteration field could not be resolved after reconciliation."
+        )
 
     actual_by_title = {
         item["title"]: item for item in iteration["configuration"]["iterations"]
     }
     for expected in expected_iterations:
         actual = actual_by_title.get(expected["title"])
-        if not actual or actual["startDate"] != expected["startDate"] or actual["duration"] != expected["duration"]:
+        if (
+            not actual
+            or actual["startDate"] != expected["startDate"]
+            or actual["duration"] != expected["duration"]
+        ):
             raise RuntimeError(
                 f"Iteration reconciliation failed for {expected['title']}."
             )
