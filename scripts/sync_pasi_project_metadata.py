@@ -36,6 +36,9 @@ TEAM_FIELD = "Team"
 QUARTER_FIELD = "Quarter"
 ITERATION_FIELD = "Iteration"
 STATUS_FIELD = "Status"
+DESCRIPTION_FIELD = "Description"
+RELATIONSHIP_FIELD = "Relationship"
+DEVELOPMENT_MILESTONE_FIELD = "Development Milestone"
 STATUS_DONE = "Done"
 STATUS_TODO = "Todo"
 FRONTEND_ROADMAP_ISSUE = 318
@@ -104,6 +107,71 @@ class Metadata:
     end_date: str
     team: str
     quarter: str
+
+
+@dataclass(frozen=True)
+class RoadmapForm:
+    description: str
+    start_date: str
+    end_date: str
+    relationship: str
+    development_milestone: str
+    status: str
+
+
+ISSUE_FORM_RE = re.compile(
+    r"^### (?P<label>Description|Start Date|End Date|Relationship|Development Milestone|Status)\s*$\n"
+    r"(?P<value>.*?)(?=^### (?:Description|Start Date|End Date|Relationship|Development Milestone|Status)\s*$|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def parse_roadmap_form(body: str) -> RoadmapForm | None:
+    matches = {
+        match.group("label"): match.group("value").strip()
+        for match in ISSUE_FORM_RE.finditer(body or "")
+    }
+    if not matches:
+        return None
+
+    required = [
+        "Description",
+        "Start Date",
+        "End Date",
+        "Relationship",
+        "Development Milestone",
+        "Status",
+    ]
+    missing = [label for label in required if not matches.get(label)]
+    if missing:
+        raise ValueError(
+            "Incomplete PASI Roadmap Item form; missing: " + ", ".join(missing)
+        )
+
+    start_date = matches["Start Date"]
+    end_date = matches["End Date"]
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise ValueError("Roadmap Item Start Date and End Date must be YYYY-MM-DD.") from exc
+    if end < start:
+        raise ValueError("Roadmap Item End Date precedes Start Date.")
+
+    status = matches["Status"]
+    if status not in {STATUS_TODO, "In Progress", STATUS_DONE}:
+        raise ValueError(
+            "Roadmap Item Status must be Todo, In Progress, or Done."
+        )
+
+    return RoadmapForm(
+        description=matches["Description"],
+        start_date=start_date,
+        end_date=end_date,
+        relationship=matches["Relationship"],
+        development_milestone=matches["Development Milestone"],
+        status=status,
+    )
 
 
 def validate_project_number() -> int:
@@ -289,7 +357,7 @@ def parse_metadata(body: str) -> Metadata:
     )
 
 
-def fetch_issue(issue_number: int) -> tuple[str, str, str]:
+def fetch_issue(issue_number: int) -> tuple[str, str, str, str]:
     query = """
     query($owner:String!, $repo:String!, $number:Int!) {
       repository(owner:$owner, name:$repo) {
@@ -503,6 +571,21 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
                 ],
             },
         )
+
+    for field_name in (
+        DESCRIPTION_FIELD,
+        RELATIONSHIP_FIELD,
+        DEVELOPMENT_MILESTONE_FIELD,
+    ):
+        if field_name not in fields:
+            create_field(
+                project["id"],
+                {"projectId": project["id"], "name": field_name, "dataType": "TEXT"},
+            )
+        elif fields[field_name]["__typename"] != "ProjectV2Field":
+            raise RuntimeError(
+                f"{field_name!r} exists but is not a TEXT project field."
+            )
 
     if ITERATION_FIELD not in fields:
         iterations = [
@@ -742,6 +825,55 @@ def verify_frontend_roadmap_checkboxes(
         raise RuntimeError("Frontend roadmap checkbox state is out of sync with Project Status.")
 
 
+def apply_roadmap_form_to_item(
+    project: dict[str, Any],
+    item_id: str,
+    form: RoadmapForm,
+    issue_number: int,
+    title: str,
+) -> dict[str, Any]:
+    project = ensure_schema(project)
+    fields = {field["name"]: field for field in project["fields"]["nodes"]}
+
+    update_item_field(
+        project["id"], item_id, fields[DESCRIPTION_FIELD]["id"], {"text": form.description}
+    )
+    update_item_field(
+        project["id"], item_id, fields[START_FIELD]["id"], {"date": form.start_date}
+    )
+    update_item_field(
+        project["id"], item_id, fields[END_FIELD]["id"], {"date": form.end_date}
+    )
+    update_item_field(
+        project["id"], item_id, fields[RELATIONSHIP_FIELD]["id"], {"text": form.relationship}
+    )
+    update_item_field(
+        project["id"],
+        item_id,
+        fields[DEVELOPMENT_MILESTONE_FIELD]["id"],
+        {"text": form.development_milestone},
+    )
+    status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
+    if not status:
+        raise RuntimeError("Required PASI Project Status field could not be resolved.")
+    status_option = next(
+        (option for option in status["options"] if option["name"] == form.status),
+        None,
+    )
+    if not status_option:
+        raise RuntimeError(
+            f"PASI Project Status option {form.status!r} is unavailable."
+        )
+    update_item_field(
+        project["id"],
+        item_id,
+        status["id"],
+        {"singleSelectOptionId": status_option["id"]},
+    )
+    print(f"Synced roadmap form #{issue_number} {title} -> {form.status}")
+    return project
+
+
 def apply_metadata_to_item(
     project: dict[str, Any],
     item_id: str,
@@ -800,6 +932,7 @@ def sync_issue(
 ) -> tuple[dict[str, Any], Metadata | None]:
     content_id, title, body, state = fetch_issue(issue_number)
     metadata = parse_metadata(body) if "PASI_PROJECT_METADATA" in body else None
+    form = parse_roadmap_form(body)
 
     existing = existing_items.get(issue_number)
     if existing:
@@ -809,15 +942,38 @@ def sync_issue(
         item_id = add_item(project["id"], content_id)
         membership_action = "added"
 
-    if metadata is None:
+    if metadata is not None:
+        project = apply_metadata_to_item(project, item_id, metadata, issue_number, title)
+
+    if form is not None:
+        # Explicit close/reopen events take precedence over a stale form Status.
+        if PROJECT_EVENT_ACTION == "closed" or state.upper() == "CLOSED":
+            form = RoadmapForm(
+                description=form.description,
+                start_date=form.start_date,
+                end_date=form.end_date,
+                relationship=form.relationship,
+                development_milestone=form.development_milestone,
+                status=STATUS_DONE,
+            )
+        elif PROJECT_EVENT_ACTION == "reopened":
+            form = RoadmapForm(
+                description=form.description,
+                start_date=form.start_date,
+                end_date=form.end_date,
+                relationship=form.relationship,
+                development_milestone=form.development_milestone,
+                status=STATUS_TODO,
+            )
+        project = apply_roadmap_form_to_item(project, item_id, form, issue_number, title)
+
+    if metadata is None and form is None:
         print(
             f"Project membership {membership_action}: #{issue_number} {title} "
-            "(no phase metadata block)."
+            "(no PASI metadata block or roadmap form)."
         )
-        return project, None, state
 
-    project = apply_metadata_to_item(project, item_id, metadata, issue_number, title)
-    return project, metadata, state
+    return project, metadata, form, state
 
 
 def all_metadata_issue_numbers() -> list[int]:
@@ -849,7 +1005,10 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
       $teamField:String!,
       $quarterField:String!,
       $iterationField:String!,
-      $statusField:String!
+      $statusField:String!,
+      $descriptionField:String!,
+      $relationshipField:String!,
+      $developmentMilestoneField:String!
     ) {
       node(id:$project) {
         ... on ProjectV2 {
@@ -890,6 +1049,15 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
                   name
                 }
               }
+              description: fieldValueByName(name:$descriptionField) {
+                ... on ProjectV2ItemFieldTextValue { text }
+              }
+              relationship: fieldValueByName(name:$relationshipField) {
+                ... on ProjectV2ItemFieldTextValue { text }
+              }
+              developmentMilestone: fieldValueByName(name:$developmentMilestoneField) {
+                ... on ProjectV2ItemFieldTextValue { text }
+              }
             }
           }
         }
@@ -919,6 +1087,41 @@ def project_items(project: dict[str, Any], field_names: dict[str, str]) -> dict[
         after = page["pageInfo"]["endCursor"]
 
     return found
+
+
+def verify_roadmap_form(
+    project_items_by_number: dict[int, dict[str, Any]],
+    issue_number: int,
+    form: RoadmapForm,
+) -> None:
+    item = project_items_by_number.get(issue_number)
+    if not item:
+        raise RuntimeError(
+            f"Project verification failed: issue #{issue_number} is not in the Project."
+        )
+
+    checks = [
+        ("Description", item.get("description", {}).get("text"), form.description),
+        ("Start Date", item.get("start", {}).get("date"), form.start_date),
+        ("End Date", item.get("end", {}).get("date"), form.end_date),
+        ("Relationship", item.get("relationship", {}).get("text"), form.relationship),
+        (
+            "Development Milestone",
+            item.get("developmentMilestone", {}).get("text"),
+            form.development_milestone,
+        ),
+        ("Status", item.get("status", {}).get("name"), form.status),
+    ]
+    mismatches = [
+        f"{name}: expected {expected!r}, got {actual!r}"
+        for name, actual, expected in checks
+        if actual != expected
+    ]
+    if mismatches:
+        raise RuntimeError(
+            f"Project form verification failed for #{issue_number}: "
+            + "; ".join(mismatches)
+        )
 
 
 def verify_issue(project_items_by_number: dict[int, dict[str, Any]], issue_number: int, metadata: Metadata) -> None:
@@ -958,16 +1161,22 @@ def synchronize(issue_numbers: list[int]) -> None:
         "quarterField": QUARTER_FIELD,
         "iterationField": ITERATION_FIELD,
         "statusField": STATUS_FIELD,
+        "descriptionField": DESCRIPTION_FIELD,
+        "relationshipField": RELATIONSHIP_FIELD,
+        "developmentMilestoneField": DEVELOPMENT_MILESTONE_FIELD,
     }
     existing_items = project_items(project, field_names)
     metadata_by_issue: dict[int, Metadata] = {}
+    form_by_issue: dict[int, RoadmapForm] = {}
     issue_states: dict[int, str] = {}
 
     for issue_number in issue_numbers:
-        project, metadata, state = sync_issue(project, issue_number, existing_items)
+        project, metadata, form, state = sync_issue(project, issue_number, existing_items)
         issue_states[issue_number] = state
         if metadata is not None:
             metadata_by_issue[issue_number] = metadata
+        if form is not None:
+            form_by_issue[issue_number] = form
 
     project = project_snapshot()
     items = project_items(project, field_names)
@@ -993,7 +1202,7 @@ def synchronize(issue_numbers: list[int]) -> None:
                 f"Project verification failed: issue #{issue_number} is not in the Project."
             )
 
-    if metadata_by_issue:
+    if metadata_by_issue or form_by_issue:
         fields = {field["name"]: field for field in project["fields"]["nodes"]}
         missing_fields = [name for name in field_names.values() if name not in fields]
         if missing_fields:
@@ -1024,6 +1233,12 @@ def synchronize(issue_numbers: list[int]) -> None:
             for issue_number, metadata in metadata_by_issue.items():
                 try:
                     verify_issue(items, issue_number, metadata)
+                except RuntimeError as exc:
+                    errors.append(str(exc))
+
+            for issue_number, form in form_by_issue.items():
+                try:
+                    verify_roadmap_form(items, issue_number, form)
                 except RuntimeError as exc:
                     errors.append(str(exc))
 
