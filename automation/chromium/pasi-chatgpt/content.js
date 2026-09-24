@@ -785,6 +785,7 @@
         conversation_signature: conversationSignature(),
         native_controller: true,
         extension_manifest_version: EXTENSION_MANIFEST_VERSION,
+        manual_reload_gate_supported: true,
         active_operation_id: activeOperationId
       }, 2000);
 
@@ -2008,6 +2009,16 @@
       const payload = current.ok ? current.json() : null;
       const operation = payload?.operation;
       if (!operation) return;
+
+      const gatedState = manualReloadGateState();
+      const gatedOperation = (
+        gatedState?.operation_id === stored.operation_id &&
+        gatedState?.manual_reload_gate === true
+      );
+      if (gatedOperation && isM2ManualReloadGate(operation)) {
+        scheduleManualReloadGateMonitor();
+        return;
+      }
 
       if (operation.status === 'completed') {
         const responseText = typeof operation.response_text === 'string' ? operation.response_text : '';
