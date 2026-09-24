@@ -176,9 +176,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (!message || message.type !== 'pasi-bridge-request') return undefined;
-  const senderUrl = String(sender?.url || '');
+  const senderUrl = String(sender?.tab?.url || sender?.url || '');
   if (!/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)) {
-    sendResponse({ ok: false, status: 403, text: '' });
+    console.warn('[PASI worker bridge] rejected non-ChatGPT sender', senderUrl.slice(0, 200));
+    sendResponse({ ok: false, status: 403, text: 'ChatGPT sender rejected' });
     return undefined;
   }
 
