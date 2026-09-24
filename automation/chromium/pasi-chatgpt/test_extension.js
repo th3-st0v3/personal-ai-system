@@ -799,10 +799,10 @@ test('native response wait checks generation before failure-marker DOM scans', (
   const start = content.indexOf('response = await waitUntil(() => {');
   const end = content.indexOf('}, TIMEOUTS.generation, DOM_POLL_MS);', start);
   const source = content.slice(start, end);
-  assert.match(source, /if (generating()) {/);
+  assert.ok(source.includes('if (generating()) {'));
   assert.match(source, /const detected = detectorState();/);
   assert.ok(source.indexOf('if (generating())') < source.indexOf('const detected = detectorState()'));
-  assert.doesNotMatch(source, /if \(contextExhausted\(\)[\s\S]*if \(usageLimited\(\)/);
+  assert.equal(source.includes('if (contextExhausted())') && source.includes('if (usageLimited())'), false);
 });
 
 test('native visibility checks reject non-rendered elements before computed style', () => {
@@ -940,7 +940,7 @@ test('native submission fast path performs one readiness detector pass and can u
   const source = content.slice(start, end);
   assert.match(source, /const fastPath = options\.fastPath === true/);
   assert.match(source, /const handoffBox = options\.readyBox && options\.readyBox\.isConnected === true/);
-  assert.match(source, /const detected = detectorState\(\);/);
+  assert.ok(source.includes('const detected = detectorState();'));
   assert.match(source, /const immediateButton = sendCandidatesForComposer\(readyBox\)\[0\]/);
   assert.match(source, /const button = immediateButton \|\| await waitForSend\(readyBox\)/);
   assert.match(source, /await ensurePromptSubmissionReady\(\);/);
