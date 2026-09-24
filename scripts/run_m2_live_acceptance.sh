@@ -376,9 +376,10 @@ PY
 }
 
 echo
-echo "MANUAL STEP: reload OR close/reopen the exact ChatGPT tab recorded in $OUT."
-echo "Do not substitute another ChatGPT tab."
-echo "After the exact tab has been reloaded and is visible again, open another terminal and run:"
+echo "MANUAL STEP: close the exact ChatGPT tab recorded in $OUT."
+echo "Do not manually reopen it and do not substitute another ChatGPT tab."
+echo "Wait for PASI to create exactly one replacement ChatGPT tab, then verify that replacement tab is visible."
+echo "After PASI creates the replacement tab, open another terminal and run:"
 echo "  bash scripts/release_m2_manual_reload_gate.sh $operation_id"
 echo "The M2 harness is waiting for that release; no Enter key is required."
 wait_for_manual_reload_release || exit 2
@@ -519,6 +520,8 @@ if not isinstance(provisioning_data,dict):
     raise SystemExit("M2 requires initial tab provisioning evidence")
 if provisioning_data.get("action") not in {"created", "existing_tabs_no_create", "race_existing_tabs_no_create"}:
     raise SystemExit(f"unexpected initial provisioning action: {provisioning_data.get('action')!r}")
+if provisioning_data.get("injection_ready") is not True:
+    raise SystemExit("M2 provisioning evidence did not prove that the replacement tab has a live controller")
 pre_url=str(p.get("pre_restart_chat_url") or "")
 if provisioning_data.get("action") == "created":
     if int(provisioning_data.get("after_create_tab_count", 0) or 0) != 1:
@@ -548,6 +551,11 @@ if not any(event.get("phase") == "reloading" for event in events if isinstance(e
     raise SystemExit("M2 evidence is missing the browser reloading recovery event")
 if not any(event.get("phase") == "preserve_current_chat" for event in events if isinstance(event, dict)):
     raise SystemExit("M2 evidence is missing the exact-operation preserve_current_chat recovery event")
+handoff = p.get("latest_provisioning") or {}
+handoff_data = handoff.get("data") if isinstance(handoff, dict) else {}
+if isinstance(handoff_data, dict) and handoff_data.get("resume_operation_id"):
+    if handoff_data.get("resume_operation_id") != p["operation_id"] or handoff_data.get("resume_handoff_sent") is not True:
+        raise SystemExit("M2 replacement-tab handoff did not target the exact operation")
 
 runner_log_path = Path(os.environ["RUNNER_LOG"])
 try:
