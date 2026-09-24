@@ -508,7 +508,7 @@ def bridge_is_healthy() -> bool:
         return False
 
 
-def start_managed_run(runtime_dir: Path, branch: str, task: str) -> tuple[str, str, str]:
+def start_managed_run(runtime_dir: Path, branch: str, task: str) -> tuple[str, str, str, float]:
     env = os.environ.copy()
     env.update(
         {
@@ -520,6 +520,7 @@ def start_managed_run(runtime_dir: Path, branch: str, task: str) -> tuple[str, s
             "PASI_M2_FAST_START": "1",
         }
     )
+    started_at = time.monotonic()
     result = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts" / "start_pasi_168h.sh"), "--task", task, "--no-push"],
         cwd=REPO_ROOT,
@@ -529,13 +530,14 @@ def start_managed_run(runtime_dir: Path, branch: str, task: str) -> tuple[str, s
         timeout=180,
         check=False,
     )
+    elapsed_seconds = time.monotonic() - started_at
     if result.returncode != 0:
-        raise M2AcceptanceError("start", f"start_pasi_168h.sh failed (runtime_dir={runtime_dir}):\nSTDOUT:\n{result.stdout[-6000:]}\nSTDERR:\n{result.stderr[-6000:]}")
+        raise M2AcceptanceError("start", f"start_pasi_168h.sh failed (runtime_dir={runtime_dir}, elapsed={elapsed_seconds:.3f}s):\nSTDOUT:\n{result.stdout[-6000:]}\nSTDERR:\n{result.stderr[-6000:]}")
     worktree = re.search(r"^Worktree:\s*(.+)$", result.stdout, re.MULTILINE)
     branch_match = re.search(r"^Branch:\s*(.+)$", result.stdout, re.MULTILINE)
     if not worktree or not branch_match:
         raise M2AcceptanceError("start", "start_pasi_168h.sh did not report its worktree and branch")
-    return worktree.group(1).strip(), branch_match.group(1).strip(), result.stdout[-8000:]
+    return worktree.group(1).strip(), branch_match.group(1).strip(), result.stdout[-8000:], elapsed_seconds
 
 
 def start_bridge(runtime_dir: Path) -> dict[str, Any]:
@@ -674,8 +676,9 @@ def main() -> int:
             "This is a live M2 kill/restart recovery acceptance operation."
         )
         branch = f"pasi/m2-live-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
-        worktree, actual_branch, start_output = start_managed_run(runtime_dir, branch, task)
+        worktree, actual_branch, start_output, launcher_start_seconds = start_managed_run(runtime_dir, branch, task)
         runner_started = True
+        queue_wait_started = time.monotonic()
 
         try:
             operation_id = wait_for(
@@ -692,18 +695,23 @@ def main() -> int:
                 poll_seconds=OPERATION_POLL_SECONDS,
             )
         except M2AcceptanceError as exc:
+            queue_wait_seconds = time.monotonic() - queue_wait_started
             diagnostics = runtime_startup_diagnostics(runtime_dir)
             evidence["stages"]["operation_start_timeout"] = diagnostics
             raise M2AcceptanceError(
                 "operation_start",
                 f"{exc}; runtime startup diagnostics: {json.dumps(diagnostics, ensure_ascii=False)[:16000]}",
             ) from exc
+        queue_wait_seconds = time.monotonic() - queue_wait_started
+        active_wait_started = time.monotonic()
         wait_for(
             lambda: operation(operation_id) if operation(operation_id).get("status") in {"claimed", "generating"} else None,
             120,
             f"operation {operation_id} to become active",
             poll_seconds=OPERATION_POLL_SECONDS,
         )
+        active_wait_seconds = time.monotonic() - active_wait_started
+        gate_wait_started = time.monotonic()
         manual_gate_operation = wait_for(
             lambda: (
                 operation(operation_id)
@@ -716,6 +724,7 @@ def main() -> int:
             f"manual reload gate for operation {operation_id} to be armed",
             poll_seconds=OPERATION_POLL_SECONDS,
         )
+        gate_wait_seconds = time.monotonic() - gate_wait_started
         marker_operation_ids = queue_operation_ids(marker)
         if marker_operation_ids != [operation_id]:
             raise M2AcceptanceError(
@@ -731,6 +740,10 @@ def main() -> int:
             "operation": manual_gate_operation,
             "manual_reload_gate_armed": True,
             "start_output": start_output,
+            "launcher_start_seconds": round(launcher_start_seconds, 3),
+            "queue_wait_seconds": round(queue_wait_seconds, 3),
+            "active_wait_seconds": round(active_wait_seconds, 3),
+            "manual_gate_wait_seconds": round(gate_wait_seconds, 3),
             "worktree": worktree,
             "branch": actual_branch,
             "marker_operation_ids": marker_operation_ids,
