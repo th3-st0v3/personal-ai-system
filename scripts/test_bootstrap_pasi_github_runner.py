@@ -26,21 +26,21 @@ def test_runner_bootstrap_is_noninteractive_and_service_aware() -> None:
     assert "sudo ./svc.sh status" in source
 
 
-def test_authoritative_workflow_does_not_use_hosted_runner() -> None:
+def test_authoritative_workflow_uses_hosted_runner() -> None:
     workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-    assert "ubuntu-latest" not in workflow
-    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in workflow
+    assert "runs-on: ubuntu-latest" in workflow
+    assert "[self-hosted, linux, x64, pasi-wsl]" not in workflow
     assert "check_fast.sh" in workflow
     assert "mode:" in workflow
     assert "fast" in workflow
     assert "live" in workflow
 
 
-def test_authoritative_ci_stays_self_hosted_and_security_stays_hosted_and_fork_safe() -> None:
+def test_standard_ci_and_security_use_hosted_runners_and_fork_safe() -> None:
     test_workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     security_workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
-    assert "ubuntu-latest" not in test_workflow
-    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in test_workflow
+    assert "runs-on: ubuntu-latest" in test_workflow
+    assert "[self-hosted, linux, x64, pasi-wsl]" not in test_workflow
     assert "runs-on: ubuntu-latest" in security_workflow
     assert "[self-hosted, linux, x64, pasi-wsl]" not in security_workflow
     assert "untrusted fork pull requests" in test_workflow
