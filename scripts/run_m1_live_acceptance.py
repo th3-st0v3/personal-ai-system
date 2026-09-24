@@ -19,6 +19,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 class BrowserStateReader(Protocol):
     def read_browser_state(self) -> Any: ...
+    def read_browser_observation(self) -> Any: ...
 
 
 class BrowserEvidenceReader(BrowserStateReader, Protocol):
@@ -55,6 +56,12 @@ def signature_counts(value: object) -> tuple[int, int] | None:
     return parsed[:2] if parsed is not None else None
 
 
+def response_fingerprint(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split()).strip()[-4000:]
+
+
 def wait_for_conversation_signature(
     adapter: BrowserStateReader,
     expected_chat_url: str | None = None,
@@ -65,7 +72,7 @@ def wait_for_conversation_signature(
     deadline = time.monotonic() + timeout_seconds
     last_url = ""
     while True:
-        state = data_from_observation(adapter.read_browser_state())
+        state = data_from_observation(adapter.read_browser_observation())
         signature = state.get("conversation_signature")
         current_url = str(state.get("chat_url") or "")
         if current_url:
@@ -74,10 +81,12 @@ def wait_for_conversation_signature(
         valid_baseline = parsed is not None and (
             parsed[2] or parsed[:2] == (0, 0)
         )
+        active_operation_id = state.get("active_operation_id")
         if (
             valid_baseline
             and current_url.startswith("https://chatgpt.com/c/")
             and (expected_chat_url is None or current_url == expected_chat_url)
+            and not active_operation_id
         ):
             return state, str(signature)
         if time.monotonic() >= deadline:
@@ -173,11 +182,14 @@ def wait_for_durable_response_progression(
                         f"prompt {index} durable response signature counts beyond the expected "
                         f"{expected_user}:{expected_assistant}: got {current[0]}:{current[1]}"
                     )
+                durable_fingerprint = response_fingerprint(response_text)
                 if (
                     current[0] == expected_user
                     and current[1] == expected_assistant
                     and current[2]
-                    and current[2] != previous[2]
+                    and durable_fingerprint
+                    and current[2] == durable_fingerprint
+                    and durable_fingerprint != previous[2]
                 ):
                     return state, str(state["conversation_signature"])
         if time.monotonic() >= deadline:

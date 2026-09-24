@@ -700,6 +700,7 @@
         thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
         page_visible: document.visibilityState !== 'hidden',
         composer_present: composerPresent,
+        conversation_signature: conversationSignature(),
         native_controller: true,
         active_operation_id: activeOperationId
       }, 2000);

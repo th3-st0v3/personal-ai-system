@@ -47,22 +47,28 @@ class TestM1LiveAcceptance(unittest.TestCase):
     def test_wait_for_conversation_signature_retries_until_state_is_published(self) -> None:
         class FakeAdapter:
             def __init__(self) -> None:
-                self.states = [
+                self.observations: list[dict[str, object]] = [
                     {
                         "kind": "chatgpt_health",
                         "chat_url": "https://chatgpt.com/c/fresh",
                         "conversation_signature": None,
+                        "active_operation_id": None,
                     },
                     {
-                        "kind": "chatgpt_state",
+                        "kind": "chatgpt_health",
                         "chat_url": "https://chatgpt.com/c/fresh",
                         "conversation_signature": "0:0:",
+                        "active_operation_id": None,
                     },
                 ]
+                self.states: list[dict[str, object]] = []
+
+            def read_browser_observation(self) -> dict[str, object]:
+                state = self.observations.pop(0)
+                return {"data": state}
 
             def read_browser_state(self) -> dict[str, object]:
-                state = self.states.pop(0)
-                return {"data": state}
+                return {"data": self.states.pop(0)} if self.states else {"data": {}}
 
         state, signature = wait_for_conversation_signature(
             FakeAdapter(), "https://chatgpt.com/c/fresh", timeout_seconds=0.1, poll_seconds=0
@@ -113,7 +119,7 @@ class TestM1LiveAcceptance(unittest.TestCase):
     def test_durable_response_waiter_accepts_marker_inside_surrounding_response_text(self) -> None:
         class FakeAdapter:
             def __init__(self) -> None:
-                self.responses = [
+                self.responses: list[dict[str, object]] = [
                     {"data": {"kind": "chatgpt_response", "operation_id": "old-op"}},
                     {
                         "data": {
@@ -128,6 +134,9 @@ class TestM1LiveAcceptance(unittest.TestCase):
 
             def read_browser_response_observation(self) -> dict[str, object]:
                 return self.responses.pop(0)
+
+            def read_browser_state(self) -> dict[str, object]:
+                return {"data": {}}
 
         state, signature = wait_for_durable_response_progression(
             FakeAdapter(),
