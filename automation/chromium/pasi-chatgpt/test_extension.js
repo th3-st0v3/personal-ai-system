@@ -27,6 +27,10 @@ test('native bridge caches the token and refreshes once after unauthorized respo
   assert.match(background, /token = await bridgeToken\(true\)/);
 });
 
+test('native health reports the loaded extension manifest version', () => {
+  assert.match(content, /extension_manifest_version: String\(chrome\.runtime\.getManifest\?\.\(\)\.version \|\| ''\)/);
+});
+
 test('native timeout defaults remain fast enough for the browser freshness gate', () => {
   const timeoutConfig = fs.readFileSync(path.join(root, 'timeout-config.js'), 'utf8');
   assert.match(timeoutConfig, /heartbeatMs: 15 \* 1000/);
@@ -140,7 +144,7 @@ test('native existing-tab injection probes for a live controller before reinject
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
-  assert.equal(manifest.version, '1.1.2');
+  assert.equal(manifest.version, '1.1.3');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.ok(manifest.permissions.includes('alarms'));
