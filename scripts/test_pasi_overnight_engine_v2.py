@@ -436,6 +436,37 @@ Allowed: automation/orchestrator/""",
         self.assertNotIn("NEXT_TASK", prompt)
 
 
+    def test_build_prompt_keeps_selected_task_and_drops_secondary_backlog(self) -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="prompt-integration",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree="/tmp/pasi-worktree",
+            branch="pasi/prompt-integration",
+            phase="automation",
+            current_task=(
+                "TITLE: Selected roadmap task\n"
+                "OBJECTIVE: Implement the selected acceptance criteria.\n"
+                "ACCEPTANCE CRITERIA:\n"
+                "- The browser path is verified.\n"
+                "VERIFICATION:\n"
+                "- Run the targeted browser test.\n"
+                "SCOPE:\n"
+                "Allowed: automation/chromium/"
+            ),
+            current_task_id="selected.roadmap.task",
+        )
+        prompt = engine.build_prompt(state.current_task, state)
+        self.assertIn("TASK ID:\nselected.roadmap.task", prompt)
+        self.assertIn("TITLE: Selected roadmap task", prompt)
+        self.assertIn("ACCEPTANCE CRITERIA:", prompt)
+        self.assertIn("VERIFICATION:", prompt)
+        self.assertNotIn(engine.AUTOMATION_TASKS[0], prompt)
+        self.assertNotIn(engine.AUTOMATION_TASKS[1], prompt)
+        self.assertNotIn("RECENTLY COMPLETED TASKS", prompt)
+
     def test_cross_run_loop_guard_skips_repeated_roadmap_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             guard_path = Path(temp_dir) / "roadmap-loop-guard.json"
