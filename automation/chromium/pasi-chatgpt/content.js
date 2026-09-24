@@ -1914,6 +1914,10 @@
 
   async function recoverInterruptedOperation() {
     try {
+      if (manualReloadGateState()) {
+        scheduleManualReloadGateMonitor();
+        return;
+      }
       const stored = JSON.parse(localStorage.getItem(ACTIVE_KEY) || 'null');
       if (!stored?.operation_id) return;
       const current = await bridge(`/operation?operation_id=${encodeURIComponent(stored.operation_id)}`);
@@ -1976,6 +1980,10 @@
   }
 
   function poll() {
+    if (manualReloadGateState()) {
+      scheduleManualReloadGateMonitor();
+      return Promise.resolve();
+    }
     if (processing || activeOperationId !== null || extensionContextInvalidated) return Promise.resolve();
     if (pollInFlight) return pollInFlight;
     pollInFlight = (async () => {
