@@ -975,7 +975,7 @@ test('native M2 gate arms only after response evidence', () => {
   assert.ok(responseWait > processStart);
   assert.equal(earlyArm, -1);
   assert.ok(finalArm > responseWait);
-  assert.equal(content.match(/await armM2ManualReloadGate(operation, response, browserTiming);/g)?.length, 1);
+  assert.equal(content.indexOf('await armM2ManualReloadGate(operation, response, browserTiming);', finalArm + 1), -1);
 });
 
 
