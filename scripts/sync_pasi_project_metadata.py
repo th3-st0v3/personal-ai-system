@@ -66,29 +66,29 @@ PLACEHOLDER_VALUES = {
 }
 
 PHASE_SCHEDULE = [
-    ("P0", "Iteration 1", "2026-09-22", "Quarter 1"),
-    ("P1", "Iteration 2", "2026-10-04", "Quarter 1"),
-    ("P2", "Iteration 3", "2026-10-13", "Quarter 1"),
-    ("P3", "Iteration 4", "2026-10-25", "Quarter 1"),
-    ("P4", "Iteration 5", "2026-11-08", "Quarter 1"),
-    ("P5", "Iteration 6", "2026-11-22", "Quarter 1"),
-    ("P6", "Iteration 7", "2026-12-06", "Quarter 1"),
-    ("P7", "Iteration 8", "2026-12-20", "Quarter 2"),
-    ("P8", "Iteration 9", "2027-01-10", "Quarter 2"),
-    ("P9", "Iteration 10", "2027-01-31", "Quarter 2"),
-    ("P10", "Iteration 11", "2027-02-21", "Quarter 2"),
-    ("P11", "Iteration 12", "2027-03-21", "Quarter 3"),
-    ("P12", "Iteration 13", "2027-04-11", "Quarter 3"),
-    ("P13", "Iteration 14", "2027-05-09", "Quarter 3"),
-    ("P14", "Iteration 15", "2027-05-30", "Quarter 3"),
-    ("P15", "Iteration 16", "2027-06-20", "Quarter 4"),
-    ("P16", "Iteration 17", "2027-07-11", "Quarter 4"),
-    ("P17", "Iteration 18", "2027-08-08", "Quarter 4"),
-    ("P18", "Iteration 19", "2027-08-29", "Quarter 4"),
-    ("P19", "Iteration 20", "2027-09-26", "Quarter 1"),
-    ("P20", "Iteration 21", "2027-10-17", "Quarter 1"),
-    ("P21", "Iteration 22", "2027-11-14", "Quarter 1"),
-    ("P22", "Iteration 23", "2027-12-12", "Quarter 2"),
+    ("P0", "Iteration 1", "2026-09-22", "2026-10-04", "Quarter 1"),
+    ("P1", "Iteration 2", "2026-10-04", "2026-10-12", "Quarter 1"),
+    ("P2", "Iteration 3", "2026-10-13", "2026-10-24", "Quarter 1"),
+    ("P3", "Iteration 4", "2026-10-25", "2026-11-07", "Quarter 1"),
+    ("P4", "Iteration 5", "2026-11-08", "2026-11-21", "Quarter 1"),
+    ("P5", "Iteration 6", "2026-11-22", "2026-12-05", "Quarter 1"),
+    ("P6", "Iteration 7", "2026-12-06", "2026-12-19", "Quarter 1"),
+    ("P7", "Iteration 8", "2026-12-20", "2027-01-09", "Quarter 2"),
+    ("P8", "Iteration 9", "2027-01-10", "2027-01-30", "Quarter 2"),
+    ("P9", "Iteration 10", "2027-01-31", "2027-02-20", "Quarter 2"),
+    ("P10", "Iteration 11", "2027-02-21", "2027-03-20", "Quarter 2"),
+    ("P11", "Iteration 12", "2027-03-21", "2027-04-10", "Quarter 3"),
+    ("P12", "Iteration 13", "2027-04-11", "2027-05-08", "Quarter 3"),
+    ("P13", "Iteration 14", "2027-05-09", "2027-05-29", "Quarter 3"),
+    ("P14", "Iteration 15", "2027-05-30", "2027-06-19", "Quarter 3"),
+    ("P15", "Iteration 16", "2027-06-20", "2027-07-10", "Quarter 4"),
+    ("P16", "Iteration 17", "2027-07-11", "2027-08-07", "Quarter 4"),
+    ("P17", "Iteration 18", "2027-08-08", "2027-08-28", "Quarter 4"),
+    ("P18", "Iteration 19", "2027-08-29", "2027-09-25", "Quarter 4"),
+    ("P19", "Iteration 20", "2027-09-26", "2027-10-16", "Quarter 1"),
+    ("P20", "Iteration 21", "2027-10-17", "2027-11-13", "Quarter 1"),
+    ("P21", "Iteration 22", "2027-11-14", "2027-12-11", "Quarter 1"),
+    ("P22", "Iteration 23", "2027-12-12", "2028-01-15", "Quarter 2"),
 ]
 
 QUARTER_SCHEDULE = [
@@ -136,9 +136,6 @@ ISSUE_FORM_RE = re.compile(
 )
 
 
-def parse_roadmap_form
-
-
 def parse_roadmap_form(body: str) -> RoadmapForm | None:
     matches = {
         match.group("label"): match.group("value").strip()
@@ -147,7 +144,7 @@ def parse_roadmap_form(body: str) -> RoadmapForm | None:
     if not matches:
         return None
 
-    required = ["Description", "Start Date", "End Date", "Status"]
+    required = ["Start Date", "End Date", "Status"]
     missing = [label for label in required if not matches.get(label)]
     if missing:
         raise ValueError(
@@ -697,8 +694,7 @@ def field_by_name(project: dict[str, Any], name: str, typename: str) -> dict[str
                     f"Project field {name!r} exists as {field.get('__typename')}, "
                     f"expected {typename}."
                 )
-            return field
-    return None
+            return field    return None
 
 
 def create_field(project_id: str, field_input: dict[str, object]) -> dict[str, Any]:
@@ -1301,8 +1297,6 @@ def apply_roadmap_form_to_item(
     return project
 
 
-def apply_metadata_to_item
-
 def apply_metadata_to_item(
     project: dict[str, Any],
     item_id: str,
@@ -1350,7 +1344,8 @@ def apply_metadata_to_item(
     print(
         f"Synced #{issue_number} {title} -> {metadata.phase}/{metadata.iteration}/"
         f"{quarter['title']}"
-    )    return project
+    )
+    return project
 
 
 def sync_issue(
@@ -1396,7 +1391,6 @@ def sync_issue(
         )
 
     return project, metadata, form, state
-
 
 def all_metadata_issue_numbers() -> list[int]:
     endpoint = f"repos/{REPO}/issues?state=all&per_page=100"
@@ -1573,8 +1567,6 @@ def verify_roadmap_form(
             + "; ".join(mismatches)
         )
 
-
-def verify_issue
 
 def verify_issue(
     project_items_by_number: dict[int, dict[str, Any]],
