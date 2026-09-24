@@ -149,9 +149,16 @@ wait_for_tab_provisioning() {
     count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; d=json.load(sys.stdin); print(d.get("after_create_tab_count") or d.get("existing_tab_count") or 0)')"
     selected_tab_id="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("selected_tab_id") or "")')"
     accepted=1
+    injection_ready="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print("1" if json.load(sys.stdin).get("injection_ready") is True else "0")')"
+    resume_operation_id="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("resume_operation_id") or "")')"
+    resume_handoff_sent="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print("1" if json.load(sys.stdin).get("resume_handoff_sent") is True else "0")')"
+    [[ "$injection_ready" == "1" ]] || accepted=0
     case "$action" in
       created)
         [[ "$count" == "1" ]] || accepted=0
+        if [[ -n "$resume_operation_id" && "$resume_operation_id" == "$operation_id" ]]; then
+          [[ "$resume_handoff_sent" == "1" ]] || accepted=0
+        fi
         ;;
       existing_tabs_no_create|race_existing_tabs_no_create)
         [[ "$count" -ge 1 && -n "$selected_tab_id" ]] || accepted=0
