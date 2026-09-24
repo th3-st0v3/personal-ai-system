@@ -441,8 +441,8 @@ test('native controller defers first context-exhaustion failure to bounded recov
 
 test('background watchdog targets the fresh active ChatGPT conversation without reload', () => {
   assert.match(background, /const liveHealth = \(/);
-  assert.match(background, /health\.data\.active_operation_id/);
-  assert.match(background, /typeof health\.data\.chat_url === 'string'/);
+  assert.match(background, /liveHealth\?\.data\?\.active_operation_id/);
+  assert.match(background, /typeof liveHealth\.data\.chat_url === 'string'/);
   assert.match(background, /const targetChatUrl = \([\s\S]*liveHealth\?\.data\?\.active_operation_id/);
   assert.match(background, /tabs\.find\(\(tab\) => sameChatConversationUrl\(tab\.url, targetChatUrl\)\)/);
   assert.match(background, /chrome\.tabs\.sendMessage/);
