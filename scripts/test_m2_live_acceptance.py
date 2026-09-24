@@ -161,6 +161,12 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
                 expected_chat_url="https://chatgpt.com/c/other",
             )
 
+    def test_manual_checkpoint_prints_exact_tab_reopen_fallback_commands(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("PASI will attempt to reopen the same conversation automatically", source)
+        self.assertIn("powershell.exe -NoProfile -Command", source)
+        self.assertIn("cmd.exe /c start", source)
+
     def test_manual_reload_gate_requires_fresh_same_conversation_health(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
         self.assertIn("def fresh_reload_health()", source)
