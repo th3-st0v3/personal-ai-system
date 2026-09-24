@@ -115,6 +115,84 @@ def test_tab_provisioning_observation_is_persisted_separately(tmp_path: Path) ->
     assert bridge.get_browser_observation() == chat_state
     assert bridge.get_browser_provisioning() == observation
 
+
+def test_runtime_telemetry_is_durable_and_bounded(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    for index in range(260):
+        bridge.save_browser_runtime_telemetry(
+            {
+                "schema_version": "pasi-native-chromium-v2",
+                "captured_at": f"2026-09-24T13:45:{index % 60:02d}Z",
+                "data": {
+                    "kind": "chatgpt_runtime_telemetry",
+                    "event": "INJECTION_FAILURE",
+                    "status": "failure",
+                    "tab_id": 42,
+                    "error": f"runtime error {index}",
+                },
+            }
+        )
+
+    telemetry = bridge.get_browser_runtime_telemetry()
+    assert len(telemetry["events"]) == 256
+    assert telemetry["events"][0]["data"]["error"] == "runtime error 4"
+    assert telemetry["events"][-1]["data"]["error"] == "runtime error 259"
+
+    restarted = BridgeState(StateManager(tmp_path / ".ai"))
+    assert restarted.get_browser_runtime_telemetry() == telemetry
+
+
+def test_http_runtime_telemetry_route_persists_events(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    observation = {
+        "schema_version": "pasi-native-chromium-v2",
+        "captured_at": "2026-09-24T13:46:00Z",
+        "data": {
+            "kind": "chatgpt_runtime_telemetry",
+            "event": "CLAIM_FAILURE",
+            "status": "failure",
+            "error": "The message port closed before a response was received.",
+        },
+    }
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "POST",
+            "/browser/telemetry",
+            body=json.dumps({"observation": observation}),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-bridge-token",
+            },
+        )
+        response = connection.getresponse()
+        body = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        assert response.status == 201
+        assert body["observation"] == observation
+
+        connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            "GET",
+            "/browser/telemetry",
+            headers={"Authorization": "Bearer test-bridge-token"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        assert response.status == 200
+        assert payload["events"][-1] == observation
+        assert bridge.get_browser_observation() != observation
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_http_provisioning_route_persists_dedicated_observation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
