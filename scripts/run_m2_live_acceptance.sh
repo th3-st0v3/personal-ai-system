@@ -367,6 +367,7 @@ wait_for_active || { echo "error: M2 operation was not claimed within 180 second
 wait_for_manual_reload_gate() {
   "$PYTHON" - "$operation_id" <<'PY'
 import json, os, sys, time, urllib.parse, urllib.request
+from scripts.m2_completion_markers import marker_satisfied
 opid = sys.argv[1]
 headers = {"Authorization": "Bearer " + os.environ["PASI_BRIDGE_TOKEN"]}
 deadline = time.time() + 900
