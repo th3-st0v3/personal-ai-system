@@ -85,7 +85,9 @@ def wait_for_signature_progression(
     previous_signature: str,
     index: int,
     *,
-    timeout_seconds: float = 15.0,
+    # chatgpt_state is published on a 10s cadence independently of the fast completion path;
+    # allow two cadence intervals so a valid completion cannot fail only because telemetry is late.
+    timeout_seconds: float = 30.0,
     poll_seconds: float = 0.5,
 ) -> tuple[dict[str, Any], str]:
     previous = parse_conversation_signature(previous_signature)
