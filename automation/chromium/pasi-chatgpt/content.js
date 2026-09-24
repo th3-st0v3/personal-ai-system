@@ -2149,12 +2149,23 @@
       const recoveryOperation = recoveryOperationId();
       if (localStorage.getItem(RECOVERY_KEY) && !recoveryOperation) return;
 
-      const response = recoveryOperation
-        ? await bridge('/chat/claim', {
-            method: 'POST',
-            body: { operation_id: recoveryOperation }
-          })
-        : await bridge('/next-operation');
+      let response;
+      try {
+        response = recoveryOperation
+          ? await bridge('/chat/claim', {
+              method: 'POST',
+              body: { operation_id: recoveryOperation }
+            })
+          : await bridge('/next-operation');
+      } catch (error) {
+        reportRuntimeTelemetry({
+          event: 'OPERATION_RECEIVED',
+          status: 'failure',
+          active_operation_id: recoveryOperation,
+          error: runtimeErrorText(error)
+        });
+        throw error;
+      }
       if (!response.ok) {
         reportRuntimeTelemetry({
           event: 'OPERATION_RECEIVED',
