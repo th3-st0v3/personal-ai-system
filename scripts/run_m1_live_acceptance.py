@@ -21,6 +21,10 @@ class BrowserStateReader(Protocol):
     def read_browser_state(self) -> Any: ...
 
 
+class BrowserEvidenceReader(BrowserStateReader, Protocol):
+    def read_browser_response_observation(self) -> Any: ...
+
+
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
@@ -127,6 +131,57 @@ def wait_for_signature_progression(
             raise RuntimeError(
                 f"prompt {index} did not publish the exact +1/+1 conversation-signature "
                 f"progression within {timeout_seconds:.1f}s"
+            )
+        time.sleep(poll_seconds)
+
+
+
+def wait_for_durable_response_progression(
+    adapter: BrowserEvidenceReader,
+    expected_chat_url: str,
+    operation_id: str,
+    marker: str,
+    previous_signature: str,
+    index: int,
+    *,
+    timeout_seconds: float = 30.0,
+    poll_seconds: float = 0.5,
+) -> tuple[dict[str, Any], str]:
+    previous = parse_conversation_signature(previous_signature)
+    if previous is None:
+        raise RuntimeError(f"prompt {index} had an invalid previous conversation_signature")
+    expected_user = previous[0] + 1
+    expected_assistant = previous[1] + 1
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        observation = adapter.read_browser_response_observation()
+        state = data_from_observation(observation)
+        observed_operation_id = state.get("operation_id") or state.get("active_operation_id")
+        current_url = str(state.get("chat_url") or "")
+        response_text = str(state.get("response_text") or "")
+        current = parse_conversation_signature(state.get("conversation_signature"))
+        if observed_operation_id == operation_id and marker in response_text:
+            if current_url and current_url != expected_chat_url:
+                raise RuntimeError(
+                    f"prompt {index} changed ChatGPT conversation URL: {current_url!r}"
+                )
+            if current is not None:
+                if current[0] > expected_user or current[1] > expected_assistant:
+                    raise RuntimeError(
+                        f"prompt {index} durable response signature counts beyond the expected "
+                        f"{expected_user}:{expected_assistant}: got {current[0]}:{current[1]}"
+                    )
+                if (
+                    current[0] == expected_user
+                    and current[1] == expected_assistant
+                    and current[2]
+                    and current[2] != previous[2]
+                ):
+                    return state, str(state["conversation_signature"])
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"prompt {index} did not publish the exact +1/+1 durable response signature "
+                f"within {timeout_seconds:.1f}s"
             )
         time.sleep(poll_seconds)
 
@@ -319,9 +374,11 @@ def main() -> int:
                 raise RuntimeError(f"prompt {index} response missing unique marker")
 
             before_signature = previous_signature
-            state, current_signature = wait_for_signature_progression(
+            state, current_signature = wait_for_durable_response_progression(
                 adapter,
                 chat_url,
+                operation_id,
+                marker,
                 before_signature,
                 index,
             )
