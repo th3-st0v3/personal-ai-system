@@ -371,9 +371,17 @@ branch refs/heads/main
                 ["git", "worktree", "add", "-B", "pasi/test", str(worktree), "origin/pasi/consolidated"],
             )
 
-    def test_prompt_compiler_contains_only_current_task_and_result_contract(self) -> None:
+    def test_prompt_compiler_puts_implementation_before_reporting_contract(self) -> None:
         prompt = prompt_compiler.compile_task_prompt(
-            "Fix the browser-to-Git patch seam and verify it end to end.",
+            """TITLE: Fix the browser-to-Git patch seam
+OBJECTIVE: Make the patch handoff durable.
+ACCEPTANCE CRITERIA:
+- The patch is applied exactly once.
+- Verification runs after application.
+VERIFICATION:
+- Run the targeted bridge tests.
+SCOPE:
+Allowed: automation/orchestrator/""",
             run_id="run-prompt-compiler",
             task_number=7,
             attempt=2,
@@ -384,23 +392,23 @@ branch refs/heads/main
             recent_tasks=["previous verified task"],
             roadmap_tasks=["Roadmap task A", "Roadmap task B"],
         )
-        self.assertEqual(
-            prompt.split("RESULT:", 1)[0],
-            "CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.\n\nWork on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n",
-        )
-        self.assertNotIn("run-prompt-compiler", prompt)
-        self.assertNotIn("Task number", prompt)
-        self.assertNotIn("Attempt", prompt)
-        self.assertNotIn("Roadmap task A", prompt)
-        self.assertNotIn("Roadmap task B", prompt)
-        self.assertNotIn("previous verified task", prompt)
-        self.assertNotIn("DO NOT STOP UNTIL YOU ARE FINISHED", prompt)
-        self.assertNotIn("PASI_RESULT_NEXT_TASK:", prompt)
+        execution_index = prompt.index("EXECUTE NOW:")
+        result_index = prompt.index("REPORT ONLY AFTER IMPLEMENTATION + VERIFICATION:")
+        self.assertLess(execution_index, result_index)
+        self.assertIn("TITLE: Fix the browser-to-Git patch seam", prompt)
+        self.assertIn("OBJECTIVE: Make the patch handoff durable.", prompt)
+        self.assertIn("ACCEPTANCE CRITERIA:", prompt)
+        self.assertIn("VERIFICATION:", prompt)
+        self.assertIn("SCOPE:", prompt)
+        self.assertIn("The PASI_RESULT_* lines below are machine-readable reporting fields, not the task.", prompt)
+        self.assertIn("Do not focus on them, optimize for them, or return them before the implementation and verification work is finished.", prompt)
+        self.assertIn("Roadmap task A", prompt)
+        self.assertIn("previous verified task", prompt)
         self.assertIn("PASI_RESULT_STATUS:", prompt)
-        self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
+        self.assertNotIn("PASI_RESULT_NEXT_TASK:", prompt)
 
-    def test_prompt_compiler_includes_bounded_failure_only_on_retry(self) -> None:
+    def test_prompt_compiler_includes_bounded_failure_only_on_retry_and_keeps_it_secondary(self) -> None:
         prompt = prompt_compiler.compile_task_prompt(
             "Fix the browser-to-Git patch seam.",
             run_id="run-retry",
@@ -410,12 +418,16 @@ branch refs/heads/main
             branch="pasi/test",
             worktree="/tmp/pasi-worktree",
             phase="automation",
+            recent_tasks=["completed task"],
+            roadmap_tasks=["roadmap context"],
             previous_failure="git apply received an empty stdin payload",
         )
         self.assertIn("CURRENT TASK:\nFix the browser-to-Git patch seam.", prompt)
         self.assertIn("PREVIOUS FAILURE EVIDENCE:\ngit apply received an empty stdin payload", prompt)
-        self.assertNotIn("ROADMAP", prompt)
-        self.assertNotIn("RECOVERY RETRY MODE", prompt)
+        self.assertIn("ROADMAP CONTEXT — informational only; stay on CURRENT TASK:", prompt)
+        self.assertIn("RECENTLY COMPLETED TASKS — do not repeat them:", prompt)
+        self.assertLess(prompt.index("CURRENT TASK:"), prompt.index("PREVIOUS FAILURE EVIDENCE:"))
+        self.assertLess(prompt.index("PREVIOUS FAILURE EVIDENCE:"), prompt.index("REPORT ONLY AFTER IMPLEMENTATION + VERIFICATION:"))
         self.assertNotIn("NEXT_TASK", prompt)
 
 
