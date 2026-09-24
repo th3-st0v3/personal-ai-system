@@ -685,6 +685,7 @@ class BridgeState:
         self,
         operation_id: str,
         response_text: str | None = None,
+        chat_url: str | None = None,
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self._load_queue()
@@ -1860,8 +1861,12 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "operation_id is required."}, HTTPStatus.BAD_REQUEST)
             return
         response_text = payload.get("response_text")
+        chat_url = payload.get("chat_url")
         if response_text is not None and not isinstance(response_text, str):
             self._send_json({"error": "response_text must be a string."}, HTTPStatus.BAD_REQUEST)
+            return
+        if chat_url is not None and not isinstance(chat_url, str):
+            self._send_json({"error": "chat_url must be a string."}, HTTPStatus.BAD_REQUEST)
             return
         if isinstance(response_text, str) and len(response_text) > MAX_RESPONSE_TEXT_CHARS:
             self._send_json({"error": "response_text is too large."}, HTTPStatus.BAD_REQUEST)
@@ -1869,7 +1874,11 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         operation = (
             self.bridge_state.release_manual_reload_gate(operation_id)
             if release
-            else self.bridge_state.arm_manual_reload_gate(operation_id, response_text=response_text)
+            else self.bridge_state.arm_manual_reload_gate(
+                operation_id,
+                response_text=response_text,
+                chat_url=chat_url,
+            )
         )
         if operation is None:
             self._send_json(
