@@ -399,7 +399,7 @@ branch refs/heads/main
         )
         self.assertEqual(
             prompt.split("RESULT:", 1)[0],
-            "CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.\n\nWork on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n",
+            "CURRENT TASK:\nFix the browser-to-Git patch seam and verify it end to end.\n\nComplete the task as an implementation task when implementation is required; tracked-file changes are allowed unless the task explicitly scopes them out. Keep working until the stated acceptance criteria are met. Run every relevant test, type check, lint, or other deterministic verification check needed for the task; repair failures and do not report completion while required checks are failing. Keep the response focused on the task and actionable results; do not expose internal routing, planner, browser-controller, capability-gateway, or orchestration details.\n\n",
         )
         self.assertNotIn("run-prompt-compiler", prompt)
         self.assertNotIn("Task number", prompt)
@@ -410,7 +410,8 @@ branch refs/heads/main
         self.assertNotIn("DO NOT STOP UNTIL YOU ARE FINISHED", prompt)
         self.assertNotIn("PASI_RESULT_NEXT_TASK:", prompt)
         self.assertIn("PASI_RESULT_STATUS:", prompt)
-        self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
+        self.assertIn("Keep working until the stated acceptance criteria are met.", prompt)
+        self.assertIn("do not report completion while required checks are failing", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
 
     def test_prompt_compiler_includes_bounded_failure_only_on_retry(self) -> None:
