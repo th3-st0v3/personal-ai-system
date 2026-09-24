@@ -1516,8 +1516,7 @@
         ...(body.timing ? { timing: body.timing } : {}),
         conversation_context_exhausted: contextExhausted(),
         chat_exhausted: contextExhausted(),
-        provider_usage_limited: usageLimited(),
-        active_operation_id: operationId
+        provider_usage_limited: usageLimited()
       }).catch(() => {});
 
       void reportObservation('chat_response_received', {
