@@ -123,6 +123,13 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
                 expected_chat_url="https://chatgpt.com/c/other",
             )
 
+    def test_manual_reload_gate_requires_fresh_same_conversation_health(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("def fresh_reload_health()", source)
+        self.assertIn("expected_chat_url=chat_url", source)
+        self.assertIn("fresh native browser health after the manual exact-tab reload", source)
+        self.assertIn("wait_for(", source)
+
     def test_browser_health_accepts_fresh_same_conversation(self) -> None:
         from datetime import datetime, timezone
 
