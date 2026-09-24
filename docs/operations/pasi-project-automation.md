@@ -56,7 +56,7 @@ Configure:
 5. Under **Set**, select **Status: Todo**.
 6. Click **Save and turn on workflow**.
 
-The built-in workflow is intentionally limited to static Project-field actions. Dynamic PASI fields such as Start Date, End Date, Team, Quarter, and Iteration are derived from the issue's PASI metadata block by the repository Action.
+The built-in workflow is intentionally limited to static Project-field actions. Dynamic PASI fields such as Start Date, End Date, Team, Quarter, and Iteration are derived from the issue's PASI metadata block by the repository Action. On the current user-owned Project, PASI reuses GitHub's native `Start date` and `Target date` fields for the Start/End schedule, and uses a dedicated `PASI Quarter` single-select field because the native `Quarter` field is an Iteration field.
 
 ### 3. Dynamic metadata and FE status synchronization
 
@@ -183,8 +183,8 @@ The form fields map to Project fields:
 | Issue Form field | PASI Project field | Type |
 | --- | --- | --- |
 | Description | Description | Text |
-| Start Date | Start Date | Date |
-| End Date | End Date | Date |
+| Start Date | Start date | Date |
+| End Date | Target date | Date |
 | Relationship | Relationship | Text |
 | Development Milestone | Development Milestone | Text |
 | Status | Status | Single select |
