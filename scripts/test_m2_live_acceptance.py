@@ -22,6 +22,13 @@ from scripts.m2_live_acceptance import (
 
 
 class TestM2LiveAcceptanceContract(unittest.TestCase):
+    def test_m2_fixture_prompt_does_not_expose_internal_runtime_protocol(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("isolated live M2 recovery acceptance fixture", source)
+        self.assertNotIn("Do not modify tracked files", source)
+        self.assertNotIn("LOCAL COMPUTER CAPABILITY PROTOCOL", source)
+        self.assertIn("does not require repository implementation changes", source)
+
     def test_m2_runtime_defaults_to_fresh_isolated_directory(self) -> None:
         source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
         self.assertIn('DEFAULT_RUNTIME_BASE_DIR = Path.home() / ".pasi" / "m2-acceptance"', source)
