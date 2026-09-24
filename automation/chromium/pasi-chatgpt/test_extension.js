@@ -226,7 +226,7 @@ test('native created-tab injection verifies the controller after execute_script'
 test('native controller accepts an exact resume handoff without resubmitting a persisted response', () => {
   assert.match(content, /async function resumeOperationFromBackground\(operationId\)/);
   assert.match(content, /operation\.response_text_available === true/);
-  assert.match(content, /await finishOperation\(operationId, operation\.response_text, true\)/);
+  assert.match(content, /await finishOperation\(operationId, effectiveOperation\.response_text, true\)/);
   assert.match(content, /type === 'pasi-resume-operation'/);
   assert.match(content, /body: \{ operation_id: operationId \}/);
 });
