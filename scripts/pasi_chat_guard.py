@@ -317,6 +317,7 @@ def main() -> int:
             str(repo_root),
         ]
         code, classification, combined = run_child(forwarded, timeout=args.timeout + 15.0, bridge_poll_seconds=POLL_SECONDS)
+        last_code = code
         response = extract_response_text(combined)
 
         if classification == "usage_limit":
@@ -340,7 +341,7 @@ def main() -> int:
         print(f"PASI computer capability round {round_number + 1}: executed {len(requests)} request(s).", file=sys.stderr)
         task = build_followup_prompt(original_task, requests)
 
-    return code
+    return last_code
 
 
 if __name__ == "__main__":
