@@ -209,7 +209,7 @@ def test_set_issue_milestone_updates_native_issue_milestone(monkeypatch) -> None
 
     monkeypatch.setattr(sync_module, "run_gh", capture)
     sync_module.set_issue_milestone(319, "M0")
-    assert seen["args"][-3:] == ["PATCH", "--input", "-"]
+    assert seen["args"][-4:] == ["--method", "PATCH", "--input", "-"]
     assert '"milestone": 42' in seen["payload"]
 
 
