@@ -72,7 +72,7 @@ Run:
 bash scripts/run_m2_live_acceptance.sh
 ```
 
-The harness uses the existing managed runtime directory (by default `$HOME/.pasi/overnight`; override with `PASI_RUNTIME_DIR`), starts one isolated 168-hour runner task without pushing its worktree branch, and records the exact operation ID and current ChatGPT conversation signature.
+The harness uses a fresh isolated managed runtime directory under `$HOME/.pasi/m2-acceptance/` by default (override with `PASI_RUNTIME_DIR`), starts one isolated 168-hour runner task without pushing its worktree branch, and records the exact operation ID and current ChatGPT conversation signature. After the desktop preflight passes, M2 enables a scoped fast-start mode that skips the redundant setup check and startup `git fetch origin main`; it remains `--no-push` and does not change normal 168-hour startup behavior. The evidence records launcher, queue, active-operation, and manual-gate startup phase timings so a slow run is diagnosable rather than hidden.
 
 The sequence is deliberately fail-closed:
 
