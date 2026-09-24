@@ -1,6 +1,12 @@
 (() => {
   'use strict';
 
+  const existingRecoveryHandle = globalThis.__PASI_NATIVE_RECOVERY_HANDLE__;
+  if (existingRecoveryHandle && typeof existingRecoveryHandle.stop === 'function') {
+    try { existingRecoveryHandle.stop(); } catch (_) {}
+  }
+  delete globalThis.__PASI_NATIVE_RECOVERY_HANDLE__;
+
   if (globalThis.__PASI_NATIVE_RECOVERY_STARTED__ === true) return;
   globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = true;
 
@@ -29,6 +35,7 @@
   let progressTracker = null;
   let progressOperationId = null;
   let progressObserverHandle = null;
+  let inspectionTimerId = null;
   const progressNodeIds = new WeakMap();
   let nextProgressNodeId = 1;
   let lastProgressPersistMs = 0;
@@ -1015,6 +1022,25 @@
     }
   }
 
+  function disposeRecovery() {
+    if (inspectionTimerId !== null) {
+      clearInterval(inspectionTimerId);
+      inspectionTimerId = null;
+    }
+    if (progressObserverHandle && typeof progressObserverHandle.stop === 'function') {
+      try { progressObserverHandle.stop(); } catch (_) {}
+    }
+    if (progressObserverHandle && typeof progressObserverHandle.disconnect === 'function') {
+      try { progressObserverHandle.disconnect(); } catch (_) {}
+    }
+    progressObserverHandle = null;
+    progressTracker = null;
+    progressOperationId = null;
+    inspecting = false;
+  }
+
+  globalThis.__PASI_NATIVE_RECOVERY_HANDLE__ = Object.freeze({ stop: disposeRecovery });
+
   async function start() {
     await report('chatgpt_recovery', {
       phase: 'started',
@@ -1042,7 +1068,7 @@
         });
       }
     }
-    setInterval(() => { runInspection().catch(() => {}); }, POLL_MS);
+    inspectionTimerId = setInterval(() => { runInspection().catch(() => {}); }, POLL_MS);
     await runInspection();
   }
 
