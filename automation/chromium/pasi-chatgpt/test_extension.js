@@ -168,6 +168,13 @@ test('native extension injects into existing ChatGPT tabs and provisions missing
   assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });
 
+test('native existing-tab injection is serialized so concurrent watchdog passes cannot reinject scripts', () => {
+  assert.match(background, /let injectExistingTabsInFlight = null/);
+  assert.match(background, /if \\(injectExistingTabsInFlight\\) return injectExistingTabsInFlight/);
+  assert.match(background, /injectExistingTabsInFlight = run/);
+  assert.match(background, /injectExistingTabsInFlight === run/);
+});
+
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
   const start = background.indexOf('async function injectExistingChatTabs()');
   const end = background.indexOf('async function inspect()', start);
