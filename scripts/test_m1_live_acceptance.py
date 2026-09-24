@@ -8,6 +8,7 @@ from scripts.run_m1_live_acceptance import (
     parse_conversation_signature,
     signature_counts,
     validate_signature_progression,
+    wait_for_conversation_signature,
 )
 
 
@@ -21,6 +22,35 @@ class TestM1LiveAcceptance(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Run the M1 20-prompt live duplicate-send/false-verdict gate.", result.stdout)
+
+    def test_fresh_empty_conversation_signature_is_valid(self) -> None:
+        self.assertEqual(parse_conversation_signature("0:0:"), (0, 0, ""))
+
+    def test_wait_for_conversation_signature_retries_until_state_is_published(self) -> None:
+        class FakeAdapter:
+            def __init__(self) -> None:
+                self.states = [
+                    {
+                        "kind": "chatgpt_health",
+                        "chat_url": "https://chatgpt.com/c/fresh",
+                        "conversation_signature": None,
+                    },
+                    {
+                        "kind": "chatgpt_state",
+                        "chat_url": "https://chatgpt.com/c/fresh",
+                        "conversation_signature": "0:0:",
+                    },
+                ]
+
+            def read_browser_state(self) -> dict[str, object]:
+                state = self.states.pop(0)
+                return {"data": state}
+
+        state, signature = wait_for_conversation_signature(
+            FakeAdapter(), "https://chatgpt.com/c/fresh", timeout_seconds=0.1, poll_seconds=0
+        )
+        self.assertEqual(state["kind"], "chatgpt_state")
+        self.assertEqual(signature, "0:0:")
 
     def test_parse_conversation_signature_requires_counts_and_fingerprint(self) -> None:
         self.assertEqual(
