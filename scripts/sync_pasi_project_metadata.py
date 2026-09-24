@@ -945,6 +945,16 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
         project = project_snapshot()
         team = field_by_name(project, TEAM_FIELD, "ProjectV2SingleSelectField")
 
+    expected_quarter_values = [
+        {
+            "title": title,
+            "startDate": start,
+            "duration": (
+                date.fromisoformat(end) - date.fromisoformat(start)
+            ).days + 1,
+        }
+        for title, start, end in QUARTER_SCHEDULE
+    ]
     current_quarters = quarter["configuration"]["iterations"]
     current_quarter_signature = [
         {
@@ -978,22 +988,6 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
             ).days + 1,
         }
         for info in PHASES.values()
-    ]
-    expected_quarters = [
-        {
-            "title": title,
-            "startDate": start,
-            "duration": date.fromisoformat(end) - date.fromisoformat(start) + date.resolution,
-        }
-        for title, start, end in QUARTER_SCHEDULE
-    ]
-    expected_quarter_values = [
-        {
-            "title": item["title"],
-            "startDate": item["startDate"],
-            "duration": (item["duration"].days + 1) if hasattr(item["duration"], "days") else item["duration"],
-        }
-        for item in expected_quarters
     ]
     current_iterations = iteration["configuration"]["iterations"]
     current_signature = [
