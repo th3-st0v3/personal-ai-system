@@ -144,9 +144,10 @@ def test_http_provisioning_route_persists_dedicated_observation(tmp_path: Path) 
             },
         )
         response = connection.getresponse()
-        assert response.status == 201
-        response.read()
+        body = json.loads(response.read().decode("utf-8"))
         connection.close()
+        assert response.status == 201
+        assert body["observation"] == observation
 
         connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
         connection.request(
