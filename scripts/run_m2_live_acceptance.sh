@@ -109,9 +109,23 @@ wait_for_tab_provisioning() {
     action="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("action") or "")')"
     count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("after_create_tab_count") or 0)')"
     if [[ "$action" == "created" && "$count" == "1" ]]; then
-      PROVISIONING_CREATED_JSON="$result"
-      printf 'Native tab provisioning verified: %s\n' "$result"
-      return 0
+      fresh="$("$PYTHON" - "$result" "$OUT" <<'PY'
+import json, sys
+from datetime import datetime
+observation = json.loads(sys.argv[1])
+started_at = float(json.load(open(sys.argv[2], encoding="utf-8")).get("started_at") or 0)
+try:
+    captured_epoch = datetime.fromisoformat(str(observation.get("captured_at")).replace("Z", "+00:00")).timestamp()
+except Exception:
+    captured_epoch = 0
+print("1" if captured_epoch >= started_at else "0")
+PY
+)"
+      if [[ "$fresh" == "1" ]]; then
+        PROVISIONING_CREATED_JSON="$result"
+        printf 'Native tab provisioning verified: %s\n' "$result"
+        return 0
+      fi
     fi
     sleep 2
   done
