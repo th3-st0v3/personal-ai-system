@@ -504,14 +504,9 @@ def route_chat(
 
     github_attached = handoff.get("github_attached") is True or state.get("github_attached") is True
     fallback_requested = needs_github_context(task, override=github_mode)
-    if fallback_requested:
-        if not github_attached:
-            operation_id = adapter.attach_github_repository(repository)
-            github_attached = True
-        else:
-    else:
-        if github_attached:
-            print("GitHub app context is already attached from a prior explicit fallback; not removing it.")
+    if fallback_requested and not github_attached:
+        operation_id = adapter.attach_github_repository(repository)
+        github_attached = True
 
     handoff.update({"github_attached": github_attached, "reasoning_mode": reasoning_mode, "chat_exhausted": False, "context_source": "github_app_fallback" if fallback_requested else ("github_app_fallback" if github_attached else "public_github")})
     return handoff, known_url
