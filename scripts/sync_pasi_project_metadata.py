@@ -1288,23 +1288,56 @@ def all_roadmap_issue_numbers() -> list[int]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("issue", nargs="?", type=int)
+    parser.add_argument(
+        "--complete-frontend",
+        type=int,
+        help="Synchronize a completed FE-P0..FE-P22 phase and its parent roadmap checkbox.",
+    )
     parser.add_argument("--all", action="store_true", help="Synchronize all issues carrying PASI metadata.")
     parser.add_argument("--roadmap", action="store_true", help="Add all roadmap-labeled issues to the Project and format phase metadata where present.")
     args = parser.parse_args()
 
-    if args.all and args.roadmap:
-        raise SystemExit("Use only one of --all or --roadmap.")
-    if args.issue and (args.all or args.roadmap):
-        raise SystemExit("Issue number cannot be combined with --all or --roadmap.")
+    selected_modes = [
+        bool(args.issue),
+        bool(args.complete_frontend),
+        args.all,
+        args.roadmap,
+    ]
+    if sum(selected_modes) > 1:
+        raise SystemExit(
+            "Use only one of issue number, --complete-frontend, --all, or --roadmap."
+        )
 
-    if args.roadmap:
+    if args.complete_frontend is not None:
+        phase = next(
+            (
+                phase
+                for phase, issue_number in FRONTEND_PHASE_ISSUES.items()
+                if issue_number == args.complete_frontend
+            ),
+            None,
+        )
+        if phase is None:
+            raise SystemExit(
+                f"Issue #{args.complete_frontend} is not a PASI FE-P0..FE-P22 phase."
+            )
+        state = fetch_issue(args.complete_frontend)[3]
+        if state.upper() != "CLOSED":
+            raise SystemExit(
+                f"FE-{phase} issue #{args.complete_frontend} is not closed; completion sync requires state=closed."
+            )
+        print(
+            f"Completing FE-{phase}: Project Status -> Done and parent FE roadmap checkbox -> [x]."
+        )
+        numbers = [args.complete_frontend]
+    elif args.roadmap:
         numbers = all_roadmap_issue_numbers()
     elif args.all:
         numbers = all_metadata_issue_numbers()
     elif args.issue:
         numbers = [args.issue]
     else:
-        raise SystemExit("Provide an issue number, --all, or --roadmap")
+        raise SystemExit("Provide an issue number, --complete-frontend, --all, or --roadmap")
 
     if not numbers:
         raise SystemExit("No matching issues were found.")
