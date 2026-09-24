@@ -79,6 +79,21 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertEqual(pid, 4201)
         self.assertEqual(evidence["listener_pid"], 4201)
 
+    def test_direct_bridge_kill_identity_accepts_only_pasi_bridge_processes(self) -> None:
+        repo = str(Path.cwd())
+        self.assertTrue(
+            is_managed_bridge_process(
+                f"{repo}/.venv/bin/python -m automation.orchestrator.bridge",
+                repo,
+            )
+        )
+        self.assertFalse(
+            is_managed_bridge_process(
+                "/usr/bin/python -m automation.orchestrator.bridge",
+                "/tmp",
+            )
+        )
+
     def test_discovery_finds_managed_router_ancestor_of_listener(self) -> None:
         repo = str(Path.cwd())
         commands = {
