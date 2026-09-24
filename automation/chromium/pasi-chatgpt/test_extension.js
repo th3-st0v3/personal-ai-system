@@ -970,6 +970,33 @@ test('native M2 manual reload gate is wired through the extension bridge', () =>
   assert.match(background, /POST \/chat\/manual-reload-gate\/release/);
 });
 
+
+
+test('native M2 response capture exposes progress telemetry and heartbeats', () => {
+  const start = content.indexOf('async function waitForResponse(');
+  const end = content.indexOf('function rememberContextRecovery(', start);
+  const source = content.slice(start, end);
+  assert.ok(source.includes("event: 'RESPONSE_WAIT_PROGRESS'"));
+  assert.ok(source.includes("event: 'RESPONSE_WAIT_FINISHED'"));
+  assert.ok(source.includes("bridge('/chat/heartbeat'"));
+  assert.ok(source.includes('assistant_message_count: assistantMessages().length'));
+  assert.ok(source.includes('completion_markers_satisfied: completionMarkersSatisfied'));
+});
+
+test('native M2 pre-gate failures are terminal instead of silently requeued', () => {
+  assert.ok(content.includes("const M2_PRE_GATE_FAILURE_PREFIX = 'PASI_M2_PRE_GATE_FAILURE:';"));
+  assert.ok(content.includes('const m2PreGateFailure ='));
+  assert.ok(content.includes('!manualReloadGateState()?.manual_reload_gate'));
+  assert.ok(content.includes("event: 'M2_PRE_GATE_FAILURE'"));
+  assert.ok(content.includes('finalized = await failOperation(operation.operation_id, failure)'));
+});
+
+test('native marker matcher normalizes harmless wrappers before terminal matching', () => {
+  assert.ok(content.includes('function normalizeCompletionMarkerLine(value)'));
+  assert.ok(content.includes('replace(/^[\\s\\`*_~]+|[\\s\\`*_~]+$/g, \'\')'));
+  assert.ok(content.includes("line.startsWith(normalizedMarker + ' ')"));
+});
+
 test('native completion marker accepts a normalized terminal marker after whitespace collapse', () => {
   assert.match(content, /const collapsed = collapseWhitespace\(text\);/);
   assert.match(content, /const normalizedMarker = collapseWhitespace\(marker\);/);
