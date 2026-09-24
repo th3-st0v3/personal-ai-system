@@ -1865,6 +1865,16 @@
             fastPath: fastHandoff,
             readyBox: box
           });
+          if (
+            isM2ManualReloadGate(operation) &&
+            (submission.verified || Number(submission?.timing?.user_messages_added || 0) > 0)
+          ) {
+            // Arm the live M2 gate as soon as the original send is evidenced.
+            // This makes a tab close/reopen a recovery checkpoint rather than
+            // an opportunity for ordinary queue polling to submit the same task.
+            await armM2ManualReloadGate(operation, '', submission.timing || null);
+            scheduleManualReloadGateMonitor();
+          }
           const browserTiming = { ...(submission.timing || {}) };
           const previousCompletionAckAtMs = Number(operation.__pasi_completion_ack_at_ms);
           if (
