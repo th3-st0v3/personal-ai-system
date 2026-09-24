@@ -832,7 +832,7 @@
           reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
           conversation_signature: conversationSignature(),
           active_operation_id: activeOperationId,
-          generating: generating(),
+          generating: generatingNow,
           composer_present: Boolean(composer()),
           native_controller: true
         });
@@ -1777,7 +1777,11 @@
       if (now - lastProgressTelemetryAt >= 5000) {
         lastProgressTelemetryAt = now;
         const responseText = responseEvidence() || '';
-        const detected = detectorState();
+        const generatingNow = generating();
+        const detected = generatingNow ? {
+          context_exhausted: false,
+          usage_limited: false
+        } : detectorState();
         reportRuntimeTelemetry({
           event: 'RESPONSE_WAIT_PROGRESS',
           status: 'active',
