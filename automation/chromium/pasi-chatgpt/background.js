@@ -444,15 +444,18 @@ async function ensureWatchdogAlarm() {
 chrome.runtime.onInstalled.addListener(() => {
   void ensureWatchdogAlarm();
   void injectExistingChatTabs();
+  void inspect();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void ensureWatchdogAlarm();
   void injectExistingChatTabs();
+  void inspect();
 });
 
 void ensureWatchdogAlarm();
 void injectExistingChatTabs();
+void inspect();
 
 if (chrome.sidePanel?.setPanelBehavior) {
   chrome.sidePanel
