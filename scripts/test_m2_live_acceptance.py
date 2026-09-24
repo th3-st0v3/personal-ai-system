@@ -103,3 +103,19 @@ def test_m2_harness_and_runtime_admin_scripts_have_valid_shell_syntax() -> None:
     ):
         subprocess.run(["bash", "-n", str(path)], check=True)
 
+
+def test_m2_harness_fails_provisioning_fast_and_uses_safe_cleanup_argument_passing() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "local deadline=\$((SECONDS + 15))" in source
+    assert 'error: native tab provisioning did not produce a usable ChatGPT tab within 15 seconds' in source
+    assert '"$PYTHON" - "$operation_id" <<\'PY\'' in source
+    assert 'sys.argv[1]' in source
+    assert '| "$PYTHON" -c \'import json,sys; print(json.dumps({"operation_id":sys.argv[1]' not in source
+
+
+def test_native_controller_reconciles_stale_manual_gate_before_polling() -> None:
+    source = Path("automation/chromium/pasi-chatgpt/content.js").read_text(encoding="utf-8")
+    assert "async function reconcileStaleManualReloadGate()" in source
+    assert "localStorage.removeItem(ACTIVE_KEY)" in source
+    assert "['failed', 'cancelled'].includes(current.status)" in source
+    assert "const cleared = await reconcileStaleManualReloadGate();" in source
