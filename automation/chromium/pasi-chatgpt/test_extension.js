@@ -880,7 +880,7 @@ test('native prompt submission has a bounded fallback after a no-op first strate
   const end = content.indexOf('  function operationPrompt(operation)', start);
   const source = content.slice(start, end);
   assert.ok(start >= 0 && end > start);
-  assert.match(source, /const retrySafe = (/);
+  assert.match(source, /const retrySafe = \(/);
   assert.match(source, /attempt < strategies.length/);
   assert.match(source, /!generating()/);
   assert.match(source, /newMessageState() === null/);
