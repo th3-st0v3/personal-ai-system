@@ -154,6 +154,35 @@ class TestM1LiveAcceptance(unittest.TestCase):
             "4:5:The requested marker is PASI_M1_ACCEPTANCE_01_abcd1234.",
         )
 
+    def test_durable_response_waiter_uses_authoritative_signature_fingerprint(self) -> None:
+        class FakeAdapter:
+            def read_browser_response_observation(self) -> dict[str, object]:
+                return {
+                    "data": {
+                        "kind": "chatgpt_response",
+                        "operation_id": "op-authoritative",
+                        "chat_url": "https://chatgpt.com/c/live",
+                        "response_text": "PASI_M1_ACCEPTANCE_01_abcd1234",
+                        "conversation_signature": "4:5:PASI_M1_ACCEPTANCE_01_abcd1234 [DOM-normalized]",
+                    }
+                }
+
+        state, signature = wait_for_durable_response_progression(
+            FakeAdapter(),
+            "https://chatgpt.com/c/live",
+            "op-authoritative",
+            "PASI_M1_ACCEPTANCE_01_abcd1234",
+            "3:4:previous",
+            1,
+            timeout_seconds=0.1,
+            poll_seconds=0,
+        )
+        self.assertEqual(state["operation_id"], "op-authoritative")
+        self.assertEqual(
+            signature,
+            "4:5:PASI_M1_ACCEPTANCE_01_abcd1234 [DOM-normalized]",
+        )
+
     def test_validate_signature_progression_accepts_exact_next_message_pair(self) -> None:
         self.assertEqual(
             validate_signature_progression(
