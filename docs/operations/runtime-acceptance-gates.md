@@ -76,7 +76,7 @@ The harness uses the existing managed runtime directory (by default `$HOME/.pasi
 
 The sequence is deliberately fail-closed:
 
-1. Preflight requires an authenticated, usable current ChatGPT conversation, a clean managed runner/supervisor, and a bridge PID that PASI can identify before any process is killed.
+1. Preflight requires an authenticated, usable current ChatGPT conversation and a clean managed runner/supervisor. If port 8765 is already healthy, the harness adopts the existing bridge only when the listening process can be traced to a PASI `pasi_log_router.py` ancestor rooted in this repository; an unknown listener remains a hard failure.
 2. The harness waits until its exact prompt operation is `claimed` or `generating`.
 3. It pauses for one manual action: close or reload the **exact ChatGPT conversation tab carrying that operation**. No replacement tab or human message is allowed.
 4. It terminates only the managed bridge PID tree, waits for the bridge to become unavailable, restarts the same bridge runtime, and verifies the original operation ID still exists and is non-terminal.
