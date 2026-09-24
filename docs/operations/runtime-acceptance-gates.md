@@ -13,7 +13,7 @@ curl -fsS http://127.0.0.1:8765/health
 curl -fsS -H "Authorization: Bearer $(cat ~/.pasi/bridge-token)" http://127.0.0.1:8765/browser/health
 ```
 
-The browser-health observation must identify the native controller and match the extension version in `automation/chromium/pasi-chatgpt/manifest.json`.
+The browser-health observation must identify the native controller and match the extension version in `automation/chromium/pasi-chatgpt/manifest.json`. For M2, a ChatGPT tab may already be open; the harness uses that existing tab rather than requiring a zero-tab starting state. The zero-tab path remains covered by requiring exactly one created ChatGPT tab.
 
 ## M0 — real task through response → parser → apply → validation → commit
 
