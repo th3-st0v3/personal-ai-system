@@ -24,7 +24,7 @@ The exact Project number is intentionally not hard-coded in this repository beca
 
 ## Project UI settings to enable
 
-GitHub documents Project auto-add under **Project → Workflows → Auto-add to project**. urlGitHub: Adding items automaticallyhttps://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/adding-items-automatically
+GitHub documents Project auto-add under **Project → Workflows → Auto-add to project**. See [GitHub: adding items automatically](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/adding-items-automatically).
 
 ### 1. Auto-add roadmap issues
 
@@ -45,7 +45,7 @@ The filter intentionally matches every roadmap-labeled issue, including backend 
 
 ### 2. Set initial Status for newly added issues
 
-GitHub documents the built-in **Item added to project** workflow under Project → Workflows. urlGitHub: Using the built-in automationshttps://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-built-in-automations
+GitHub documents the built-in **Item added to project** workflow under Project → Workflows. See [GitHub: using the built-in automations](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-built-in-automations).
 
 Configure:
 
@@ -72,7 +72,7 @@ The repository Action validates the canonical P0–P22 schedule, preserves exist
 
 ## Existing roadmap backfill
 
-GitHub notes that enabling Auto-add does **not** add existing matching items retroactively. urlGitHub: Adding items automaticallyhttps://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/adding-items-automatically
+GitHub notes that enabling Auto-add does **not** add existing matching items retroactively. See [GitHub: adding items automatically](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/adding-items-automatically).
 
 For the existing PASI roadmap, use the repository Action manually:
 
