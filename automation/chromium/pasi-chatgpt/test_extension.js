@@ -231,6 +231,28 @@ test('native controller accepts an exact resume handoff without resubmitting a p
   assert.match(content, /body: \{ operation_id: operationId \}/);
 });
 
+test('native M2 released gate claims the single retry before consuming persisted response', () => {
+  const start = content.indexOf('async function resumeOperationFromBackground(operationId)');
+  const end = content.indexOf("chrome.runtime?.onMessage?.addListener", start);
+  const source = content.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  const claimIndex = source.indexOf("if (operation.status === 'queued')");
+  const persistedIndex = source.indexOf('effectiveOperation.response_text_available === true');
+  assert.ok(claimIndex >= 0);
+  assert.ok(persistedIndex > claimIndex);
+  assert.match(source, /let effectiveOperation = operation;/);
+  assert.match(source, /effectiveOperation.status === 'claimed'/);
+});
+
+test('native M2 manual gate monitor resumes the exact operation after release instead of directly completing it', () => {
+  const start = content.indexOf('function scheduleManualReloadGateMonitor()');
+  const end = content.indexOf('function completionMarkersSatisfied', start);
+  const source = content.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.doesNotMatch(source, /await finishOperation\(stored\.operation_id, responseText/);
+  assert.match(source, /await resumeOperationFromBackground\(stored\.operation_id\)/);
+});
+
 test('native controller and recovery companion expose disposable handles for extension reload replacement', () => {
   assert.match(content, /__PASI_NATIVE_CONTROLLER_HANDLE__/);
   assert.match(content, /function disposeController\(\)/);
