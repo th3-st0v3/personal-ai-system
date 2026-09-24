@@ -178,3 +178,14 @@ def test_m2_provisioning_observation_preserves_resume_handoff_fields() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert '"resume_operation_id": data.get("resume_operation_id")' in source
     assert '"resume_handoff_sent": data.get("resume_handoff_sent")' in source
+
+
+def test_native_m2_gate_marks_local_state_armed_only_after_bridge_success() -> None:
+    source = Path("automation/chromium/pasi-chatgpt/content.js").read_text(encoding="utf-8")
+    start = source.index("async function armM2ManualReloadGate(")
+    end = source.index("function scheduleManualReloadGateMonitor(", start)
+    gate = source[start:end]
+    assert "manual_reload_gate_pending: true" in gate
+    assert "manual_reload_gate: true" in gate
+    assert gate.index("await bridge('/chat/manual-reload-gate/arm'") < gate.index("const armedState =")
+    assert gate.index("const armedState =") < gate.index("localStorage.setItem(ACTIVE_KEY, JSON.stringify(armedState))")
