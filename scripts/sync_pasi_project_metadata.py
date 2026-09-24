@@ -632,20 +632,39 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("Required PASI Project fields could not be resolved.")
 
     status_names = {normalize_status_name(option["name"]) for option in status["options"]}
-    missing_statuses = {
-        normalize_status_name(STATUS_TODO),
-        normalize_status_name("In Progress"),
-        normalize_status_name(STATUS_DONE),
-    } - status_names
+    desired_statuses = (STATUS_TODO, "In Progress", STATUS_DONE)
+    missing_statuses = [
+        name
+        for name in desired_statuses
+        if normalize_status_name(name) not in status_names
+    ]
     if missing_statuses:
-        display_names = [
-            name
-            for name in (STATUS_TODO, "In Progress", STATUS_DONE)
-            if normalize_status_name(name) in missing_statuses
-        ]
+        options = list(status["options"])
+        for name in missing_statuses:
+            options.append({
+                "name": name,
+                "description": f"PASI project status {name}",
+                "color": "GRAY",
+            })
+        update_single_select_field(status["id"], options)
+        project = project_snapshot()
+        status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
+
+    if not status:
+        raise RuntimeError("Required PASI Project Status field could not be resolved after reconciliation.")
+
+    remaining_statuses = {
+        normalize_status_name(option["name"]) for option in status["options"]
+    }
+    still_missing = [
+        name
+        for name in desired_statuses
+        if normalize_status_name(name) not in remaining_statuses
+    ]
+    if still_missing:
         raise RuntimeError(
-            "PASI Project Status field is missing required options: "
-            + ", ".join(display_names)
+            "PASI Project Status field is missing required options after reconciliation: "
+            + ", ".join(still_missing)
         )
 
     # Reconcile Team/Quarter options while preserving existing option IDs.
