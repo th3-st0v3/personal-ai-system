@@ -83,6 +83,26 @@ def post_queue(
 
 
 
+def test_manual_reload_gate_persists_exact_chat_url(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation(
+        "prompt",
+        "M2 prompt PASI_M2_MANUAL_RELOAD_GATE: true",
+        idempotency_key="m2-test",
+    )
+    claimed = bridge.claim_operation(operation.operation_id)
+    assert claimed is not None
+
+    armed = bridge.arm_manual_reload_gate(
+        operation.operation_id,
+        response_text="persisted response",
+        chat_url="https://chatgpt.com/c/exact-m2-chat",
+    )
+    assert armed is not None
+    assert armed["chat_url"] == "https://chatgpt.com/c/exact-m2-chat"
+    assert armed["response_text_available"] is True
+
+
 def test_tab_provisioning_observation_is_persisted_separately(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     observation = {
