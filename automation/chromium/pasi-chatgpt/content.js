@@ -1524,6 +1524,21 @@
         phase: 'response_complete',
         captured_at: new Date().toISOString()
       });
+
+      // Publish the post-completion conversation signature immediately instead of
+      // making consumers wait for the next periodic health-state cadence.
+      void reportObservation('chatgpt_state', {
+        chat_url: body.chat_url,
+        conversation_context_exhausted: contextExhausted(),
+        chat_exhausted: contextExhausted(),
+        provider_usage_limited: usageLimited(),
+        github_attached: githubAttached,
+        reasoning_mode: reasoningMode,
+        reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinkingEnabled() === true ? 'available' : 'unknown'),
+        conversation_signature: conversationSignature(),
+        active_operation_id: operationId,
+        native_controller: true
+      }, 2000);
     };
     // The durable /chat/finished record already contains the authoritative response.
     // Keep duplicate telemetry out of the completion -> next-operation critical path.
