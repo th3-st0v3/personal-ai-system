@@ -384,6 +384,263 @@ def fetch_issue(issue_number: int) -> tuple[str, str, str, str]:
     return issue["id"], issue["title"], issue.get("body") or "", issue["state"]
 
 
+def fetch_issue_context(issue_number: int) -> dict[str, Any]:
+    query = """
+    query($owner:String!, $repo:String!, $number:Int!) {
+      repository(owner:$owner, name:$repo) {
+        id
+        defaultBranchRef { target { oid } }
+        issue(number:$number) {
+          id
+          number
+          title
+          state
+          body
+          milestone { number title }
+          parent { id number title }
+          blockedBy(first:100) { nodes { id number title } }
+          blocking(first:100) { nodes { id number title } }
+          linkedBranches(first:100) { nodes { id ref { name } } }
+        }
+      }
+    }
+    """
+    data = graphql(
+        query,
+        {"owner": "th3-st0v3", "repo": "personal-ai-system", "number": issue_number},
+    )
+    repository = data["repository"]
+    issue = repository["issue"]
+    issue["repositoryId"] = repository["id"]
+    issue["defaultBranchOid"] = (
+        repository.get("defaultBranchRef", {}).get("target", {}) or {}
+    ).get("oid")
+    return issue
+
+
+def set_issue_milestone(issue_number: int, milestone_name: str) -> None:
+    name = milestone_name.strip()
+    if not name or name.casefold() in {"none", "n/a", "na"}:
+        return
+
+    raw = run_gh(
+        [
+            "api",
+            f"repos/{REPO}/milestones?state=all&per_page=100",
+            "--paginate",
+            "--jq",
+            ".[] | {number,title}",
+        ]
+    )
+    milestones = [
+        json.loads(line)
+        for line in raw.splitlines()
+        if line.strip()
+    ]
+    match = next(
+        (item for item in milestones if item["title"].casefold() == name.casefold()),
+        None,
+    )
+    if match is None:
+        raise RuntimeError(
+            f"Milestone {name!r} does not exist in {REPO}; create the native GitHub "
+            "milestone first instead of creating a custom Project field."
+        )
+
+    run_gh(
+        [
+            "api",
+            f"repos/{REPO}/issues/{issue_number}",
+            "--method",
+            "PATCH",
+            "--input",
+            "-",
+        ],
+        input_text=json.dumps({"milestone": match["number"]}),
+    )
+    print(f"Synced #{issue_number} native Milestone -> {match['title']}")
+
+
+def add_parent_relationship(issue_id: str, parent_id: str) -> None:
+    mutation = """
+    mutation($input:AddSubIssueInput!) {
+      addSubIssue(input:$input) {
+        issue { id number }
+        subIssue { id number }
+      }
+    }
+    """
+    graphql(
+        mutation,
+        {
+            "input": {
+                "issueId": parent_id,
+                "subIssueId": issue_id,
+                "replaceParent": False,
+            }
+        },
+    )
+
+
+def add_blocked_by_relationship(issue_id: str, blocking_issue_id: str) -> None:
+    mutation = """
+    mutation($input:AddBlockedByInput!) {
+      addBlockedBy(input:$input) {
+        issue { id number }
+        blockingIssue { id number }
+      }
+    }
+    """
+    graphql(
+        mutation,
+        {
+            "input": {
+                "issueId": issue_id,
+                "blockingIssueId": blocking_issue_id,
+            }
+        },
+    )
+
+
+def sync_issue_relationships(issue_number: int, relationship_spec: str) -> None:
+    spec = (relationship_spec or "").strip()
+    if not spec or spec.casefold() in {"none", "n/a", "na"}:
+        return
+
+    issue = fetch_issue_context(issue_number)
+    patterns = re.findall(
+        r"(?i)(parent|depends\s+on|blocked\s+by|blocks|relates\s+to)\s*#(\d+)",
+        spec,
+    )
+    if not patterns:
+        raise ValueError(
+            f"Unsupported Relationship value for #{issue_number}: {relationship_spec!r}. "
+            "Use parent #N, depends on #N, blocked by #N, blocks #N, or relates to #N."
+        )
+
+    existing_parent = (issue.get("parent") or {}).get("number")
+    existing_blocked = {
+        item["number"] for item in (issue.get("blockedBy") or {}).get("nodes", [])
+    }
+    existing_blocking = {
+        item["number"] for item in (issue.get("blocking") or {}).get("nodes", [])
+    }
+
+    for kind, raw_number in patterns:
+        target_number = int(raw_number)
+        target = fetch_issue_context(target_number)
+        kind = re.sub(r"\s+", " ", kind.casefold())
+
+        if kind == "parent":
+            if existing_parent != target_number:
+                add_parent_relationship(issue["id"], target["id"])
+                print(
+                    f"Synced #{issue_number} native Relationship: parent #{target_number}"
+                )
+                existing_parent = target_number
+        elif kind in {"depends on", "blocked by"}:
+            if target_number not in existing_blocked:
+                add_blocked_by_relationship(issue["id"], target["id"])
+                print(
+                    f"Synced #{issue_number} native Relationship: blocked by #{target_number}"
+                )
+                existing_blocked.add(target_number)
+        elif kind == "blocks":
+            if target_number not in existing_blocking:
+                add_blocked_by_relationship(target["id"], issue["id"])
+                print(
+                    f"Synced #{issue_number} native Relationship: blocking #{target_number}"
+                )
+                existing_blocking.add(target_number)
+        elif kind == "relates to":
+            print(
+                f"::warning::Native 'relates to' relationship requested for #{issue_number} "
+                f"-> #{target_number}; GitHub's current public issue API does not expose "
+                "a write mutation for that relationship, so it was not synthesized as a custom field."
+            )
+
+
+def create_linked_development_branch(issue_number: int, branch_name: str) -> None:
+    name = branch_name.strip()
+    if not name or name.casefold() in {"none", "n/a", "na"}:
+        return
+
+    issue = fetch_issue_context(issue_number)
+    linked = {
+        (node.get("ref") or {}).get("name")
+        for node in (issue.get("linkedBranches") or {}).get("nodes", [])
+    }
+    if name in linked:
+        return
+
+    oid = issue.get("defaultBranchOid")
+    if not oid:
+        raise RuntimeError(
+            f"Cannot create Development branch for #{issue_number}: default branch commit OID is unavailable."
+        )
+
+    mutation = """
+    mutation($input:CreateLinkedBranchInput!) {
+      createLinkedBranch(input:$input) {
+        linkedBranch { id ref { name } }
+        issue { id number }
+      }
+    }
+    """
+    graphql(
+        mutation,
+        {
+            "input": {
+                "issueId": issue["id"],
+                "repositoryId": issue["repositoryId"],
+                "oid": oid,
+                "name": name,
+            }
+        },
+        retryable=False,
+    )
+    print(f"Synced #{issue_number} native Development branch -> {name}")
+
+
+def quarter_iteration_for_metadata(
+    project: dict[str, Any],
+    metadata: Metadata,
+) -> dict[str, Any]:
+    quarter = field_by_name(project, QUARTER_FIELD, "ProjectV2IterationField")
+    if not quarter:
+        raise RuntimeError("Required native Project Quarter iteration field could not be resolved.")
+
+    start = date.fromisoformat(metadata.start_date)
+    end = date.fromisoformat(metadata.end_date)
+    matches = []
+    for iteration in quarter["configuration"]["iterations"]:
+        iteration_start = date.fromisoformat(iteration["startDate"])
+        iteration_end = iteration_start.fromordinal(
+            iteration_start.toordinal() + iteration["duration"] - 1
+        )
+        if iteration_start <= start and end <= iteration_end:
+            matches.append(iteration)
+
+    if len(matches) != 1:
+        available = [
+            (
+                item["title"],
+                item["startDate"],
+                date.fromisoformat(item["startDate"])
+                .fromordinal(
+                    date.fromisoformat(item["startDate"]).toordinal()
+                    + item["duration"]
+                    - 1
+                ).isoformat(),
+            )
+            for item in quarter["configuration"]["iterations"]
+        ]
+        raise RuntimeError(
+            f"No unique native Quarter iteration fully contains {metadata.phase} "
+            f"({metadata.start_date}..{metadata.end_date}). Available Quarter windows: {available}"
+        )
+    return matches[0]
+
 def project_snapshot() -> dict[str, Any]:
     number = validate_project_number()
     query = """
