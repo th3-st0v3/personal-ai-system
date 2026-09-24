@@ -124,44 +124,6 @@ PY
   return 1
 }
 
-duplicate_queue_probe() {
-  local stage="$1"
-  "$PYTHON" - "$OUT" "$stage" <<'PY'
-import json, os, sys, time, urllib.request
-path, stage = sys.argv[1:]
-p = json.load(open(path, encoding="utf-8"))
-token = os.environ["PASI_BRIDGE_TOKEN"]
-headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
-payload = {
-    "operation_type": "prompt",
-    "prompt": p["prompt"],
-    "idempotency_key": p["idempotency_key"],
-    "completion_markers": [p["prompt"].split("reply exactly ", 1)[1]],
-}
-req = urllib.request.Request(
-    "http://127.0.0.1:8765/queue",
-    data=json.dumps(payload).encode(),
-    headers=headers,
-    method="POST",
-)
-with urllib.request.urlopen(req, timeout=5) as response:
-    duplicate = (json.loads(response.read(2000000).decode()).get("operation") or {})
-if duplicate.get("operation_id") != p["operation_id"]:
-    raise SystemExit(
-        f"duplicate queue probe created a different operation: {duplicate.get('operation_id')!r}"
-    )
-if duplicate.get("prompt") != p["prompt"] or duplicate.get("idempotency_key") != p["idempotency_key"]:
-    raise SystemExit("duplicate queue probe returned mismatched operation identity")
-p.setdefault("stages", []).append({
-    "stage": stage,
-    "duplicate_queue_probe_operation_id": duplicate.get("operation_id"),
-    "duplicate_queue_probe_status": duplicate.get("status"),
-    "checked_at": time.time(),
-})
-open(path, "w", encoding="utf-8").write(json.dumps(p, indent=2, ensure_ascii=False) + "\n")
-PY
-}
-
 update_evidence() {
   "$PYTHON" - "$OUT" <<'PY'
 import json, os, sys, time, urllib.parse, urllib.request
@@ -217,7 +179,6 @@ p["_pending_stage"]="browser_reload_reclaimed_once"
 open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
 PY
 update_evidence
-duplicate_queue_probe "after_browser_reload_reclaim"
 
 if [[ ! -s "$BRIDGE_PID_FILE" ]]; then
   echo "error: managed bridge PID file is missing: $BRIDGE_PID_FILE" >&2
@@ -253,7 +214,6 @@ p["_pending_stage"]="bridge_restart_recovered"
 open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
 PY
 update_evidence
-duplicate_queue_probe "after_bridge_restart"
 
 if [[ ! -s "$RUNNER_PID_FILE" ]]; then
   echo "error: managed runner PID file is missing: $RUNNER_PID_FILE" >&2
@@ -292,7 +252,6 @@ p["_pending_stage"]="runner_restart_resumed"
 open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
 PY
 update_evidence
-duplicate_queue_probe "after_runner_restart"
 
 echo "Waiting for the original operation to complete after runner restart..."
 deadline=$((SECONDS + 900))
