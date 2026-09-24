@@ -356,36 +356,51 @@ async function ensureChatGptTab(targetChatUrl, pendingWork) {
   return tabCreateInFlight;
 }
 
+let injectExistingTabsInFlight = null;
+
 async function injectExistingChatTabs() {
   if (!chrome.scripting?.executeScript) return;
-  const tabs = await listChatGptTabs();
-  for (const tab of tabs) {
-    if (typeof tab.id !== 'number') continue;
+  if (injectExistingTabsInFlight) return injectExistingTabsInFlight;
 
-    // A previously injected controller can answer this ping. Do not
-    // re-execute the full support-script bundle on an already-live tab,
-    // because the support scripts are intentionally global and are not
-    // themselves controller lifecycle owners.
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
-      continue;
-    } catch (_) {
-      // No live controller listener is present; inject into the existing tab.
+  const run = (async () => {
+    const tabs = await listChatGptTabs();
+    for (const tab of tabs) {
+      if (typeof tab.id !== 'number') continue;
+
+      // A previously injected controller can answer this ping. Do not
+      // re-execute the full support-script bundle on an already-live tab,
+      // because the support scripts are intentionally global and are not
+      // themselves controller lifecycle owners.
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
+        continue;
+      } catch (_) {
+        // No live controller listener is present; inject into the existing tab.
+      }
+
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: [
+            'timeout-config.js',
+            'detectors.js',
+            'recovery_progress.js',
+            'content.js',
+            'recovery.js'
+          ]
+        });
+      } catch (_) {
+        // Retry later without creating, navigating, or reloading a tab.
+      }
     }
+  })();
 
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: [
-          'timeout-config.js',
-          'detectors.js',
-          'recovery_progress.js',
-          'content.js',
-          'recovery.js'
-        ]
-      });
-    } catch (_) {
-      // Retry later without creating, navigating, or reloading a tab.
+  injectExistingTabsInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (injectExistingTabsInFlight === run) {
+      injectExistingTabsInFlight = null;
     }
   }
 }
