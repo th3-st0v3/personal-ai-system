@@ -1,4 +1,4 @@
-name: PASI Project Metadata Sync
+name: PASI Project Automation
 
 on:
   issues:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: "Issue number to synchronize; leave empty to synchronize all PASI metadata issues"
+        description: "Issue number to add/format in the PASI Project; leave empty to reconcile all PASI metadata issues"
         required: false
         type: string
 
@@ -102,7 +102,7 @@ jobs:
             exit 1
           fi
 
-      - name: Synchronize and verify metadata
+      - name: Auto-add, format, and verify Project metadata
         shell: bash
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
