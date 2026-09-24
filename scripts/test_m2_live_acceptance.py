@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.m2_live_acceptance import (
     BROWSER_MAX_HEARTBEAT_AGE_SECONDS,
+    OPERATION_QUEUE_TIMEOUT_SECONDS,
     M2AcceptanceError,
     discover_managed_bridge_pid,
     validate_browser_health,
@@ -27,6 +28,12 @@ class TestM2LiveAcceptanceContract(unittest.TestCase):
         self.assertIn('runtime_dir_source = "isolated"', source)
         self.assertIn('uuid.uuid4().hex[:8]', source)
         self.assertNotIn('DEFAULT_RUNTIME_DIR = Path.home() / ".pasi" / "overnight"', source)
+
+    def test_m2_queue_wait_allows_detached_runtime_startup_and_captures_diagnostics(self) -> None:
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertGreaterEqual(OPERATION_QUEUE_TIMEOUT_SECONDS, 300.0)
+        self.assertIn("runtime_startup_diagnostics(runtime_dir)", source)
+        self.assertIn('"operation_start_timeout"', source)
 
     def test_entrypoint_and_runtime_contracts_are_present(self) -> None:
         entrypoint = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
