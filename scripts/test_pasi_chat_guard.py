@@ -147,14 +147,17 @@ PASI_COMPUTER_REQUEST_END"""
             self.assertEqual(results[0]["status"], "denied")
             self.assertFalse((root / "note.txt").exists())
 
-    def test_computer_protocol_describes_only_safe_capabilities(self) -> None:
+    def test_computer_protocol_is_minimal_and_does_not_expose_runtime_policy(self) -> None:
         prompt = guard.computer_protocol_prompt()
-        self.assertIn("computer.files.read", prompt)
+        self.assertIn("LOCAL EVIDENCE REQUEST", prompt)
+        self.assertIn("PASI_COMPUTER_REQUEST_BEGIN", prompt)
         self.assertIn("computer.files.search", prompt)
         self.assertNotIn("computer.files.write", prompt)
         self.assertNotIn("computer.command.execute", prompt)
         self.assertNotIn("computer.credentials.read", prompt)
         self.assertNotIn("computer.financial.execute", prompt)
+        self.assertNotIn("Each request is executed by PASI", prompt)
+        self.assertNotIn("Maximum capability rounds per task", prompt)
 
     def test_followup_prompt_preserves_original_task_context(self) -> None:
         prompt = guard.build_followup_prompt(
@@ -171,11 +174,12 @@ PASI_COMPUTER_REQUEST_END"""
         with self.assertRaises(ValueError):
             guard.build_followup_prompt("", [{"status": "ok"}])
 
-    def test_computer_protocol_requires_task_worktree_relative_paths(self) -> None:
+    def test_computer_protocol_keeps_path_and_gateway_policy_out_of_model_text(self) -> None:
         prompt = guard.computer_protocol_prompt()
-        self.assertIn("repository-relative paths under the target worktree", prompt)
-        self.assertIn("Do not request absolute host paths", prompt)
-        self.assertIn("Prefer the public GitHub repository context", prompt)
+        self.assertNotIn("repository-relative paths under the target worktree", prompt)
+        self.assertNotIn("Do not request absolute host paths", prompt)
+        self.assertNotIn("Prefer the public GitHub repository context", prompt)
+        self.assertNotIn("Writes, arbitrary commands, application launch", prompt)
 
 
 if __name__ == "__main__":
