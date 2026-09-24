@@ -116,6 +116,8 @@ test('native background sends provisioning telemetry to the dedicated bridge rou
   assert.match(background, /'GET \/browser\/provisioning'/);
   assert.match(background, /'POST \/browser\/provisioning'/);
   assert.match(background, /bridgeFetch\('\/browser\/provisioning', 'POST'/);
+  assert.ok(background.includes("bridgeFetch('/browser/provisioning', 'POST', { observation }, 2000)"));
+  assert.ok(background.includes("bridgeFetch('/browser/telemetry', 'POST', { observation: queue[0] }, 2000)"));
 });
 
 test('native background inspects pending work immediately at startup as well as periodically', () => {
