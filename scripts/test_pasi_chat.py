@@ -94,13 +94,17 @@ class TestPasiChat(unittest.TestCase):
         self.assertTrue(prompt.startswith("CURRENT TASK:\ninspect the bridge"))
         self.assertIn("RESULT:\n", prompt)
         self.assertIn("PASI_RESULT_STATUS:", prompt)
-        self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
+        self.assertIn("Keep working until the stated acceptance criteria are met.", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
         self.assertNotIn("REPOSITORY STATE:", prompt)
         self.assertNotIn("PUBLIC GITHUB CONTEXT:", prompt)
         self.assertNotIn("Thinking is required", prompt)
         self.assertNotIn("ROADMAP", prompt)
         self.assertNotIn("NEXT_TASK", prompt)
+        self.assertIn("tracked-file changes are allowed unless the task explicitly scopes them out", prompt)
+        self.assertIn("do not report completion while required checks are failing", prompt)
+        self.assertNotIn("Thinking mode already verified by the live browser preflight", prompt)
+        self.assertNotIn("LOCAL COMPUTER CAPABILITY PROTOCOL", prompt)
 
     def test_build_prompt_does_not_double_compile_task_prompts(self) -> None:
         compiled = (
