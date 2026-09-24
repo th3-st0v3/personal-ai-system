@@ -70,7 +70,7 @@ def compile_task_prompt(
     if previous_failure.strip():
         lines.extend([
             "",
-            "PREVIOUS FAILURE EVIDENCE — use only to avoid repeating the failed approach:",
+            "PREVIOUS FAILURE EVIDENCE:",
             _bounded_block(previous_failure, MAX_FAILURE_CHARS),
         ])
 
