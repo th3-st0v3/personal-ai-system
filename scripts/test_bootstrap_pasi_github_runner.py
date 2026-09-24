@@ -36,13 +36,13 @@ def test_authoritative_workflow_does_not_use_hosted_runner() -> None:
     assert "live" in workflow
 
 
-def test_authoritative_ci_stays_self_hosted_and_fork_safe() -> None:
+def test_authoritative_ci_stays_self_hosted_and_security_stays_hosted_and_fork_safe() -> None:
     test_workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     security_workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
     assert "ubuntu-latest" not in test_workflow
-    assert "ubuntu-latest" not in security_workflow
     assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in test_workflow
-    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in security_workflow
+    assert "runs-on: ubuntu-latest" in security_workflow
+    assert "[self-hosted, linux, x64, pasi-wsl]" not in security_workflow
     assert "untrusted fork pull requests" in test_workflow
     assert "github.event.pull_request.head.repo.full_name == github.repository" in security_workflow
 
