@@ -16,14 +16,14 @@ class TestPasiCIWorkflow(unittest.TestCase):
 
     def test_fast_validation_is_authoritative_and_live_acceptance_is_manual(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-        self.assertIn("runs-on: [self-hosted, linux, x64, pasi-wsl]", workflow)
+        self.assertIn("runs-on: ubuntu-latest", workflow)
         self.assertIn("bash scripts/check_fast.sh", workflow)
         self.assertIn("mode:", workflow)
         self.assertIn("fast", workflow)
         self.assertIn("live", workflow)
         self.assertIn("scripts/e2e_chromium_response_recovery.py", workflow)
         self.assertIn("scripts/e2e_chromium_prompt_submission.py", workflow)
-        self.assertNotIn("ubuntu-latest", workflow)
+        self.assertNotIn("[self-hosted, linux, x64, pasi-wsl]", workflow)
 
     def test_authoritative_fast_lane_does_not_duplicate_the_full_quality_sweep(self) -> None:
         script = (ROOT / "scripts" / "check_fast.sh").read_text(encoding="utf-8")
