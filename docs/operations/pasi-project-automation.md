@@ -133,6 +133,19 @@ This keeps the Project UI responsible for membership automation while the reposi
 
 The mapping is deterministic: FE-Pn uses the corresponding Pn phase schedule and Iteration n+1. The parent frontend roadmap is issue **#318**. Its phase-map checkboxes are reconciled from the Project item’s Status field during each synchronization run.
 
+### FE phase identity safeguards
+
+Before changing a frontend phase's Project Status or its #318 checkbox, the synchronizer scans all repository issues and requires exactly one valid identity for each FE-P0 through FE-P22 phase. It checks:
+
+- the canonical issue number (#319–#341);
+- the `FE-P# —` phase identity in the title;
+- the frontend/roadmap labels; and
+- the frontend `PASI_PROJECT_METADATA` phase when present.
+
+A phase is **skipped with a workflow warning** when its issue is missing, renamed so the phase identity is lost, replaced by another issue, or duplicated. A duplicate can be detected from either the phase title or the frontend metadata block. The synchronizer never guesses which duplicate should receive the checkbox update.
+
+If the #318 roadmap contains a valid phase but points its checkbox link at a different issue than the resolved canonical phase issue, the synchronization fails closed for that mismatch rather than changing the wrong box.
+
 When an FE phase issue (#319–#341) is **closed**, the workflow uses the explicit `--complete-frontend` path. It verifies that the issue is a frontend phase, sets the corresponding Project Status to **Done**, and synchronizes that phase's checkbox on #318 to **[x]**. Reopening the phase returns Project Status to **Todo** and the checkbox to **[ ]**.
 
 ## Ongoing behavior
