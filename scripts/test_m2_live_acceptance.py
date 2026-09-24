@@ -48,3 +48,8 @@ def test_m2_harness_requires_runner_to_resume_the_same_persisted_operation() -> 
     assert 'initial_submit_count != 1' in source
     assert 'resume_count < 1' in source
     assert '"runner_resume_verified":True' in source
+
+def test_m2_harness_prompt_creates_a_real_generation_window() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "output the integers 1 through 1000, one integer per line" in source
+    assert "end with exactly M2-LIVE-$STAMP on its own line" in source
