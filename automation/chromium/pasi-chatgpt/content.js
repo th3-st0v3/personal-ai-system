@@ -28,6 +28,7 @@
     generation: TIMEOUT_POLICY.generationMs || 60 * 60 * 1000
   };
   const ACTIVE_KEY = 'pasi:active-operation';
+  const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
@@ -622,13 +623,65 @@
     } catch (_) {}
   }
 
+  function conversationSignatureState() {
+    const currentUrl = chatUrl();
+    if (!currentUrl) return null;
+    try {
+      const stored = JSON.parse(localStorage.getItem(CONVERSATION_SIGNATURE_KEY) || 'null');
+      if (
+        stored &&
+        stored.chat_url === currentUrl &&
+        Number.isInteger(stored.user_count) &&
+        stored.user_count >= 0 &&
+        Number.isInteger(stored.assistant_count) &&
+        stored.assistant_count >= 0 &&
+        Array.isArray(stored.completed_operation_ids)
+      ) {
+        return {
+          chat_url: currentUrl,
+          user_count: stored.user_count,
+          assistant_count: stored.assistant_count,
+          completed_operation_ids: stored.completed_operation_ids.slice(-256)
+        };
+      }
+    } catch (_) {}
+
+    const seeded = {
+      chat_url: currentUrl,
+      user_count: userMessages().length,
+      assistant_count: assistantMessages().length,
+      completed_operation_ids: []
+    };
+    try {
+      localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(seeded));
+    } catch (_) {}
+    return seeded;
+  }
+
   function conversationSignature(responseText = null) {
+    const state = conversationSignatureState();
     const assistantFingerprint = (
       typeof responseText === 'string' && responseText.trim()
     )
       ? fingerprintFromText(responseText)
       : fingerprint();
-    return `${userMessages().length}:${assistantMessages().length}:${assistantFingerprint}`;
+    if (!state) return `0:0:${assistantFingerprint}`;
+    return `${state.user_count}:${state.assistant_count}:${assistantFingerprint}`;
+  }
+
+  function advanceConversationSignature(operationId, responseText) {
+    const state = conversationSignatureState();
+    const assistantFingerprint = fingerprintFromText(responseText);
+    if (!state || !operationId || !assistantFingerprint) return conversationSignature(responseText);
+    if (!state.completed_operation_ids.includes(operationId)) {
+      state.user_count += 1;
+      state.assistant_count += 1;
+      state.completed_operation_ids = [...state.completed_operation_ids, operationId].slice(-256);
+      try {
+        localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(state));
+      } catch (_) {}
+    }
+    return `${state.user_count}:${state.assistant_count}:${assistantFingerprint}`;
   }
 
   function recoveryContext() {
@@ -1503,7 +1556,7 @@
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
-      conversation_signature: conversationSignature(responseText),
+      conversation_signature: advanceConversationSignature(operationId, responseText),
       response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()),
       ack_only: true
@@ -1966,6 +2019,7 @@
       snapshotAssistantMessages,
       assistantResponseEvidence,
       conversationSignature,
+      advanceConversationSignature,
       operationPrompt,
       findNewChatControl,
       detectorState,
