@@ -48,3 +48,12 @@ def test_project_automation_reconciles_frontend_status_and_checkboxes() -> None:
     assert "closed]" in source
     assert "PASI_PROJECT_EVENT_ACTION" in source
     assert "PASI_PROJECT_EVENT_ISSUE_NUMBER" in source
+
+def test_project_automation_has_explicit_frontend_completion_path() -> None:
+    source = (ROOT / ".github" / "workflows" / "pasi-project-metadata.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "types: [opened, edited, labeled, reopened, closed]" in source
+    assert '--complete-frontend "${ISSUE_NUMBER}"' in source
+    assert '[ "${{ github.event.action }}" = "closed" ]' in source
+    assert '"frontend"' in source
