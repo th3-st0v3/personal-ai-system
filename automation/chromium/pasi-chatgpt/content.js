@@ -1792,41 +1792,54 @@
     let response;
     try {
       response = await waitUntil(() => {
-      // While generation is active, the stop control is the only state needed
-      // for this hot loop. Avoid a full failure-marker DOM scan on every mutation.
-      if (generating()) {
-        sawGeneration = true;
-        generationEndedAt = 0;
-        return null;
-      }
+        // While generation is active, the stop control is the only state needed
+        // for this hot loop. Avoid a full failure-marker DOM scan on every mutation.
+        if (generating()) {
+          sawGeneration = true;
+          generationEndedAt = 0;
+          return null;
+        }
 
-      const detected = detectorState();
-      if (detected.context_exhausted === true) {
-        failureReason = 'CHAT_EXHAUSTED: conversation context is exhausted';
-        return null;
-      }
-      if (
-        detected.context_exhausted !== true &&
-        detected.usage_limited === true
-      ) {
-        failureReason = 'CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited';
-        return null;
-      }
+        const detected = detectorState();
+        if (detected.context_exhausted === true) {
+          failureReason = 'CHAT_EXHAUSTED: conversation context is exhausted';
+          return null;
+        }
+        if (
+          detected.context_exhausted !== true &&
+          detected.usage_limited === true
+        ) {
+          failureReason = 'CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited';
+          return null;
+        }
 
-      if (sawGeneration) {
-        if (!generationEndedAt) generationEndedAt = Date.now();
-        if (Date.now() - generationEndedAt < RESPONSE_SETTLE_MS) return null;
+        if (sawGeneration) {
+          if (!generationEndedAt) generationEndedAt = Date.now();
+          if (Date.now() - generationEndedAt < RESPONSE_SETTLE_MS) return null;
+          const responseText = responseEvidence();
+          return responseText && completionMarkersSatisfied(responseText, completionMarkers)
+            ? responseText
+            : null;
+        }
+
         const responseText = responseEvidence();
-        return responseText && completionMarkersSatisfied(responseText, completionMarkers)
+        return completionMarkersSatisfied(responseText, completionMarkers)
           ? responseText
           : null;
-      }
-
-      const responseText = responseEvidence();
-      return completionMarkersSatisfied(responseText, completionMarkers)
-        ? responseText
-        : null;
-    }, TIMEOUTS.generation, DOM_POLL_MS);
+      }, TIMEOUTS.generation, DOM_POLL_MS);
+    } finally {
+      clearInterval(progressTimerId);
+      reportRuntimeTelemetry({
+        event: 'RESPONSE_WAIT_FINISHED',
+        status: response ? 'success' : 'failure',
+        operation_id: activeOperationId,
+        elapsed_ms: Date.now() - progressStartedAt,
+        saw_generation: sawGeneration,
+        response_text_chars: typeof response === 'string' ? response.length : 0,
+        failure_reason: failureReason,
+        chat_url: chatUrl()
+      });
+    }
 
     if (failureReason) throw new Error(failureReason);
     if (response) return response;
