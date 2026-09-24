@@ -76,7 +76,7 @@ The harness uses the existing managed runtime directory (by default `$HOME/.pasi
 
 The sequence is deliberately fail-closed:
 
-1. Preflight requires an authenticated, usable current ChatGPT conversation and a clean managed runner/supervisor. If port 8765 is already healthy, the harness adopts the existing bridge only when the listening process is a PASI bridge/router whose working tree contains `automation/orchestrator/bridge.py`; an unrelated listener remains a hard failure.
+1. Preflight requires an authenticated, usable current ChatGPT conversation, a fresh browser heartbeat (at most 30 seconds old), the expected native controller version and extension manifest version, and a clean managed runner/supervisor. A stale, missing, unidentified, or incompatible browser heartbeat is a fail-fast preflight failure; the harness does not start a new 168-hour runner in that state. If port 8765 is already healthy, the harness adopts the existing bridge only when the listening process is a PASI bridge/router whose working tree contains `automation/orchestrator/bridge.py`; an unrelated listener remains a hard failure.
 2. The harness waits until its exact prompt operation is `claimed` or `generating`.
 3. It pauses for one manual action: close or reload the **exact ChatGPT conversation tab carrying that operation**. No replacement tab or human message is allowed.
 4. It terminates only the managed bridge PID tree, waits for the bridge to become unavailable, restarts the same bridge runtime, and verifies the original operation ID still exists and is non-terminal.
