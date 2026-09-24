@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize PASI issue planning metadata into a GitHub Project v2.
-
-The issue body is the declarative source for the phase metadata. The script:
-- discovers the PASI project,
-- creates missing Start Date / End Date / Team / Quarter / Iteration fields,
-- ensures Iteration 1..23 exist with the roadmap's actual phase windows,
-- adds the issue to the project,
-- writes date, iteration, team, and quarter values to the project item.
-
-Requires GitHub CLI authentication with project write access.
-"""
+"""Synchronize PASI phase metadata into a GitHub Project v2."""
 
 from __future__ import annotations
 
@@ -20,27 +10,41 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
-from typing import Any
 
 REPO = "th3-st0v3/personal-ai-system"
 PROJECT_QUERY = os.environ.get("PASI_PROJECT_QUERY", "PASI")
 PROJECT_TITLE = os.environ.get("PASI_PROJECT_TITLE", "").strip()
 
-DATE_FIELDS = {"start": "Start Date", "end": "End Date"}
-SINGLE_SELECT_FIELDS = {
-    "team": ("Team", ["Backend", "Frontend"]),
-    "quarter": (
-        "Quarter",
-        ["Q3-2026", "Q4-2026", "Q1-2027", "Q2-2027", "Q3-2027", "Q4-2027", "Q1-2028"],
-    ),
-}
-ITERATION_FIELD = "Iteration"
-
 META_RE = re.compile(
-    r"<!--\\s*PASI_PROJECT_METADATA\\s*\\n(?P<body>.*?)\\nPASI_PROJECT_METADATA\\s*-->",
+    r"<!--\s*PASI_PROJECT_METADATA\s*\n(?P<body>.*?)\nPASI_PROJECT_METADATA\s*-->",
     re.DOTALL,
 )
+
+PHASE_SCHEDULE = [
+    ("P0", "Iteration 1", "2026-09-22", "2026-10-04"),
+    ("P1", "Iteration 2", "2026-10-04", "2026-10-12"),
+    ("P2", "Iteration 3", "2026-10-13", "2026-10-24"),
+    ("P3", "Iteration 4", "2026-10-25", "2026-11-07"),
+    ("P4", "Iteration 5", "2026-11-08", "2026-11-21"),
+    ("P5", "Iteration 6", "2026-11-22", "2026-12-05"),
+    ("P6", "Iteration 7", "2026-12-06", "2026-12-19"),
+    ("P7", "Iteration 8", "2026-12-20", "2027-01-09"),
+    ("P8", "Iteration 9", "2027-01-10", "2027-01-30"),
+    ("P9", "Iteration 10", "2027-01-31", "2027-02-20"),
+    ("P10", "Iteration 11", "2027-02-21", "2027-03-20"),
+    ("P11", "Iteration 12", "2027-03-21", "2027-04-10"),
+    ("P12", "Iteration 13", "2027-04-11", "2027-05-08"),
+    ("P13", "Iteration 14", "2027-05-09", "2027-05-29"),
+    ("P14", "Iteration 15", "2027-05-30", "2027-06-19"),
+    ("P15", "Iteration 16", "2027-06-20", "2027-07-10"),
+    ("P16", "Iteration 17", "2027-07-11", "2027-08-07"),
+    ("P17", "Iteration 18", "2027-08-08", "2027-08-28"),
+    ("P18", "Iteration 19", "2027-08-29", "2027-09-25"),
+    ("P19", "Iteration 20", "2027-09-26", "2027-10-16"),
+    ("P20", "Iteration 21", "2027-10-17", "2027-11-13"),
+    ("P21", "Iteration 22", "2027-11-14", "2027-12-11"),
+    ("P22", "Iteration 23", "2027-12-12", "2028-01-15"),
+]
 
 
 @dataclass(frozen=True)
@@ -67,23 +71,19 @@ def run_gh(args: list[str], *, input_text: str | None = None) -> str:
     return proc.stdout
 
 
-def graphql(query: str, **variables: Any) -> dict[str, Any]:
-    args = ["api", "graphql", "-f", f"query={query}"]
-    for key, value in variables.items():
-        if isinstance(value, int):
-            args.extend(["-F", f"{key}={value}"])
-        else:
-            args.extend(["-f", f"{key}={value}"])
-    payload = json.loads(run_gh(args))
-    if payload.get("errors"):
-        raise RuntimeError(json.dumps(payload["errors"], indent=2))
-    return payload["data"]
+def graphql(query: str, variables: dict[str, object] | None = None) -> dict[str, object]:
+    payload = {"query": query, "variables": variables or {}}
+    raw = run_gh(["api", "graphql", "--input", "-"], input_text=json.dumps(payload))
+    response = json.loads(raw)
+    if response.get("errors"):
+        raise RuntimeError(json.dumps(response["errors"], indent=2))
+    return response["data"]
 
 
 def parse_metadata(body: str) -> Metadata:
     match = META_RE.search(body or "")
     if not match:
-        raise ValueError("Issue body is missing <!-- PASI_PROJECT_METADATA ... -->")
+        raise ValueError("Issue body is missing PASI_PROJECT_METADATA")
 
     values: dict[str, str] = {}
     for line in match.group("body").splitlines():
@@ -91,15 +91,7 @@ def parse_metadata(body: str) -> Metadata:
             key, value = line.split(":", 1)
             values[key.strip()] = value.strip()
 
-    required = [
-        "PHASE",
-        "TYPE",
-        "ITERATION",
-        "START_DATE",
-        "END_DATE",
-        "TEAM",
-        "QUARTER",
-    ]
+    required = ["PHASE", "TYPE", "ITERATION", "START_DATE", "END_DATE", "TEAM", "QUARTER"]
     missing = [key for key in required if not values.get(key)]
     if missing:
         raise ValueError(f"Missing planning metadata: {', '.join(missing)}")
@@ -133,12 +125,12 @@ def fetch_issue(issue_number: int) -> tuple[str, str, str]:
       }
     }
     """
-    data = graphql(query, owner="th3-st0v3", repo="personal-ai-system", number=issue_number)
-    issue = data["repository"]["issue"]
-    return issue["id"], issue["title"], issue.get("body") or ""
+    data = graphql(query, {"owner": "th3-st0v3", "repo": "personal-ai-system", "number": issue_number})
+    issue = data["repository"]["issue"]  # type: ignore[index]
+    return issue["id"], issue["title"], issue.get("body") or ""  # type: ignore[index]
 
 
-def project_snapshot() -> dict[str, Any]:
+def project_snapshot() -> dict[str, object]:
     query = """
     query($login:String!, $query:String!) {
       user(login:$login) {
@@ -170,54 +162,31 @@ def project_snapshot() -> dict[str, Any]:
       }
     }
     """
-    data = graphql(query, login="th3-st0v3", query=PROJECT_QUERY)
-    projects = data["user"]["projectsV2"]["nodes"]
+    data = graphql(query, {"login": "th3-st0v3", "query": PROJECT_QUERY})
+    projects = data["user"]["projectsV2"]["nodes"]  # type: ignore[index]
     if PROJECT_TITLE:
-        matches = [project for project in projects if project["title"] == PROJECT_TITLE]
+        matches = [p for p in projects if p["title"] == PROJECT_TITLE]
     else:
-        matches = [
-            project
-            for project in projects
-            if "pasi" in project["title"].lower()
-        ]
+        matches = [p for p in projects if "pasi" in p["title"].lower()]
     if len(matches) != 1:
-        names = ", ".join(project["title"] for project in matches) or "<none>"
+        names = ", ".join(p["title"] for p in matches) or "<none>"
         raise RuntimeError(
-            f"Expected exactly one PASI Project (set PASI_PROJECT_TITLE to disambiguate); found: {names}"
+            f"Expected exactly one PASI Project; found {names}. "
+            "Set PASI_PROJECT_TITLE to disambiguate."
         )
     return matches[0]
 
 
-def mutation_add_item(project_id: str, content_id: str) -> str:
+def create_field(project_id: str, field_input: dict[str, object]) -> dict[str, object]:
     query = """
-    mutation($project:ID!, $content:ID!) {
-      addProjectV2ItemById(input:{projectId:$project, contentId:$content}) {
-        item { id }
-      }
-    }
-    """
-    data = graphql(query, project=project_id, content=content_id)
-    return data["addProjectV2ItemById"]["item"]["id"]
-
-
-def create_field(project_id: str, name: str, data_type: str, **extra: Any) -> dict[str, Any]:
-    query = """
-    mutation($project:ID!, $name:String!, $dataType:ProjectV2CustomFieldType!,
-             $iterationConfiguration:ProjectV2IterationFieldConfigurationInput,
-             $singleSelectOptions:[ProjectV2SingleSelectFieldOptionInput!]) {
-      createProjectV2Field(input:{
-        projectId:$project
-        name:$name
-        dataType:$dataType
-        iterationConfiguration:$iterationConfiguration
-        singleSelectOptions:$singleSelectOptions
-      }) {
+    mutation($input:CreateProjectV2FieldInput!) {
+      createProjectV2Field(input:$input) {
         projectV2Field {
           __typename
           ... on ProjectV2Field { id name }
           ... on ProjectV2IterationField {
             id name
-            configuration { duration iterations { id title startDate duration } }
+            configuration { startDay duration iterations { id title startDate duration } }
           }
           ... on ProjectV2SingleSelectField {
             id name
@@ -227,55 +196,135 @@ def create_field(project_id: str, name: str, data_type: str, **extra: Any) -> di
       }
     }
     """
-    data = graphql(
-        query,
-        project=project_id,
-        name=name,
-        dataType=data_type,
-        iterationConfiguration=extra.get("iterationConfiguration"),
-        singleSelectOptions=extra.get("singleSelectOptions"),
-    )
-    return data["createProjectV2Field"]["projectV2Field"]
+    data = graphql(query, {"input": field_input})
+    return data["createProjectV2Field"]["projectV2Field"]  # type: ignore[index]
 
 
-def ensure_field(project: dict[str, Any], name: str, data_type: str, options: list[str] | None = None) -> dict[str, Any]:
-    for field in project["fields"]["nodes"]:
-        if field.get("name") == name:
-            return field
-
-    kwargs: dict[str, Any] = {}
-    if data_type == "SINGLE_SELECT":
-        kwargs["singleSelectOptions"] = [
-            {
-                "name": option,
-                "description": f"PASI project metadata option: {option}",
-                "color": "GRAY",
-            }
-            for option in (options or [])
-        ]
-    return create_field(project["id"], name, data_type, **kwargs)
-
-
-def update_field_value(project_id: str, item_id: str, field_id: str, value: dict[str, Any]) -> None:
+def update_field(project_id: str, field_input: dict[str, object]) -> dict[str, object]:
     query = """
-    mutation($project:ID!, $item:ID!, $field:ID!, $value:ProjectV2FieldValue!) {
-      updateProjectV2ItemFieldValue(
-        input:{projectId:$project, itemId:$item, fieldId:$field, value:$value}
-      ) { projectV2Item { id } }
+    mutation($input:UpdateProjectV2FieldInput!) {
+      updateProjectV2Field(input:$input) {
+        projectV2Field {
+          __typename
+          ... on ProjectV2IterationField {
+            id name
+            configuration { startDay duration iterations { id title startDate duration } }
+          }
+        }
+      }
     }
     """
-    graphql(query, project=project_id, item=item_id, field=field_id, value=json.dumps(value))
+    data = graphql(query, {"input": {"fieldId": field_input["fieldId"], "iterationConfiguration": field_input["iterationConfiguration"]}})
+    return data["updateProjectV2Field"]["projectV2Field"]  # type: ignore[index]
 
 
-def ensure_iterations(project: dict[str, Any], metadata: Metadata) -> dict[str, Any]:
-    field = next((f for f in project["fields"]["nodes"] if f.get("name") == ITERATION_FIELD), None)
+def ensure_date_field(project: dict[str, object], name: str) -> dict[str, object]:
+    fields = project["fields"]["nodes"]  # type: ignore[index]
+    for field in fields:
+        if field.get("name") == name:
+            return field
+    return create_field(project["id"], {"projectId": project["id"], "name": name, "dataType": "DATE"})
 
-    # The complete roadmap schedule is carried in this repository, so the
-    # automation builds the iteration catalog from the issue metadata set.
+
+def ensure_single_select(project: dict[str, object], name: str, options: list[str]) -> dict[str, object]:
+    fields = project["fields"]["nodes"]  # type: ignore[index]
+    for field in fields:
+        if field.get("name") == name:
+            return field
+    return create_field(
+        project["id"],
+        {
+            "projectId": project["id"],
+            "name": name,
+            "dataType": "SINGLE_SELECT",
+            "singleSelectOptions": [
+                {"name": option, "description": f"PASI metadata option: {option}", "color": "GRAY"}
+                for option in options
+            ],
+        },
+    )
+
+
+def iteration_configs() -> list[dict[str, object]]:
+    return [
+        {
+            "title": iteration,
+            "startDate": start,
+            "duration": (date.fromisoformat(end) - date.fromisoformat(start)).days + 1,
+        }
+        for _, iteration, start, end in PHASE_SCHEDULE
+    ]
+
+
+def ensure_iterations(project: dict[str, object]) -> dict[str, object]:
+    fields = project["fields"]["nodes"]  # type: ignore[index]
+    field = next((f for f in fields if f.get("name") == "Iteration"), None)
+    desired = iteration_configs()
+
     if field is None:
-        return create_field(project["id"], ITERATION_FIELD, "ITERATION")
+        return create_field(
+            project["id"],
+            {
+                "projectId": project["id"],
+                "name": "Iteration",
+                "dataType": "ITERATION",
+                "iterationConfiguration": {
+                    "startDate": desired[0]["startDate"],
+                    "duration": desired[0]["duration"],
+                    "iterations": desired,
+                },
+            },
+        )
 
+    existing = field.get("configuration", {}).get("iterations", [])
+    by_title = {item["title"]: item for item in existing}
+    merged = list(existing)
+    for item in desired:
+        if item["title"] not in by_title:
+            merged.append(item)
+
+    merged.sort(key=lambda item: item["startDate"])
+    start_date = min(item["startDate"] for item in merged)
+    default_duration = next(
+        item["duration"] for item in merged if item["title"] == "Iteration 1"
+    )
+
+    if len(merged) != len(existing):
+        field = update_field(
+            project["id"],
+            {
+                "fieldId": field["id"],
+                "iterationConfiguration": {
+                    "startDate": start_date,
+                    "duration": default_duration,
+                    "iterations": merged,
+                },
+            },
+        )
     return field
+
+
+def update_item_field(project_id: str, item_id: str, field_id: str, value: dict[str, object]) -> None:
+    query = """
+    mutation($input:UpdateProjectV2ItemFieldValueInput!) {
+      updateProjectV2ItemFieldValue(input:$input) {
+        projectV2Item { id }
+      }
+    }
+    """
+    graphql(query, {"input": {"projectId": project_id, "itemId": item_id, "fieldId": field_id, "value": value}})
+
+
+def add_item(project_id: str, content_id: str) -> str:
+    query = """
+    mutation($project:ID!, $content:ID!) {
+      addProjectV2ItemById(input:{projectId:$project, contentId:$content}) {
+        item { id }
+      }
+    }
+    """
+    data = graphql(query, {"project": project_id, "content": content_id})
+    return data["addProjectV2ItemById"]["item"]["id"]  # type: ignore[index]
 
 
 def sync_issue(issue_number: int) -> None:
@@ -283,67 +332,67 @@ def sync_issue(issue_number: int) -> None:
     metadata = parse_metadata(body)
     project = project_snapshot()
 
-    start_field = ensure_field(project, DATE_FIELDS["start"], "DATE")
-    end_field = ensure_field(project, DATE_FIELDS["end"], "DATE")
-    team_field = ensure_field(project, SINGLE_SELECT_FIELDS["team"][0], "SINGLE_SELECT", SINGLE_SELECT_FIELDS["team"][1])
-    quarter_field = ensure_field(project, SINGLE_SELECT_FIELDS["quarter"][0], "SINGLE_SELECT", SINGLE_SELECT_FIELDS["quarter"][1])
-    iteration_field = ensure_iterations(project, metadata)
+    start_field = ensure_date_field(project, "Start Date")
+    end_field = ensure_date_field(project, "End Date")
+    team_field = ensure_single_select(project, "Team", ["Backend", "Frontend"])
+    quarter_field = ensure_single_select(
+        project,
+        "Quarter",
+        ["Q3-2026", "Q4-2026", "Q1-2027", "Q2-2027", "Q3-2027", "Q4-2027", "Q1-2028"],
+    )
+    iteration_field = ensure_iterations(project)
 
-    item_id = mutation_add_item(project["id"], content_id)
+    # Refresh after any field creation/update so newly-created option/iteration IDs are current.
+    project = project_snapshot()
+    fields = {field["name"]: field for field in project["fields"]["nodes"]}
 
-    update_field_value(project["id"], item_id, start_field["id"], {"date": metadata.start_date})
-    update_field_value(project["id"], item_id, end_field["id"], {"date": metadata.end_date})
+    item_id = add_item(project["id"], content_id)
+    update_item_field(project["id"], item_id, fields["Start Date"]["id"], {"date": metadata.start_date})
+    update_item_field(project["id"], item_id, fields["End Date"]["id"], {"date": metadata.end_date})
 
     team_option = next(
-        (option for option in team_field.get("options", []) if option["name"] == metadata.team),
-        None,
+        option for option in fields["Team"]["options"] if option["name"] == metadata.team
     )
     quarter_option = next(
-        (option for option in quarter_field.get("options", []) if option["name"] == metadata.quarter),
-        None,
+        option for option in fields["Quarter"]["options"] if option["name"] == metadata.quarter
     )
-    if not team_option or not quarter_option:
-        raise RuntimeError(f"Project select options missing for {metadata.phase}")
-
-    update_field_value(
-        project["id"], item_id, team_field["id"],
+    update_item_field(
+        project["id"], item_id, fields["Team"]["id"],
         {"singleSelectOptionId": team_option["id"]},
     )
-    update_field_value(
-        project["id"], item_id, quarter_field["id"],
+    update_item_field(
+        project["id"], item_id, fields["Quarter"]["id"],
         {"singleSelectOptionId": quarter_option["id"]},
     )
 
     iteration = next(
-        (
-            value
-            for value in iteration_field.get("configuration", {}).get("iterations", [])
-            if value["title"] == metadata.iteration
-        ),
-        None,
+        item
+        for item in fields["Iteration"]["configuration"]["iterations"]
+        if item["title"] == metadata.iteration
     )
-    if iteration:
-        update_field_value(
-            project["id"], item_id, iteration_field["id"],
-            {"iterationId": iteration["id"]},
-        )
-    else:
-        print(
-            f"WARNING: {metadata.iteration} is not configured in the project's Iteration field. "
-            "Run the iteration bootstrap job after adding the full roadmap catalog.",
-        )
-
+    update_item_field(
+        project["id"], item_id, fields["Iteration"]["id"],
+        {"iterationId": iteration["id"]},
+    )
     print(f"Synced #{issue_number} {title} -> {metadata.phase}/{metadata.iteration}")
 
 
 def all_metadata_issue_numbers() -> list[int]:
     endpoint = f"repos/{REPO}/issues?state=all&per_page=100"
-    raw = run_gh(["api", endpoint, "--paginate", "--jq", ".[] | select(.body != null) | [(.number|tostring), .body] | @tsv"])
+    raw = run_gh(
+        [
+            "api",
+            endpoint,
+            "--paginate",
+            "--jq",
+            ".[] | select(.body != null) | [(.number|tostring), .body] | @tsv",
+        ]
+    )
     numbers: list[int] = []
     for line in raw.splitlines():
-        number_s, body = line.split("\t", 1)
+        number, body = line.split("\t", 1)
         if "PASI_PROJECT_METADATA" in body:
-            numbers.append(int(number_s))
+            numbers.append(int(number))
     return sorted(set(numbers))
 
 
