@@ -395,7 +395,17 @@ def main() -> int:
                     f"prompt {index} produced terminal CHAT_* verdict: {response.error}"
                 )
             if marker not in response.text:
-                raise RuntimeError(f"prompt {index} response missing unique marker")
+                observed_text = " ".join(str(response.text or "").split()).strip()
+                if len(observed_text) > 1000:
+                    observed_text = observed_text[-1000:]
+                raise RuntimeError(
+                    f"prompt {index} response missing unique marker; "
+                    f"expected_marker={marker!r}; "
+                    f"operation_id={operation_id!r}; "
+                    f"completion={response.completion!r}; "
+                    f"chat_url={response.chat_url!r}; "
+                    f"observed_response={observed_text!r}"
+                )
 
             before_signature = previous_signature
             state, current_signature = wait_for_durable_response_progression(
