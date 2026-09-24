@@ -2261,6 +2261,10 @@ def finish_state(state: OvernightState, reason: str) -> None:
     )
 
 
+def should_skip_startup_fetch(*, no_push: bool) -> bool:
+    return no_push and os.environ.get("PASI_M2_FAST_START", "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
 def main() -> int:
     global STOP
     parser = argparse.ArgumentParser(description="Run PASI unattended with bounded recovery and provider fallback.")
@@ -2281,9 +2285,12 @@ def main() -> int:
     children: list[subprocess.Popen[bytes]] = []
     state: OvernightState | None = None
     try:
-        code, output = command(["git", "fetch", "origin", "main"], REPO_ROOT, 120.0)
-        if code != 0:
-            raise RuntimeError(f"git fetch origin main failed: {output}")
+        if should_skip_startup_fetch(no_push=args.no_push):
+            log_event("startup_fetch_skipped", reason="M2 fast-start mode already validated the desktop and is running no-push")
+        else:
+            code, output = command(["git", "fetch", "origin", "main"], REPO_ROOT, 120.0)
+            if code != 0:
+                raise RuntimeError(f"git fetch origin main failed: {output}")
         saved = load_state() if args.resume else None
         if saved is not None and now_utc() < datetime.fromisoformat(saved.deadline_at):
             state = saved
