@@ -528,21 +528,24 @@ test('native controller answers background health pings and visibility transitio
   assert.match(content, /document\.addEventListener\('visibilitychange'/);
 });
 
-test('background watchdog never creates a missing ChatGPT tab', () => {
-  assert.doesNotMatch(background, /chrome\.tabs\.create/);
-  assert.doesNotMatch(background, /createCooldown/);
-  assert.doesNotMatch(background, /markCreateAttempt/);
+test('background watchdog creates a missing ChatGPT tab only through the guarded provisioning path', () => {
+  assert.match(background, /async function ensureChatGptTab\(targetChatUrl, pendingWork\)/);
+  assert.match(background, /if \(!pendingWork\) return null/);
+  assert.match(background, /if \(existingTabs\.length > 0\) return null/);
+  assert.match(background, /chrome\.tabs\.create/);
+  assert.doesNotMatch(background, /chrome\.tabs\.reload/);
 });;
 
-test('background watchdog has no missing-tab creation cooldown', () => {
-  assert.doesNotMatch(background, /CREATE_RETRY_MS/);
-  assert.doesNotMatch(background, /createCooldown/);
-  assert.doesNotMatch(background, /markCreateAttempt/);
+test('background watchdog uses the persistent missing-tab creation cooldown', () => {
+  assert.match(background, /TAB_CREATE_COOLDOWN_KEY/);
+  assert.match(background, /TAB_CREATE_COOLDOWN_MS = 15 \* 1000/);
+  assert.match(background, /chrome\.storage\.local\.get\(TAB_CREATE_COOLDOWN_KEY\)/);
+  assert.match(background, /chrome\.storage\.local\.set\([\s\S]*TAB_CREATE_COOLDOWN_KEY/);
 });;
 
-test('background watchdog does not persist creation cooldown state', () => {
-  assert.doesNotMatch(background, /create:\$\{targetChatUrl\}/);
-  assert.doesNotMatch(background, /chrome\.storage\.local\.remove\(`create:/);
+test('background watchdog stores the target URL with the creation cooldown state', () => {
+  assert.match(background, /url: requestedUrl/);
+  assert.match(background, /attempted_at: Date\.now\(\)/);
 });;
 
 
