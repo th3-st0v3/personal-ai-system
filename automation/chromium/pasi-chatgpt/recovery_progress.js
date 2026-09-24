@@ -11,7 +11,6 @@
     return;
   }
 
-  'use strict';
   /*
    * P1-A core: progress-based recovery decision logic for automation/chromium/pasi-chatgpt/recovery.js.
    *
