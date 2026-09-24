@@ -1,6 +1,8 @@
 import scripts.sync_pasi_project_metadata as sync_module
 from scripts.sync_pasi_project_metadata import (
     FRONTEND_PHASE_ISSUES,
+    resolve_frontend_phase_map,
+    FRONTEND_PHASE_ISSUES,
     STATUS_DONE,
     STATUS_TODO,
     parse_roadmap_form,
@@ -35,7 +37,10 @@ def test_frontend_phase_mapping_is_complete_and_contiguous() -> None:
 def test_checkbox_mirrors_done_status() -> None:
     body = roadmap_body()
     updated = synchronize_frontend_roadmap_checkboxes(
-        body, project_items_with_status(STATUS_DONE)
+        body,
+        project_items_with_status(STATUS_DONE),
+        FRONTEND_PHASE_ISSUES,
+        set(),
     )
     assert updated.count("[x]") == 23
     assert updated.count("[ ]") == 0
@@ -48,7 +53,10 @@ def test_checkbox_remains_unchecked_for_todo_and_in_progress() -> None:
     body = roadmap_body("[x]")
     for status in (STATUS_TODO, "In Progress"):
         updated = synchronize_frontend_roadmap_checkboxes(
-            body, project_items_with_status(status)
+            body,
+            project_items_with_status(status),
+            FRONTEND_PHASE_ISSUES,
+            set(),
         )
         assert updated.count("[x]") == 0
         assert updated.count("[ ]") == 23
@@ -58,7 +66,10 @@ def test_checkbox_verifier_detects_drift() -> None:
     body = roadmap_body()
     try:
         verify_frontend_roadmap_checkboxes(
-            body, project_items_with_status(STATUS_DONE)
+            body,
+            project_items_with_status(STATUS_DONE),
+            FRONTEND_PHASE_ISSUES,
+            set(),
         )
     except RuntimeError as exc:
         assert "out of sync" in str(exc)
@@ -247,3 +258,73 @@ def test_reopened_frontend_phase_returns_to_todo(monkeypatch) -> None:
             {"singleSelectOptionId": "todo"},
         )
     ]
+
+
+def fake_frontend_issues() -> list[dict]:
+    return [
+        {
+            "number": issue,
+            "title": f"FE-P{index} — Example frontend phase",
+            "state": "open",
+            "labels": ["frontend", "roadmap", "vertical-slice"],
+            "body": (
+                "<!-- PASI_PROJECT_METADATA\n"
+                "TYPE: frontend\n"
+                f"PHASE: P{index}\n"
+                f"ITERATION: Iteration {index + 1}\n"
+                "START_DATE: 2026-09-22\n"
+                "END_DATE: 2026-10-04\n"
+                "TEAM: Frontend\n"
+                "QUARTER: Q3-2026\n"
+                "PASI_PROJECT_METADATA\n-->"
+            ),
+        }
+        for index, issue in enumerate(range(319, 342))
+    ]
+
+
+def test_frontend_phase_resolver_accepts_canonical_map(monkeypatch) -> None:
+    monkeypatch.setattr(sync_module, "all_frontend_phase_issues", fake_frontend_issues)
+    resolved, invalid = resolve_frontend_phase_map()
+    assert invalid == set()
+    assert resolved == FRONTEND_PHASE_ISSUES
+
+
+def test_frontend_phase_resolver_rejects_renamed_issue(monkeypatch) -> None:
+    issues = fake_frontend_issues()
+    issues[0]["title"] = "Renamed runtime proof UI"
+    monkeypatch.setattr(sync_module, "all_frontend_phase_issues", lambda: issues)
+    resolved, invalid = resolve_frontend_phase_map()
+    assert "P0" in invalid
+    assert "P0" not in resolved
+
+
+def test_frontend_phase_resolver_rejects_missing_issue(monkeypatch) -> None:
+    issues = [issue for issue in fake_frontend_issues() if issue["number"] != 319]
+    monkeypatch.setattr(sync_module, "all_frontend_phase_issues", lambda: issues)
+    resolved, invalid = resolve_frontend_phase_map()
+    assert "P0" in invalid
+    assert "P0" not in resolved
+
+
+def test_frontend_phase_resolver_rejects_duplicate_issue(monkeypatch) -> None:
+    issues = fake_frontend_issues()
+    duplicate = dict(issues[0])
+    duplicate["number"] = 350
+    issues.append(duplicate)
+    monkeypatch.setattr(sync_module, "all_frontend_phase_issues", lambda: issues)
+    resolved, invalid = resolve_frontend_phase_map()
+    assert "P0" in invalid
+    assert "P0" not in resolved
+
+
+def test_invalid_phase_checkbox_is_left_unchanged() -> None:
+    body = roadmap_body()
+    changed = synchronize_frontend_roadmap_checkboxes(
+        body,
+        project_items_with_status(STATUS_DONE),
+        {phase: issue for phase, issue in FRONTEND_PHASE_ISSUES.items() if phase != "P0"},
+        {"P0"},
+    )
+    p0_line = next(line for line in changed.splitlines() if "[FE-P0" in line)
+    assert p0_line.startswith("- [ ]")
