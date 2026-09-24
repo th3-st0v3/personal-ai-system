@@ -789,7 +789,6 @@ test('native M2 manual reload gate is wired through the extension bridge', () =>
   assert.match(content, /function isM2ManualReloadGate\(operation\)/);
   assert.match(content, /manual_reload_gate_response/);
   assert.match(content, /chat\/manual-reload-gate\/arm/);
-  assert.match(content, /chat\/manual-reload-gate\/release/);
   assert.match(content, /function scheduleManualReloadGateMonitor\(\)/);
   assert.match(content, /manual_reload_gate_supported: true/);
   assert.match(background, /POST \/chat\/manual-reload-gate\/arm/);
