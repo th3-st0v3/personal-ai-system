@@ -7,6 +7,7 @@ cd "$REPO_ROOT"
 PYTHON="$REPO_ROOT/.venv/bin/python"
 RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 EVIDENCE_DIR="$REPO_ROOT/.runtime/acceptance"
+BRIDGE="http://127.0.0.1:8765"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 M2_LOCK_FILE="$RUNTIME_DIR/m2-live.lock"
@@ -78,7 +79,9 @@ cleanup_current_m2_operation() {
       ;;
   esac
 }
-trap cleanup_current_m2_operation EXIT INT TERM
+trap cleanup_current_m2_operation EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 get_operation_status() {
   "$PYTHON" - "$operation_id" <<'PY'
 import json, os, sys, urllib.parse, urllib.request
