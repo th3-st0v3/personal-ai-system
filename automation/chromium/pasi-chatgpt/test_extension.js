@@ -822,3 +822,15 @@ test('native M2 manual reload gate persists the response and blocks normal queue
   assert.match(content, /finishOperation\(\s*stored\.operation_id,\s*responseText,\s*true,\s*stored\.manual_reload_gate_timing/);
 });
 
+
+test('native M2 manual reload gate arms immediately after the original send is evidenced', () => {
+  const processStart = content.indexOf('async function processOperation(operation)');
+  const responseWait = content.indexOf('const response = await waitForResponse(', processStart);
+  const earlyArm = content.indexOf('Arm the live M2 gate as soon as the original send is evidenced.', processStart);
+  assert.ok(processStart >= 0);
+  assert.ok(earlyArm > processStart);
+  assert.ok(earlyArm < responseWait);
+  assert.match(content, /submission\.verified \|\| Number\(submission\?\.timing\?\.user_messages_added/);
+  assert.match(content, /await armM2ManualReloadGate\(operation, '', submission\.timing \|\| null\)/);
+});
+
