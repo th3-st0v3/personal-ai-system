@@ -230,6 +230,7 @@ for _ in {1..20}; do
 done
 
 RESUME_LOG="$EVIDENCE_DIR/m2-resume-$STAMP.log"
+RUNNER_LOG="$RUNTIME_DIR/runner.log"
 echo "Resuming the 168-hour runner from persisted state..."
 bash scripts/start_pasi_168h.sh --resume 2>&1 | tee "$RESUME_LOG"
 
@@ -265,7 +266,7 @@ while (( SECONDS < deadline )); do
 done
 [[ "$terminal" == "completed" ]] || { echo "error: original operation did not complete after restart: $terminal" >&2; exit 7; }
 
-BRIDGE_KILLED_AT="$BRIDGE_KILLED_AT" RUNNER_KILLED_AT="$RUNNER_KILLED_AT" RESUME_LOG="$RESUME_LOG" NEW_RUNNER_PID="$NEW_RUNNER_PID" "$PYTHON" - "$OUT" <<'PY'
+BRIDGE_KILLED_AT="$BRIDGE_KILLED_AT" RUNNER_KILLED_AT="$RUNNER_KILLED_AT" RESUME_LOG="$RESUME_LOG" RUNNER_LOG="$RUNNER_LOG" NEW_RUNNER_PID="$NEW_RUNNER_PID" "$PYTHON" - "$OUT" <<'PY'
 import json, os, re, sys, time, urllib.parse, urllib.request
 from pathlib import Path
 path=sys.argv[1]
@@ -297,6 +298,23 @@ if not any(event.get("phase") == "reloading" for event in events if isinstance(e
     raise SystemExit("M2 evidence is missing the browser reloading recovery event")
 if not any(event.get("phase") == "preserve_current_chat" for event in events if isinstance(event, dict)):
     raise SystemExit("M2 evidence is missing the exact-operation preserve_current_chat recovery event")
+
+runner_log_path = Path(os.environ["RUNNER_LOG"])
+try:
+    runner_log = runner_log_path.read_text(encoding="utf-8")
+except OSError as exc:
+    raise SystemExit(f"M2 could not read runner log after restart: {exc}")
+initial_submit_count = runner_log.count(f"Prompt operation: {opid}")
+resume_count = runner_log.count(f"Resuming persisted ChatGPT operation: {opid}")
+if initial_submit_count != 1:
+    raise SystemExit(f"expected exactly one original prompt submission for {opid}, got {initial_submit_count}")
+if resume_count < 1:
+    raise SystemExit(f"runner restart did not resume persisted operation {opid}")
+runner_resume_lines = [
+    line for line in runner_log.splitlines()
+    if f"Resuming persisted ChatGPT operation: {opid}" in line
+][-4:]
+
 def sig(v):
     m=re.match(r"^(\d+):(\d+):", str(v or ""))
     return (int(m.group(1)),int(m.group(2))) if m else None
@@ -320,6 +338,10 @@ p.update({
     "bridge_killed_at":os.environ["BRIDGE_KILLED_AT"],
     "runner_killed_at":os.environ["RUNNER_KILLED_AT"],
     "resume_log":os.environ["RESUME_LOG"],
+    "runner_log":os.environ["RUNNER_LOG"],
+    "runner_resume_verified":True,
+    "runner_resume_evidence":runner_resume_lines,
+    "initial_prompt_submission_count":initial_submit_count,
     "new_runner_pid":int(os.environ["NEW_RUNNER_PID"]),
     "bridge_restart_verified":True,
     "runner_restart_verified":True,
