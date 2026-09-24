@@ -28,9 +28,10 @@ class TestM1LiveAcceptance(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
-            "Run the M1 20-prompt live duplicate-send/false-verdict gate in the current ChatGPT conversation.",
+            "Run the M1 20-prompt live duplicate-send/false-verdict gate in the current",
             result.stdout,
         )
+        self.assertIn("ChatGPT conversation.", result.stdout)
 
     def test_m1_harness_does_not_create_a_new_chat(self) -> None:
         source = Path("scripts/run_m1_live_acceptance.py").read_text(encoding="utf-8")
