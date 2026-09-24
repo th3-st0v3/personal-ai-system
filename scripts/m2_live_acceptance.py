@@ -36,6 +36,7 @@ RETRY_OP_RE = re.compile(r"Retry prompt operation:\s*([A-Za-z0-9._:-]+)")
 RUNNER_LOG_FILENAME = "runner.log"
 BROWSER_MAX_HEARTBEAT_AGE_SECONDS = 30.0
 OPERATION_QUEUE_TIMEOUT_SECONDS = 360.0
+OPERATION_POLL_SECONDS = 0.2
 
 
 class M2AcceptanceError(RuntimeError):
@@ -409,14 +410,16 @@ def read_log_since(path: Path, offset: int = 0, max_chars: int = 30_000) -> str:
     return payload.decode("utf-8", "ignore")[-max_chars:]
 
 
-def wait_for(predicate, timeout: float, description: str):
+def wait_for(predicate, timeout: float, description: str, *, poll_seconds: float = 0.5):
+    if poll_seconds <= 0:
+        raise ValueError("poll_seconds must be positive")
     deadline = time.monotonic() + timeout
     last: Any = None
     while time.monotonic() < deadline:
         last = predicate()
         if last:
             return last
-        time.sleep(0.5)
+        time.sleep(poll_seconds)
     raise M2AcceptanceError("wait", f"timed out waiting for {description}; last={last!r}")
 
 
@@ -514,6 +517,7 @@ def start_managed_run(runtime_dir: Path, branch: str, task: str) -> tuple[str, s
             "PASI_SUPERVISOR_MAX_RESTARTS": "0",
             "PASI_LOCAL_GATE_MODE": "fast",
             "PASI_M2_MANUAL_RELOAD_GATE": "1",
+            "PASI_M2_FAST_START": "1",
         }
     )
     result = subprocess.run(
@@ -685,6 +689,7 @@ def main() -> int:
                 ),
                 OPERATION_QUEUE_TIMEOUT_SECONDS,
                 f"M2 operation {marker} to be queued",
+                poll_seconds=OPERATION_POLL_SECONDS,
             )
         except M2AcceptanceError as exc:
             diagnostics = runtime_startup_diagnostics(runtime_dir)
@@ -697,6 +702,7 @@ def main() -> int:
             lambda: operation(operation_id) if operation(operation_id).get("status") in {"claimed", "generating"} else None,
             120,
             f"operation {operation_id} to become active",
+            poll_seconds=OPERATION_POLL_SECONDS,
         )
         manual_gate_operation = wait_for(
             lambda: (
@@ -708,6 +714,7 @@ def main() -> int:
             ),
             180,
             f"manual reload gate for operation {operation_id} to be armed",
+            poll_seconds=OPERATION_POLL_SECONDS,
         )
         marker_operation_ids = queue_operation_ids(marker)
         if marker_operation_ids != [operation_id]:
