@@ -594,6 +594,14 @@ test('native controller answers background health pings and visibility transitio
 });
 
 
+test('native runtime telemetry quarantines an invalidated extension context', () => {
+  assert.match(content, /if \(extensionContextInvalidated\) return null;/);
+  assert.match(content, /function markExtensionContextInvalidated\(reason = ''\)/);
+  assert.match(content, /disposeController\(\);/);
+  assert.match(content, /isExtensionContextInvalidatedError\(runtimeError\)/);
+  assert.match(content, /isExtensionContextInvalidatedError\(error\)/);
+});
+
 test('native runtime telemetry traces bootstrap, controller, operation, composer, and submission boundaries', () => {
   const requiredEvents = [
     'BOOTSTRAP_ATTEMPT',
