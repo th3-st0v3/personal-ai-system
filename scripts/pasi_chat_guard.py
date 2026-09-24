@@ -262,29 +262,11 @@ def execute_computer_requests(response: str, repo_root: Path) -> list[dict[str, 
 
 def computer_protocol_prompt() -> str:
     return f"""\n
-LOCAL COMPUTER CAPABILITY PROTOCOL:
-PASI can provide bounded local computer evidence or fulfill narrowly preapproved resource acquisitions before you produce the final task result. Do not ask for unrestricted shell access or secrets.
-
-For a needed read/inspection or preapproved acquisition, return exactly one request section like this:
+LOCAL EVIDENCE REQUEST:
+When the public GitHub repository or existing task context cannot answer a genuinely necessary local-evidence question, return one bounded PASI computer-request section using the required markers.
 {REQUEST_BEGIN}
 {{"request_id":"read-1","capability":"computer.files.search","parameters":{{"query":"function_name","limit":10}}}}
 {REQUEST_END}
-
-Available safe capabilities are:
-- computer.system.read
-- computer.files.list
-- computer.files.read
-- computer.files.search
-- computer.ide.read
-- computer.resource.acquire (only HTTPS hosts/packages covered by a local preapproval policy)
-
-For computer.resource.acquire, use either kind=public_download with an HTTPS URL, bounded byte limit, and optional expected SHA-256; or kind=package_install with an exact version-pinned package such as package==1.2.3.
-
-Each request is executed by PASI, not by you. Writes, arbitrary commands, application launch, desktop control, credential access, and financial execution are not available through this protocol.
-If a resource request is blocked because no matching preapproval exists, PASI records an action-list obstacle. Treat the result as non-blocking: do not wait for approval, continue with the original task using alternatives, and return the normal completion contract when ready.
-After PASI supplies computer results, continue the task. Do not repeat a request unless the returned evidence shows that it is necessary.
-For local file capabilities, use only repository-relative paths under the target worktree supplied by PASI. Do not request absolute host paths or access the parent checkout, home directory, browser profile, or other files outside that task worktree. Prefer the public GitHub repository context for source inspection when available; use computer capabilities only for local evidence that the task actually needs.
-Maximum capability rounds per task: {MAX_COMPUTER_ROUNDS}.
 """
 
 
