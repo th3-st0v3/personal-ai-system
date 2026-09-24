@@ -2,7 +2,7 @@
 name: PASI Frontend Phase
 about: Create a PASI frontend vertical-slice phase with machine-readable Project metadata
 title: "FE-P# — "
-labels: ["frontend", "vertical-slice"]
+labels: ["frontend", "roadmap", "vertical-slice"]
 assignees: ["th3-st0v3"]
 ---
 
