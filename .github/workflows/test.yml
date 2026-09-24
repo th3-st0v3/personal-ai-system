@@ -1,8 +1,8 @@
 name: test
 
 on:
-  # Repository branch pushes are the authoritative fast validation trigger.
-  # This prevents untrusted fork pull requests from executing on the private PASI runner.
+  # Hosted GitHub Actions is the authoritative repository validation path.
+  # PRs and protected branch pushes use the same non-privileged hosted checks.
   pull_request:
   push:
     branches: [main, beta-foundation, 'pasi/**']
