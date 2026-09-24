@@ -756,6 +756,13 @@ async function inspect() {
     ? liveHealth.data.active_operation_id
     : null;
   if (!resumeOperationId && pendingWork) {
+    const browserState = await bridgeJson('/browser/state');
+    const stateData = browserState?.data;
+    if (typeof stateData?.active_operation_id === 'string') {
+      resumeOperationId = stateData.active_operation_id;
+    }
+  }
+  if (!resumeOperationId && pendingWork) {
     const browserResponse = await bridgeJson('/browser/response');
     const responseData = browserResponse?.data;
     if (typeof responseData?.active_operation_id === 'string') {
