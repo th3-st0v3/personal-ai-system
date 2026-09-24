@@ -2280,9 +2280,15 @@
     }
   }
 
-  chrome.runtime?.onMessage?.addListener?.((message) => {
+  chrome.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === 'pasi-health-ping' && !extensionContextInvalidated) {
       void reportHealth();
+      sendResponse?.({ ok: true, controller: true });
+      return;
+    }
+    if (message?.type === 'pasi-work-wake' && !extensionContextInvalidated) {
+      void poll();
+      sendResponse?.({ ok: true, controller: true });
     }
   });
 
