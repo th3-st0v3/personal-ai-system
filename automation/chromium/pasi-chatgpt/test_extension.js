@@ -183,6 +183,35 @@ test('native created-tab provisioning explicitly bootstraps the controller and r
   assert.match(background, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/);
 });
 
+test('native existing-tab provisioning is not considered ready when controller injection fails', () => {
+  assert.match(background, /const injectionReady =/);
+  assert.match(background, /injection_ready: injectionReady/);
+  assert.match(background, /return injectionReady \? selectedTabId : null/);
+});
+
+test('native created-tab provisioning records bootstrap readiness and exact-operation handoff', () => {
+  assert.match(background, /action: 'created_pending_bootstrap'/);
+  assert.match(background, /await chrome\.tabs\.sendMessage\(tabId, \{[\s\S]*type: 'pasi-resume-operation'/);
+  assert.match(background, /resume_operation_id: resumeOperationId/);
+  assert.match(background, /resume_handoff_sent: resumeHandoffSent/);
+});
+
+test('native created-tab injection verifies the controller after execute_script', () => {
+  const start = background.indexOf('async function injectChatGptTab(tabId, context = {})');
+  const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId, context = {})');
+  assert.ok(start >= 0 && end > start);
+  const source = background.slice(start, end);
+  assert.ok(source.indexOf("files: [") < source.indexOf("await chrome.tabs.sendMessage(tabId, { type: 'pasi-health-ping' });"));
+});
+
+test('native controller accepts an exact resume handoff without resubmitting a persisted response', () => {
+  assert.match(content, /async function resumeOperationFromBackground\(operationId\)/);
+  assert.match(content, /operation\.response_text_available === true/);
+  assert.match(content, /await finishOperation\(operationId, operation\.response_text, true\)/);
+  assert.match(content, /type === 'pasi-resume-operation'/);
+  assert.match(content, /body: \{ operation_id: operationId \}/);
+});
+
 test('native controller and recovery companion expose disposable handles for extension reload replacement', () => {
   assert.match(content, /__PASI_NATIVE_CONTROLLER_HANDLE__/);
   assert.match(content, /function disposeController\(\)/);
