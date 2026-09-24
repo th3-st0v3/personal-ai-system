@@ -63,12 +63,17 @@ The built-in workflow is intentionally limited to static Project-field actions. 
 The synchronizer manages:
 
 - native `Start date` and `Target date`;
-- native `Quarter` iteration membership, based on the native quarter's date window;
+- native `Quarter` iteration membership, using the date window that fully contains the phase;
 - native `Iteration` membership, with one configured iteration and date window for every PASI phase;
-- Project `Status` and the FE roadmap checkbox state;
-- native issue `Milestone`;
-- native issue `Relationships` for parent/blocked-by/blocking dependencies; and
-- native `Development` branch creation when requested.
+- Project `Status` and the FE roadmap checkbox state.
+
+Native issue controls are deliberately outside the text form:
+
+- **Milestone** is the issue's native GitHub milestone.
+- **Relationships** use GitHub's native parent/blocked-by/blocking controls when supported.
+- **Development** uses GitHub's native linked-branch/development controls.
+
+These controls may be empty today and can be updated independently on an individual phase later; synchronization does not overwrite them from stale form text.
 
 For each frontend phase, **FE-P0 through FE-P22 map one-to-one to issues #319 through #341 and Iteration 1 through Iteration 23**. The repository Action validates that mapping, reconciles the Project Iteration catalog, and reads the fields back for verification.
 
@@ -189,10 +194,10 @@ For roadmap items that need editable Project metadata at creation time, use **PA
 | Development | Issue Development | `create branch: <name>` creates a linked branch; `link <existing-branch>` is reported as a manual-link operation |
 | Status | Project Status | Stored in the native Project Status field |
 
-The active PASI Project's **Quarter** and **Iteration** are both native iteration fields. Iteration 1 through Iteration 23 are reconciled to the phase schedule with inclusive Start/End windows. Quarter membership is not derived from calendar labels such as Q3/Q4; it is selected by containment in the Project's configured Quarter windows.
+The active PASI Project's **Quarter** and **Iteration** are both native iteration fields. Quarter uses a repeating four-quarter cycle: **Quarter 1, Quarter 2, Quarter 3, Quarter 4, then Quarter 1 again with new dates**. The first Quarter 1 is **2026-09-22 through 2026-12-19**; the next Quarter 1 begins **2027-09-26**. Quarter membership is selected by the phase Start/End dates, not by calendar-year labels. Iteration 1 through Iteration 23 retain the phase-specific date windows.
 
-GitHub's native issue Relationships UI supports parent/sub-issue and blocking/blocked-by relationships, while issue dependencies can also be managed by the REST API/GraphQL. GitHub's Development section supports creating a branch linked to an issue; linking an existing branch remains a manual UI operation. citeturn456805search0turn456805search3turn456805search1turn456805search2
+GitHub's native issue Relationships UI supports parent/sub-issue and blocking/blocked-by relationships. GitHub's Development section supports creating a branch linked to an issue, while linking an existing branch remains a native UI operation. citeturn456805search0turn456805search3turn456805search1turn456805search2
 
-The synchronizer no longer creates or uses custom Project text fields for Relationship, Milestone, or Development. Any legacy custom fields that were created by an earlier synchronizer revision are not authoritative and can be removed from the Project manually after the native controls are verified.
+The synchronizer no longer creates or uses a custom Project Description field or text-form stand-ins for Relationship, Milestone, or Development. Legacy custom fields from earlier revisions are non-authoritative and can be removed after the native controls are verified.
 
-The issue form is the data-entry surface. GitHub renders submitted issue-form values into the issue body as Markdown, so the synchronizer parses the labeled sections rather than expecting JSON.
+The roadmap issue form contains only **Start Date**, **End Date**, and **Status**. Description remains normal issue-body content. Milestone, Relationships, and Development are native GitHub issue controls and can be edited directly on each phase when needed.
