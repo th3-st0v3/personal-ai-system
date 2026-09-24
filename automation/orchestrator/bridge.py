@@ -1611,9 +1611,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self.bridge_state.save_browser_provisioning(observation)
+        saved = self.bridge_state.save_browser_observation(observation)
         self._send_json(
-            {"observation": observation},
+            {"observation": saved},
             HTTPStatus.CREATED,
         )
 
