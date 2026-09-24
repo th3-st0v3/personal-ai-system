@@ -2367,6 +2367,83 @@
     }
   }
 
+  async function resumeOperationFromBackground(operationId) {
+    if (
+      typeof operationId !== 'string' ||
+      !operationId.trim() ||
+      extensionContextInvalidated ||
+      processing ||
+      activeOperationId !== null
+    ) {
+      return false;
+    }
+
+    try {
+      const response = await bridge(
+        `/operation?operation_id=${encodeURIComponent(operationId)}`
+      );
+      if (!response.ok) return false;
+      const payload = response.json();
+      const operation = payload?.operation;
+      if (!operation || operation.operation_id !== operationId) return false;
+
+      if (operation.status === 'completed') {
+        scheduleImmediatePoll();
+        return true;
+      }
+
+      if (
+        operation.operation_type === 'prompt' &&
+        operation.response_text_available === true &&
+        typeof operation.response_text === 'string' &&
+        operation.response_text.trim()
+      ) {
+        await finishOperation(operationId, operation.response_text, true);
+        localStorage.removeItem(ACTIVE_KEY);
+        activeRecoveryState = null;
+        clearMonitoringStateFor(operationId);
+        manualReloadGateMonitorActive = false;
+        scheduleImmediatePoll();
+        void reportObservation('chatgpt_state', {
+          chat_url: chatUrl(),
+          active_operation_id: operationId,
+          resume_handoff: 'persisted_response_completed'
+        });
+        return true;
+      }
+
+      if (operation.status === 'queued') {
+        const claimed = await bridge('/chat/claim', {
+          method: 'POST',
+          body: { operation_id: operationId }
+        });
+        if (claimed.ok) {
+          const claimedOperation = claimed.json()?.operation;
+          if (claimedOperation?.operation_id === operationId) {
+            await processOperation(claimedOperation);
+            return true;
+          }
+        }
+      }
+
+      void reportObservation('chatgpt_state', {
+        chat_url: chatUrl(),
+        active_operation_id: operationId,
+        resume_handoff: 'deferred',
+        observed_status: operation.status,
+        response_text_available: operation.response_text_available === true
+      });
+    } catch (error) {
+      void reportObservation('chatgpt_state', {
+        chat_url: chatUrl(),
+        active_operation_id: operationId,
+        resume_handoff: 'failed',
+        error: runtimeErrorText(error)
+      });
+    }
+    return false;
+  }
+
   chrome.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
     if (message?.type === 'pasi-health-ping' && !extensionContextInvalidated) {
       void reportHealth();
@@ -2376,6 +2453,13 @@
     if (message?.type === 'pasi-work-wake' && !extensionContextInvalidated) {
       void poll();
       sendResponse?.({ ok: true, controller: true });
+      return;
+    }
+    if (message?.type === 'pasi-resume-operation' && !extensionContextInvalidated) {
+      void resumeOperationFromBackground(message.operation_id)
+        .then((resumed) => sendResponse?.({ ok: resumed }))
+        .catch(() => sendResponse?.({ ok: false }));
+      return true;
     }
   });
 
