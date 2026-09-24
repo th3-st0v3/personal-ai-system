@@ -58,7 +58,7 @@ def test_project_status_option_lookup_is_case_insensitive() -> None:
 
 
 
-def test_canonical_quarter_windows_cover_all_phase_schedules() -> None:
+def test_canonical_quarter_windows_cover_all_phase_starts() -> None:
     project = {
         "fields": {
             "nodes": [
@@ -100,7 +100,31 @@ def test_canonical_quarter_windows_cover_all_phase_schedules() -> None:
                 quarter=info["quarter"],
             ),
         )
-        assert selected["title"] in {"Quarter 1", "Quarter 2", "Quarter 3", "Quarter 4"}
+        assert selected["title"] == info["quarter"]
+
+
+def test_every_quarter_window_ends_on_the_19th() -> None:
+    assert len(sync_module.QUARTER_SCHEDULE) == 6
+    expected_titles = [
+        "Quarter 1",
+        "Quarter 2",
+        "Quarter 3",
+        "Quarter 4",
+        "Quarter 1",
+        "Quarter 2",
+    ]
+    assert [title for title, _, _ in sync_module.QUARTER_SCHEDULE] == expected_titles
+
+    for _, start, end in sync_module.QUARTER_SCHEDULE:
+        assert __import__("datetime").date.fromisoformat(end).day == 19
+        start_date = __import__("datetime").date.fromisoformat(start)
+        end_date = __import__("datetime").date.fromisoformat(end)
+        assert end_date >= start_date
+
+    for previous, current in zip(sync_module.QUARTER_SCHEDULE, sync_module.QUARTER_SCHEDULE[1:]):
+        previous_end = __import__("datetime").date.fromisoformat(previous[2])
+        current_start = __import__("datetime").date.fromisoformat(current[1])
+        assert current_start == previous_end.fromordinal(previous_end.toordinal() + 1)
 
 def test_quarter_iteration_selection_uses_project_date_windows() -> None:
     project = {
@@ -360,11 +384,11 @@ In Progress
 
 def test_repeating_quarter_schedule_uses_only_quarters_one_through_four() -> None:
     assert sync_module.QUARTER_SCHEDULE[0] == ("Quarter 1", "2026-09-22", "2026-12-19")
-    assert sync_module.QUARTER_SCHEDULE[1] == ("Quarter 2", "2026-12-20", "2027-03-20")
-    assert sync_module.QUARTER_SCHEDULE[2] == ("Quarter 3", "2027-03-21", "2027-06-19")
-    assert sync_module.QUARTER_SCHEDULE[3] == ("Quarter 4", "2027-06-20", "2027-09-25")
-    assert sync_module.QUARTER_SCHEDULE[4][0] == "Quarter 1"
-    assert sync_module.QUARTER_SCHEDULE[5][0] == "Quarter 2"
+    assert sync_module.QUARTER_SCHEDULE[1] == ("Quarter 2", "2026-12-20", "2027-03-19")
+    assert sync_module.QUARTER_SCHEDULE[2] == ("Quarter 3", "2027-03-20", "2027-06-19")
+    assert sync_module.QUARTER_SCHEDULE[3] == ("Quarter 4", "2027-06-20", "2027-09-19")
+    assert sync_module.QUARTER_SCHEDULE[4] == ("Quarter 1", "2027-09-20", "2027-12-19")
+    assert sync_module.QUARTER_SCHEDULE[5] == ("Quarter 2", "2027-12-20", "2028-03-19")
     assert {title for title, _, _ in sync_module.QUARTER_SCHEDULE} == {
         "Quarter 1", "Quarter 2", "Quarter 3", "Quarter 4"
     }
