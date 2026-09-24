@@ -341,10 +341,8 @@ def parse_metadata(body: str) -> Metadata:
         raise ValueError(
             f"{phase} metadata END_DATE must be {expected['end']}, got {values['END_DATE']}."
         )
-    if values["QUARTER"] != expected["quarter"]:
-        raise ValueError(
-            f"{phase} metadata QUARTER must be {expected['quarter']}, got {values['QUARTER']}."
-        )
+    # QUARTER is descriptive legacy metadata. The active Project's native
+    # Quarter iteration field is authoritative and is selected from dates.
 
     start = date.fromisoformat(values["START_DATE"])
     end = date.fromisoformat(values["END_DATE"])
