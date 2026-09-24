@@ -2280,6 +2280,19 @@
           operation_status: payload.operation.status,
           retry_count: payload.operation.retry_count
         });
+        try {
+          chrome.runtime.sendMessage({
+            type: 'pasi-operation-received',
+            operation_id: payload.operation.operation_id,
+            operation_type: payload.operation.operation_type,
+            operation_status: payload.operation.status
+          });
+        } catch (error) {
+          if (isExtensionContextInvalidatedError(error)) {
+            markExtensionContextInvalidated(runtimeErrorText(error));
+            return;
+          }
+        }
         await processOperation(payload.operation);
       }
       } catch (error) {
