@@ -17,7 +17,7 @@ TOKEN_FILE="$HOME/.pasi/bridge-token"
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 
 STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
-PROMPT="M2 live recovery $STAMP: output the integers 1 through 1000, one integer per line, without commentary, then end with exactly M2-LIVE-$STAMP on its own line."
+PROMPT="M2 live recovery $STAMP: output the integers 1 through 1000, one integer per line, without commentary, then end with exactly M2-LIVE-$STAMP on its own line. PASI_M2_MANUAL_RELOAD_GATE: true"
 OUT="$EVIDENCE_DIR/m2-live-$STAMP.json"
 
 "$PYTHON" - "$PROMPT" "$OUT" "$STAMP" <<'PY'
@@ -223,6 +223,39 @@ PY
 
 echo "Waiting for the exact M2 operation to be claimed/generating..."
 wait_for_active || { echo "error: M2 operation was not claimed within 180 seconds after tab provisioning" >&2; exit 2; }
+
+
+wait_for_manual_reload_gate() {
+  "$PYTHON" - "$operation_id" <<'PY'
+import json, os, sys, time, urllib.parse, urllib.request
+opid = sys.argv[1]
+headers = {"Authorization": "Bearer " + os.environ["PASI_BRIDGE_TOKEN"]}
+deadline = time.time() + 180
+while time.time() < deadline:
+    req = urllib.request.Request(
+        "http://127.0.0.1:8765/operation?operation_id=" + urllib.parse.quote(opid, safe=""),
+        headers=headers,
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        op = (json.loads(response.read(2000000).decode()).get("operation") or {})
+    if (
+        op.get("manual_reload_gate") is True
+        and op.get("manual_reload_gate_armed") is True
+        and op.get("manual_reload_gate_released") is not True
+    ):
+        print(json.dumps(op))
+        raise SystemExit(0)
+    if op.get("status") in {"failed", "cancelled"}:
+        print(json.dumps(op), file=sys.stderr)
+        raise SystemExit(2)
+    time.sleep(1)
+raise SystemExit(3)
+PY
+}
+
+echo "Waiting for the durable M2 manual reload gate to arm..."
+wait_for_manual_reload_gate || { echo "error: M2 manual reload gate did not arm after the original send" >&2; exit 2; }
 "$PYTHON" - "$OUT" <<'PY'
 import json, sys
 path=sys.argv[1]
