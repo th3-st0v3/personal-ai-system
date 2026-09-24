@@ -101,7 +101,6 @@ export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 
 printf '=== PASI 168-HOUR AUTOMATION PREFLIGHT ===\n'
 printf 'Local validation mode: %s\n' "$PASI_LOCAL_GATE_MODE"
-"$PYTHON" "$REPO_ROOT/scripts/pasi_setup.py" --check
 printf '\n=== STARTING 168-HOUR RUN ===\n'
 if [[ "$M2_FAST_START" == "1" ]]; then
     printf 'M2 fast-start mode: skipping redundant setup-check; M2 already ran the desktop preflight.\n'
