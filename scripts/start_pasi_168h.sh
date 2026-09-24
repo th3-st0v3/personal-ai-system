@@ -359,6 +359,8 @@ try:
     controller_source = controller_source_path.read_text(encoding="utf-8")
     match = re.search(r"""\bconst\s+CONTROLLER_VERSION\s*=\s*['"]([^'"]+)['"]""", controller_source)
     expected_version = match.group(1).strip() if match else None
+    manifest = json.loads((root / "automation" / "chromium" / "pasi-chatgpt" / "manifest.json").read_text(encoding="utf-8"))
+    expected_extension_version = str(manifest.get("version") or "").strip()
     token = (os.environ.get("PASI_BRIDGE_TOKEN", "") or (Path.home() / ".pasi" / "bridge-token").read_text(encoding="utf-8")).strip()
     request = urllib.request.Request("http://127.0.0.1:8765/browser/health", headers={"Authorization": f"Bearer {token}"}, method="GET")
     with urllib.request.urlopen(request, timeout=3.0) as response:
@@ -390,6 +392,8 @@ if age_seconds < -5 or age_seconds > 30:
 if data.get("native_controller") is not True:
     raise SystemExit(1)
 if not isinstance(expected_version, str) or not expected_version.strip() or data.get("controller_version") != expected_version.strip():
+    raise SystemExit(1)
+if not expected_extension_version or data.get("extension_manifest_version") != expected_extension_version:
     raise SystemExit(1)
 if data.get("auth_required") is True:
     raise SystemExit(2)
