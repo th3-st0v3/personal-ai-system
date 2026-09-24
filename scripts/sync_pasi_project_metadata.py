@@ -697,14 +697,15 @@ def field_by_name(project: dict[str, Any], name: str, typename: str) -> dict[str
     for field in project["fields"]["nodes"]:
         if field.get("name") == name:
             if field.get("__typename") != typename:
-                raise RuntimeError(
-                    f"Project field {name!r} exists as {field.get('__typename')}, "
+                raise RuntimeError(                    f"Project field {name!r} exists as {field.get('__typename')}, "
                     f"expected {typename}."
                 )
-            return field    return None
+            return field
+    return None
 
 
-def create_field(project_id: str, field_input: dict[str, object]) -> dict[str, Any]:    query = """
+def create_field(project_id: str, field_input: dict[str, object]) -> dict[str, Any]:
+    query = """
     mutation($input:CreateProjectV2FieldInput!) {
       createProjectV2Field(input:$input) {
         projectV2Field {
@@ -1397,8 +1398,7 @@ def sync_issue(
     existing_items: dict[int, dict[str, Any]],
 ) -> tuple[dict[str, Any], Metadata | None, RoadmapForm | None, str]:
     content_id, title, body, state = fetch_issue(issue_number)
-    metadata = parse_metadata(body) if "PASI_PROJECT_METADATA" in body else None
-    form = parse_roadmap_form(body)
+    metadata = parse_metadata(body) if "PASI_PROJECT_METADATA" in body else None    form = parse_roadmap_form(body)
 
     existing = existing_items.get(issue_number)
     if existing:
