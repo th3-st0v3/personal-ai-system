@@ -492,7 +492,8 @@ def route_chat(
         in {"1", "true", "yes", "on"}
     )
     thinking_already_verified = (
-        state.get("thinking_enabled") is True
+        state.get("native_controller") is True
+        and state.get("thinking_enabled") is True
         and state.get("thinking_capability") in {"available", "enabled"}
     )
     if fast_start and thinking_already_verified:
