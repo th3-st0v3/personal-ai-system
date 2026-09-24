@@ -68,8 +68,8 @@ def test_quarter_iteration_selection_uses_project_date_windows() -> None:
                     "name": "Quarter",
                     "configuration": {
                         "iterations": [
-                            {"id": "q1", "title": "Quarter 1", "startDate": "2026-09-22", "duration": 90},
-                            {"id": "q2", "title": "Quarter 2", "startDate": "2026-12-21", "duration": 84},
+                            {"id": "q1", "title": "Quarter 1", "startDate": "2026-09-22", "duration": 89},
+                            {"id": "q2", "title": "Quarter 2", "startDate": "2026-12-20", "duration": 84},
                         ]
                     },
                 }
