@@ -452,7 +452,11 @@ pid=$!
 
 runner_wait_seconds=15
 if [[ "$M2_FAST_START" == "1" ]]; then runner_wait_seconds=5; fi
-runner_start_deadline=$((SECONDS + runner_wait_seconds))
+if [[ "$M2_FAST_START" == "1" ]]; then
+    runner_start_deadline=$((SECONDS + 5))
+else
+    runner_start_deadline=$((SECONDS + 15))
+fi
 supervisor_ready=0
 runner_ready=0
 while (( SECONDS < runner_start_deadline )); do
