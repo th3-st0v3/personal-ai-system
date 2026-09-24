@@ -410,7 +410,46 @@ PY
 }
 
 echo "Waiting for the durable M2 manual reload gate to arm with persisted response evidence..."
-wait_for_manual_reload_gate || { echo "error: M2 manual reload gate did not arm after the original send" >&2; exit 2; }
+if ! wait_for_manual_reload_gate; then
+  "$PYTHON" - "$operation_id" <<'PY' >&2
+import json, os, sys, urllib.parse, urllib.request
+opid = sys.argv[1]
+headers = {"Authorization": "Bearer " + os.environ["PASI_BRIDGE_TOKEN"]}
+try:
+    req = urllib.request.Request(
+        "http://127.0.0.1:8765/operation?operation_id=" + urllib.parse.quote(opid, safe=""),
+        headers=headers,
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        op = (json.loads(response.read(2000000).decode()).get("operation") or {})
+    response_text = op.get("response_text") if isinstance(op.get("response_text"), str) else ""
+    markers = [m for m in (op.get("completion_markers") or []) if isinstance(m, str)]
+    marker_present = any(
+        marker.strip() and any(
+            line.strip() == marker.strip() or line.strip().startswith(marker.strip() + ":")
+            for line in response_text.splitlines()
+        )
+        for marker in markers
+    )
+    print(json.dumps({
+        "operation_id": opid,
+        "status": op.get("status"),
+        "response_text_available": op.get("response_text_available") is True,
+        "response_text_chars": len(response_text),
+        "completion_markers": markers,
+        "completion_marker_present": marker_present,
+        "manual_reload_gate": op.get("manual_reload_gate") is True,
+        "manual_reload_gate_armed": op.get("manual_reload_gate_armed") is True,
+        "manual_reload_gate_released": op.get("manual_reload_gate_released") is True,
+        "response_tail": response_text[-1000:],
+    }, indent=2, ensure_ascii=False))
+except Exception as exc:
+    print(json.dumps({"operation_id": opid, "diagnostic_error": str(exc)}))
+PY
+  echo "error: M2 manual reload gate did not arm after the original send" >&2
+  exit 2
+fi
 "$PYTHON" - "$OUT" <<'PY'
 import json, sys
 path=sys.argv[1]
