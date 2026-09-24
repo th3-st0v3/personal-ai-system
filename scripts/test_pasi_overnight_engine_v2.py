@@ -313,6 +313,19 @@ new file mode 100644
         self.assertEqual(loaded.last_failure_signature, "abc123")
         self.assertEqual(loaded.same_failure_cycles, 2)
 
+    def test_m2_fast_start_skips_only_no_push_startup_fetch(self) -> None:
+        original = os.environ.pop("PASI_M2_FAST_START", None)
+        try:
+            with mock.patch.dict(os.environ, {"PASI_M2_FAST_START": "1"}, clear=False):
+                self.assertTrue(engine.should_skip_startup_fetch(no_push=True))
+                self.assertFalse(engine.should_skip_startup_fetch(no_push=False))
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("PASI_M2_FAST_START", None)
+                self.assertFalse(engine.should_skip_startup_fetch(no_push=True))
+        finally:
+            if original is not None:
+                os.environ["PASI_M2_FAST_START"] = original
+
     def test_controller_observation_requires_current_release_version(self) -> None:
         now = datetime.now(timezone.utc)
         timestamp = now.isoformat()
