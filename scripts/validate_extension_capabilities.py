@@ -20,6 +20,7 @@ API_CONTRACT: dict[str, dict[str, object]] = {
     "alarms": {"permission": "alarms"},
     "storage": {"permission": "storage"},
     "sidePanel": {"permission": "sidePanel"},
+    "scripting": {"permission": "scripting"},
     "tabs": {
         "permission": None,
         "host_patterns": [
