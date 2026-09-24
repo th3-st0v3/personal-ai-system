@@ -157,7 +157,19 @@ def main() -> int:
         )
         if compatible and (data.get("composer_present") is True or terminal_browser_block):
             break
-        if compatible and data.get("composer_present") is not True:
+        if native and actual_extension_version != expected_extension_version:
+            if actual_extension_version:
+                last_retry_reason = (
+                    "loaded PASI extension version mismatch: "
+                    f"expected {expected_extension_version}, observed {actual_extension_version}"
+                )
+            else:
+                last_retry_reason = (
+                    "loaded PASI extension does not report its manifest version; "
+                    f"expected PASI extension {expected_extension_version}. "
+                    "Reload the native PASI extension and the ChatGPT tab."
+                )
+        elif compatible and data.get("composer_present") is not True:
             last_retry_reason = "ChatGPT composer is not present"
         if time.monotonic() >= deadline:
             if last_retry_reason:
