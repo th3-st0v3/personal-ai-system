@@ -109,7 +109,7 @@ PY
     retry_count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["retry_count"])')"
     controller_retry_count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["controller_retry_count"])')"
     status="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["status"] or "")')"
-    if [[ "$retry_count" == "1" && "$controller_retry_count" == "1" ]]; then
+    if (( retry_count == 1 && controller_retry_count == 1 )); then
       case "$status" in
         queued|claimed|generating) return 0 ;;
       esac
