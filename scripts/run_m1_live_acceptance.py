@@ -25,7 +25,7 @@ class BrowserBaselineReader(Protocol):
     def read_browser_observation(self) -> Any: ...
 
 
-class BrowserEvidenceReader(BrowserStateReader, Protocol):
+class BrowserEvidenceReader(Protocol):
     def read_browser_response_observation(self) -> Any: ...
 
 
