@@ -440,6 +440,8 @@ def validate_browser_health(
     expected_extension: str,
     max_heartbeat_age: float,
     expected_chat_url: str | None = None,
+    *,
+    require_manual_reload_gate_capability: bool = False,
 ) -> float:
     if data.get("kind") != "chatgpt_health":
         raise M2AcceptanceError("browser", f"browser health kind is not chatgpt_health: {data.get('kind')!r}")
@@ -455,6 +457,11 @@ def validate_browser_health(
             "browser",
             "loaded PASI extension is stale or unidentified: "
             f"expected {expected_extension!r}, observed {data.get('extension_manifest_version')!r}",
+        )
+    if require_manual_reload_gate_capability and data.get("manual_reload_gate_supported") is not True:
+        raise M2AcceptanceError(
+            "browser",
+            "loaded PASI controller does not advertise the M2 manual reload gate capability",
         )
     captured_at = data.get("captured_at")
     if not isinstance(captured_at, str) or not captured_at.strip():
@@ -637,6 +644,7 @@ def main() -> int:
             controller_expected,
             extension_expected,
             BROWSER_MAX_HEARTBEAT_AGE_SECONDS,
+            require_manual_reload_gate_capability=True,
         )
         evidence["stages"]["browser_preflight"] = {
             "captured_at": health.get("captured_at"),
@@ -645,6 +653,7 @@ def main() -> int:
             "controller_version_actual": health.get("controller_version"),
             "extension_manifest_version_expected": extension_expected,
             "extension_manifest_version_actual": health.get("extension_manifest_version"),
+            "manual_reload_gate_supported": health.get("manual_reload_gate_supported"),
             "native_controller": health.get("native_controller"),
             "composer_present": health.get("composer_present"),
             "conversation_signature": baseline_signature,
@@ -738,6 +747,7 @@ def main() -> int:
                     extension_expected,
                     BROWSER_MAX_HEARTBEAT_AGE_SECONDS,
                     expected_chat_url=chat_url,
+                    require_manual_reload_gate_capability=True,
                 )
             except M2AcceptanceError:
                 return None
