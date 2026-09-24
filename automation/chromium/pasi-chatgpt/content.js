@@ -110,6 +110,15 @@
     return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
   }
 
+  function markExtensionContextInvalidated(reason = '') {
+    if (extensionContextInvalidated) return;
+    extensionContextInvalidated = true;
+    disposeController();
+    if (reason) {
+      console.debug('[PASI runtime telemetry] Extension context invalidated; controller disposed.');
+    }
+  }
+
   function markThinkingUnavailable(reason) {
     reasoningMode = 'unavailable';
     void reportObservation('chatgpt_reasoning_capability', {
@@ -151,8 +160,8 @@
           const runtimeError = chrome.runtime.lastError;
           if (runtimeError) {
             const message = String(runtimeError.message || '');
-            if (/extension context invalidated|context invalidated/i.test(message)) {
-              extensionContextInvalidated = true;
+            if (isExtensionContextInvalidatedError(runtimeError)) {
+              markExtensionContextInvalidated(message);
               reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
               return;
             }
@@ -177,6 +186,11 @@
         if (settled) return;
         settled = true;
         clearTimeout(timerId);
+        if (isExtensionContextInvalidatedError(error)) {
+          markExtensionContextInvalidated(runtimeErrorText(error));
+          reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
+          return;
+        }
         reject(error);
       }
     });
@@ -713,6 +727,7 @@
   }
 
   function reportRuntimeTelemetry(event) {
+    if (extensionContextInvalidated) return null;
     const observation = {
       schema_version: 'pasi-native-chromium-v2',
       captured_at: new Date().toISOString(),
@@ -727,10 +742,17 @@
       chrome.runtime.sendMessage(
         { type: 'pasi-runtime-telemetry', observation },
         () => {
-          void chrome.runtime.lastError;
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError && isExtensionContextInvalidatedError(runtimeError)) {
+            markExtensionContextInvalidated(runtimeErrorText(runtimeError));
+          }
         }
       );
     } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) {
+        markExtensionContextInvalidated(runtimeErrorText(error));
+        return observation;
+      }
       console.warn('[PASI runtime telemetry]', runtimeErrorText(error));
     }
     return observation;
