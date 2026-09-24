@@ -355,7 +355,7 @@ test('native prompt submission uses a single send strategy and never duplicates 
   assert.match(content, /form\.requestSubmit\(button \|\| undefined\)/);
   assert.match(content, /nativeMouseActivate\(button\)/);
   assert.match(content, /dispatchEnter\(box\)/);
-  assert.match(content, /const fired = await strategies\[attempt - 1\]\(readyBox, button\)/);
+  assert.match(content, /let fired = false;[\s\S]*fired = await strategies\[attempt - 1\]\(readyBox, button\)/);
   assert.match(content, /Once a send strategy has fired, never/);
   assert.match(content, /const injectedAtMs = Date\.now\(\)/);
   assert.match(content, /injected_at_ms: injectedAtMs/);
