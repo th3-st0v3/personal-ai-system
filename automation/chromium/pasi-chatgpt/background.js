@@ -234,10 +234,42 @@ async function injectExistingChatTabs() {
     // because the support scripts are intentionally global and are not
     // themselves controller lifecycle owners.
     try {
-      await chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' });
-      continue;
+      const expectedVersion = String(chrome.runtime.getManifest?.().version || '');
+      const controller = await new Promise((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          resolve(null);
+        }, 1500);
+        try {
+          chrome.tabs.sendMessage(tab.id, { type: 'pasi-health-ping' }, (response) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (chrome.runtime.lastError) {
+              resolve(null);
+              return;
+            }
+            resolve(response && typeof response === 'object' ? response : null);
+          });
+        } catch (_) {
+          clearTimeout(timer);
+          resolve(null);
+        }
+      });
+      if (
+        controller &&
+        controller.controller_version === '2.4.11' &&
+        controller.extension_manifest_version === expectedVersion
+      ) {
+        continue;
+      }
+      // A listener that cannot identify itself as this exact extension version
+      // is stale, from another PASI installation, or from an invalidated context.
+      // Inject the current bundle so the active tab can converge on this build.
     } catch (_) {
-      // No live controller listener is present; inject into the existing tab.
+      // No usable controller listener is present; inject into the existing tab.
     }
 
     try {
