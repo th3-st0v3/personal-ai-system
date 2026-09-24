@@ -98,6 +98,20 @@ jobs:
         run: bash scripts/check_all.sh
 
   desktop:
+    if: ${{ github.event_name == "pull_request" }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Run desktop boundary contract tests
+        run: python -m pytest -q scripts/test_pasi_desktop_preflight.py
+
+  desktop-control:
     concurrency:
       group: ${{ format('{0}-{1}-desktop-control', github.workflow, github.repository) }}
       cancel-in-progress: false
