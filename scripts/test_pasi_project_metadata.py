@@ -2,7 +2,6 @@ import scripts.sync_pasi_project_metadata as sync_module
 from scripts.sync_pasi_project_metadata import (
     FRONTEND_PHASE_ISSUES,
     resolve_frontend_phase_map,
-    FRONTEND_PHASE_ISSUES,
     STATUS_DONE,
     STATUS_TODO,
     parse_roadmap_form,
@@ -45,7 +44,10 @@ def test_checkbox_mirrors_done_status() -> None:
     assert updated.count("[x]") == 23
     assert updated.count("[ ]") == 0
     verify_frontend_roadmap_checkboxes(
-        updated, project_items_with_status(STATUS_DONE)
+        updated,
+        project_items_with_status(STATUS_DONE),
+        FRONTEND_PHASE_ISSUES,
+        set(),
     )
 
 
@@ -198,6 +200,7 @@ def test_closed_frontend_phase_sets_done_status(monkeypatch) -> None:
         project,
         items,
         {319: "CLOSED"},
+        {"P0": 319},
     )
 
     assert calls == [
@@ -245,7 +248,12 @@ def test_reopened_frontend_phase_returns_to_todo(monkeypatch) -> None:
     sync_module.PROJECT_EVENT_ACTION = "reopened"
     sync_module.PROJECT_EVENT_ISSUE_NUMBER_RAW = "319"
     try:
-        sync_module.sync_frontend_statuses(project, items, {319: "OPEN"})
+        sync_module.sync_frontend_statuses(
+            project,
+            items,
+            {319: "OPEN"},
+            {"P0": 319},
+        )
     finally:
         sync_module.PROJECT_EVENT_ACTION = old_action
         sync_module.PROJECT_EVENT_ISSUE_NUMBER_RAW = old_issue
