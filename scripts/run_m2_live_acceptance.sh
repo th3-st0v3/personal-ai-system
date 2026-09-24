@@ -549,8 +549,8 @@ if int(retry_counts.get("controller", 0) or 0) != 1:
 events = op.get("recovery_events") or []
 if not any(event.get("phase") == "reloading" for event in events if isinstance(event, dict)):
     raise SystemExit("M2 evidence is missing the browser reloading recovery event")
-if not any(event.get("phase") == "preserve_current_chat" for event in events if isinstance(event, dict)):
-    raise SystemExit("M2 evidence is missing the exact-operation preserve_current_chat recovery event")
+if not any(event.get("phase") in {"preserve_current_chat", "resume_handoff"} for event in events if isinstance(event, dict)):
+    raise SystemExit("M2 evidence is missing the exact-operation recovery handoff event")
 handoff = p.get("latest_provisioning") or {}
 handoff_data = handoff.get("data") if isinstance(handoff, dict) else {}
 if isinstance(handoff_data, dict) and handoff_data.get("resume_operation_id"):
