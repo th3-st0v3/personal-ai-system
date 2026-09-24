@@ -58,7 +58,7 @@ Configure:
 
 The built-in workflow is intentionally limited to static Project-field actions. Dynamic PASI fields such as Start Date, End Date, Team, Quarter, and Iteration are derived from the issue's PASI metadata block by the repository Action.
 
-### 3. Dynamic metadata formatting
+### 3. Dynamic metadata and FE status synchronization
 
 No additional Project UI formatter is required for:
 
@@ -67,8 +67,18 @@ No additional Project UI formatter is required for:
 - Team
 - Quarter
 - Iteration
+- Status
 
-The repository Action validates the canonical P0–P22 schedule, preserves existing Project option IDs, reconciles the Iteration 1–23 catalog, writes the fields, and reads them back for verification.
+For each frontend phase, **FE-P0 through FE-P22 map one-to-one to issues #319 through #341 and Iteration 1 through Iteration 23**. The repository Action validates that mapping, reconciles the Project Iteration catalog, and reads the fields back for verification.
+
+Project **Status is authoritative for completion** of the frontend roadmap:
+- **Todo** or **In Progress** → the corresponding FE roadmap checkbox remains unchecked.
+- **Done** → the corresponding FE roadmap checkbox is checked.
+- Closing an FE phase issue moves its Project Status to **Done**.
+- Reopening an FE phase issue moves its Project Status back to **Todo**.
+- The roadmap checkbox is therefore a derived view of Project Status; it should not be used as a second independent source of truth.
+
+The Project automation runs on roadmap issue changes and on an hourly schedule so a direct Project Status change is reconciled back into the FE roadmap even when no issue event occurs.
 
 ## Existing roadmap backfill
 
@@ -114,6 +124,14 @@ GitHub supports reusable workflows through `workflow_call`, including explicit i
 | `PASI Project Automation` | Adds missing membership, formats PASI phase metadata, and verifies Project field state. |
 
 This keeps the Project UI responsible for membership automation while the repository workflows own deterministic metadata and verification.
+
+### Frontend roadmap synchronization contract
+
+| FE phase | GitHub issue | Project iteration | Checkbox source |
+| --- | ---: | --- | --- |
+| FE-P0 … FE-P22 | #319 … #341 | Iteration 1 … Iteration 23 | Project Status |
+
+The mapping is deterministic: FE-Pn uses the corresponding Pn phase schedule and Iteration n+1. The parent frontend roadmap is issue **#318**. Its phase-map checkboxes are reconciled from the Project item’s Status field during each synchronization run.
 
 ## Ongoing behavior
 
