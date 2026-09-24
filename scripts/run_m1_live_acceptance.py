@@ -46,6 +46,8 @@ def validate_signature_progression(previous: object, current: object, index: int
     if current_signature[2] == previous_signature[2]:
         raise RuntimeError(f"prompt {index} conversation_signature fingerprint did not change")
     return current_signature[0], current_signature[1]
+
+
 def data_from_observation(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
@@ -111,13 +113,11 @@ def main() -> int:
             raise RuntimeError(f"prompt {index} response missing unique marker")
 
         state = data_from_observation(adapter.read_browser_state())
-        counts = signature_counts(state.get("conversation_signature"))
-        if counts is None:
-            raise RuntimeError(f"prompt {index} lacked conversation_signature")
         current_signature = state.get("conversation_signature")
-        expected_user, expected_assistant = validate_signature_progression(previous_signature, current_signature, index)
-        user_delta = expected_user - signature_counts(previous_signature)[0]
-        assistant_delta = expected_assistant - signature_counts(previous_signature)[1]
+        before_signature = previous_signature
+        expected_user, expected_assistant = validate_signature_progression(before_signature, current_signature, index)
+        user_delta = expected_user - parse_conversation_signature(before_signature)[0]
+        assistant_delta = expected_assistant - parse_conversation_signature(before_signature)[1]
         previous_signature = current_signature
         observed_chat_url = str(response.chat_url or state.get("chat_url") or "")
         if observed_chat_url != chat_url:
@@ -131,7 +131,7 @@ def main() -> int:
                 "user_delta": user_delta,
                 "assistant_delta": assistant_delta,
                 "chat_url": observed_chat_url,
-                "before_signature": results[-1]["after_signature"] if results else baseline_signature,
+                "before_signature": before_signature,
                 "after_signature": current_signature,
             }
         )
