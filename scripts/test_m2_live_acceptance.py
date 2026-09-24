@@ -6,12 +6,14 @@ from pathlib import Path
 
 class TestM2LiveAcceptanceContract(unittest.TestCase):
     def test_entrypoint_and_runtime_contracts_are_present(self) -> None:
-        source = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
-        self.assertIn("m2_live_acceptance.py", source)
+        entrypoint = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
+        source = Path("scripts/m2_live_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("m2_live_acceptance.py", entrypoint)
         self.assertIn("PASI_RUNTIME_DIR", source)
         self.assertIn("runner.pid", source)
         self.assertIn("bridge.pid", source)
-        self.assertIn("start_pasi_168h.sh --resume", source)
+        self.assertIn("start_pasi_168h.sh", source)
+        self.assertIn('"--resume"', source)
 
     def test_m2_does_not_request_a_new_chat(self) -> None:
         source = Path("scripts/run_m2_live_acceptance.sh").read_text(encoding="utf-8")
