@@ -47,8 +47,21 @@ if "PASI_M2_MANUAL_RELOAD_GATE: true" not in prompt:
 if operation.get("manual_reload_gate") is not True or operation.get("manual_reload_gate_armed") is not True:
     raise SystemExit("M2 manual reload gate is not armed")
 
-if operation.get("response_text_available") is not True or not str(operation.get("response_text") or "").strip():
+response_text = str(operation.get("response_text") or "")
+completion_markers = operation.get("completion_markers") or []
+if operation.get("response_text_available") is not True or not response_text.strip():
     raise SystemExit("M2 manual reload gate is armed before the original response was durably captured")
+if not any(
+    isinstance(marker, str)
+    and marker.strip()
+    and any(
+        line.strip() == marker.strip()
+        or line.strip().startswith(marker.strip() + ":")
+        for line in response_text.splitlines()
+    )
+    for marker in completion_markers
+):
+    raise SystemExit("M2 manual reload gate cannot be released before the configured completion marker is durably captured")
 
 if operation.get("manual_reload_gate_released") is True:
     print("M2 manual reload gate is already released.")
