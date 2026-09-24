@@ -19,7 +19,16 @@ on:
           - start-automation
           - status
           - stop
+          - project-sync
         default: verify
+      project_scope:
+        description: "Project synchronization scope"
+        required: false
+        type: choice
+        options:
+          - roadmap
+          - metadata
+        default: roadmap
       roadmap:
         description: "Repository-relative roadmap path"
         required: false
@@ -33,7 +42,7 @@ jobs:
     concurrency:
       group: ${{ format('{0}-{1}-verify', github.workflow, github.ref) }}
       cancel-in-progress: false
-    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || inputs.mode == 'verify' || inputs.mode == 'start-automation' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || inputs.mode == 'verify' || inputs.mode == 'start-automation' || inputs.mode == 'project-sync' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -146,3 +155,12 @@ jobs:
       - name: Stop PASI development automation
         if: ${{ inputs.mode == 'stop' }}
         run: bash scripts/stop_pasi_overnight.sh
+  project_sync:
+    name: Synchronize roadmap with PASI Project
+    needs: [verify]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'project-sync' && needs.verify.result == 'success' }}
+    uses: ./.github/workflows/pasi-project-metadata.yml
+    with:
+      scope: ${{ inputs.project_scope }}
+    secrets:
+      PASI_PROJECTS_TOKEN: ${{ secrets.PASI_PROJECTS_TOKEN }}
