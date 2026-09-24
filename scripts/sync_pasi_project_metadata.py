@@ -218,19 +218,34 @@ def update_field(project_id: str, field_input: dict[str, object]) -> dict[str, o
     return data["updateProjectV2Field"]["projectV2Field"]  # type: ignore[index]
 
 
-def ensure_date_field(project: dict[str, object], name: str) -> dict[str, object]:
+def find_field(project: dict[str, object], aliases: list[str]) -> dict[str, object] | None:
     fields = project["fields"]["nodes"]  # type: ignore[index]
+    wanted = {alias.lower() for alias in aliases}
     for field in fields:
-        if field.get("name") == name:
+        if field.get("name", "").lower() in wanted:
             return field
+    return None
+
+
+def ensure_date_field(project: dict[str, object], name: str, aliases: list[str]) -> dict[str, object]:
+    field = find_field(project, aliases)
+    if field:
+        return field
     return create_field(project["id"], {"projectId": project["id"], "name": name, "dataType": "DATE"})
 
 
 def ensure_single_select(project: dict[str, object], name: str, options: list[str]) -> dict[str, object]:
-    fields = project["fields"]["nodes"]  # type: ignore[index]
-    for field in fields:
-        if field.get("name") == name:
-            return field
+    field = find_field(project, [name])
+    if field:
+        existing = {option["name"] for option in field.get("options", [])}
+        missing = [option for option in options if option not in existing]
+        if missing:
+            update_single_select_field(project["id"], field["id"], field.get("options", []) + [
+                {"name": option, "description": f"PASI metadata option: {option}", "color": "GRAY"}
+                for option in missing
+            ])
+            return None
+        return field
     return create_field(
         project["id"],
         {
@@ -243,6 +258,15 @@ def ensure_single_select(project: dict[str, object], name: str, options: list[st
             ],
         },
     )
+
+
+def update_single_select_field(project_id: str, field_id: str, options: list[dict[str, object]]) -> None:
+    query = """
+    mutation($input:UpdateProjectV2FieldInput!) {
+      updateProjectV2Field(input:$input) { projectV2Field { id } }
+    }
+    """
+    graphql(query, {"input": {"fieldId": field_id, "singleSelectOptions": options}})
 
 
 def iteration_configs() -> list[dict[str, object]]:
@@ -277,19 +301,17 @@ def ensure_iterations(project: dict[str, object]) -> dict[str, object]:
         )
 
     existing = field.get("configuration", {}).get("iterations", [])
-    by_title = {item["title"]: item for item in existing}
-    merged = list(existing)
-    for item in desired:
-        if item["title"] not in by_title:
-            merged.append(item)
-
-    merged.sort(key=lambda item: item["startDate"])
+    desired_by_title = {item["title"]: item for item in desired}
+    existing_by_title = {item["title"]: item for item in existing}
+    merged_by_title = dict(existing_by_title)
+    merged_by_title.update(desired_by_title)
+    merged = sorted(merged_by_title.values(), key=lambda item: item["startDate"])
     start_date = min(item["startDate"] for item in merged)
     default_duration = next(
         item["duration"] for item in merged if item["title"] == "Iteration 1"
     )
 
-    if len(merged) != len(existing):
+    if merged != existing:
         field = update_field(
             project["id"],
             {
@@ -332,8 +354,8 @@ def sync_issue(issue_number: int) -> None:
     metadata = parse_metadata(body)
     project = project_snapshot()
 
-    start_field = ensure_date_field(project, "Start Date")
-    end_field = ensure_date_field(project, "End Date")
+    start_field = ensure_date_field(project, "Start Date", ["Start Date", "Start date", "Start"])
+    end_field = ensure_date_field(project, "End Date", ["End Date", "End date", "Target Date", "Target date", "End"])
     team_field = ensure_single_select(project, "Team", ["Backend", "Frontend"])
     quarter_field = ensure_single_select(
         project,
@@ -346,6 +368,8 @@ def sync_issue(issue_number: int) -> None:
     project = project_snapshot()
     fields = {field["name"]: field for field in project["fields"]["nodes"]}
 
+    start_field = next(field for field in fields.values() if field["name"].lower() in {"start date", "start"})
+    end_field = next(field for field in fields.values() if field["name"].lower() in {"end date", "target date", "end"})
     item_id = add_item(project["id"], content_id)
     update_item_field(project["id"], item_id, fields["Start Date"]["id"], {"date": metadata.start_date})
     update_item_field(project["id"], item_id, fields["End Date"]["id"], {"date": metadata.end_date})
