@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 # The acceptance script imports the shared preflight module as scripts.*.
 # Executing it by absolute path sets sys.path to scripts/, so expose the
 # repository root explicitly for the namespace-package import.
-export PYTHONPATH="$REPO_ROOT\${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH-}"
 
 PYTHON="$REPO_ROOT/.venv/bin/python"
 if [[ ! -x "$PYTHON" ]]; then
