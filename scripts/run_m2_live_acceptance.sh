@@ -28,6 +28,54 @@ echo "=== M2 STALE-STATE PREFLIGHT ==="
 bash "$REPO_ROOT/scripts/m2_live_cleanup.sh"
 echo "=== M2 STALE-STATE PREFLIGHT COMPLETE ==="
 
+PREFLIGHT_STARTED_AT="$(date +%s.%N)"
+get_fresh_browser_health() {
+  "$PYTHON" - "$PREFLIGHT_STARTED_AT" <<'PY'
+import json, os, sys
+from datetime import datetime, timezone
+import urllib.request
+started_at = float(sys.argv[1])
+req = urllib.request.Request(
+    "http://127.0.0.1:8765/browser/health",
+    headers={"Authorization":"Bearer "+os.environ["PASI_BRIDGE_TOKEN"]},
+    method="GET",
+)
+try:
+    with urllib.request.urlopen(req, timeout=5) as response:
+        observation = (json.loads(response.read(2000000).decode()).get("observation") or {})
+except Exception as exc:
+    raise SystemExit(f"bridge browser health unavailable: {exc}")
+try:
+    captured_at = datetime.fromisoformat(str(observation["captured_at"]).replace("Z", "+00:00")).timestamp()
+except Exception:
+    captured_at = 0
+if captured_at < started_at:
+    raise SystemExit(
+        "stale PASI browser health: reload the PASI extension and the ChatGPT tab, "
+        f"then retry M2; captured_at={observation.get('captured_at')!r}"
+    )
+data = observation.get("data") if isinstance(observation.get("data"), dict) else {}
+if data.get("native_controller") is not True:
+    raise SystemExit("PASI browser health does not identify a native controller")
+print(observation.get("captured_at"))
+PY
+}
+
+health_deadline=$((SECONDS + 20))
+while (( SECONDS < health_deadline )); do
+  if health_stamp="$(get_fresh_browser_health 2>/dev/null)"; then
+    echo "Fresh PASI browser health: $health_stamp"
+    break
+  fi
+  sleep 2
+done
+if ! health_stamp="$(get_fresh_browser_health 2>/dev/null)"; then
+  echo "error: PASI browser health is stale before M2 operation queueing" >&2
+  echo "error: reload the PASI extension in opera://extensions, then reload the ChatGPT tab and retry" >&2
+  get_fresh_browser_health >&2 || true
+  exit 2
+fi
+
 STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
 PROMPT="M2 live recovery $STAMP: output the integers 1 through 1000, one integer per line, without commentary, then end with exactly M2-LIVE-$STAMP on its own line. PASI_M2_MANUAL_RELOAD_GATE: true"
 OUT="$EVIDENCE_DIR/m2-live-$STAMP.json"
