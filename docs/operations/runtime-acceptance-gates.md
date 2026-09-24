@@ -68,9 +68,9 @@ Record the printed `operation_id`. Exercise recovery against that exact operatio
 2. Kill the managed bridge process identified by `.runtime/overnight/bridge.pid`, wait for bridge health to return, and verify the same operation ID remains active/recoverable.
 3. Kill the managed runner process identified by `.runtime/overnight/runner.pid`, then resume it with `bash scripts/start_pasi_168h.sh --resume`.
 
-The terminal evidence must show the original operation ID was resumed/reclaimed exactly once, the original prompt was not submitted again, and the final response belongs to that same operation.
+The terminal evidence must show the original operation ID was reclaimed/requeued exactly once after the browser reload (retry_count == 1 and controller retry count == 1), while the bridge and runner restarts preserve that same operation. The harness also repeats the original queue request with the same idempotency key after each restart and requires PASI to return the same operation ID rather than creating another operation. The original ChatGPT prompt must still produce exactly one user-message increment and one assistant-message increment, with the final response bound to the same operation and conversation URL.
 
-The generated M2 artifact is `.runtime/acceptance/m2-live-*.json`. Append the final operation JSON, before/after conversation signatures, the exact conversation URL, and bridge/runner PID timestamps.
+The generated M2 artifact is `.runtime/acceptance/m2-live-*.json`. It records stage snapshots for browser reload, bridge restart, and runner restart, duplicate queue probes, the final operation/recovery events, before/after conversation signatures, the exact conversation URL, and bridge/runner PID timestamps.
 
 If the browser installation has no safe programmatic tab-close mechanism, the exact-tab close/reload is the one manual action in this otherwise scripted sequence; record it explicitly.
 
