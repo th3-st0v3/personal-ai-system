@@ -54,6 +54,16 @@ test('recovery clears terminal operations and does not loop on the same failed o
   assert.match(source, /if \(!current\) return/);
 });
 
+
+test('recovery leaves an armed M2 manual reload gate untouched instead of requeueing the prompt', () => {
+  assert.match(source, /const M2_MANUAL_RELOAD_GATE_MARKER = 'PASI_M2_MANUAL_RELOAD_GATE: true'/);
+  assert.match(source, /function manualReloadGateActive\(operation\)/);
+  assert.match(source, /active\?\.manual_reload_gate === true/);
+  assert.match(source, /manual_reload_gate_released === true/);
+  assert.match(source, /m2_manual_reload_gate_waiting/);
+  assert.match(source, /recovery_action: 'await_manual_reload_gate_release'/);
+});
+
 test('connection failure detection is scoped to visible error/alert elements', () => {
   assert.match(source, /\[role="alert"\]/);
   assert.match(source, /\[aria-live="assertive"\]/);
