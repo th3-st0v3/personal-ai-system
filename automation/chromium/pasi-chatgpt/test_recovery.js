@@ -230,3 +230,13 @@ test('recovery expires vanished operations after the bounded missing-operation g
   assert.match(source, /recovery_action: 'clear_stale_state'/);
   assert.match(source, /clearInterruptedState\(\)/);
 });
+
+
+test('recovery leaves an armed M2 manual reload gate untouched', () => {
+  assert.match(source, /const M2_MANUAL_RELOAD_GATE_MARKER = 'PASI_M2_MANUAL_RELOAD_GATE: true'/);
+  assert.match(source, /function manualReloadGateActive\(operation\)/);
+  assert.match(source, /active\?\.manual_reload_gate === true/);
+  assert.match(source, /manual_reload_gate_released === true/);
+  assert.match(source, /m2_manual_reload_gate_waiting/);
+  assert.match(source, /await_manual_reload_gate_release/);
+});
