@@ -411,9 +411,11 @@ PY
 printf '
 === VERIFYING NATIVE CHATGPT BROWSER ===
 '
-browser_wait_seconds=30
-if [[ "$M2_FAST_START" == "1" ]]; then browser_wait_seconds=5; fi
-browser_deadline=$((SECONDS + browser_wait_seconds))
+if [[ "$M2_FAST_START" == "1" ]]; then
+    browser_deadline=$((SECONDS + 5))
+else
+    browser_deadline=$((SECONDS + 30))
+fi
 browser_ready=0
 browser_auth_required=0
 while (( SECONDS < browser_deadline )); do
