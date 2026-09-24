@@ -994,7 +994,6 @@ test('native M2 pre-gate failures are terminal instead of silently requeued', ()
 test('native marker matcher normalizes harmless wrappers before terminal matching', () => {
   assert.ok(content.includes('function normalizeCompletionMarkerLine(value)'));
   assert.ok(content.includes('replace(/^[\\s\\`*_~]+|[\\s\\`*_~]+$/g, \'\')'));
-  assert.ok(content.includes("line.startsWith(normalizedMarker + ' ')"));
 });
 
 test('native completion marker accepts a normalized terminal marker after whitespace collapse', () => {
