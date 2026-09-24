@@ -42,7 +42,7 @@ def marker_satisfied(response_text: object, markers: Iterable[object]) -> bool:
         if any(
             line == normalized_marker
             or line.startswith(normalized_marker + ":")
-            or line.startswith(normalized_marker + " ")
+
             for line in normalized_lines
         ):
             return True
