@@ -41,6 +41,36 @@ def signature_counts(value: object) -> tuple[int, int] | None:
     return parsed[:2] if parsed is not None else None
 
 
+def wait_for_conversation_signature(
+    adapter: ChatGPTAdapter,
+    expected_chat_url: str | None,
+    *,
+    timeout_seconds: float = 15.0,
+    poll_seconds: float = 0.5,
+) -> tuple[dict[str, Any], str]:
+    deadline = time.monotonic() + timeout_seconds
+    last_url = ""
+    while True:
+        state = data_from_observation(adapter.read_browser_state())
+        signature = state.get("conversation_signature")
+        current_url = str(state.get("chat_url") or "")
+        if current_url:
+            last_url = current_url
+        if (
+            parse_conversation_signature(signature) is not None
+            and current_url.startswith("https://chatgpt.com/c/")
+            and (expected_chat_url is None or current_url == expected_chat_url)
+        ):
+            return state, str(signature)
+        if time.monotonic() >= deadline:
+            target = expected_chat_url or "<any fresh ChatGPT conversation>"
+            raise RuntimeError(
+                f"fresh chat did not publish a parseable conversation_signature within "
+                f"{timeout_seconds:.1f}s: expected={target!r}, observed={last_url!r}"
+            )
+        time.sleep(poll_seconds)
+
+
 def validate_signature_progression(previous: object, current: object, index: int) -> tuple[int, int]:
     previous_signature = parse_conversation_signature(previous)
     current_signature = parse_conversation_signature(current)
@@ -57,6 +87,8 @@ def validate_signature_progression(previous: object, current: object, index: int
         )
     if current_signature[2] == previous_signature[2]:
         raise RuntimeError(f"prompt {index} conversation_signature fingerprint did not change")
+    if not current_signature[2]:
+        raise RuntimeError(f"prompt {index} conversation_signature has no assistant fingerprint")
     return current_signature[0], current_signature[1]
 
 
@@ -171,17 +203,18 @@ def main() -> int:
         evidence_path = evidence_dir / "m1-live.json"
 
         adapter.new_session()
-        baseline = data_from_observation(adapter.read_browser_state())
-        baseline_counts = signature_counts(baseline.get("conversation_signature"))
+        baseline, baseline_signature = wait_for_conversation_signature(
+            adapter,
+            adapter.last_chat_url,
+        )
+        baseline_counts = signature_counts(baseline_signature)
         if baseline_counts is None:
-            raise RuntimeError("fresh chat did not expose a parseable conversation_signature")
-        chat_url = str(baseline.get("chat_url") or "")
+            raise RuntimeError("fresh chat did not expose valid conversation-signature counts")
+        chat_url = str(baseline.get("chat_url") or adapter.last_chat_url or "")
         if not chat_url.startswith("https://chatgpt.com/c/"):
-            raise RuntimeError(f"fresh chat did not produce a verified ChatGPT conversation URL: {chat_url!r}")
-
-        baseline_signature = baseline.get("conversation_signature")
-        if parse_conversation_signature(baseline_signature) is None:
-            raise RuntimeError("fresh chat did not expose a complete conversation_signature")
+            raise RuntimeError(
+                f"fresh chat did not produce a verified ChatGPT conversation URL: {chat_url!r}"
+            )
         previous_signature = baseline_signature
         expected_user, expected_assistant = baseline_counts
         seen_operation_ids: set[str] = set()
