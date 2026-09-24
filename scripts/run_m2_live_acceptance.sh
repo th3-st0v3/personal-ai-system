@@ -292,6 +292,7 @@ p["_pending_stage"]="runner_restart_resumed"
 open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
 PY
 update_evidence
+duplicate_queue_probe "after_runner_restart"
 
 echo "Waiting for the original operation to complete after runner restart..."
 deadline=$((SECONDS + 900))
