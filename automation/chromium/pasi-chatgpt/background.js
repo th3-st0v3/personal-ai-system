@@ -157,6 +157,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'pasi-operation-received') {
+    const tabId = sender?.tab?.id;
+    const senderUrl = String(sender?.tab?.url || sender?.url || '');
+    if (
+      typeof tabId !== 'number'
+      || !/^https:\/\/(?:www\.)?chatgpt\.com(?::\d+)?\//.test(senderUrl)
+    ) {
+      sendResponse({ ok: false, status: 403, text: 'operation receipt sender rejected' });
+      return undefined;
+    }
+    void (async () => {
+      const tabs = await listChatGptTabs();
+      const selectedTab = tabs.find((tab) => tab?.id === tabId) || sender?.tab;
+      await reportTabProvisioning({
+        action: 'existing_tabs_no_create',
+        reason: 'operation_received',
+        operation_id: typeof message.operation_id === 'string' ? message.operation_id : null,
+        existing_tab_count: tabs.length || 1,
+        existing_tab_ids: tabs.map((tab) => tab.id).filter((id) => typeof id === 'number'),
+        existing_tab_urls: tabs.map((tab) => String(tab.url || '')).filter(Boolean),
+        requested_url: senderUrl,
+        selected_tab_id: tabId,
+        selected_tab_url: String(selectedTab?.url || senderUrl),
+        selected_tab_active: selectedTab?.active === true || sender?.tab?.active === true,
+        injection_ready: true,
+        work_wake_sent: false
+      });
+    })().catch(() => {});
+    sendResponse({ ok: true });
+    return undefined;
+  }
+
   if (message?.type === 'pasi-runtime-telemetry') {
     const senderUrl = String(sender?.tab?.url || sender?.url || '');
     if (
