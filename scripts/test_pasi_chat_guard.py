@@ -166,6 +166,12 @@ PASI_COMPUTER_REQUEST_END"""
         with self.assertRaises(ValueError):
             guard.build_followup_prompt("", [{"status": "ok"}])
 
+    def test_computer_protocol_requires_task_worktree_relative_paths(self) -> None:
+        prompt = guard.computer_protocol_prompt()
+        self.assertIn("repository-relative paths under the target worktree", prompt)
+        self.assertIn("Do not request absolute host paths", prompt)
+        self.assertIn("Prefer the public GitHub repository context", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
