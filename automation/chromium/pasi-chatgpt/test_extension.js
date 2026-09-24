@@ -184,17 +184,16 @@ test('native created-tab provisioning explicitly bootstraps the controller and r
 });
 
 test('native existing-tab injection probes for a live controller before reinjecting support scripts', () => {
-  const start = background.indexOf('async function injectExistingChatTabs()');
-  const end = background.indexOf('async function inspect()', start);
+  const start = background.indexOf('async function injectChatGptTab(tabId)');
+  const end = background.indexOf('async function bootstrapCreatedChatGptTab(tabId)', start);
   assert.ok(start >= 0 && end > start);
   const source = background.slice(start, end);
-  assert.match(source, /await chrome\.tabs\.sendMessage\(tab\.id, \{ type: 'pasi-health-ping' \}\);/);
+  assert.match(source, /await chrome\.tabs\.sendMessage\(tabId, \{ type: 'pasi-health-ping' \}\);/);
   assert.match(source, /await chrome\.scripting\.executeScript/);
   assert.ok(
     source.indexOf("await chrome.tabs.sendMessage") <
       source.indexOf("await chrome.scripting.executeScript")
   );
-  assert.match(source, /continue;/);
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
