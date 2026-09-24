@@ -2,7 +2,9 @@ name: PASI Project Automation
 
 on:
   issues:
-    types: [opened, edited, labeled, reopened]
+    types: [opened, edited, labeled, reopened, closed]
+  schedule:
+    - cron: "17 * * * *"
   workflow_call:
     inputs:
       issue_number:
@@ -49,6 +51,7 @@ jobs:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           github.event_name == 'workflow_call' ||
+          github.event_name == 'schedule' ||
           (github.actor == 'th3-st0v3' &&
            contains(github.event.issue.labels.*.name, 'roadmap')) }}
     runs-on: [self-hosted, linux, x64, pasi-wsl]
@@ -130,6 +133,8 @@ jobs:
         shell: bash
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          PASI_PROJECT_EVENT_ACTION: ${{ github.event.action || '' }}
+          PASI_PROJECT_EVENT_ISSUE_NUMBER: ${{ github.event.issue.number || '' }}
         run: |
           set -euo pipefail
 
