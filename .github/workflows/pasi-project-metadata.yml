@@ -3,6 +3,21 @@ name: PASI Project Automation
 on:
   issues:
     types: [opened, edited, labeled, reopened]
+  workflow_call:
+    inputs:
+      issue_number:
+        description: "Specific issue number to add/format; leave empty to use the selected bulk scope"
+        required: false
+        type: string
+      scope:
+        description: "Bulk synchronization scope when issue_number is empty"
+        required: false
+        default: roadmap
+        type: string
+    secrets:
+      PASI_PROJECTS_TOKEN:
+        description: "Token with write access to the target PASI Project"
+        required: true
   workflow_dispatch:
     inputs:
       issue_number:
@@ -33,6 +48,7 @@ jobs:
     # the self-hosted runner.
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'workflow_call' ||
           (github.actor == 'th3-st0v3' &&
            contains(github.event.issue.labels.*.name, 'roadmap')) }}
     runs-on: [self-hosted, linux, x64, pasi-wsl]
