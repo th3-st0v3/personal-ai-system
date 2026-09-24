@@ -149,11 +149,13 @@ test('native controller keeps response telemetry off the completion critical pat
   assert.doesNotMatch(content, /await reportObservation\('chatgpt_response'/);
 });
 
-test('native completion signature fingerprints the captured response text', () => {
+test('native completion signature uses the durable per-operation conversation ledger', () => {
   assert.match(content, /function conversationSignature\(responseText = null\)/);
+  assert.match(content, /function conversationSignatureState\(\)/);
+  assert.match(content, /function advanceConversationSignature\(operationId, responseText\)/);
   assert.match(content, /typeof responseText === 'string' && responseText\.trim\(\)/);
   assert.match(content, /fingerprintFromText\(responseText\)/);
-  assert.match(content, /conversation_signature: conversationSignature\(responseText\)/);
+  assert.match(content, /conversation_signature: advanceConversationSignature\(operationId, responseText\)/);
 });
 
 test('native controller chains the next queued operation immediately after terminal completion', () => {
