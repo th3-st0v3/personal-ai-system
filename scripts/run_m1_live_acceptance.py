@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import time
 import uuid
 from pathlib import Path
@@ -116,8 +115,11 @@ def main() -> int:
         current_signature = state.get("conversation_signature")
         before_signature = previous_signature
         expected_user, expected_assistant = validate_signature_progression(before_signature, current_signature, index)
-        user_delta = expected_user - parse_conversation_signature(before_signature)[0]
-        assistant_delta = expected_assistant - parse_conversation_signature(before_signature)[1]
+        before_parsed = parse_conversation_signature(before_signature)
+        if before_parsed is None:
+            raise RuntimeError(f"prompt {index} had an invalid previous conversation_signature")
+        user_delta = expected_user - before_parsed[0]
+        assistant_delta = expected_assistant - before_parsed[1]
         previous_signature = current_signature
         observed_chat_url = str(response.chat_url or state.get("chat_url") or "")
         if observed_chat_url != chat_url:
