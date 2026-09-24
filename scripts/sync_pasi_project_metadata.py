@@ -1130,7 +1130,7 @@ def resolve_frontend_phase_map() -> tuple[dict[str, int], set[str]]:
 
 
 def normalize_status_name(name: str) -> str:
-    return re.sub(r"\\s+", " ", name.strip()).casefold()
+    return re.sub(r"\s+", " ", name.strip()).casefold()
 
 
 def project_status_option(project: dict[str, Any], status_name: str) -> dict[str, Any]:
