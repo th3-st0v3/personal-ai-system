@@ -506,6 +506,7 @@ def start_managed_run(runtime_dir: Path, branch: str, task: str) -> tuple[str, s
             "PASI_OVERNIGHT_BRANCH": branch,
             "PASI_SUPERVISOR_MAX_RESTARTS": "0",
             "PASI_LOCAL_GATE_MODE": "fast",
+            "PASI_M2_MANUAL_RELOAD_GATE": "1",
         }
     )
     result = subprocess.run(
@@ -656,6 +657,7 @@ def main() -> int:
             "repository/worktree. Inspect the recovery implementation and relevant tests, run the smallest "
             "relevant deterministic checks, and return a substantive engineering report. Do not modify tracked "
             f"files. Include the exact token {marker} on its own line near the end of the final response. "
+            "PASI_M2_MANUAL_RELOAD_GATE: true. Do not treat the task as terminal until this same operation is explicitly released after the manual tab reload and process recovery.",
             "This is a live M2 kill/restart recovery acceptance operation."
         )
         branch = f"pasi/m2-live-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
@@ -687,6 +689,17 @@ def main() -> int:
             120,
             f"operation {operation_id} to become active",
         )
+        manual_gate_operation = wait_for(
+            lambda: (
+                operation(operation_id)
+                if operation(operation_id).get("manual_reload_gate") is True
+                and operation(operation_id).get("manual_reload_gate_armed") is True
+                and operation(operation_id).get("manual_reload_gate_released") is not True
+                else None
+            ),
+            180,
+            f"manual reload gate for operation {operation_id} to be armed",
+        )
         marker_operation_ids = queue_operation_ids(marker)
         if marker_operation_ids != [operation_id]:
             raise M2AcceptanceError(
@@ -699,7 +712,8 @@ def main() -> int:
             "marker": marker,
             "baseline_signature": baseline_signature,
             "chat_url": chat_url,
-            "operation": operation(operation_id),
+            "operation": manual_gate_operation,
+            "manual_reload_gate_armed": True,
             "start_output": start_output,
             "worktree": worktree,
             "branch": actual_branch,
@@ -737,6 +751,10 @@ def main() -> int:
         after_reload = operation(operation_id)
         if after_reload.get("status") in {"completed", "failed", "cancelled"}:
             raise M2AcceptanceError("manual_reload", f"operation became terminal before process recovery: {after_reload.get('status')!r}")
+        if after_reload.get("manual_reload_gate") is not True or after_reload.get("manual_reload_gate_armed") is not True:
+            raise M2AcceptanceError("manual_reload", "manual reload gate state was not preserved for the same operation")
+        if after_reload.get("manual_reload_gate_released") is True:
+            raise M2AcceptanceError("manual_reload", "manual reload gate was released before runner recovery")
         evidence["stages"]["manual_reload"] = {
             "confirmed_at": reload_confirmed_at,
             "health": after_reload_health,
@@ -809,6 +827,7 @@ def main() -> int:
             "PASI_OVERNIGHT_WORKTREE": worktree,
             "PASI_SUPERVISOR_MAX_RESTARTS": "0",
             "PASI_LOCAL_GATE_MODE": "fast",
+            "PASI_M2_MANUAL_RELOAD_GATE_RELEASE": "1",
         })
         resumed = subprocess.run(
             ["bash", str(REPO_ROOT / "scripts" / "start_pasi_168h.sh"), "--resume", "--no-push"],
@@ -838,6 +857,13 @@ def main() -> int:
             raise M2AcceptanceError("resume", f"original operation {operation_id} was not explicitly resumed in runner.log: {resume_ids!r}")
         if retry_ids:
             raise M2AcceptanceError("resume", f"resume created an unexpected retry operation: {retry_ids!r}")
+        release_response = request_json(
+            "/chat/manual-reload-gate/release",
+            method="POST",
+            payload={"operation_id": operation_id},
+        )
+        if release_response.get("operation", {}).get("manual_reload_gate_released") is not True:
+            raise M2AcceptanceError("resume", "manual reload gate release was not durably acknowledged for the original operation")
         marker_ids_after_resume = queue_operation_ids(marker)
         if marker_ids_after_resume != [operation_id]:
             raise M2AcceptanceError(
@@ -852,6 +878,7 @@ def main() -> int:
             "resumed_operation_ids": resume_ids,
             "prompt_operation_ids": prompt_ids,
             "retry_operation_ids": retry_ids,
+            "manual_reload_gate_release": release_response.get("operation"),
             "marker_operation_ids": marker_ids_after_resume,
         }
 
