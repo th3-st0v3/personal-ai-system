@@ -56,8 +56,8 @@ def test_development_and_branch_hygiene_validation_uses_intended_runner_boundari
     assert "runs-on: ubuntu-latest" in development_verify
     assert "runs-on: [self-hosted, linux, x64, pasi-desktop]" in development_desktop
     assert development_desktop.count("runs-on: [self-hosted, linux, x64, pasi-desktop]") == 1
-    assert "runs-on: [self-hosted, linux, x64, pasi-wsl]" in branch_hygiene
-    assert branch_hygiene.count("runs-on: [self-hosted, linux, x64, pasi-wsl]") == 2
+    assert "runs-on: ubuntu-latest" in branch_hygiene
+    assert branch_hygiene.count("runs-on: ubuntu-latest") == 2
 
 
 def test_obsolete_hosted_pr_audits_are_not_present() -> None:
