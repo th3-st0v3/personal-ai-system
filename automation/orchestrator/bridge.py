@@ -684,6 +684,7 @@ class BridgeState:
     def arm_manual_reload_gate(
         self,
         operation_id: str,
+        response_text: str | None = None,
     ) -> dict[str, Any] | None:
         with self.lock:
             queue = self._load_queue()
@@ -697,6 +698,12 @@ class BridgeState:
                 item["manual_reload_gate"] = True
                 item["manual_reload_gate_armed"] = True
                 item["manual_reload_gate_released"] = False
+                if isinstance(response_text, str) and response_text.strip():
+                    bounded_response = response_text[:MAX_RESPONSE_TEXT_CHARS]
+                    item["response_text"] = bounded_response
+                    item["response_text_available"] = True
+                    item["response_source"] = "manual_reload_gate"
+                    item["response_observed_at"] = time.time()
                 item["updated_at"] = time.time()
                 self._save_queue(queue)
                 return dict(item)
@@ -1834,10 +1841,17 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(operation_id, str) or not operation_id.strip():
             self._send_json({"error": "operation_id is required."}, HTTPStatus.BAD_REQUEST)
             return
+        response_text = payload.get("response_text")
+        if response_text is not None and not isinstance(response_text, str):
+            self._send_json({"error": "response_text must be a string."}, HTTPStatus.BAD_REQUEST)
+            return
+        if isinstance(response_text, str) and len(response_text) > MAX_RESPONSE_TEXT_CHARS:
+            self._send_json({"error": "response_text is too large."}, HTTPStatus.BAD_REQUEST)
+            return
         operation = (
             self.bridge_state.release_manual_reload_gate(operation_id)
             if release
-            else self.bridge_state.arm_manual_reload_gate(operation_id)
+            else self.bridge_state.arm_manual_reload_gate(operation_id, response_text=response_text)
         )
         if operation is None:
             self._send_json(
