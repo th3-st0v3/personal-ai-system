@@ -800,7 +800,7 @@ test('native response wait checks generation before failure-marker DOM scans', (
   const end = content.indexOf('}, TIMEOUTS.generation, DOM_POLL_MS);', start);
   const source = content.slice(start, end);
   assert.ok(source.includes('if (generating()) {'));
-  assert.match(source, /const detected = detectorState();/);
+  assert.ok(source.includes('const detected = detectorState();'));
   assert.ok(source.indexOf('if (generating())') < source.indexOf('const detected = detectorState()'));
   assert.equal(source.includes('if (contextExhausted())') && source.includes('if (usageLimited())'), false);
 });
