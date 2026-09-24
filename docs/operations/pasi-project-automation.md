@@ -133,6 +133,8 @@ This keeps the Project UI responsible for membership automation while the reposi
 
 The mapping is deterministic: FE-Pn uses the corresponding Pn phase schedule and Iteration n+1. The parent frontend roadmap is issue **#318**. Its phase-map checkboxes are reconciled from the Project item’s Status field during each synchronization run.
 
+When an FE phase issue (#319–#341) is **closed**, the workflow uses the explicit `--complete-frontend` path. It verifies that the issue is a frontend phase, sets the corresponding Project Status to **Done**, and synchronizes that phase's checkbox on #318 to **[x]**. Reopening the phase returns Project Status to **Todo** and the checkbox to **[ ]**.
+
 ## Ongoing behavior
 
 When the repository owner creates, edits, labels, or reopens a roadmap issue, the repository workflow receives the event and:
