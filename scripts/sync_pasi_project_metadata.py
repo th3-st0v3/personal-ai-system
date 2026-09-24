@@ -631,12 +631,21 @@ def ensure_schema(project: dict[str, Any]) -> dict[str, Any]:
     if not team or not quarter or not iteration or not status:
         raise RuntimeError("Required PASI Project fields could not be resolved.")
 
-    status_names = {option["name"] for option in status["options"]}
-    missing_statuses = {STATUS_TODO, "In Progress", STATUS_DONE} - status_names
+    status_names = {normalize_status_name(option["name"]) for option in status["options"]}
+    missing_statuses = {
+        normalize_status_name(STATUS_TODO),
+        normalize_status_name("In Progress"),
+        normalize_status_name(STATUS_DONE),
+    } - status_names
     if missing_statuses:
+        display_names = [
+            name
+            for name in (STATUS_TODO, "In Progress", STATUS_DONE)
+            if normalize_status_name(name) in missing_statuses
+        ]
         raise RuntimeError(
             "PASI Project Status field is missing required options: "
-            + ", ".join(sorted(missing_statuses))
+            + ", ".join(display_names)
         )
 
     # Reconcile Team/Quarter options while preserving existing option IDs.
@@ -841,11 +850,22 @@ def resolve_frontend_phase_map() -> tuple[dict[str, int], set[str]]:
     return resolved, invalid
 
 
+def normalize_status_name(name: str) -> str:
+    return re.sub(r"\\s+", " ", name.strip()).casefold()
+
+
 def project_status_option(project: dict[str, Any], status_name: str) -> dict[str, Any]:
     status = field_by_name(project, STATUS_FIELD, "ProjectV2SingleSelectField")
     if not status:
         raise RuntimeError("Required PASI Project Status field could not be resolved.")
-    option = next((option for option in status["options"] if option["name"] == status_name), None)
+    option = next(
+        (
+            option
+            for option in status["options"]
+            if normalize_status_name(option["name"]) == normalize_status_name(status_name)
+        ),
+        None,
+    )
     if not option:
         raise RuntimeError(f"PASI Project Status option {status_name!r} is unavailable.")
     return option
@@ -976,7 +996,11 @@ def apply_roadmap_form_to_item(
     if not status:
         raise RuntimeError("Required PASI Project Status field could not be resolved.")
     status_option = next(
-        (option for option in status["options"] if option["name"] == form.status),
+        (
+            option
+            for option in status["options"]
+            if normalize_status_name(option["name"]) == normalize_status_name(form.status)
+        ),
         None,
     )
     if not status_option:
