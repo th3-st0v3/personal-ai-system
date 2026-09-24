@@ -400,6 +400,26 @@ Todo
     assert not hasattr(form, "development")
 
 
+def test_roadmap_form_parser_stops_at_arbitrary_markdown_headings() -> None:
+    body = """
+### Start Date
+2026-10-04
+
+### End Date
+2026-10-12
+
+### Notes
+This section must not become part of End Date.
+
+### Status
+Todo
+"""
+    form = parse_roadmap_form(body)
+    assert form is not None
+    assert form.end_date == "2026-10-12"
+    assert form.status == "Todo"
+
+
 def test_roadmap_form_schema_excludes_custom_description_and_native_control_text_fields() -> None:
     assert not hasattr(sync_module, "DESCRIPTION_FIELD")
     annotations = sync_module.RoadmapForm.__annotations__
