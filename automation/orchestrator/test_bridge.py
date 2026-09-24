@@ -1777,12 +1777,16 @@ def test_manual_reload_gate_arms_and_releases_without_terminal_transition(tmp_pa
     bridge.claim_next_operation()
     bridge.heartbeat(operation.operation_id)
 
-    armed = bridge.arm_manual_reload_gate(operation.operation_id)
+    response_text = "M2 response survives the tab boundary."
+    armed = bridge.arm_manual_reload_gate(operation.operation_id, response_text=response_text)
     assert armed is not None
     assert armed["status"] == "generating"
     assert armed["manual_reload_gate"] is True
     assert armed["manual_reload_gate_armed"] is True
     assert armed["manual_reload_gate_released"] is False
+    assert armed["response_text"] == response_text
+    assert armed["response_text_available"] is True
+    assert armed["response_source"] == "manual_reload_gate"
 
     released = bridge.release_manual_reload_gate(operation.operation_id)
     assert released is not None
@@ -1805,10 +1809,13 @@ def test_http_manual_reload_gate_routes_are_durable(tmp_path: Path) -> None:
             ("/chat/manual-reload-gate/release", True),
         ):
             connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+            payload = {"operation_id": operation.operation_id}
+            if not released:
+                payload["response_text"] = "M2 HTTP response survives tab recreation."
             connection.request(
                 "POST",
                 path,
-                body=json.dumps({"operation_id": operation.operation_id}).encode("utf-8"),
+                body=json.dumps(payload).encode("utf-8"),
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": "Bearer test-bridge-token",
@@ -1820,6 +1827,9 @@ def test_http_manual_reload_gate_routes_are_durable(tmp_path: Path) -> None:
             assert response.status == 200
             assert payload["operation"]["operation_id"] == operation.operation_id
             assert payload["operation"].get("manual_reload_gate_released") is released
+            if not released:
+                assert payload["operation"].get("response_text") == "M2 HTTP response survives tab recreation."
+                assert payload["operation"].get("response_text_available") is True
     finally:
         server.shutdown()
         server.server_close()
