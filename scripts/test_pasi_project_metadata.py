@@ -34,7 +34,6 @@ def test_project_uses_native_github_scheduling_fields() -> None:
     assert sync_module.END_FIELD == "Target date"
     assert sync_module.QUARTER_FIELD == "Quarter"
     assert sync_module.ITERATION_FIELD == "Iteration"
-    assert sync_module.MILESTONE_FIELD == "Milestone"
 
 
 def test_project_status_option_lookup_is_case_insensitive() -> None:
@@ -101,14 +100,7 @@ def test_canonical_quarter_windows_cover_all_phase_schedules() -> None:
                 quarter=info["quarter"],
             ),
         )
-        assert selected["title"] in {
-            "Quarter 1",
-            "Quarter 2",
-            "Quarter 3",
-            "Quarter 4",
-            "Quarter 5",
-            "Quarter 6",
-        }
+        assert selected["title"] in {"Quarter 1", "Quarter 2", "Quarter 3", "Quarter 4"}
 
 def test_quarter_iteration_selection_uses_project_date_windows() -> None:
     project = {
@@ -345,9 +337,41 @@ def test_checkbox_verifier_detects_drift() -> None:
 
 def test_roadmap_form_parses_structured_fields() -> None:
     body = """
-### Description
-Build the next control-plane surface.
+### Start Date
+2026-10-04
 
+### End Date
+2026-10-12
+
+### Status
+In Progress
+"""
+    form = parse_roadmap_form(body)
+    assert form is not None
+    assert form.start_date == "2026-10-04"
+    assert form.end_date == "2026-10-12"
+    assert form.status == "In Progress"
+    assert not hasattr(form, "description")
+    assert not hasattr(form, "relationship")
+    assert not hasattr(form, "development_milestone")
+    assert not hasattr(form, "development")
+
+
+
+def test_repeating_quarter_schedule_uses_only_quarters_one_through_four() -> None:
+    assert sync_module.QUARTER_SCHEDULE[0] == ("Quarter 1", "2026-09-22", "2026-12-19")
+    assert sync_module.QUARTER_SCHEDULE[1] == ("Quarter 2", "2026-12-20", "2027-03-20")
+    assert sync_module.QUARTER_SCHEDULE[2] == ("Quarter 3", "2027-03-21", "2027-06-19")
+    assert sync_module.QUARTER_SCHEDULE[3] == ("Quarter 4", "2027-06-20", "2027-09-25")
+    assert sync_module.QUARTER_SCHEDULE[4][0] == "Quarter 1"
+    assert sync_module.QUARTER_SCHEDULE[5][0] == "Quarter 2"
+    assert {title for title, _, _ in sync_module.QUARTER_SCHEDULE} == {
+        "Quarter 1", "Quarter 2", "Quarter 3", "Quarter 4"
+    }
+
+
+def test_legacy_native_control_sections_are_not_read_as_automation_inputs() -> None:
+    body = """
 ### Start Date
 2026-10-04
 
@@ -355,7 +379,7 @@ Build the next control-plane surface.
 2026-10-12
 
 ### Relationship
-depends on #273; related to #319
+depends on #273
 
 ### Milestone
 M1
@@ -364,35 +388,33 @@ M1
 create branch: pasi/example
 
 ### Status
-In Progress
+Todo
 """
     form = parse_roadmap_form(body)
     assert form is not None
-    assert form.description == "Build the next control-plane surface."
     assert form.start_date == "2026-10-04"
     assert form.end_date == "2026-10-12"
-    assert form.relationship == "depends on #273; related to #319"
-    assert form.development_milestone == "M1"
-    assert form.development == "create branch: pasi/example"
-    assert form.status == "In Progress"
+    assert form.status == "Todo"
+    assert not hasattr(form, "relationship")
+    assert not hasattr(form, "development_milestone")
+    assert not hasattr(form, "development")
 
+
+def test_roadmap_form_schema_excludes_custom_description_and_native_control_text_fields() -> None:
+    assert not hasattr(sync_module, "DESCRIPTION_FIELD")
+    annotations = sync_module.RoadmapForm.__annotations__
+    assert "description" not in annotations
+    assert "relationship" not in annotations
+    assert "development_milestone" not in annotations
+    assert "development" not in annotations
 
 def test_roadmap_form_rejects_invalid_status() -> None:
     body = """
-### Description
-Example
-
 ### Start Date
 2026-10-04
 
 ### End Date
 2026-10-12
-
-### Relationship
-None
-
-### Development Milestone
-M0
 
 ### Status
 Blocked
@@ -407,20 +429,11 @@ Blocked
 
 def test_roadmap_form_rejects_reversed_dates() -> None:
     body = """
-### Description
-Example
-
 ### Start Date
 2026-10-12
 
 ### End Date
 2026-10-04
-
-### Relationship
-None
-
-### Development Milestone
-M0
 
 ### Status
 Todo
@@ -497,8 +510,7 @@ def test_reopened_frontend_phase_returns_to_todo(monkeypatch) -> None:
                     ],
                 }
             ]
-        },
-    }
+        },    }
     items = {
         319: {"id": "item-319", "status": {"name": "Done"}},
     }
