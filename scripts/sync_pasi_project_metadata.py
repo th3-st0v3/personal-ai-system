@@ -30,10 +30,16 @@ PROJECT_NUMBER_RAW = os.environ.get("PASI_PROJECT_NUMBER", "")
 PROJECT_TITLE = os.environ.get("PASI_PROJECT_TITLE", "").strip()
 MAX_RETRIES = max(1, int(os.environ.get("PASI_PROJECT_RETRIES", "4")))
 
-START_FIELD = "Start Date"
-END_FIELD = "End Date"
+# GitHub Projects creates these as native date fields on user-owned Projects.
+# Reuse them instead of creating duplicate custom fields.
+START_FIELD = "Start date"
+END_FIELD = "Target date"
 TEAM_FIELD = "Team"
-QUARTER_FIELD = "Quarter"
+
+# Project #1 already has a native "Quarter" iteration field. PASI's canonical
+# quarter values (Q3-2026, Q4-2026, ...) are single-select metadata, so keep
+# them in a dedicated field rather than colliding with the native iteration field.
+QUARTER_FIELD = "PASI Quarter"
 ITERATION_FIELD = "Iteration"
 STATUS_FIELD = "Status"
 DESCRIPTION_FIELD = "Description"
