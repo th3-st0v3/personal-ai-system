@@ -1374,7 +1374,6 @@
           .map((marker) => marker.trim())
       : [];
     if (!configured.length) return true;
-    const lines = text.split(/\r?\n/).map((line) => line.trim());
     return configured.some((marker) => text.includes(marker));
   }
 
