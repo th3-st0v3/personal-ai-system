@@ -371,8 +371,8 @@ def sync_issue(issue_number: int) -> None:
     start_field = next(field for field in fields.values() if field["name"].lower() in {"start date", "start"})
     end_field = next(field for field in fields.values() if field["name"].lower() in {"end date", "target date", "end"})
     item_id = add_item(project["id"], content_id)
-    update_item_field(project["id"], item_id, fields["Start Date"]["id"], {"date": metadata.start_date})
-    update_item_field(project["id"], item_id, fields["End Date"]["id"], {"date": metadata.end_date})
+    update_item_field(project["id"], item_id, start_field["id"], {"date": metadata.start_date})
+    update_item_field(project["id"], item_id, end_field["id"], {"date": metadata.end_date})
 
     team_option = next(
         option for option in fields["Team"]["options"] if option["name"] == metadata.team
