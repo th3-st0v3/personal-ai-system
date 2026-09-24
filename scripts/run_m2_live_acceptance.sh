@@ -95,6 +95,13 @@ print(json.dumps({
     "after_create_tab_count": data.get("after_create_tab_count"),
     "requested_url": data.get("requested_url"),
     "created_tab_id": data.get("created_tab_id"),
+    "selected_tab_id": data.get("selected_tab_id"),
+    "selected_tab_url": data.get("selected_tab_url"),
+    "selected_tab_active": data.get("selected_tab_active"),
+    "injection_ready": data.get("injection_ready"),
+    "existing_tab_ids": data.get("existing_tab_ids"),
+    "existing_tab_urls": data.get("existing_tab_urls"),
+    "after_create_tab_count": data.get("after_create_tab_count"),
     "after_create_tab_ids": data.get("after_create_tab_ids"),
     "after_create_tab_urls": data.get("after_create_tab_urls"),
 }))
@@ -104,11 +111,24 @@ PY
 wait_for_tab_provisioning() {
   local deadline=$((SECONDS + 120))
   while (( SECONDS < deadline )); do
-    local result action count
+    local result action count selected_tab_id accepted
     result="$(get_provisioning_observation 2>/dev/null || echo '{}')"
     action="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("action") or "")')"
-    count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("after_create_tab_count") or 0)')"
-    if [[ "$action" == "created" && "$count" == "1" ]]; then
+    count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; d=json.load(sys.stdin); print(d.get("after_create_tab_count") or d.get("existing_tab_count") or 0)')"
+    selected_tab_id="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("selected_tab_id") or "")')"
+    accepted=1
+    case "$action" in
+      created)
+        [[ "$count" == "1" ]] || accepted=0
+        ;;
+      existing_tabs_no_create|race_existing_tabs_no_create)
+        [[ "$count" -ge 1 && -n "$selected_tab_id" ]] || accepted=0
+        ;;
+      *)
+        accepted=0
+        ;;
+    esac
+    if [[ "$accepted" == "1" ]]; then
       fresh="$("$PYTHON" - "$result" "$OUT" <<'PY'
 import json, sys
 from datetime import datetime
@@ -123,17 +143,17 @@ PY
 )"
       if [[ "$fresh" == "1" ]]; then
         PROVISIONING_CREATED_JSON="$result"
-        printf 'Native tab provisioning verified: %s\n' "$result"
+        printf 'Native tab provisioning accepted (existing tab is valid): %s
+' "$result"
         return 0
       fi
     fi
     sleep 2
   done
-  echo "error: native tab provisioning did not produce exactly one created ChatGPT tab within 120 seconds" >&2
+  echo "error: native tab provisioning did not produce a usable ChatGPT tab within 120 seconds" >&2
   echo "last provisioning observation: $(get_provisioning_observation 2>/dev/null || true)" >&2
   return 1
 }
-
 wait_for_active() {
   local deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
@@ -217,7 +237,7 @@ open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+
 PY
 }
 
-echo "Waiting for native PASI tab provisioning: zero ChatGPT tabs -> exactly one created tab..."
+echo "Waiting for a usable PASI ChatGPT tab: existing tab accepted; zero-tab path must create exactly one..."
 PROVISIONING_CREATED_JSON=""
 wait_for_tab_provisioning || exit 2
 export PROVISIONING_CREATED_JSON
@@ -230,6 +250,7 @@ try:
 except json.JSONDecodeError as exc:
     raise SystemExit(f"invalid provisioning evidence: {exc}")
 p=json.load(open(path,encoding="utf-8"))
+p["tab_provisioning_initial"]=provisioning
 p["tab_provisioning_created"]=provisioning
 open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"
 ")
@@ -414,19 +435,26 @@ data=state.get("data") if isinstance(state,dict) and isinstance(state.get("data"
 marker=re.search(r"M2-LIVE-[0-9]{8}-[0-9]{6}-[0-9]+", p["prompt"]).group(0)
 if marker not in str(op.get("response_text") or ""):
     raise SystemExit("final response did not contain the original M2 marker")
-provisioning=p.get("latest_provisioning") or {}
+provisioning=p.get("tab_provisioning_initial") or p.get("tab_provisioning_created") or {}
 provisioning_data=provisioning.get("data") if isinstance(provisioning,dict) else {}
 if not isinstance(provisioning_data,dict):
-    raise SystemExit("M2 requires tab provisioning evidence")
-if provisioning_data.get("action") not in {"created", "existing_tabs_no_create"}:
-    raise SystemExit(f"unexpected provisioning action: {provisioning_data.get('action')!r}")
+    raise SystemExit("M2 requires initial tab provisioning evidence")
+if provisioning_data.get("action") not in {"created", "existing_tabs_no_create", "race_existing_tabs_no_create"}:
+    raise SystemExit(f"unexpected initial provisioning action: {provisioning_data.get('action')!r}")
+pre_url=str(p.get("pre_restart_chat_url") or "")
 if provisioning_data.get("action") == "created":
     if int(provisioning_data.get("after_create_tab_count", 0) or 0) != 1:
         raise SystemExit("M2 provisioning evidence did not prove exactly one created ChatGPT tab")
     requested_url=str(provisioning_data.get("requested_url") or "")
-    pre_url=str(p.get("pre_restart_chat_url") or "")
     if pre_url and requested_url != pre_url:
-        raise SystemExit("M2 provisioning URL did not match the persisted pre-restart conversation URL")
+        raise SystemExit("M2 created-tab provisioning URL did not match the persisted pre-restart conversation URL")
+else:
+    selected_tab_id=provisioning_data.get("selected_tab_id")
+    selected_tab_url=str(provisioning_data.get("selected_tab_url") or "")
+    if not selected_tab_id:
+        raise SystemExit("M2 existing-tab provisioning did not record the selected ChatGPT tab")
+    if pre_url and selected_tab_url != pre_url:
+        raise SystemExit("M2 selected existing ChatGPT tab did not match the persisted pre-restart conversation URL")
 
 if op.get("operation_id") != p["operation_id"]:
     raise SystemExit("final response belonged to a different operation")
