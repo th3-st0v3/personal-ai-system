@@ -28,7 +28,7 @@ BRIDGE_URL = "http://127.0.0.1:8765"
 TOKEN_FILE = Path.home() / ".pasi" / "bridge-token"
 QUEUE_PATH = REPO_ROOT / ".ai" / "queue.json"
 ARTIFACT_DIR = REPO_ROOT / ".runtime" / "acceptance"
-DEFAULT_RUNTIME_DIR = Path.home() / ".pasi" / "overnight"
+DEFAULT_RUNTIME_BASE_DIR = Path.home() / ".pasi" / "m2-acceptance"
 CHAT_URL_RE = re.compile(r"^https://chatgpt\.com/c/")
 PROMPT_OP_RE = re.compile(r"Prompt operation:\s*([A-Za-z0-9._:-]+)")
 RESUME_OP_RE = re.compile(r"Resuming persisted ChatGPT operation:\s*([A-Za-z0-9._:-]+)")
@@ -503,7 +503,7 @@ def start_managed_run(runtime_dir: Path, branch: str, task: str) -> tuple[str, s
         check=False,
     )
     if result.returncode != 0:
-        raise M2AcceptanceError("start", f"start_pasi_168h.sh failed: {result.stdout[-4000:]} {result.stderr[-4000:]}")
+        raise M2AcceptanceError("start", f"start_pasi_168h.sh failed (runtime_dir={runtime_dir}):\nSTDOUT:\n{result.stdout[-6000:]}\nSTDERR:\n{result.stderr[-6000:]}")
     worktree = re.search(r"^Worktree:\s*(.+)$", result.stdout, re.MULTILINE)
     branch_match = re.search(r"^Branch:\s*(.+)$", result.stdout, re.MULTILINE)
     if not worktree or not branch_match:
@@ -540,16 +540,26 @@ def start_bridge(runtime_dir: Path) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the M2 kill/restart live recovery acceptance gate.")
-    parser.add_argument("--runtime-dir", default=os.environ.get("PASI_RUNTIME_DIR", str(DEFAULT_RUNTIME_DIR)))
+    parser.add_argument("--runtime-dir", default=None)
     parser.add_argument("--timeout", type=float, default=900.0)
     args = parser.parse_args()
 
-    runtime_dir = Path(args.runtime_dir).expanduser().resolve()
+    explicit_runtime_dir = args.runtime_dir or os.environ.get("PASI_RUNTIME_DIR")
+    if explicit_runtime_dir:
+        runtime_dir = Path(explicit_runtime_dir).expanduser().resolve()
+        runtime_dir_source = "explicit"
+    else:
+        run_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        runtime_dir = (
+            DEFAULT_RUNTIME_BASE_DIR
+            / f"{run_stamp}-{uuid.uuid4().hex[:8]}"
+        ).resolve()
+        runtime_dir_source = "isolated"
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     artifact_path = ARTIFACT_DIR / f"m2-live-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.json"
     evidence: dict[str, Any] = {
         "gate": "M2", "status": "FAIL", "started_at": utc_now(),
-        "runtime_dir": str(runtime_dir), "artifact": str(artifact_path), "stages": {},
+        "runtime_dir": str(runtime_dir), "runtime_dir_source": runtime_dir_source, "artifact": str(artifact_path), "stages": {},
     }
     stage = "preflight"
 
