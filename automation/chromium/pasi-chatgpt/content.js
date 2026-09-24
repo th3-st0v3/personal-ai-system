@@ -722,7 +722,12 @@
           data: { kind, controller_version: CONTROLLER_VERSION, ...data }
         } }
       });
-    } catch (_) {}
+    } catch (error) {
+      if (isExtensionContextInvalidatedError(error)) {
+        extensionContextInvalidated = true;
+        stopControllerTimers();
+      }
+    }
   }
 
   function reportHealth() {
