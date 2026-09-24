@@ -87,6 +87,15 @@ def build_extension(output: Path = DEFAULT_OUTPUT) -> Path:
             raise FileNotFoundError(source_file)
         shutil.copy2(source_file, output / relative)
 
+    # The native background worker authenticates bridge requests with the
+    # per-user token provisioned at ~/.pasi/bridge-token. Rebuilding the
+    # unpacked staging directory must preserve that runtime credential.
+    home_token = Path.home() / ".pasi" / "bridge-token"
+    staging_token = output / ".bridge-token"
+    if home_token.is_file() and home_token.stat().st_size > 0:
+        shutil.copy2(home_token, staging_token)
+        staging_token.chmod(0o600)
+
     validate_extension_tree(output)
     validate_manifest_files(output)
     return output
