@@ -863,3 +863,27 @@ test('native recovery progress helper is safe to inject more than once into one 
   assert.equal(typeof context.PASI_RECOVERY_PROGRESS, 'object');
   assert.equal(typeof context.PASI_RECOVERY_PROGRESS.decideRecovery, 'function');
 });
+
+
+test('native background selects and bootstraps an existing ChatGPT tab when work is pending', () => {
+  assert.match(background, /function selectChatGptTab\(tabs, targetChatUrl\)/);
+  assert.match(background, /const selectedTab = selectChatGptTab\(existingTabs, targetChatUrl\);/);
+  assert.match(background, /await injectChatGptTab\(selectedTabId, \{ source: 'existing_tab_pending_work' \}\)/);
+  assert.match(background, /selected_tab_id: selectedTabId/);
+  assert.match(background, /selected_tab_url: String\(selectedTab\?\.url \|\| ''\)/);
+  assert.match(background, /injection_ready: injectionReady/);
+  assert.match(background, /return selectedTabId;/);
+});
+
+test('native prompt submission has a bounded fallback after a no-op first strategy', () => {
+  const start = content.indexOf('async function submitPrompt(expected, options = {})');
+  const end = content.indexOf('  function operationPrompt(operation)', start);
+  const source = content.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(source, /const retrySafe = (/);
+  assert.match(source, /attempt < strategies.length/);
+  assert.match(source, /!generating()/);
+  assert.match(source, /newMessageState() === null/);
+  assert.match(source, /composerContainsPrompt(currentBox, expected)/);
+  assert.match(source, /submission acknowledgement not observed after a fired strategy/);
+});
