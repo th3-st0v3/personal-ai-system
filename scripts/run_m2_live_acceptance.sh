@@ -9,12 +9,23 @@ RUNTIME_DIR="${PASI_RUNTIME_DIR:-$HOME/.pasi/overnight}"
 EVIDENCE_DIR="$REPO_ROOT/.runtime/acceptance"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
-mkdir -p "$EVIDENCE_DIR"
+M2_LOCK_FILE="$RUNTIME_DIR/m2-live.lock"
+mkdir -p "$EVIDENCE_DIR" "$RUNTIME_DIR"
 export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+
+exec 9>"$M2_LOCK_FILE"
+if ! flock -n 9; then
+  echo "error: another M2 live acceptance harness is already running; refusing concurrent operation ownership" >&2
+  exit 2
+fi
 
 TOKEN_FILE="$HOME/.pasi/bridge-token"
 [[ -s "$TOKEN_FILE" ]] || { echo "error: bridge token is missing: $TOKEN_FILE" >&2; exit 1; }
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
+
+echo "=== M2 STALE-STATE PREFLIGHT ==="
+bash "$REPO_ROOT/scripts/m2_live_cleanup.sh"
+echo "=== M2 STALE-STATE PREFLIGHT COMPLETE ==="
 
 STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
 PROMPT="M2 live recovery $STAMP: output the integers 1 through 1000, one integer per line, without commentary, then end with exactly M2-LIVE-$STAMP on its own line. PASI_M2_MANUAL_RELOAD_GATE: true"
@@ -57,6 +68,17 @@ print(json.load(open(sys.argv[1], encoding="utf-8"))["operation_id"])
 PY
 )"
 
+cleanup_current_m2_operation() {
+  local status
+  [[ -n "$operation_id" ]] || return 0
+  status="$(get_operation_status 2>/dev/null || true)"
+  case "$status" in
+    queued|claimed|generating|running)
+      curl -fsS --max-time 5         -X POST         -H "Authorization: Bearer $PASI_BRIDGE_TOKEN"         -H "Content-Type: application/json"         "$BRIDGE/chat/failed"         -d "$(printf '%s' "$operation_id" | "$PYTHON" -c 'import json,sys; print(json.dumps({"operation_id":sys.argv[1],"error":"M2 harness exited before completion; cleaning its owned operation"}))')"         >/dev/null 2>&1 || true
+      ;;
+  esac
+}
+trap cleanup_current_m2_operation EXIT INT TERM
 get_operation_status() {
   "$PYTHON" - "$operation_id" <<'PY'
 import json, os, sys, urllib.parse, urllib.request
@@ -299,12 +321,52 @@ open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+
 PY
 update_evidence
 
-echo
-echo "MANUAL STEP: close OR reload the exact ChatGPT tab recorded in $OUT."
-echo "Do not substitute another ChatGPT tab. Press Enter after that exact tab is closed/reloaded."
-read -r
+wait_for_manual_reload_release() {
+  local deadline=$((SECONDS + 600))
+  while (( SECONDS < deadline )); do
+    local result status released
+    result="$("$PYTHON" - "$operation_id" <<'PY'
+import json, os, sys, urllib.parse, urllib.request
+opid=sys.argv[1]
+request=urllib.request.Request(
+    "http://127.0.0.1:8765/operation?operation_id="+urllib.parse.quote(opid, safe=""),
+    headers={"Authorization":"Bearer "+os.environ["PASI_BRIDGE_TOKEN"]},
+    method="GET",
+)
+with urllib.request.urlopen(request, timeout=5) as response:
+    op=(json.loads(response.read().decode()).get("operation") or {})
+print(json.dumps({
+    "status": op.get("status"),
+    "released": op.get("manual_reload_gate_released") is True,
+}))
+PY
+)"
+    status="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("status") or "")')"
+    released="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print("1" if json.load(sys.stdin).get("released") else "0")')"
+    if [[ "$released" == "1" ]]; then
+      return 0
+    fi
+    case "$status" in
+      failed|cancelled|completed)
+        echo "error: M2 operation became $status before manual gate release" >&2
+        return 2
+        ;;
+    esac
+    sleep 2
+  done
+  echo "error: manual reload gate was not released within 600 seconds" >&2
+  return 1
+}
 
-echo "Waiting for browser recovery to requeue and reclaim the exact operation once..."
+echo
+echo "MANUAL STEP: reload OR close/reopen the exact ChatGPT tab recorded in $OUT."
+echo "Do not substitute another ChatGPT tab."
+echo "After the exact tab has been reloaded and is visible again, open another terminal and run:"
+echo "  bash scripts/release_m2_manual_reload_gate.sh $operation_id"
+echo "The M2 harness is waiting for that release; no Enter key is required."
+wait_for_manual_reload_release || exit 2
+
+echo "Manual reload gate released. Waiting for browser recovery to requeue and reclaim the exact operation once..."
 wait_for_exact_reclaim
 "$PYTHON" - "$OUT" <<'PY'
 import json, sys
