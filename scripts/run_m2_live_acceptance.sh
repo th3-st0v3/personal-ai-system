@@ -291,8 +291,7 @@ except json.JSONDecodeError as exc:
 p=json.load(open(path,encoding="utf-8"))
 p["tab_provisioning_initial"]=provisioning
 p["tab_provisioning_created"]=provisioning
-open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"
-")
+open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+"\n")
 PY
 
 echo "Waiting for the exact M2 operation to be claimed/generating..."
