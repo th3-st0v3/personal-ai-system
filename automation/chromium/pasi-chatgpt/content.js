@@ -2377,6 +2377,17 @@
         recovery_action: 'resume_exact_operation',
         observed_status: operation.status
       });
+      if (
+        isM2ManualReloadGate(operation) &&
+        operation.manual_reload_gate_released === true
+      ) {
+        void reportObservation('chatgpt_recovery', {
+          phase: 'reloading',
+          operation_id: operationId,
+          recovery_action: 'resume_exact_operation_after_manual_reload',
+          reload_count: 1
+        });
+      }
 
       if (operation.status === 'completed') {
         scheduleImmediatePoll();
