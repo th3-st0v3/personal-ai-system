@@ -418,8 +418,8 @@
       try {
         const users = userMessages().length;
         const assistantCount = assistants().length;
-        const latest = latestAssistant();
-        return String(users) + ':' + String(assistantCount) + ':' + latest;
+        const responseFingerprint = compact(bounded).slice(-4000);
+        return String(users) + ':' + String(assistantCount) + ':' + responseFingerprint;
       } catch (_) {
         return '';
       }
@@ -443,6 +443,7 @@
           body: {
             operation_id: operationId,
             chat_url: location.href,
+            conversation_signature: conversationSignature,
             response_text: bounded,
             response_text_available: true
           }

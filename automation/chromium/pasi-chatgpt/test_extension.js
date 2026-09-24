@@ -144,9 +144,16 @@ test('native controller keeps response telemetry off the completion critical pat
   assert.match(content, /operation_id: body\.operation_id/);
   assert.match(content, /conversation_signature: body\.conversation_signature/);
   assert.match(content, /void reportObservation\('chatgpt_state'/);
-  assert.match(content, /conversation_signature: conversationSignature\(\)/);
+  assert.match(content, /conversation_signature: body\.conversation_signature/);
   assert.ok(content.includes('}).catch(() => {});'));
   assert.doesNotMatch(content, /await reportObservation\('chatgpt_response'/);
+});
+
+test('native completion signature fingerprints the captured response text', () => {
+  assert.match(content, /function conversationSignature\(responseText = null\)/);
+  assert.match(content, /typeof responseText === 'string' && responseText\.trim\(\)/);
+  assert.match(content, /fingerprintFromText\(responseText\)/);
+  assert.match(content, /conversation_signature: conversationSignature\(responseText\)/);
 });
 
 test('native controller chains the next queued operation immediately after terminal completion', () => {

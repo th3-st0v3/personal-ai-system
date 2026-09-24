@@ -22,6 +22,7 @@ from scripts.pasi_timeout_policy import load_timeout_policy
 HOST = "127.0.0.1"
 PORT = 8765
 MAX_RESPONSE_TEXT_CHARS = 120_000
+MAX_CONVERSATION_SIGNATURE_CHARS = 8_192
 MAX_TRANSIENT_FAILURE_RETRIES = 3
 TIMEOUT_POLICY = load_timeout_policy()
 CLAIM_LEASE_SECONDS = TIMEOUT_POLICY["bridge_claim_lease_seconds"]
@@ -1714,6 +1715,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             "response_text_available",
             False,
         )
+        conversation_signature = payload.get("conversation_signature")
         ack_only = payload.get("ack_only", False)
         timing = payload.get("timing")
 
@@ -1764,6 +1766,19 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 {
                     "error":
                         "response_text_available must be a boolean."
+                },
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        if conversation_signature is not None and (
+            not isinstance(conversation_signature, str)
+            or len(conversation_signature) > MAX_CONVERSATION_SIGNATURE_CHARS
+        ):
+            self._send_json(
+                {
+                    "error":
+                        "conversation_signature must be a bounded string when provided."
                 },
                 HTTPStatus.BAD_REQUEST,
             )
@@ -1822,6 +1837,33 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             and isinstance(response_text, str)
             and bool(response_text.strip())
         )
+
+        # The completion acknowledgement carries the authoritative response text and
+        # signature captured by the native controller. Persist that record synchronously
+        # so /browser/response remains durable even when the page reloads before deferred
+        # telemetry executes.
+        if (
+            existing_operation.get("operation_type") == "prompt"
+            and incoming_response_verified
+            and isinstance(conversation_signature, str)
+            and conversation_signature.strip()
+        ):
+            self.bridge_state.save_browser_observation(
+                {
+                    "schema_version": "pasi-native-chromium-v2",
+                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                    "data": {
+                        "kind": "chatgpt_response",
+                        "operation_id": operation_id,
+                        "active_operation_id": operation_id,
+                        "chat_url": chat_url,
+                        "conversation_signature": conversation_signature,
+                        "response_text": response_text,
+                        "response_text_available": True,
+                    },
+                }
+            )
+
         if existing_operation.get("status") == "completed":
             # A duplicate acknowledgement is idempotent. A later verified
             # response payload is still valid evidence when the original

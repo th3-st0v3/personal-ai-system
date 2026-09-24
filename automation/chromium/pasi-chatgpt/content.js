@@ -622,8 +622,13 @@
     } catch (_) {}
   }
 
-  function conversationSignature() {
-    return `${userMessages().length}:${assistantMessages().length}:${fingerprint()}`;
+  function conversationSignature(responseText = null) {
+    const assistantFingerprint = (
+      typeof responseText === 'string' && responseText.trim()
+    )
+      ? fingerprintFromText(responseText)
+      : fingerprint();
+    return `${userMessages().length}:${assistantMessages().length}:${assistantFingerprint}`;
   }
 
   function recoveryContext() {
@@ -1497,7 +1502,7 @@
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
-      conversation_signature: conversationSignature(),
+      conversation_signature: conversationSignature(responseText),
       response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()),
       ack_only: true
@@ -1535,7 +1540,7 @@
         github_attached: githubAttached,
         reasoning_mode: reasoningMode,
         reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinkingEnabled() === true ? 'available' : 'unknown'),
-        conversation_signature: conversationSignature(),
+        conversation_signature: body.conversation_signature,
         active_operation_id: operationId,
         native_controller: true
       }, 2000);

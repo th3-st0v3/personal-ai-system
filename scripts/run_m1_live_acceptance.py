@@ -153,9 +153,11 @@ def wait_for_durable_response_progression(
     expected_user = previous[0] + 1
     expected_assistant = previous[1] + 1
     deadline = time.monotonic() + timeout_seconds
+    last_state: dict[str, Any] = {}
     while True:
         observation = adapter.read_browser_response_observation()
         state = data_from_observation(observation)
+        last_state = state
         observed_operation_id = state.get("operation_id") or state.get("active_operation_id")
         current_url = str(state.get("chat_url") or "")
         response_text = str(state.get("response_text") or "")
@@ -181,7 +183,10 @@ def wait_for_durable_response_progression(
         if time.monotonic() >= deadline:
             raise RuntimeError(
                 f"prompt {index} did not publish the exact +1/+1 durable response signature "
-                f"within {timeout_seconds:.1f}s"
+                f"within {timeout_seconds:.1f}s; "
+                f"last_observed_operation={last_state.get('operation_id') or last_state.get('active_operation_id')!r}, "
+                f"last_observed_signature={last_state.get('conversation_signature')!r}, "
+                f"marker_present={marker in str(last_state.get('response_text') or '')}"
             )
         time.sleep(poll_seconds)
 
