@@ -71,6 +71,54 @@ with urllib.request.urlopen(req, timeout=5) as response:
 PY
 }
 
+get_provisioning_observation() {
+  "$PYTHON" <<'PY'
+import json, os, urllib.request
+req=urllib.request.Request(
+    "http://127.0.0.1:8765/browser/provisioning",
+    headers={"Authorization":"Bearer "+os.environ["PASI_BRIDGE_TOKEN"]},
+    method="GET",
+)
+try:
+    with urllib.request.urlopen(req, timeout=5) as response:
+        observation=(json.loads(response.read(2000000).decode()).get("observation") or {})
+except Exception:
+    observation={}
+data=observation.get("data") if isinstance(observation,dict) else None
+if not isinstance(data,dict):
+    data={}
+print(json.dumps({
+    "captured_at": observation.get("captured_at") if isinstance(observation,dict) else None,
+    "kind": data.get("kind"),
+    "action": data.get("action"),
+    "existing_tab_count": data.get("existing_tab_count"),
+    "after_create_tab_count": data.get("after_create_tab_count"),
+    "requested_url": data.get("requested_url"),
+    "created_tab_id": data.get("created_tab_id"),
+    "after_create_tab_ids": data.get("after_create_tab_ids"),
+    "after_create_tab_urls": data.get("after_create_tab_urls"),
+}))
+PY
+}
+
+wait_for_tab_provisioning() {
+  local deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    local result action count
+    result="$(get_provisioning_observation 2>/dev/null || echo '{}')"
+    action="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("action") or "")')"
+    count="$(printf '%s' "$result" | "$PYTHON" -c 'import json,sys; print(json.load(sys.stdin).get("after_create_tab_count") or 0)')"
+    if [[ "$action" == "created" && "$count" == "1" ]]; then
+      printf 'Native tab provisioning verified: %s\n' "$result"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "error: native tab provisioning did not produce exactly one created ChatGPT tab within 120 seconds" >&2
+  echo "last provisioning observation: $(get_provisioning_observation 2>/dev/null || true)" >&2
+  return 1
+}
+
 wait_for_active() {
   local deadline=$((SECONDS + 180))
   while (( SECONDS < deadline )); do
@@ -139,6 +187,7 @@ def get(path):
 p["latest_operation"]=get("/operation?operation_id="+urllib.parse.quote(opid,safe="")).get("operation")
 p["latest_health"]=get("/browser/health").get("observation")
 p["latest_state"]=get("/browser/state").get("observation")
+p["latest_provisioning"]=get("/browser/provisioning").get("observation")
 op = p["latest_operation"] or {}
 p.setdefault("stages", []).append({
     "stage": p.pop("_pending_stage", "snapshot"),
@@ -153,8 +202,11 @@ open(path,"w",encoding="utf-8").write(json.dumps(p,indent=2,ensure_ascii=False)+
 PY
 }
 
+echo "Waiting for native PASI tab provisioning: zero ChatGPT tabs -> exactly one created tab..."
+wait_for_tab_provisioning || exit 2
+
 echo "Waiting for the exact M2 operation to be claimed/generating..."
-wait_for_active || { echo "error: M2 operation was not claimed within 180 seconds" >&2; exit 2; }
+wait_for_active || { echo "error: M2 operation was not claimed within 180 seconds after tab provisioning" >&2; exit 2; }
 "$PYTHON" - "$OUT" <<'PY'
 import json, sys
 path=sys.argv[1]
@@ -284,6 +336,20 @@ data=state.get("data") if isinstance(state,dict) and isinstance(state.get("data"
 marker=re.search(r"M2-LIVE-[0-9]{8}-[0-9]{6}-[0-9]+", p["prompt"]).group(0)
 if marker not in str(op.get("response_text") or ""):
     raise SystemExit("final response did not contain the original M2 marker")
+provisioning=p.get("latest_provisioning") or {}
+provisioning_data=provisioning.get("data") if isinstance(provisioning,dict) else {}
+if not isinstance(provisioning_data,dict):
+    raise SystemExit("M2 requires tab provisioning evidence")
+if provisioning_data.get("action") not in {"created", "existing_tabs_no_create"}:
+    raise SystemExit(f"unexpected provisioning action: {provisioning_data.get('action')!r}")
+if provisioning_data.get("action") == "created":
+    if int(provisioning_data.get("after_create_tab_count", 0) or 0) != 1:
+        raise SystemExit("M2 provisioning evidence did not prove exactly one created ChatGPT tab")
+    requested_url=str(provisioning_data.get("requested_url") or "")
+    pre_url=str(p.get("pre_restart_chat_url") or "")
+    if pre_url and requested_url != pre_url:
+        raise SystemExit("M2 provisioning URL did not match the persisted pre-restart conversation URL")
+
 if op.get("operation_id") != p["operation_id"]:
     raise SystemExit("final response belonged to a different operation")
 if op.get("prompt") != p["prompt"] or op.get("idempotency_key") != p["idempotency_key"]:
