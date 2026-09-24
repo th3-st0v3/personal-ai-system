@@ -1732,9 +1732,14 @@
       : [];
     if (!configured.length) return true;
     const lines = text.split(/\r?\n/).map((line) => line.trim());
-    return configured.some((marker) =>
-      lines.some((line) => line === marker || line.startsWith(marker + ':'))
-    );
+    const collapsed = collapseWhitespace(text);
+    return configured.some((marker) => {
+      const normalizedMarker = collapseWhitespace(marker);
+      return lines.some((line) => line === marker || line.startsWith(marker + ':'))
+        || collapsed === normalizedMarker
+        || collapsed.endsWith(' ' + normalizedMarker)
+        || collapsed.endsWith(' ' + normalizedMarker + ':');
+    });
   }
 
   async function waitForResponse(baseline, completionMarkers = [], evidenceContext = null) {
