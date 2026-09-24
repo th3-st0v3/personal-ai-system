@@ -1691,3 +1691,58 @@ def test_runner_capability_report_is_sanitized(tmp_path: Path, monkeypatch: pyte
     assert payload["required_ok"] is True
     assert payload["resources"]["memory_used_mib"] == 100
     assert "secret" not in payload
+
+
+def test_manual_reload_gate_arms_and_releases_without_terminal_transition(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "PASI_M2_MANUAL_RELOAD_GATE: true")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+
+    armed = bridge.arm_manual_reload_gate(operation.operation_id)
+    assert armed is not None
+    assert armed["status"] == "generating"
+    assert armed["manual_reload_gate"] is True
+    assert armed["manual_reload_gate_armed"] is True
+    assert armed["manual_reload_gate_released"] is False
+
+    released = bridge.release_manual_reload_gate(operation.operation_id)
+    assert released is not None
+    assert released["manual_reload_gate_released"] is True
+    assert released["status"] == "generating"
+
+
+def test_http_manual_reload_gate_routes_are_durable(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "PASI_M2_MANUAL_RELOAD_GATE: true")
+    bridge.claim_next_operation()
+    bridge.heartbeat(operation.operation_id)
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeRequestHandler)
+    server.bridge_state = bridge
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        for path, released in (
+            ("/chat/manual-reload-gate/arm", False),
+            ("/chat/manual-reload-gate/release", True),
+        ):
+            connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+            connection.request(
+                "POST",
+                path,
+                body=json.dumps({"operation_id": operation.operation_id}).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer test-bridge-token",
+                },
+            )
+            response = connection.getresponse()
+            payload = json.loads(response.read().decode("utf-8"))
+            connection.close()
+            assert response.status == 200
+            assert payload["operation"]["operation_id"] == operation.operation_id
+            assert payload["operation"].get("manual_reload_gate_released") is released
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
