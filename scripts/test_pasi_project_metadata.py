@@ -383,15 +383,32 @@ In Progress
 
 
 def test_repeating_quarter_schedule_uses_only_quarters_one_through_four() -> None:
-    assert sync_module.QUARTER_SCHEDULE[0] == ("Quarter 1", "2026-09-22", "2026-12-19")
-    assert sync_module.QUARTER_SCHEDULE[1] == ("Quarter 2", "2026-12-20", "2027-03-19")
-    assert sync_module.QUARTER_SCHEDULE[2] == ("Quarter 3", "2027-03-20", "2027-06-19")
-    assert sync_module.QUARTER_SCHEDULE[3] == ("Quarter 4", "2027-06-20", "2027-09-19")
-    assert sync_module.QUARTER_SCHEDULE[4] == ("Quarter 1", "2027-09-20", "2027-12-19")
-    assert sync_module.QUARTER_SCHEDULE[5] == ("Quarter 2", "2027-12-20", "2028-03-19")
+    assert sync_module.QUARTER_SCHEDULE == [
+        ("Quarter 1", "2026-09-22", "2026-12-21"),
+        ("Quarter 2", "2026-12-22", "2027-03-21"),
+        ("Quarter 3", "2027-03-22", "2027-06-21"),
+        ("Quarter 4", "2027-06-22", "2027-09-21"),
+        ("Quarter 1", "2027-09-22", "2027-12-21"),
+        ("Quarter 2", "2027-12-22", "2028-03-21"),
+        ("Quarter 3", "2028-03-22", "2028-06-21"),
+        ("Quarter 4", "2028-06-22", "2028-09-21"),
+    ]
     assert {title for title, _, _ in sync_module.QUARTER_SCHEDULE} == {
         "Quarter 1", "Quarter 2", "Quarter 3", "Quarter 4"
     }
+
+
+def test_quarter_windows_are_contiguous_and_keep_the_21st_end_date() -> None:
+    from datetime import date
+
+    for index, (_, start, end) in enumerate(sync_module.QUARTER_SCHEDULE):
+        start_date = date.fromisoformat(start)
+        end_date = date.fromisoformat(end)
+        assert end_date.day == 21
+        assert end_date >= start_date
+        if index:
+            previous_end = date.fromisoformat(sync_module.QUARTER_SCHEDULE[index - 1][2])
+            assert start_date == date.fromordinal(previous_end.toordinal() + 1)
 
 
 def test_legacy_native_control_sections_are_not_read_as_automation_inputs() -> None:
