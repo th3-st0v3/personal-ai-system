@@ -1338,16 +1338,38 @@
         }
       };
 
-      if (fastPath) {
-        const detected = detectorState();
-        if (detected.auth_required === true) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
-        if (detected.context_exhausted === true) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
-        if (detected.context_exhausted !== true && detected.usage_limited === true) {
-          throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
+      const strategy = strategyNames[attempt - 1] || 'unknown';
+      reportRuntimeTelemetry({
+        event: 'SUBMISSION_ATTEMPT',
+        status: 'started',
+        operation_id: activeOperationId,
+        attempt,
+        strategy,
+        expected_prompt_length: String(expected || '').length
+      });
+
+      try {
+        if (fastPath) {
+          const detected = detectorState();
+          if (detected.auth_required === true) throw new Error('CHAT_AUTH_REQUIRED: interactive authentication/security verification is required');
+          if (detected.context_exhausted === true) throw new Error('CHAT_EXHAUSTED: conversation context is exhausted');
+          if (detected.context_exhausted !== true && detected.usage_limited === true) {
+            throw new Error('CHAT_USAGE_LIMITED: ChatGPT provider usage is exhausted or rate limited');
+          }
+          if (reasoningMode !== 'thinking' && reasoningMode !== 'unavailable') await ensureThinkingBestEffort();
+        } else {
+          await ensurePromptSubmissionReady();
         }
-        if (reasoningMode !== 'thinking' && reasoningMode !== 'unavailable') await ensureThinkingBestEffort();
-      } else {
-        await ensurePromptSubmissionReady();
+      } catch (error) {
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'failure',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          error: runtimeErrorText(error)
+        });
+        throw error;
       }
       const box = handoffBox || composer();
       const composerEmptied = !box || !composerContainsPrompt(box, expected);
@@ -1357,7 +1379,18 @@
       }
 
       let readyBox = box;
-      if (!readyBox) throw new Error('PASI_NATIVE: composer disappeared');
+      if (!readyBox) {
+        const error = new Error('PASI_NATIVE: composer disappeared');
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'failure',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          error: runtimeErrorText(error)
+        });
+        throw error;
+      }
 
       if (!composerContainsPrompt(readyBox, expected)) {
         if (normalize(readText(readyBox))) {
@@ -1372,7 +1405,16 @@
 
       if (!readyBox || !composerContainsPrompt(readyBox, expected)) {
         if (attempt < strategies.length) continue;
-        throw new Error('PASI_NATIVE: composer lost the requested prompt before submission after bounded recovery');
+        const error = new Error('PASI_NATIVE: composer lost the requested prompt before submission after bounded recovery');
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'failure',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          error: runtimeErrorText(error)
+        });
+        throw error;
       }
 
       const immediateButton = sendCandidatesForComposer(readyBox)[0] ||
@@ -1380,21 +1422,21 @@
       const button = immediateButton || await waitForSend(readyBox);
       if (!button) {
         if (attempt < strategies.length) continue;
-        throw new Error('PASI_NATIVE: send control unavailable');
+        const error = new Error('PASI_NATIVE: send control unavailable');
+        reportRuntimeTelemetry({
+          event: 'SUBMISSION_ATTEMPT',
+          status: 'failure',
+          operation_id: activeOperationId,
+          attempt,
+          strategy,
+          error: runtimeErrorText(error)
+        });
+        throw error;
       }
 
       // Once a send strategy has fired, never invoke another send mechanism:
       // the delayed acknowledgement may simply trail the real submission, and
       // a second click can duplicate work.
-      const strategy = strategyNames[attempt - 1] || 'unknown';
-      reportRuntimeTelemetry({
-        event: 'SUBMISSION_ATTEMPT',
-        status: 'started',
-        operation_id: activeOperationId,
-        attempt,
-        strategy,
-        expected_prompt_length: String(expected || '').length
-      });
       const injectedAtMs = Date.now();
       let fired = false;
       try {
@@ -2114,6 +2156,12 @@
           })
         : await bridge('/next-operation');
       if (!response.ok) {
+        reportRuntimeTelemetry({
+          event: 'OPERATION_RECEIVED',
+          status: 'failure',
+          active_operation_id: recoveryOperation,
+          error: response.error || ('next-operation HTTP ' + response.status)
+        });
         if (recoveryOperation) {
           try {
             const current = await bridge(`/operation?operation_id=${encodeURIComponent(recoveryOperation)}`);
