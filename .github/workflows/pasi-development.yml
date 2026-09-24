@@ -98,7 +98,7 @@ jobs:
         run: bash scripts/check_all.sh
 
   desktop:
-    if: ${{ github.event_name == "pull_request" }}
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
