@@ -1,8 +1,11 @@
 (() => {
   'use strict';
 
-  if (globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ === true) return;
+  const controllerStarted = globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ === true;
+  const controllerInvalidated = globalThis.__PASI_NATIVE_CONTROLLER_INVALIDATED__ === true;
+  if (controllerStarted && !controllerInvalidated) return;
   globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = true;
+  globalThis.__PASI_NATIVE_CONTROLLER_INVALIDATED__ = false;
 
   const CONTROLLER_VERSION = '2.4.11';
   // Keep the loaded package version independent of chrome.runtime APIs. Those
@@ -127,7 +130,7 @@
           if (runtimeError) {
             const message = String(runtimeError.message || '');
             if (/extension context invalidated|context invalidated/i.test(message)) {
-              extensionContextInvalidated = true;
+              markExtensionContextInvalidated();
               reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
               return;
             }
@@ -711,6 +714,12 @@
     leaseTimerId = null;
   }
 
+  function markExtensionContextInvalidated() {
+    extensionContextInvalidated = true;
+    globalThis.__PASI_NATIVE_CONTROLLER_INVALIDATED__ = true;
+    stopControllerTimers();
+  }
+
   async function reportObservation(kind, data, timeout = 10000) {
     try {
       await bridge('/browser/observation', {
@@ -724,8 +733,7 @@
       });
     } catch (error) {
       if (isExtensionContextInvalidatedError(error)) {
-        extensionContextInvalidated = true;
-        stopControllerTimers();
+        markExtensionContextInvalidated();
       }
     }
   }
@@ -797,8 +805,7 @@
       }
       } catch (error) {
         if (isExtensionContextInvalidatedError(error)) {
-          extensionContextInvalidated = true;
-          stopControllerTimers();
+          markExtensionContextInvalidated();
         }
       }
     })().finally(() => {
@@ -1984,11 +1991,9 @@
       if (payload?.operation) await processOperation(payload.operation);
       } catch (error) {
         if (isExtensionContextInvalidatedError(error)) {
-          extensionContextInvalidated = true;
-          if (pollTimerId !== null) clearInterval(pollTimerId);
-          if (healthTimerId !== null) clearInterval(healthTimerId);
+          markExtensionContextInvalidated();
           return;
-        }
+          }
         console.warn('[PASI native controller]', error);
         try { await reportHealth(); } catch (_) {}
       }
