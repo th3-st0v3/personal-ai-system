@@ -104,7 +104,8 @@ test('native background only provisions when bridge reports queued or active wor
   assert.match(background, /queue_size/);
   assert.match(background, /active_operation_id/);
   assert.match(background, /\['queued', 'claimed', 'generating', 'running'\]/);
-  assert.match(background, /const pendingWork = bridgeHasPendingWork\(status, health\)/);
+  assert.match(background, /const pendingWork = bridgeHasPendingWork\(status, liveHealth\)/);
+  assert.match(background, /const liveHealth = \([\s\S]*observationAge\(health\.observation\) <= STALE_MS/);
 });
 
 test('native recovery companion expires vanished operations after the bounded grace period', () => {
@@ -438,8 +439,11 @@ test('native controller defers first context-exhaustion failure to bounded recov
   assert.match(content, /void reportObservation\('chatgpt_response'/);
 });
 
-test('background watchdog targets the reported ChatGPT conversation without reload', () => {
-  assert.match(background, /const targetChatUrl = typeof health\.data\.chat_url === 'string'/);
+test('background watchdog targets the fresh active ChatGPT conversation without reload', () => {
+  assert.match(background, /const liveHealth = \(/);
+  assert.match(background, /health\.data\.active_operation_id/);
+  assert.match(background, /typeof health\.data\.chat_url === 'string'/);
+  assert.match(background, /const targetChatUrl = \([\s\S]*liveHealth\?\.data\?\.active_operation_id/);
   assert.match(background, /tabs\.find\(\(tab\) => sameChatConversationUrl\(tab\.url, targetChatUrl\)\)/);
   assert.match(background, /chrome\.tabs\.sendMessage/);
   assert.doesNotMatch(background, /reloadBoundedTab/);
