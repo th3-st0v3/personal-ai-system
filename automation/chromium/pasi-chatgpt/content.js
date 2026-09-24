@@ -755,6 +755,7 @@
         composer_present: composerPresent,
         conversation_signature: conversationSignature(),
         native_controller: true,
+        extension_manifest_version: String(chrome.runtime.getManifest?.().version || ''),
         active_operation_id: activeOperationId
       }, 2000);
 
