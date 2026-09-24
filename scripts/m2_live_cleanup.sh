@@ -227,7 +227,8 @@ runner_pid="$(managed_pid "$RUNTIME_DIR/runner.pid" "pasi_extended_runtime_entry
 supervisor_pid="$(managed_pid "$RUNTIME_DIR/supervisor.pid" "pasi_168h_supervisor.sh" || true)"
 start_pid="$(managed_pid "$RUNTIME_DIR/start.pid" "start_pasi_168h.sh" || true)"
 
-kill_duplicate_processes "same-branch PASI runner" "$runner_pid"   "pasi_extended_runtime_entrypoint.py" "--hours 168" "--worktree $REPO_ROOT"
+kill_duplicate_processes "same-branch PASI runner" "$runner_pid" \
+  "pasi_extended_runtime_entrypoint.py" "--hours 168" "--branch $BRANCH" "--worktree $REPO_ROOT"
 
 kill_duplicate_processes "same-branch PASI supervisor" "$supervisor_pid"   "pasi_168h_supervisor.sh" "--worktree $REPO_ROOT" "--branch $BRANCH"
 
