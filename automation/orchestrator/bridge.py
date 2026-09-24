@@ -681,6 +681,46 @@ class BridgeState:
             status="generating",
         )
 
+    def arm_manual_reload_gate(
+        self,
+        operation_id: str,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self._load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                if item.get("operation_type") != "prompt":
+                    return None
+                if str(item.get("status", "")) not in {"claimed", "generating"}:
+                    return None
+                item["manual_reload_gate"] = True
+                item["manual_reload_gate_armed"] = True
+                item["manual_reload_gate_released"] = False
+                item["updated_at"] = time.time()
+                self._save_queue(queue)
+                return dict(item)
+        return None
+
+    def release_manual_reload_gate(
+        self,
+        operation_id: str,
+    ) -> dict[str, Any] | None:
+        with self.lock:
+            queue = self._load_queue()
+            for item in queue:
+                if item.get("operation_id") != operation_id:
+                    continue
+                if item.get("manual_reload_gate") is not True or item.get("manual_reload_gate_armed") is not True:
+                    return None
+                if item.get("status") in TERMINAL_QUEUE_STATUSES:
+                    return dict(item)
+                item["manual_reload_gate_released"] = True
+                item["updated_at"] = time.time()
+                self._save_queue(queue)
+                return dict(item)
+        return None
+
     @staticmethod
     def _browser_observation_time(observation: dict[str, Any]) -> float | None:
         captured_at = observation.get("captured_at")
@@ -1476,6 +1516,14 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                 self._heartbeat(payload)
                 return
 
+            if path == "/chat/manual-reload-gate/arm":
+                self._manual_reload_gate(payload, release=False)
+                return
+
+            if path == "/chat/manual-reload-gate/release":
+                self._manual_reload_gate(payload, release=True)
+                return
+
             if path == "/chat/finished":
                 self._finished(payload)
                 return
@@ -1709,6 +1757,29 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             },
             HTTPStatus.CREATED,
         )
+
+    def _manual_reload_gate(
+        self,
+        payload: dict[str, Any],
+        *,
+        release: bool,
+    ) -> None:
+        operation_id = payload.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            self._send_json({"error": "operation_id is required."}, HTTPStatus.BAD_REQUEST)
+            return
+        operation = (
+            self.bridge_state.release_manual_reload_gate(operation_id)
+            if release
+            else self.bridge_state.arm_manual_reload_gate(operation_id)
+        )
+        if operation is None:
+            self._send_json(
+                {"error": "operation is not eligible for the requested manual reload gate transition."},
+                HTTPStatus.CONFLICT,
+            )
+            return
+        self._send_json({"operation": operation})
 
     def _heartbeat(
         self,
