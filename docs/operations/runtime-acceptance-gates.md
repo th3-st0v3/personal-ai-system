@@ -72,17 +72,26 @@ Run:
 bash scripts/run_m2_live_acceptance.sh
 ```
 
-Record the printed `operation_id`. Exercise recovery against that exact operation in this order:
+The harness uses the existing managed runtime directory (by default `$HOME/.pasi/overnight`; override with `PASI_RUNTIME_DIR`), starts one isolated 168-hour runner task without pushing its worktree branch, and records the exact operation ID and current ChatGPT conversation signature.
 
-1. Close or reload the exact ChatGPT conversation tab carrying the operation. Never substitute another ChatGPT tab.
-2. Kill the managed bridge process identified by `.runtime/overnight/bridge.pid`, wait for bridge health to return, and verify the same operation ID remains active/recoverable.
-3. Kill the managed runner process identified by `.runtime/overnight/runner.pid`, then resume it with `bash scripts/start_pasi_168h.sh --resume`.
+The sequence is deliberately fail-closed:
 
-The terminal evidence must show the original operation ID was resumed/reclaimed exactly once, the original prompt was not submitted again, and the final response belongs to that same operation.
+1. Preflight requires an authenticated, usable current ChatGPT conversation, a clean managed runner/supervisor, and a bridge PID that PASI can identify before any process is killed.
+2. The harness waits until its exact prompt operation is `claimed` or `generating`.
+3. It pauses for one manual action: close or reload the **exact ChatGPT conversation tab carrying that operation**. No replacement tab or human message is allowed.
+4. It terminates only the managed bridge PID tree, waits for the bridge to become unavailable, restarts the same bridge runtime, and verifies the original operation ID still exists and is non-terminal.
+5. It terminates only the managed runner PID tree. The test sets `PASI_SUPERVISOR_MAX_RESTARTS=0` so the supervisor cannot silently hide the runner kill with an automatic replacement.
+6. It resumes with `bash scripts/start_pasi_168h.sh --resume --no-push` using the exact persisted branch/worktree identity.
+7. Resume evidence must explicitly say `Resuming persisted ChatGPT operation: <original-id>`; a new `Prompt operation` ID or a `Retry prompt operation` is a failure.
+8. Final evidence must show the same operation ID completed, the same ChatGPT conversation URL, the required unique marker, durable `user_messages_added: 1`, verified acknowledgement, and an exact +1 user/+1 assistant conversation-signature progression from the pre-operation baseline.
 
-The generated M2 artifact is `.runtime/acceptance/m2-live-*.json`. Append the final operation JSON, before/after conversation signatures, the exact conversation URL, and bridge/runner PID timestamps.
+The harness writes an evidence artifact even on failure:
 
-If the browser installation has no safe programmatic tab-close mechanism, the exact-tab close/reload is the one manual action in this otherwise scripted sequence; record it explicitly.
+```
+.runtime/acceptance/m2-live-*.json
+```
+
+The artifact records the stage that failed, operation snapshots, baseline/final conversation signatures, exact conversation URL, bridge/runner PID timestamps, resume output, and final response evidence. It must report `status: PASS` before M2 can be marked complete.
 
 ## Close-out rule
 
