@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from .protocol import ChatMessage, ModelProvider
 
 
