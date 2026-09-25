@@ -233,7 +233,8 @@ def build_prompt(task: str, repo_state: str, handoff: Mapping[str, object]) -> s
     return (
         "CURRENT TASK:\n"
         f"{task_text}\n\n"
-        "Work on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n\n"
+        "Work on this task until its acceptance criteria are met. Inspect the relevant code, make the smallest correct change, verify it, and repair any verification failure. Do not start another task.\n"
+        "Return ONLY the completion contract below. Do not repeat prior assistant responses, previous PASI results, meta-discussion, or wrap the contract in Markdown fences.\n\n"
         "RESULT:\n"
         "PASI_RESULT_STATUS: complete|needs_revision|blocked\n"
         "PASI_RESULT_SUMMARY: one concise sentence\n"
@@ -420,15 +421,19 @@ def route_chat(
     github_mode: str,
     *,
     initial_observation: Mapping[str, Any] | None = None,
+    force_new_session: bool = False,
 ) -> tuple[dict[str, object], str | None]:
     # A persisted exact-task operation means the prompt was already queued.
     # Resume it before any routing/replacement logic can create a new chat.
     pending_operation = pending_operation_for_task(handoff, task)
-    if pending_operation:
+    if pending_operation and not force_new_session:
         known_url = valid_chat_url(handoff.get("chat_url"))
         if known_url:
             print(f"Resuming persisted ChatGPT operation: {pending_operation}")
         return handoff, known_url
+
+    if force_new_session:
+        clear_active_operation(handoff)
 
     observed_data = (
         initial_observation.get("data")
@@ -459,8 +464,10 @@ def route_chat(
         handoff["chat_exhausted"] = True
 
     exhausted = handoff.get("chat_exhausted") is True
-    if known_url is None or exhausted:
-        if known_url is not None and exhausted:
+    if known_url is None or exhausted or force_new_session:
+        if force_new_session:
+            print("Creating a fresh ChatGPT conversation for this bounded acceptance run.")
+        elif known_url is not None and exhausted:
             print(f"Creating a new ChatGPT conversation because {known_url} is verified exhausted.")
             record_chat_change(handoff, known_url, None, "verified_chat_exhaustion")
         else:
@@ -530,6 +537,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--repository", default="th3-st0v3/personal-ai-system")
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto", help="auto tries public GitHub first and automatically falls back to the ChatGPT GitHub app when retrieval fails")
+    parser.add_argument("--fresh-chat", action="store_true", help="start a fresh ChatGPT conversation instead of reusing persisted session state")
     args = parser.parse_args()
 
     root = args.repo.expanduser().resolve()
@@ -541,7 +549,7 @@ def main() -> int:
         return 2
 
     task = " ".join(args.task).strip()
-    handoff = load_handoff()
+    handoff = {} if args.fresh_chat else load_handoff()
     adapter = ChatGPTAdapter(UrllibBridgeTransport(), session_id=f"launcher-{uuid.uuid4().hex}", poll_interval_seconds=0.25, max_wait_seconds=args.timeout)
     try:
         print("Checking for a live PASI ChatGPT browser controller...")
@@ -556,6 +564,7 @@ def main() -> int:
             args.repository,
             args.github,
             initial_observation=live_observation,
+            force_new_session=args.fresh_chat,
         )
         # Persist the verified session/context checkpoint before prompt submission so a
         # process interruption cannot discard the replacement chat identity.
