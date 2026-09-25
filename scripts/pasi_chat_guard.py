@@ -314,6 +314,7 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=REPO_ROOT, help="Target repository for bounded local computer evidence")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto")
+    parser.add_argument("--fresh-chat", action="store_true", help="start a fresh ChatGPT conversation for the bounded task")
     args = parser.parse_args()
     repo_root = args.repo.expanduser().resolve()
     if not repo_root.is_dir():
@@ -335,6 +336,8 @@ def main() -> int:
             "--repo",
             str(repo_root),
         ]
+        if args.fresh_chat:
+            forwarded.append("--fresh-chat")
         code, classification, combined = run_child(forwarded, timeout=args.timeout + 15.0, bridge_poll_seconds=POLL_SECONDS)
         response = extract_response_text(combined)
 
