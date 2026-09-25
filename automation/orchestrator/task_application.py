@@ -38,8 +38,6 @@ class TaskRuntimeConfig:
     max_steps: int = 32
     max_observations: int = 64
     max_repeated_observation: int = 2
-    planner_poll_interval_seconds: float = 0.5
-    planner_max_wait_seconds: float = 300.0
 
     def __post_init__(self) -> None:
         if not self.project.strip():
