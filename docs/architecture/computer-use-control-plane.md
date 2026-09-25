@@ -28,11 +28,12 @@ The controller is a deterministic state machine. It does not execute arbitrary d
 
 ## Provider boundaries
 
+Model inference and computer control are separate boundaries.
+
 ```text
-AIAdapter
-  ├── ChatGPT
-  ├── Claude
-  ├── OpenRouter
+ModelProvider
+  ├── Ollama
+  ├── hosted OpenAI-compatible providers
   └── future local/specialized models
 
 ComputerAdapter
@@ -52,6 +53,30 @@ ResearchAdapter
 ```
 
 Core contracts must not contain provider-specific selectors, coordinates, DOM structure, or browser implementation details.
+
+The primary model path is the provider API, not a browser page:
+
+```text
+PASI orchestration
+  ↓
+ModelProvider
+  ↓
+PASI local API contract
+  ↓
+Ollama / future provider
+
+Separately:
+
+PASI authorization
+  ↓
+ComputerAdapter
+  ├── browser
+  ├── desktop
+  ├── terminal / IDE
+  └── future computer interfaces
+```
+
+The browser is therefore a computer capability. It is not the transport used to send prompts to the model. Existing ChatGPT browser code remains useful for computer/browser automation and compatibility, but it is not the model implementation for the core API path.
 
 ## VS Code observation and diagnostics
 
@@ -84,11 +109,11 @@ AI provider / conditional follow-up
 
 A later VS Code integration can publish the same state/diagnostics schema from an extension or accessibility/API layer without changing the core CUCP contracts.
 
-## ChatGPT adapter and completion detection
+## Legacy ChatGPT computer/provider adapter
 
 `ChatGPTAdapter` is a semantic provider adapter over the existing localhost bridge at `127.0.0.1:8765`. It does not duplicate ChatGPT browser transport or embed DOM selectors in Python. The Tampermonkey controller remains the component that interacts with ChatGPT's page.
 
-The adapter exposes:
+The adapter exposes the legacy semantic AI-session operations used by existing browser workflows:
 
 - `new_session()`, which queues a verified `new_chat` operation and waits for the controller's completion acknowledgement;
 - `submit_prompt(prompt)`, which queues a semantic prompt operation;
@@ -263,8 +288,9 @@ The verification telemetry ledger is intentionally bounded. It stores hashes, id
 ## Implementation sequence
 
 1. Contract and state-machine foundation.
-2. Read-only VS Code observation and diagnostics adapter.
-3. ChatGPT adapter integration with robust completion detection.
+2. Provider-neutral model API and local provider adapter.
+3. Read-only VS Code observation and diagnostics adapter.
+4. Computer/browser adapters, including the legacy ChatGPT bridge where still required.
 4. Bounded evidence context and conditional follow-up engine.
 5. Web research evidence adapter.
 6. Independent AI-review contract.
