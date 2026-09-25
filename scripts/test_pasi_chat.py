@@ -96,6 +96,8 @@ class TestPasiChat(unittest.TestCase):
         self.assertIn("PASI_RESULT_STATUS:", prompt)
         self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
+        self.assertIn("Return ONLY the completion contract below.", prompt)
+        self.assertIn("Do not repeat prior assistant responses", prompt)
         self.assertNotIn("REPOSITORY STATE:", prompt)
         self.assertNotIn("PUBLIC GITHUB CONTEXT:", prompt)
         self.assertNotIn("Thinking is required", prompt)
@@ -108,6 +110,33 @@ class TestPasiChat(unittest.TestCase):
             "RESULT:\nPASI_RESULT_STATUS: complete\n"
         )
         self.assertEqual(build_prompt(compiled, "ignored", {"summary": "ignored"}), compiled.rstrip())
+
+
+    def test_route_chat_force_fresh_chat_ignores_pending_operation(self) -> None:
+        task = "run the M0 acceptance"
+        adapter = FakeChatAdapter({
+            "kind": "chatgpt_state",
+            "chat_url": "https://chatgpt.com/c/current",
+            "chat_exhausted": False,
+            "github_attached": False,
+        })
+        handoff = {
+            "active_operation_id": "op-pending",
+            "active_task_fingerprint": task_fingerprint(task),
+            "chat_url": "https://chatgpt.com/c/current",
+        }
+        updated, known_url = route_chat(
+            adapter,
+            handoff,
+            task,
+            "th3-st0v3/personal-ai-system",
+            "public",
+            force_new_session=True,
+        )
+        self.assertEqual(known_url, "https://chatgpt.com/c/new")
+        self.assertEqual(updated["chat_url"], "https://chatgpt.com/c/new")
+        self.assertNotIn("active_operation_id", updated)
+        self.assertIn(("new_session", ""), adapter.calls)
 
 
     def test_post_response_reuses_terminal_ack_chat_url_without_browser_read(self) -> None:
