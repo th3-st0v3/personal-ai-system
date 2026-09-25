@@ -255,7 +255,7 @@ Human approval remains outside the planner. Approval-required actions enter the 
 
 The planner deliberately does not execute anything and cannot grant permission. A model can propose a safe action, propose an approval-required action, or request `stop`; authorization, execution, verification, and completion remain independent deterministic layers.
 
-`AIAdapterModelClient` adapts the existing provider-neutral `AIAdapter` interface into the structured planner seam. That allows the same runner architecture to use ChatGPT, OpenRouter-backed providers, Claude adapters, or future local/task-specific models without changing the control plane.
+`ProviderModelClient` adapts the provider-neutral `ModelProvider` contract into the structured planner seam. The planner therefore consumes model output without knowing whether it came from Ollama, a hosted API, or another future provider.
 
 ## Explicit evidence-based goals
 
