@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
 
-from automation.computer_use.adapters import AIAdapter
 from automation.computer_use.contracts import ActionProposal, Observation, Session
 
 
@@ -21,44 +19,6 @@ class StructuredModelClient(Protocol):
     def complete(self, prompt: str) -> str: ...
 
 
-class AIAdapterModelClient:
-    """Adapt an existing AIAdapter to the strict planner model seam."""
-
-    def __init__(
-        self,
-        adapter: AIAdapter,
-        *,
-        poll_interval_seconds: float = 0.5,
-        max_wait_seconds: float = 300.0,
-        create_session: bool = True,
-    ) -> None:
-        if poll_interval_seconds <= 0 or max_wait_seconds <= 0:
-            raise ValueError("model polling bounds must be positive")
-        self.adapter = adapter
-        self.poll_interval_seconds = poll_interval_seconds
-        self.max_wait_seconds = max_wait_seconds
-        self._session_created = not create_session
-
-    def complete(self, prompt: str) -> str:
-        if not prompt.strip():
-            raise ValueError("prompt is required")
-        if not self._session_created:
-            self.adapter.new_session()
-            self._session_created = True
-
-        self.adapter.submit_prompt(prompt)
-        started = time.monotonic()
-        while True:
-            response = self.adapter.read_response()
-            if response.completion in {"complete", "error", "interrupted", "timeout"}:
-                if response.completion != "complete":
-                    raise RuntimeError(f"model completion state was {response.completion!r}")
-                if not response.response_available:
-                    raise RuntimeError("model completed without a response payload")
-                return response.text
-            if time.monotonic() - started >= self.max_wait_seconds:
-                raise TimeoutError("structured planner model response exceeded configured timeout")
-            time.sleep(self.poll_interval_seconds)
 
 
 @dataclass(frozen=True)
@@ -254,7 +214,6 @@ _ACTION_RISKS: frozenset[str] = frozenset({"safe", "approval_required", "denied"
 
 
 __all__ = [
-    "AIAdapterModelClient",
     "DEFAULT_MAX_FIELD_CHARS",
     "DEFAULT_MAX_MODEL_OUTPUT_CHARS",
     "DEFAULT_MAX_PARAMETERS_CHARS",
