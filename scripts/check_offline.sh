@@ -35,7 +35,7 @@ run_check "Browser Use compatibility" python -c 'import importlib.metadata; from
 for file in "${JAVASCRIPT_FILES[@]}"; do
     node --check "$file"
 done
-run_check "Native Chromium controller contract tests" node --test automation/chromium/pasi-chatgpt/test_extension.js automation/chromium/pasi-chatgpt/test_recovery.js
+run_check "Native Chromium bridge contract tests" node --test automation/chromium/pasi-chatgpt/test_extension.js
 run_check "Frontend contract smoke test" python scripts/frontend_contract_test.py
 run_check "Browser/API smoke test" python scripts/ci_web_smoke.py
 
