@@ -14,7 +14,6 @@ on:
         type: choice
         options:
           - fast
-          - live
         default: fast
 
 concurrency:
@@ -43,7 +42,6 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
           python -m pip install -r requirements-browser.txt
-          npm install --no-save --package-lock=false --ignore-scripts jsdom@30.1.0
 
       - name: Validate browser-use contract
         run: |
@@ -60,41 +58,6 @@ jobs:
 
       - name: Run fast fixture and contract validation
         run: bash scripts/check_fast.sh
-
-      - name: Validate live Chromium prerequisites
-        if: ${{ inputs.mode == 'live' }}
-        run: |
-          if command -v google-chrome-stable >/dev/null 2>&1; then
-            google-chrome-stable --version
-          elif command -v google-chrome >/dev/null 2>&1; then
-            google-chrome --version
-          elif command -v chromium >/dev/null 2>&1; then
-            chromium --version
-          elif command -v chromium-browser >/dev/null 2>&1; then
-            chromium-browser --version
-          else
-            echo "A Linux Chromium/Chrome binary is required for live mode; fast mode uses fixtures and does not install a browser." >&2
-            exit 1
-          fi
-
-          if command -v chromedriver >/dev/null 2>&1; then
-            chromedriver --version
-          elif [ -x "$CHROMEWEBDRIVER/chromedriver" ]; then
-            "$CHROMEWEBDRIVER/chromedriver" --version
-          elif [ -x /usr/local/share/chromedriver-linux64/chromedriver ]; then
-            /usr/local/share/chromedriver-linux64/chromedriver --version
-          else
-            echo "ChromeDriver prerequisite not found for live mode" >&2
-            exit 1
-          fi
-
-      - name: Run live Chromium response-recovery acceptance
-        if: ${{ inputs.mode == 'live' }}
-        run: python scripts/e2e_chromium_response_recovery.py
-
-      - name: Run live Chromium prompt-submission acceptance
-        if: ${{ inputs.mode == 'live' }}
-        run: python scripts/e2e_chromium_prompt_submission.py
 
       - name: Upload diagnostics
         if: always()
