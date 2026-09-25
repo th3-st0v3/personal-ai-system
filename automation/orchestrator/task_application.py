@@ -11,7 +11,8 @@ from automation.computer_use.adapters import (
     ResearchAdapter,
 )
 from automation.computer_use.browser_use_adapter import BrowserUseTaskAdapter
-from automation.computer_use.contracts import Session\nfrom automation.providers.model_client import ProviderModelClient
+from automation.computer_use.contracts import Session
+from automation.providers.model_client import ProviderModelClient
 from automation.providers.protocol import ModelProvider
 from automation.computer_use.controller import ControlPlane
 
@@ -47,15 +48,14 @@ class TaskRuntimeConfig:
             raise ValueError("max_duration_seconds must be positive")
         if self.max_steps <= 0 or self.max_observations <= 0 or self.max_repeated_observation <= 0:
             raise ValueError("task runner bounds must be positive")
-        if self.planner_poll_interval_seconds <= 0 or self.planner_max_wait_seconds <= 0:
-            raise ValueError("planner polling bounds must be positive")
 
 
 @dataclass(frozen=True)
 class TaskRuntimeDependencies:
     """Provider implementations supplied by the application, not selected by the model."""
 
-    ai: AIAdapter
+    model: ModelProvider
+    ai: AIAdapter | None = None
     ide: IDEAdapter | None = None
     github: GitHubAdapter | None = None
     research: ResearchAdapter | None = None
@@ -97,12 +97,10 @@ class ConfiguredTaskRunFactory(TaskRunFactory):
         goal = self.goal_factory(prompt, session)
         if not isinstance(goal, TaskGoal):
             raise TypeError("goal_factory must return TaskGoal")
-        planner_model = AIAdapterModelClient(
-            self.dependencies.ai,
-            poll_interval_seconds=self.config.planner_poll_interval_seconds,
-            max_wait_seconds=self.config.planner_max_wait_seconds,
+        planner: TaskPlanner = StructuredTaskPlanner(
+            session,
+            ProviderModelClient(self.dependencies.model),
         )
-        planner: TaskPlanner = StructuredTaskPlanner(session, planner_model)
         executor: WorkerExecutor = SemanticExecutor(
             ai=self.dependencies.ai,
             ide=self.dependencies.ide,
