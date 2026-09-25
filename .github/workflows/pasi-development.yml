@@ -55,10 +55,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-
       - name: Install development dependencies
         run: |
           python -m pip install -r requirements.txt
@@ -89,9 +85,13 @@ jobs:
       - name: Run hybrid planner tests
         run: python -m pytest -q scripts/test_pasi_hybrid_planner.py
 
-      - name: Run DOM-free browser bridge contract tests
+      - name: Run provider API contract tests
         run: |
-          node --test automation/chromium/pasi-chatgpt/test_extension.js
+          python -m pytest -q \
+            automation/providers/test_local_api.py \
+            automation/providers/test_model_client.py \
+            automation/orchestrator/test_task_application.py \
+            automation/orchestrator/test_task_planner_and_goal.py
 
       - name: Run canonical validation
         run: bash scripts/check_all.sh
