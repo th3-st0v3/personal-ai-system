@@ -251,7 +251,7 @@ Human approval remains outside the planner. Approval-required actions enter the 
 
 ## Structured model planning
 
-`StructuredTaskPlanner` is the model-facing planning seam. It accepts an `AIAdapter`-compatible model client and requests one semantic action in strict JSON. The planner validates the returned session ID, action kind, declared risk, action fields, parameter size, and output size before producing an `ActionProposal`.
+`StructuredTaskPlanner` is the model-facing planning seam. It accepts a `StructuredModelClient` and requests one semantic action in strict JSON. The planner validates the returned session ID, action kind, declared risk, action fields, parameter size, and output size before producing an `ActionProposal`.
 
 The planner deliberately does not execute anything and cannot grant permission. A model can propose a safe action, propose an approval-required action, or request `stop`; authorization, execution, verification, and completion remain independent deterministic layers.
 
@@ -291,7 +291,7 @@ The verification telemetry ledger is intentionally bounded. It stores hashes, id
 2. Provider-neutral model API and local provider adapter.
 3. Read-only VS Code observation and diagnostics adapter.
 4. Computer/browser adapters, including the legacy ChatGPT bridge where still required.
-4. Bounded evidence context and conditional follow-up engine.
+14. Bounded evidence context and conditional follow-up engine.
 5. Web research evidence adapter.
 6. Independent AI-review contract.
 7. Browser Use integration with challenge detection and safe fallback recovery.
