@@ -218,7 +218,7 @@ PY
 fi
 
 RESPONSE_FILE="$EVIDENCE_DIR/m0-live-response.txt"
-"$PYTHON" scripts/pasi_chat_guard.py "$TASK" --github public --timeout 3600 --repo "$WORKTREE" > >(tee "$RESPONSE_FILE" | tee -a "$LOG") 2>&1
+"$PYTHON" scripts/pasi_chat_guard.py "$TASK" --fresh-chat --github public --timeout 3600 --repo "$WORKTREE" > >(tee "$RESPONSE_FILE" | tee -a "$LOG") 2>&1
 
 "$PYTHON" - "$WORKTREE" "$BRANCH" "$BEFORE_COMMIT" "$TASK" "$RESPONSE_FILE" "$LOG" "$EVIDENCE_DIR" <<'PY'
 import json
