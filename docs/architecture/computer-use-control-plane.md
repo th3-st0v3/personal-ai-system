@@ -291,15 +291,15 @@ The verification telemetry ledger is intentionally bounded. It stores hashes, id
 2. Provider-neutral model API and local provider adapter.
 3. Read-only VS Code observation and diagnostics adapter.
 4. Computer/browser adapters, including the legacy ChatGPT bridge where still required.
-14. Bounded evidence context and conditional follow-up engine.
-5. Web research evidence adapter.
-6. Independent AI-review contract.
-7. Browser Use integration with challenge detection and safe fallback recovery.
-8. GitHub API/connector plus UI fallback adapter.
-9. Persistent background worker with pause/resume/recovery.
-10. Simulation provenance, verification telemetry, and worker post-execution verification.
-11. Bounded self-directed task runner with deterministic completion gates.
-12. Provider-neutral structured model planner and explicit evidence-based task goals.
-13. Task-specific engineering verifiers, replay, and diagnosis workflows.
+5. Bounded evidence context and conditional follow-up engine.
+6. Web research evidence adapter.
+7. Independent AI-review contract.
+8. Browser Use integration with challenge detection and safe fallback recovery.
+9. GitHub API/connector plus UI fallback adapter.
+10. Persistent background worker with pause/resume/recovery.
+11. Simulation provenance, verification telemetry, and worker post-execution verification.
+12. Bounded self-directed task runner with deterministic completion gates.
+13. Provider-neutral structured model planner and explicit evidence-based task goals.
+14. Task-specific engineering verifiers, replay, and diagnosis workflows.
 
 The system should not skip the contract, authorization, and verification layers in order to reach end-to-end UI automation faster; those layers are what make later autonomy replaceable, testable, and governable.
