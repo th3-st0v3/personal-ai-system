@@ -11,14 +11,14 @@ from automation.computer_use.adapters import (
     ResearchAdapter,
 )
 from automation.computer_use.browser_use_adapter import BrowserUseTaskAdapter
-from automation.computer_use.contracts import Session
+from automation.computer_use.contracts import Session\nfrom automation.providers.protocol import ModelProvider
 from automation.computer_use.controller import ControlPlane
 
 from .background_worker import BackgroundWorker, WorkerExecutor
 from .semantic_executor import CommandAdapter, SemanticExecutor
 from .state import StateManager
 from .task_goal import EvidenceGoalChecker, TaskGoal
-from .task_planner import AIAdapterModelClient, StructuredTaskPlanner
+from .task_planner import StructuredTaskPlanner
 from .task_runner import BoundedTaskRunner, CompletionChecker, TaskPlanner
 from .task_service import TaskRunFactory
 from .verification_telemetry import VerificationTelemetry
