@@ -11,7 +11,8 @@ from automation.computer_use.adapters import (
     ResearchAdapter,
 )
 from automation.computer_use.browser_use_adapter import BrowserUseTaskAdapter
-from automation.computer_use.contracts import Session\nfrom automation.providers.protocol import ModelProvider
+from automation.computer_use.contracts import Session\nfrom automation.providers.model_client import ProviderModelClient
+from automation.providers.protocol import ModelProvider
 from automation.computer_use.controller import ControlPlane
 
 from .background_worker import BackgroundWorker, WorkerExecutor
