@@ -1,9 +1,22 @@
 'use strict';
+const fs = require('node:fs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const vm = require('node:vm');
 const { RECOVERY_DEFAULTS: D, resolveRecoveryConfig, normalizeIndicator, ProgressTracker, decideRecovery, attachProgressObserver } = require('./recovery_progress.js');
 
 const MIN = 60 * 1000;
+
+test('9. progress support script is safe to evaluate twice in one page realm', () => {
+  const source = fs.readFileSync(require.resolve('./recovery_progress.js'), 'utf8');
+  const context = vm.createContext({});
+  vm.runInContext(source, context);
+  const first = context.PASI_RECOVERY_PROGRESS;
+  assert.ok(first);
+  assert.doesNotThrow(() => vm.runInContext(source, context));
+  assert.strictEqual(context.PASI_RECOVERY_PROGRESS, first);
+});
+
 const base = { generating: true, connectionError: false, securityChallenge: false, reloadCount: 0 };
 
 // Drive a simulated timeline minute by minute; returns the first recover decision or null.
