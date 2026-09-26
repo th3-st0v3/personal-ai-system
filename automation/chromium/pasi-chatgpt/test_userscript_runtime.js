@@ -26,7 +26,7 @@ function loadUtils() {
 
 test('native userscript manifest enables MV3 userScripts with optional least-privilege grants', () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.minimum_chrome_version, '133');
+  assert.equal(manifest.minimum_chrome_version, '135');
   assert.ok(manifest.permissions.includes('userScripts'));
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(Array.isArray(manifest.optional_permissions));
@@ -148,5 +148,6 @@ test('bridge only forwards authenticated main-world RPCs to the extension', () =
   assert.match(bridgeSource, /pasi-userscript-main-response/);
   assert.match(bridgeSource, /pasi-userscript-bridge-init/);
   assert.match(bridgeSource, /pasi-userscript-bridge/);
+  assert.match(bridgeSource, /PASI userscript extension context invalidated/);
   assert.match(bridgeSource, /PASI userscript bridge authentication failed/);
 });
