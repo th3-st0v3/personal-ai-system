@@ -18,6 +18,8 @@ EXTENSION_FILES = (
     "timeout-config.js",
     "timeout-policy.json",
     "background.js",
+    "userscript-runtime.js",
+    "userscript-bridge.js",
     "detectors.js",
     "content.js",
     "recovery_progress.js",
