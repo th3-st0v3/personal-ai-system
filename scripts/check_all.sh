@@ -80,64 +80,44 @@ run_check() {
 
 trap 'status=$?; printf "\nVALIDATION FAILED (exit %s)\n" "$status" >&2; exit "$status"' ERR
 
-# Discover working-tree validation targets while excluding dependency,
-# generated, cache, and runtime directories. This automatically covers new
-# source, test, and JavaScript files without requiring script edits.
-pruned_dirs=(
-    ./.git
-    ./.venv
-    ./venv
-    ./env
-    ./.tox
-    ./.nox
-    ./nox
-    ./node_modules
-    ./__pycache__
-    ./.pytest_cache
-    ./.mypy_cache
-    ./.ruff_cache
-    ./.pyright
-    ./.cache
-    ./.next
-    ./.turbo
-    ./.parcel-cache
-    ./.runtime
-    ./runtime
-    ./dist
-    ./build
-    ./coverage
-    ./htmlcov
-    ./generated
-    ./artifacts
-    ./tmp
-    ./site-packages
-    ./vendor
-    ./third_party
-)
+# Discover repository validation targets from tracked files. This keeps the
+# canonical gate scoped to the repository itself and ignores unrelated local
+# workspaces or ignored runtime trees sitting beside/in the checkout.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    mapfile -d '' TRACKED_FILES < <(git ls-files -z)
+else
+    mapfile -d '' TRACKED_FILES < <(
+        find . -type d \( -name '.git' -o -name '.venv' -o -name 'venv' -o -name 'node_modules' \) -prune -o -type f -print0 | sort -z
+    )
+fi
 
-find_expr=(find .)
-for dir in "${pruned_dirs[@]}"; do
-    find_expr+=( -type d -name "${dir#./}" -prune -o )
+PYTHON_FILES=()
+PYTHON_TEST_FILES=()
+JAVASCRIPT_FILES=()
+JAVASCRIPT_TEST_FILES=()
+SHELL_FILES=()
+JSON_FILES=()
+
+for file in "${TRACKED_FILES[@]}"; do
+    case "$file" in
+        *.py)
+            PYTHON_FILES+=("./$file")
+            if [[ "$file" == */test_*.py || "$file" == *_test.py ]]; then
+                PYTHON_TEST_FILES+=("./$file")
+            fi
+            ;;
+        *.js|*.mjs|*.cjs)
+            JAVASCRIPT_FILES+=("./$file")
+            if [[ "$file" == */test_*.js || "$file" == */*_test.js || "$file" == *.test.js || "$file" == *.spec.js ||
+                  "$file" == */test_*.mjs || "$file" == */*_test.mjs || "$file" == *.test.mjs || "$file" == *.spec.mjs ||
+                  "$file" == */test_*.cjs || "$file" == */*_test.cjs || "$file" == *.test.cjs || "$file" == *.spec.cjs ]]; then
+                JAVASCRIPT_TEST_FILES+=("./$file")
+            fi
+            ;;
+        *.sh) JSON_FILES+=() ; SHELL_FILES+=("./$file") ;;
+        *.json) JSON_FILES+=("./$file") ;;
+    esac
 done
-find_expr+=( -type f )
-mapfile -d '' PYTHON_FILES < <(
-    "${find_expr[@]}" -name '*.py' -print0 | sort -z
-)
-mapfile -d '' PYTHON_TEST_FILES < <(
-    "${find_expr[@]}" \( -name 'test_*.py' -o -name '*_test.py' \) -print0 | sort -z
-)
-mapfile -d '' JAVASCRIPT_FILES < <(
-    "${find_expr[@]}" \( -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) -print0 | sort -z
-)
-mapfile -d '' JAVASCRIPT_TEST_FILES < <(
-    "${find_expr[@]}" \( -name 'test_*.js' -o -name '*_test.js' -o -name '*.test.js' -o -name '*.spec.js' -o -name 'test_*.mjs' -o -name '*_test.mjs' -o -name '*.test.mjs' -o -name '*.spec.mjs' -o -name 'test_*.cjs' -o -name '*_test.cjs' -o -name '*.test.cjs' -o -name '*.spec.cjs' \) -print0 | sort -z
-)
-mapfile -d '' SHELL_FILES < <(
-    "${find_expr[@]}" -name '*.sh' -print0 | sort -z
-)
-mapfile -d '' JSON_FILES < <(
-    "${find_expr[@]}" -name '*.json' -print0 | sort -z
-)
 
 printf '\nDiscovered %d Python source files, %d Python test files, %d JavaScript files, %d JavaScript test suites, %d shell files, %d JSON files\n' \
     "${#PYTHON_FILES[@]}" "${#PYTHON_TEST_FILES[@]}" "${#JAVASCRIPT_FILES[@]}" "${#JAVASCRIPT_TEST_FILES[@]}" "${#SHELL_FILES[@]}" "${#JSON_FILES[@]}"
