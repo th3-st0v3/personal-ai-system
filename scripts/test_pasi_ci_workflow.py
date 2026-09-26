@@ -25,6 +25,15 @@ class TestPasiCIWorkflow(unittest.TestCase):
         self.assertIn("scripts/e2e_chromium_prompt_submission.py", workflow)
         self.assertNotIn("[self-hosted, linux, x64, pasi-wsl]", workflow)
 
+    def test_full_repository_test_entrypoint_uses_canonical_gate(self) -> None:
+        script = (ROOT / "scripts" / "test_full_repo.sh").read_text(encoding="utf-8")
+        self.assertIn('bash "$SCRIPT_DIR/check_all.sh"', script)
+        check_all = (ROOT / "scripts" / "check_all.sh").read_text(encoding="utf-8")
+        self.assertIn("Pylance-compatible static type check", check_all)
+        self.assertIn("--outputjson", check_all)
+        self.assertIn('"generalDiagnostics"', check_all)
+        self.assertIn('"information"', check_all)
+
     def test_authoritative_fast_lane_does_not_duplicate_the_full_quality_sweep(self) -> None:
         script = (ROOT / "scripts" / "check_fast.sh").read_text(encoding="utf-8")
         self.assertNotIn("check_all.sh", script)
