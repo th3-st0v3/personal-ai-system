@@ -612,8 +612,14 @@ async function applyNetworkRules(script, data) {
   const key = DNR_STORE_PREFIX + script.id;
   const stored = await chrome.storage.local.get(key);
   const existingMap = Array.isArray(stored && stored[key]) ? stored[key] : [];
-  const removeDnrIds = existingMap.filter((item) => removeLocalIds.includes(Number(item.localId))).map((item) => Number(item.dnrId));
-  const keepMap = existingMap.filter((item) => !removeLocalIds.includes(Number(item.localId)));
+  const replacedLocalIds = addRules.map((rule) => Number(rule && rule.id)).filter(Number.isInteger);
+  const removeDnrIds = existingMap
+    .filter((item) => removeLocalIds.includes(Number(item.localId)) || replacedLocalIds.includes(Number(item.localId)))
+    .map((item) => Number(item.dnrId));
+  const keepMap = existingMap.filter((item) =>
+    !removeLocalIds.includes(Number(item.localId)) &&
+    !replacedLocalIds.includes(Number(item.localId))
+  );
 
   const dynamic = typeof chrome.declarativeNetRequest.getDynamicRules === 'function'
     ? await chrome.declarativeNetRequest.getDynamicRules()
@@ -632,12 +638,12 @@ async function applyNetworkRules(script, data) {
     if (!rule.condition || !rule.action || typeof rule.action.type !== 'string') {
       throw new Error('GM_webRequest rule requires condition and action');
     }
-    let dnrId = 0;
-    for (let salt = 0; salt < 100; salt += 1) {
+    const previous = existingMap.find((item) => Number(item.localId) === localId);
+    let dnrId = previous ? Number(previous.dnrId) : 0;
+    for (let salt = 0; !dnrId && salt < 100; salt += 1) {
       const candidate = localDnrId(script.id, localId, salt);
       if (!occupied.has(candidate) && !newMap.some((item) => Number(item.dnrId) === candidate)) {
         dnrId = candidate;
-        break;
       }
     }
     if (!dnrId) throw new Error('unable to allocate a unique DNR rule id');
@@ -645,15 +651,14 @@ async function applyNetworkRules(script, data) {
     newMap.push({localId, dnrId});
   }
 
-  const allRuleIds = [...new Set([...removeDnrIds, ...normalized.map((rule) => rule.id)])];
-  if (allRuleIds.length > MAX_NETWORK_RULES * 2) throw new Error('userscript DNR state exceeds the bounded rule limit');
+  if (newMap.length > MAX_NETWORK_RULES) throw new Error('userscript DNR state exceeds the bounded rule limit');
 
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds:[...new Set(removeDnrIds)],
     addRules:normalized
   });
   await chrome.storage.local.set({[key]:newMap});
-  return {ruleIds:normalized.map((rule) => newMap.find((item) => item.localId === rule.id)?.dnrId || rule.id)};
+  return {ruleIds:normalized.map((rule) => Number(rule.id))};
 }
 
 async function managementInstall(source, existing, allowUnsafeWorld) {
