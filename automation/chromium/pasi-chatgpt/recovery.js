@@ -1,8 +1,10 @@
 (() => {
   'use strict';
 
-  if (globalThis.__PASI_NATIVE_RECOVERY_STARTED__ === true) return;
-  globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = true;
+  const previousRecovery = globalThis.__PASI_NATIVE_RECOVERY_STARTED__;
+  if (previousRecovery && typeof previousRecovery.dispose === 'function') {
+    try { previousRecovery.dispose(); } catch (_) {}
+  }
 
   const ACTIVE_KEY = 'pasi:active-operation';
   const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature';
@@ -26,6 +28,8 @@
   const RECOVERY_VERSION = '1.0.6';
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
   let inspecting = false;
+  let recoveryContextInvalidated = false;
+  let inspectionTimerId = null;
   let progressTracker = null;
   let progressOperationId = null;
   let progressObserverHandle = null;
@@ -37,7 +41,28 @@
   const compact = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function isExtensionContextInvalidatedError(error) {
+    return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
+  }
+
+  function disposeRecovery() {
+    recoveryContextInvalidated = true;
+    if (inspectionTimerId !== null) {
+      clearInterval(inspectionTimerId);
+      inspectionTimerId = null;
+    }
+    try { progressObserverHandle?.detach?.(); } catch (_) {}
+    progressObserverHandle = null;
+  }
+
+  globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = Object.freeze({
+    dispose: disposeRecovery
+  });
+
   async function bridge(path, options = {}) {
+    if (recoveryContextInvalidated) {
+      throw new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page');
+    }
     if (!globalThis.chrome?.runtime?.sendMessage) {
       throw new Error('PASI_NATIVE: extension messaging API unavailable');
     }
@@ -61,7 +86,17 @@
           clearTimeout(timerId);
           const runtimeError = chrome.runtime.lastError;
           if (runtimeError) {
-            reject(new Error('PASI_NATIVE: extension bridge error: ' + runtimeError.message));
+            const message = String(runtimeError.message || '');
+            if (/extension context invalidated|context invalidated/i.test(message)) {
+              recoveryContextInvalidated = true;
+              if (inspectionTimerId !== null) {
+                clearInterval(inspectionTimerId);
+                inspectionTimerId = null;
+              }
+              reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
+              return;
+            }
+            reject(new Error('PASI_NATIVE: extension bridge error: ' + message));
             return;
           }
           if (!response || typeof response !== 'object') {
@@ -82,6 +117,15 @@
         if (settled) return;
         settled = true;
         clearTimeout(timerId);
+        if (isExtensionContextInvalidatedError(error)) {
+          recoveryContextInvalidated = true;
+          if (inspectionTimerId !== null) {
+            clearInterval(inspectionTimerId);
+            inspectionTimerId = null;
+          }
+          reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
+          return;
+        }
         reject(error);
       }
     });
@@ -1039,6 +1083,7 @@
   }
 
   async function start() {
+    if (recoveryContextInvalidated) return;
     await report('chatgpt_recovery', {
       phase: 'started',
       recovery_action: 'monitor',
@@ -1065,9 +1110,23 @@
         });
       }
     }
-    setInterval(() => { runInspection().catch(() => {}); }, POLL_MS);
+    if (recoveryContextInvalidated) return;
+    inspectionTimerId = setInterval(() => {
+      if (recoveryContextInvalidated) return;
+      runInspection().catch((error) => {
+        if (isExtensionContextInvalidatedError(error)) {
+          recoveryContextInvalidated = true;
+          disposeRecovery();
+        }
+      });
+    }, POLL_MS);
     await runInspection();
   }
 
-  start().catch(() => {});
+  start().catch((error) => {
+    if (isExtensionContextInvalidatedError(error)) {
+      recoveryContextInvalidated = true;
+      disposeRecovery();
+    }
+  });
 })();
