@@ -302,7 +302,7 @@ function createBootstrap(script) {
     '    getValue: async (key, fallback) => { assertGrant("storage"); return (await rpc("storage.get", {key, fallback})).value; },',
     '    setValue: async (key, value) => { assertGrant("storage"); return rpc("storage.set", {key, value}); },',
     '    deleteValue: async (key) => { assertGrant("storage"); return rpc("storage.delete", {key}); },',
-    '    listValues: async () => { assertGrant("storage"); return (await rpc("storage.list")).keys; },'
+    '    listValues: async () => { assertGrant("storage"); return (await rpc("storage.list")).keys; },',
     '    fetch: async (url, options) => { assertGrant("fetch"); return rpc("fetch", {url, options:options || {}}); },',
     '    webRequest: async (request) => { assertGrant("webRequest"); return rpc(request && (request.addRules || request.removeRuleIds) ? "webRequest.rules" : "fetch", request || {}); },',
     '    xmlHttpRequest: async (request) => { assertGrant("xmlhttprequest"); return rpc("fetch", request || {}); },',
