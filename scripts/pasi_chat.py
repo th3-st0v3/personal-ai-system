@@ -480,8 +480,16 @@ def route_chat(
     pending_operation = pending_operation_for_task(handoff, task)
     if pending_operation and not force_new_session:
         known_url = valid_chat_url(handoff.get("chat_url"))
+        if overnight_mode and not known_url:
+            raise RuntimeError(
+                "NEW_CHAT_BLOCKED: a pending operation has no verified current chat URL; "
+                "overnight mode refuses to create or guess a replacement conversation."
+            )
         if known_url:
             print(f"Resuming persisted ChatGPT operation: {pending_operation}")
+            if overnight_mode:
+                state = browser_state(adapter)
+                verify_thinking_mode(adapter, state, handoff)
         return handoff, known_url
 
     if force_new_session:
