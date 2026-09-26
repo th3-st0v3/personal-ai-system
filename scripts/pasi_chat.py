@@ -413,6 +413,57 @@ def record_chat_change(handoff: dict[str, object], previous_url: str | None, new
     handoff["last_chat_change_reason"] = reason
 
 
+def thinking_mode_from_state(state: Mapping[str, Any]) -> bool | None:
+    """Return the observed Thinking state; None means the controller did not expose it yet."""
+    if state.get("thinking_enabled") is True or state.get("thinking") is True:
+        return True
+    mode = state.get("reasoning_mode")
+    if isinstance(mode, str):
+        normalized = mode.strip().casefold()
+        if normalized in {"thinking", "think"}:
+            return True
+        if normalized in {"instant", "auto", "off", "disabled", "unavailable"}:
+            return False
+    return None
+
+
+def verified_chat_exhaustion(state: Mapping[str, Any], handoff: Mapping[str, object]) -> bool:
+    """Only an observed quota/context exhaustion permits overnight chat rollover."""
+    return any(
+        state.get(key) is True
+        for key in (
+            "chat_exhausted",
+            "conversation_context_exhausted",
+            "provider_usage_limited",
+            "usage_limited",
+        )
+    ) or handoff.get("chat_exhausted") is True
+
+
+def verify_thinking_mode(
+    adapter: ChatGPTRoutingAdapter,
+    state: dict[str, Any],
+    handoff: dict[str, object],
+) -> dict[str, Any]:
+    """Verify the live browser state, enable Thinking when necessary, then verify again."""
+    observed = thinking_mode_from_state(state)
+    if observed is not True:
+        adapter.select_reasoning_mode("thinking")
+        refreshed = browser_state(adapter)
+        refreshed_mode = thinking_mode_from_state(refreshed)
+        if refreshed_mode is not True:
+            raise RuntimeError(
+                "THINKING_VERIFICATION_FAILED: Thinking was not verified as enabled "
+                "after the controller attempted to select it."
+            )
+        state = refreshed
+        print("Thinking mode was off or unreported; enabled it and verified the live browser state.")
+    else:
+        print("Thinking mode verified on the live browser state.")
+    handoff["reasoning_mode"] = "thinking"
+    return state
+
+
 def route_chat(
     adapter: ChatGPTRoutingAdapter,
     handoff: dict[str, object],
@@ -422,6 +473,7 @@ def route_chat(
     *,
     initial_observation: Mapping[str, Any] | None = None,
     force_new_session: bool = False,
+    overnight_mode: bool = False,
 ) -> tuple[dict[str, object], str | None]:
     # A persisted exact-task operation means the prompt was already queued.
     # Resume it before any routing/replacement logic can create a new chat.
@@ -456,19 +508,22 @@ def route_chat(
         handoff["chat_url"] = observed_url
         known_url = observed_url
 
-    observed_exhausted = (
-        state.get("chat_exhausted") is True
-        or state.get("conversation_context_exhausted") is True
-    )
-    if observed_exhausted:
+    exhausted = verified_chat_exhaustion(state, handoff)
+    if exhausted:
         handoff["chat_exhausted"] = True
 
-    exhausted = handoff.get("chat_exhausted") is True
-    if known_url is None or exhausted or force_new_session:
+    needs_new_chat = known_url is None or exhausted or force_new_session
+    if needs_new_chat:
+        if overnight_mode and not exhausted:
+            raise RuntimeError(
+                "NEW_CHAT_BLOCKED: overnight mode may create a new ChatGPT conversation "
+                "only after verified provider usage/context exhaustion. The current chat "
+                "must be reused while usage remains."
+            )
         if force_new_session:
             print("Creating a fresh ChatGPT conversation for this bounded acceptance run.")
-        elif known_url is not None and exhausted:
-            print(f"Creating a new ChatGPT conversation because {known_url} is verified exhausted.")
+        elif exhausted:
+            print(f"Creating a new ChatGPT conversation because {known_url or 'the current conversation'} is verified exhausted.")
             record_chat_change(handoff, known_url, None, "verified_chat_exhaustion")
         else:
             print("Creating a new ChatGPT conversation because no usable conversation is known.")
@@ -489,16 +544,11 @@ def route_chat(
             handoff["chat_url"] = None
             known_url = None
         handoff.update({"chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
+        state = browser_state(adapter)
     else:
         print(f"Reusing ChatGPT conversation: {known_url}")
 
-    reasoning_mode = handoff.get("reasoning_mode")
-    if not isinstance(reasoning_mode, str) or reasoning_mode not in {"thinking", "think"}:
-        adapter.select_reasoning_mode("thinking")
-        reasoning_mode = "thinking"
-        print("Thinking mode enabled for task.")
-    else:
-        print("Thinking mode already enabled.")
+    state = verify_thinking_mode(adapter, state, handoff)
 
     github_attached = handoff.get("github_attached") is True or state.get("github_attached") is True
     fallback_requested = needs_github_context(task, override=github_mode)
@@ -538,6 +588,7 @@ def main() -> int:
     parser.add_argument("--repository", default="th3-st0v3/personal-ai-system")
     parser.add_argument("--github", choices=["public", "fallback", "never", "auto", "always"], default="auto", help="auto tries public GitHub first and automatically falls back to the ChatGPT GitHub app when retrieval fails")
     parser.add_argument("--fresh-chat", action="store_true", help="start a fresh ChatGPT conversation instead of reusing persisted session state")
+    parser.add_argument("--overnight", action="store_true", help="enforce overnight chat reuse/Thinking/rollover policy")
     args = parser.parse_args()
 
     root = args.repo.expanduser().resolve()
@@ -565,6 +616,7 @@ def main() -> int:
             args.github,
             initial_observation=live_observation,
             force_new_session=args.fresh_chat,
+            overnight_mode=args.overnight,
         )
         # Persist the verified session/context checkpoint before prompt submission so a
         # process interruption cannot discard the replacement chat identity.
@@ -587,7 +639,14 @@ def main() -> int:
             if previous_url:
                 record_chat_change(handoff, previous_url, None, "verified_prompt_exhaustion")
             handoff.update({"chat_exhausted": True, "chat_url": None, "github_attached": False, "reasoning_mode": None})
-            handoff, _ = route_chat(adapter, handoff, task, args.repository, args.github)
+            handoff, _ = route_chat(
+                adapter,
+                handoff,
+                task,
+                args.repository,
+                args.github,
+                overnight_mode=args.overnight,
+            )
             # Checkpoint the replacement session before retrying so another interruption
             # can resume from the verified new conversation instead of the exhausted one.
             save_handoff(handoff)
