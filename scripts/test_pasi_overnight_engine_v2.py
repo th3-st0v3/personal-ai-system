@@ -400,7 +400,7 @@ branch refs/heads/main
         self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
 
-    def test_prompt_compiler_carries_roadmap_and_completion_context_forward() -> None:
+    def test_prompt_compiler_carries_roadmap_and_completion_context_forward(self) -> None:
         prompt = prompt_compiler.compile_task_prompt(
             "Implement the next roadmap task.",
             run_id="run-continuation",
@@ -495,7 +495,7 @@ branch refs/heads/main
                     self.assertEqual(repeats, 0)
                 self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
 
-    def test_overnight_prompt_changes_after_a_verified_task_completion() -> None:
+    def test_overnight_prompt_changes_after_a_verified_task_completion(self) -> None:
         now = datetime.now(timezone.utc)
         state = engine.OvernightState(
             schema_version=2,
