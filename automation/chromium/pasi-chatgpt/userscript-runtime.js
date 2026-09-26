@@ -620,6 +620,34 @@ function localDnrId(scriptId, localId, salt) {
   return (hash >>> 0) % 2000000000 + 1;
 }
 
+
+function dnrTargetDomains(rule) {
+  const condition = rule && rule.condition ? rule.condition : {};
+  const domains = [];
+  for (const key of ['requestDomains', 'initiatorDomains']) {
+    if (Array.isArray(condition[key])) {
+      domains.push(...condition[key].map(String));
+    }
+  }
+  return [...new Set(domains)];
+}
+
+function validateDnrConnectPolicy(script, rule) {
+  const domains = dnrTargetDomains(rule);
+  if (!domains.length) {
+    if (!script.connects.includes('*')) {
+      throw new Error('GM_webRequest rule without explicit request/initiator domains requires @connect *');
+    }
+    return;
+  }
+  for (const domain of domains) {
+    const candidate = /^https?:\/\//.test(domain) ? domain : 'https://' + domain.replace(/^\*\./, 'example.');
+    if (!connectAllowed(script, candidate)) {
+      throw new Error('@connect denied for GM_webRequest domain ' + domain);
+    }
+  }
+}
+
 async function applyNetworkRules(script, data) {
   requireGrant(script, 'webRequest');
   if (!chrome.declarativeNetRequest || typeof chrome.declarativeNetRequest.updateDynamicRules !== 'function') {
@@ -653,6 +681,7 @@ async function applyNetworkRules(script, data) {
     if (!Number.isInteger(localId) || localId < 1) throw new Error('GM_webRequest rule id must be a positive integer');
     const rule = {...input};
     delete rule.id;
+    validateDnrConnectPolicy(script, rule);
     const bytes = JSON.stringify(rule).length;
     if (bytes > MAX_NETWORK_RULE_BYTES) throw new Error('GM_webRequest rule exceeds 20 KiB');
     if (!rule.condition || !rule.action || typeof rule.action.type !== 'string') {
