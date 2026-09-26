@@ -360,10 +360,11 @@ async function hostPermissionsGranted(script) {
 }
 
 async function configureWorld(script) {
+  if (script.world !== 'USER_SCRIPT') return;
   if (!chrome.userScripts || typeof chrome.userScripts.configureWorld !== 'function') return;
   await userScriptsCall('configureWorld', {
     worldId: 'pasi-us-' + script.id,
-    messaging: script.world === 'USER_SCRIPT'
+    messaging: true
   });
 }
 
@@ -648,7 +649,7 @@ async function applyNetworkRules(script, data) {
     }
     if (!dnrId) throw new Error('unable to allocate a unique DNR rule id');
     normalized.push({...rule, id:dnrId});
-    newMap.push({localId, dnrId});
+    newMap.push({localId, dnrId, rule:{...rule, id:dnrId}});
   }
 
   if (newMap.length > MAX_NETWORK_RULES) throw new Error('userscript DNR state exceeds the bounded rule limit');
@@ -671,6 +672,18 @@ function requiredOptionalPermissions(script) {
   return [...permissions];
 }
 
+async function restoreNetworkRules(script) {
+  if (!script.enabled) return;
+  if (!chrome.declarativeNetRequest || typeof chrome.declarativeNetRequest.updateDynamicRules !== 'function') return;
+  const key = DNR_STORE_PREFIX + script.id;
+  const stored = await chrome.storage.local.get(key);
+  const entries = Array.isArray(stored && stored[key]) ? stored[key] : [];
+  const rules = entries.filter((item) => item && item.rule && Number.isInteger(Number(item.dnrId))).map((item) => ({...item.rule, id:Number(item.dnrId)}));
+  if (!rules.length) return;
+  const ids = rules.map((rule) => Number(rule.id));
+  await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:ids, addRules:rules});
+}
+
 async function managementInstall(source, existing, allowUnsafeWorld) {
   const metadata = parseMetadata(source);
   const script = normalizeScript(source, metadata, existing, allowUnsafeWorld);
@@ -684,6 +697,7 @@ async function managementInstall(source, existing, allowUnsafeWorld) {
     next.push(script);
     await writeScripts(next);
     const registration = await registerOne(script);
+    await restoreNetworkRules(script);
     await syncMainWorldBridge(next);
     return {
       script:script,
@@ -723,7 +737,10 @@ async function managementSetEnabled(id, enabled) {
     const updated = next.find((script) => script.id === id);
     if (!updated) throw new Error('unknown userscript: ' + id);
     await writeScripts(next);
-    if (updated.enabled) await registerOne(updated);
+    if (updated.enabled) {
+      await registerOne(updated);
+      await restoreNetworkRules(updated);
+    }
     else {
       await userScriptsCall('unregister', {ids:[id]}).catch(() => {});
       await clearMenusForScript(id);
@@ -800,8 +817,7 @@ async function reinstallIntoOpenTabs() {
   for (const script of scripts) {
     if (!script.enabled) continue;
     await clearMenusForScript(script.id);
-    await clearNetworkRules(script.id);
-    await registerOne(script).catch((error) => console.warn('[PASI userscripts] register failed', error));
+    await registerOne(script).then(() => restoreNetworkRules(script)).catch((error) => console.warn('[PASI userscripts] register failed', error));
   }
   await syncMainWorldBridge(scripts);
 
