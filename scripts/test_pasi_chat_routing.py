@@ -99,7 +99,8 @@ def test_route_chat_creates_replacement_only_for_verified_exhaustion() -> None:
     updated, chat_url = route_chat(adapter, handoff, "task", "th3-st0v3/personal-ai-system", "never")
 
     assert adapter.new_sessions == 1
-    assert chat_url is None
+    assert chat_url == "https://chatgpt.com/c/new-1"
+    assert updated["chat_url"] == "https://chatgpt.com/c/new-1"
     assert updated["chat_exhausted"] is False
 
 
