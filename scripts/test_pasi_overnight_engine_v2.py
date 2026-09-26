@@ -400,6 +400,32 @@ branch refs/heads/main
         self.assertIn("Work on this task until its acceptance criteria are met.", prompt)
         self.assertIn("PASI_RESULT_PATCH_BEGIN", prompt)
 
+    def test_prompt_compiler_carries_roadmap_and_completion_context_forward() -> None:
+        prompt = prompt_compiler.compile_task_prompt(
+            "Implement the next roadmap task.",
+            run_id="run-continuation",
+            task_number=8,
+            attempt=1,
+            max_attempts=3,
+            branch="pasi/test",
+            worktree="/tmp/pasi-worktree",
+            phase="engineering_os",
+            roadmap_name="pasi-default.json",
+            current_task_id="engineering.next-task",
+            completed_task_count=4,
+            previous_task="Harden the previous roadmap seam.",
+            previous_result="Targeted tests passed and the change was committed.",
+        )
+
+        assert "ROADMAP SOURCE: pasi-default.json" in prompt
+        assert "ROADMAP TASK ID: engineering.next-task" in prompt
+        assert "COMPLETED TASK COUNT: 4" in prompt
+        assert "PREVIOUSLY COMPLETED TASK:" in prompt
+        assert "Harden the previous roadmap seam." in prompt
+        assert "PREVIOUS TASK VERIFIED RESULT:" in prompt
+        assert "Targeted tests passed and the change was committed." in prompt
+
+
     def test_prompt_compiler_includes_bounded_failure_only_on_retry(self) -> None:
         prompt = prompt_compiler.compile_task_prompt(
             "Fix the browser-to-Git patch seam.",
@@ -445,6 +471,18 @@ branch refs/heads/main
                     engine.AUTOMATION_TASKS[1],
                 ])
 
+    def test_roadmap_rejects_requested_task_outside_designated_repository_roadmap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            guard_path = Path(temp_dir) / "roadmap-loop-guard.json"
+            with mock.patch.object(engine, "ROADMAP_LOOP_GUARD_PATH", guard_path):
+                with self.assertRaisesRegex(RuntimeError, "requested task is not present in roadmap"):
+                    engine.choose_run_start_task(
+                        "automation",
+                        "Invented task that is not in the project roadmap",
+                        "run-roadmap-boundary",
+                        engine.DEFAULT_ROADMAP_PATH,
+                    )
+
     def test_cross_run_loop_guard_preserves_custom_task(self) -> None:
         custom = "Do this explicitly requested task."
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -456,6 +494,30 @@ branch refs/heads/main
                     self.assertFalse(guarded)
                     self.assertEqual(repeats, 0)
                 self.assertEqual(getattr(engine, "load_roadmap_selection_history")(), [])
+
+    def test_overnight_prompt_changes_after_a_verified_task_completion() -> None:
+        now = datetime.now(timezone.utc)
+        state = engine.OvernightState(
+            schema_version=2,
+            run_id="dynamic-prompt-test",
+            started_at=now.isoformat(),
+            deadline_at=(now + timedelta(hours=8)).isoformat(),
+            worktree=str(Path.cwd()),
+            branch="test",
+            phase="automation",
+            current_task="next roadmap task",
+            completed_tasks=1,
+            last_result="previous task was verified and committed",
+            recent_tasks=["previous roadmap task"],
+            roadmap_path="/tmp/pasi/roadmaps/pasi-default.json",
+            current_task_id="automation.next",
+        )
+        prompt = engine.build_prompt(state.current_task, state)
+        assert "ROADMAP TASK ID: automation.next" in prompt
+        assert "COMPLETED TASK COUNT: 1" in prompt
+        assert "PREVIOUSLY COMPLETED TASK:" in prompt
+        assert "previous roadmap task" in prompt
+        assert "previous task was verified and committed" in prompt
 
     def test_scheduler_ignores_model_task_suggestion(self) -> None:
         now = datetime.now(timezone.utc)
