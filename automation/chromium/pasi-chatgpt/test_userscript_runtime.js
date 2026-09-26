@@ -100,7 +100,7 @@ test('storage GM APIs are present in the bootstrap but remain grant-gated', () =
     '// @grant GM_getValue',
     '// ==/UserScript==',
     'GM_getValue("key");'
-  ].join('\\n');
+  ].join('\n');
   const bootstrap = createBootstrap(normalizeScript(source, parseMetadata(source), null, false));
   assert.match(bootstrap, /assertGrant\("storage"\)/);
 });
