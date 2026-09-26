@@ -429,15 +429,13 @@ def thinking_mode_from_state(state: Mapping[str, Any]) -> bool | None:
 
 def verified_chat_exhaustion(state: Mapping[str, Any], handoff: Mapping[str, object]) -> bool:
     """Only an observed quota/context exhaustion permits overnight chat rollover."""
-    return any(
-        state.get(key) is True
-        for key in (
-            "chat_exhausted",
-            "conversation_context_exhausted",
-            "provider_usage_limited",
-            "usage_limited",
-        )
-    ) or handoff.get("chat_exhausted") is True
+    return (
+        state.get("chat_exhausted") is True
+        or state.get("conversation_context_exhausted") is True
+        or state.get("provider_usage_limited") is True
+        or state.get("usage_limited") is True
+        or handoff.get("chat_exhausted") is True
+    )
 
 
 def verify_thinking_mode(
@@ -562,6 +560,7 @@ def route_chat(
         print(f"Reusing ChatGPT conversation: {known_url}")
 
     state = verify_thinking_mode(adapter, state, handoff)
+    reasoning_mode = "thinking"
 
     github_attached = handoff.get("github_attached") is True or state.get("github_attached") is True
     fallback_requested = needs_github_context(task, override=github_mode)
