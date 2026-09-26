@@ -488,6 +488,32 @@
     }
   }
 
+
+  function extractUserscriptCapabilities(source) {
+    const text = String(source || '');
+    const origins = [...text.matchAll(/^\s*\/\/\s*@match\s+(\S+)/gm)].map((match) => match[1]).filter(Boolean);
+    const grants = [...text.matchAll(/^\s*\/\/\s*@grant\s+(\S+)/gm)].map((match) => match[1]).filter(Boolean);
+    const permissions = new Set();
+    for (const grant of grants) {
+      if (grant === 'GM_openInTab' || grant === 'tabs') permissions.add('tabs');
+      if (grant === 'GM_registerMenuCommand' || grant === 'GM_unregisterMenuCommand' || grant === 'menu') permissions.add('contextMenus');
+      if (grant === 'GM_notification' || grant === 'notifications') permissions.add('notifications');
+      if (grant === 'GM_download' || grant === 'downloads') permissions.add('downloads');
+      if (grant === 'GM_webRequest' || grant === 'webRequest') permissions.add('declarativeNetRequestWithHostAccess');
+      if (grant === 'GM_setClipboard' || grant === 'clipboard') permissions.add('clipboardWrite');
+    }
+    return { origins: [...new Set(origins)], permissions: [...permissions] };
+  }
+
+  async function requestUserscriptCapabilities(source) {
+    if (!chrome.permissions || typeof chrome.permissions.request !== 'function') return true;
+    const requested = extractUserscriptCapabilities(source);
+    const origins = requested.origins.length ? requested.origins : [];
+    if (!origins.length && !requested.permissions.length) return true;
+    const granted = await chrome.permissions.request({ origins, permissions: requested.permissions });
+    return Boolean(granted);
+  }
+
   function openUserscriptEditor(script = null) {
     byId('userscript-edit-id').value = script?.id || '';
     byId('userscript-source').value = script?.source || '';
@@ -500,6 +526,10 @@
     if (!source.trim()) return;
     const id = byId('userscript-edit-id').value.trim();
     try {
+      if (!(await requestUserscriptCapabilities(source))) {
+        byId('userscript-status').textContent = 'Required permissions were not granted.';
+        return;
+      }
       const result = await userscriptSend({
         op: id ? 'update' : 'install',
         id: id || undefined,
@@ -520,6 +550,14 @@
     const url = byId('userscript-remote-url').value.trim();
     if (!url) return;
     try {
+      const remoteOrigin = new URL(url).origin + '/*';
+      if (chrome.permissions && typeof chrome.permissions.request === 'function') {
+        const granted = await chrome.permissions.request({ origins: [remoteOrigin] });
+        if (!granted) {
+          byId('userscript-status').textContent = 'Remote host permission was not granted.';
+          return;
+        }
+      }
       await userscriptSend({
         op: 'install-remote',
         url,
