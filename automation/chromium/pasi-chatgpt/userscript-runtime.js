@@ -599,7 +599,7 @@ function sendRpcResponse(sendResponse, promise) {
   return true;
 }
 
-async async function clearNetworkRules(scriptId) {
+async function clearNetworkRules(scriptId) {
   if (!chrome.declarativeNetRequest || typeof chrome.declarativeNetRequest.updateDynamicRules !== 'function') return;
   const key = DNR_STORE_PREFIX + scriptId;
   const stored = await chrome.storage.local.get(key);
