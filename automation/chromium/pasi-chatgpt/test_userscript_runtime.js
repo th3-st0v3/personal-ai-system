@@ -91,6 +91,20 @@ test('host-origin translation stays bounded to the requested match patterns', ()
   assert.deepEqual(matchOrigins(['<all_urls>']), ['*://*/*']);
 });
 
+test('storage GM APIs are present in the bootstrap but remain grant-gated', () => {
+  const {createBootstrap, normalizeScript, parseMetadata} = loadUtils();
+  const source = [
+    '// ==UserScript==',
+    '// @name Storage',
+    '// @match https://example.com/*',
+    '// @grant GM_getValue',
+    '// ==/UserScript==',
+    'GM_getValue("key");'
+  ].join('\\n');
+  const bootstrap = createBootstrap(normalizeScript(source, parseMetadata(source), null, false));
+  assert.match(bootstrap, /assertGrant\("storage"\)/);
+});
+
 test('USER_SCRIPT bootstrap uses dedicated runtime messaging and recovery guards', () => {
   const {createBootstrap, normalizeScript, parseMetadata} = loadUtils();
   const source = [
@@ -129,6 +143,12 @@ test('MAIN bootstrap uses the isolated bridge and exposes unsafeWindow only on e
   assert.doesNotMatch(bootstrap, /chrome\.runtime\.sendMessage\(\{source:"pasi-userscript"/);
 });
 
+test('world configuration and MAIN execution remain separated', () => {
+  assert.match(runtimeSource, /if \(script\.world !== 'USER_SCRIPT'\) return;/);
+  assert.match(runtimeSource, /world:script\.world/);
+  assert.match(runtimeSource, /worldId = 'pasi-us-' \+ script\.id/);
+});
+
 test('MAIN world is blocked unless explicit confirmation is recorded', () => {
   const {normalizeScript, parseMetadata} = loadUtils();
   const source = [
@@ -141,6 +161,15 @@ test('MAIN world is blocked unless explicit confirmation is recorded', () => {
   ].join('\n');
   const script = normalizeScript(source, parseMetadata(source), null, false);
   assert.equal(script.unsafeConfirmed, false);
+});
+
+test('DNR-backed GM_webRequest is bounded and persisted per script', () => {
+  assert.match(runtimeSource, /MAX_NETWORK_RULES = 50/);
+  assert.match(runtimeSource, /MAX_NETWORK_RULE_BYTES = 20 \* 1024/);
+  assert.match(runtimeSource, /DNR_STORE_PREFIX/);
+  assert.match(runtimeSource, /webRequest\.rules/);
+  assert.match(runtimeSource, /clearNetworkRules/);
+  assert.match(runtimeSource, /restoreNetworkRules/);
 });
 
 test('bridge only forwards authenticated main-world RPCs to the extension', () => {
