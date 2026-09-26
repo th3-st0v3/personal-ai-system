@@ -442,20 +442,25 @@ def verify_thinking_mode(
     adapter: ChatGPTRoutingAdapter,
     state: dict[str, Any],
     handoff: dict[str, object],
+    *,
+    require_verified: bool = False,
 ) -> dict[str, Any]:
-    """Verify the live browser state, enable Thinking when necessary, then verify again."""
+    """Enable Thinking when necessary; overnight mode additionally requires live verification."""
     observed = thinking_mode_from_state(state)
     if observed is not True:
         adapter.select_reasoning_mode("thinking")
         refreshed = browser_state(adapter)
         refreshed_mode = thinking_mode_from_state(refreshed)
-        if refreshed_mode is not True:
+        if require_verified and refreshed_mode is not True:
             raise RuntimeError(
                 "THINKING_VERIFICATION_FAILED: Thinking was not verified as enabled "
                 "after the controller attempted to select it."
             )
-        state = refreshed
-        print("Thinking mode was off or unreported; enabled it and verified the live browser state.")
+        if refreshed:
+            state = refreshed
+        print("Thinking mode was off or unreported; selected it%s." % (
+            " and verified the live browser state" if require_verified else ""
+        ))
     else:
         print("Thinking mode verified on the live browser state.")
     handoff["reasoning_mode"] = "thinking"
@@ -487,7 +492,7 @@ def route_chat(
             print(f"Resuming persisted ChatGPT operation: {pending_operation}")
             if overnight_mode:
                 state = browser_state(adapter)
-                verify_thinking_mode(adapter, state, handoff)
+                verify_thinking_mode(adapter, state, handoff, require_verified=True)
         return handoff, known_url
 
     if force_new_session:
@@ -559,7 +564,7 @@ def route_chat(
     else:
         print(f"Reusing ChatGPT conversation: {known_url}")
 
-    state = verify_thinking_mode(adapter, state, handoff)
+    state = verify_thinking_mode(adapter, state, handoff, require_verified=overnight_mode)
     reasoning_mode = "thinking"
 
     github_attached = handoff.get("github_attached") is True or state.get("github_attached") is True
