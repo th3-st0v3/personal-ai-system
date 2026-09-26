@@ -100,7 +100,11 @@ function parseMetadata(source) {
   };
 
   for (const line of block[1].split(/\r?\n/)) {
-    const clean = line.replace(/^\s*\*?\s*|\s*$/g, '');
+    const clean = line
+      .replace(/^\s*\/\/\s?/, '')
+      .replace(/^\s*\*\s?/, '')
+      .replace(/\s*\*\/\s*$/, '')
+      .trim();
     const match = clean.match(/^@([A-Za-z][\w-]*)(?:\s+(.+))?$/);
     if (!match) continue;
     const key = match[1].toLowerCase();
