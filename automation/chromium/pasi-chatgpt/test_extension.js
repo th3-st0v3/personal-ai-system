@@ -240,6 +240,17 @@ test('native controller keeps browser health on a fast bounded cadence separate 
   assert.match(content, /timeout: timeoutMs/);
 });
 
+test('native browser health heartbeat survives optional UI detector exceptions', () => {
+  const start = content.indexOf('  function reportHealth() {');
+  const end = content.indexOf('\n  async function waitFor(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /let currentUrl = null;[\s\S]*try \{[\s\S]*currentUrl = chatUrl\(\);[\s\S]*catch \(error\)/);
+  assert.match(source, /let thinking = null;[\s\S]*try \{[\s\S]*thinking = thinkingEnabled\(\);[\s\S]*catch \(error\)/);
+  assert.match(source, /let composerPresent = false;[\s\S]*try \{[\s\S]*composerPresent = Boolean\(composer\(\)\);[\s\S]*catch \(error\)/);
+  assert.match(source, /await reportObservation\('chatgpt_health'/);
+  assert.match(source, /conversation_signature: signature/);
+});
+
 test('native controller starts heartbeat and polling timers before recovery or queue work can block startup', () => {
   const startIndex = content.indexOf('  async function start() {');
   const start = content.slice(startIndex, content.indexOf('\n  }', startIndex) + 4);
