@@ -747,7 +747,13 @@
   function reportHealth() {
     if (healthReportInFlight) return healthReportInFlight;
     healthReportInFlight = (async () => {
-      const currentUrl = chatUrl();
+      let currentUrl = null;
+      try {
+        currentUrl = chatUrl();
+      } catch (error) {
+        console.warn('[PASI native health] chat URL detector failed', error);
+      }
+
       if (currentUrl !== lastKnownChatUrl) {
         if (lastKnownChatUrl !== null || currentUrl !== null) {
           void reportObservation('chatgpt_chat_changed', {
@@ -767,15 +773,40 @@
 
       // One detector pass per heartbeat. Repeated DOM scans here are
       // unnecessary and can compete with the prompt/response hot path.
-      const detected = detectorState();
+      let detected = {};
+      try {
+        detected = detectorState() || {};
+      } catch (error) {
+        console.warn('[PASI native health] detector state failed', error);
+      }
       const exhausted = detected.context_exhausted === true;
       const limited = !exhausted && detected.usage_limited === true;
       const auth = detected.auth_required === true;
-      const thinking = thinkingEnabled();
-      const composerPresent = Boolean(composer());
+
+      let thinking = null;
+      try {
+        thinking = thinkingEnabled();
+      } catch (error) {
+        // A ChatGPT UI/model-selector change must never suppress the heartbeat.
+        console.warn('[PASI native health] thinking detector failed', error);
+      }
+
+      let composerPresent = false;
+      try {
+        composerPresent = Boolean(composer());
+      } catch (error) {
+        console.warn('[PASI native health] composer detector failed', error);
+      }
+
+      let signature = '';
+      try {
+        signature = conversationSignature();
+      } catch (error) {
+        console.warn('[PASI native health] conversation signature failed', error);
+      }
 
       // Health is the freshness signal used by the launcher/watchdog. Keep it
-      // lightweight and bounded so DOM/state telemetry cannot delay it.
+      // publishable even when one optional UI detector breaks.
       await reportObservation('chatgpt_health', {
         chat_url: currentUrl,
         provider_usage_limited: limited,
@@ -785,7 +816,7 @@
         thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
         page_visible: document.visibilityState !== 'hidden',
         composer_present: composerPresent,
-        conversation_signature: conversationSignature(),
+        conversation_signature: signature,
         native_controller: true,
         active_operation_id: activeOperationId
       }, 2000);
@@ -802,7 +833,7 @@
           github_attached: githubAttached,
           reasoning_mode: reasoningMode,
           reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
-          conversation_signature: conversationSignature(),
+          conversation_signature: signature,
           active_operation_id: activeOperationId,
           native_controller: true
         });
