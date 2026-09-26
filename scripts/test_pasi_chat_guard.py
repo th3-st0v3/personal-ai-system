@@ -9,6 +9,13 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 
 class TestPasiChatGuard(unittest.TestCase):
+
+    def test_overnight_flag_is_forwarded_to_chat_launcher() -> None:
+        source = Path(guard.__file__).read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--overnight"', source)
+        self.assertIn("if args.overnight:", source)
+        self.assertIn('forwarded.append("--overnight")', source)
+
     def test_guard_monitor_has_a_short_health_request_timeout(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn("HEALTH_MONITOR_REQUEST_TIMEOUT_SECONDS = 0.25", source)
