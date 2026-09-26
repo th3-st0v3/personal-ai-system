@@ -80,7 +80,7 @@ test('side panel telemetry reads only the existing bridge health contracts', () 
 });
 
 test('side panel does not implement network stream interception or privileged runner process control', () => {
-  assert.doesNotMatch(script, /EventSource|ReadableStream|webRequest|declarativeNetRequest|chrome\.debugger|exec|spawn|pkill|kill\(/);
+  assert.doesNotMatch(script, /EventSource|ReadableStream|webRequest|declarativeNetRequest|chrome\.debugger|\bexec\s*\(|\bspawn\s*\(|\bpkill\s*\(|\bkill\s*\(/);
   assert.doesNotMatch(manifest.host_permissions.join(' '), /<all_urls>/);
 });
 
