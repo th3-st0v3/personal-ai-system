@@ -1,4 +1,6 @@
 importScripts('timeout-config.js');
+importScripts('userscript-runtime.js');
+
 
 const BRIDGE = 'http://127.0.0.1:8765';
 const ALARM = 'pasi-watchdog';
