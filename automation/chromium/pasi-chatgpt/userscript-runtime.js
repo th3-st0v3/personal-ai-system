@@ -661,6 +661,16 @@ async function applyNetworkRules(script, data) {
   return {ruleIds:normalized.map((rule) => Number(rule.id))};
 }
 
+function requiredOptionalPermissions(script) {
+  const permissions = new Set();
+  if (script.grants.some((grant) => ['tabs', 'GM_openInTab'].includes(grant))) permissions.add('tabs');
+  if (script.grants.some((grant) => ['menu', 'GM_registerMenuCommand'].includes(grant))) permissions.add('contextMenus');
+  if (script.grants.some((grant) => ['notifications', 'GM_notification'].includes(grant))) permissions.add('notifications');
+  if (script.grants.some((grant) => ['downloads', 'GM_download'].includes(grant))) permissions.add('downloads');
+  if (script.grants.some((grant) => ['webRequest', 'GM_webRequest'].includes(grant))) permissions.add('declarativeNetRequestWithHostAccess');
+  return [...permissions];
+}
+
 async function managementInstall(source, existing, allowUnsafeWorld) {
   const metadata = parseMetadata(source);
   const script = normalizeScript(source, metadata, existing, allowUnsafeWorld);
@@ -678,7 +688,8 @@ async function managementInstall(source, existing, allowUnsafeWorld) {
     return {
       script:script,
       registration,
-      requiredOrigins:matchOrigins(script.matches)
+      requiredOrigins:matchOrigins(script.matches),
+      requiredOptionalPermissions:requiredOptionalPermissions(script)
     };
   });
 }
@@ -782,6 +793,8 @@ async function reinstallIntoOpenTabs() {
   const scripts = await readScripts();
   for (const script of scripts) {
     if (!script.enabled) continue;
+    await clearMenusForScript(script.id);
+    await clearNetworkRules(script.id);
     await registerOne(script).catch((error) => console.warn('[PASI userscripts] register failed', error));
   }
   await syncMainWorldBridge(scripts);
@@ -858,6 +871,15 @@ if (chrome.runtime && chrome.runtime.onMessage) {
       return sendRpcResponse(sendResponse, (async () => {
         if (message.op === 'install') {
           return managementInstall(message.sourceText, null, message.allowUnsafeWorld === true);
+        }
+        if (message.op === 'install-remote') {
+          const target = new URL(String(message.url || ''));
+          if (target.protocol !== 'https:') throw new Error('remote userscript installation requires HTTPS');
+          const response = await fetch(target.href, {redirect:'follow'});
+          if (!response.ok) throw new Error('remote userscript download failed: HTTP ' + response.status);
+          const source = await response.text();
+          if (source.length > MAX_SOURCE_CHARS) throw new Error('remote userscript exceeds the 2 MiB limit');
+          return managementInstall(source, null, message.allowUnsafeWorld === true);
         }
         if (message.op === 'update') {
           const existing = await scriptById(message.id);
