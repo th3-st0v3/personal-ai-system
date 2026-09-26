@@ -1,4 +1,11 @@
 'use strict';
+
+(() => {
+  if (globalThis.PASI_RECOVERY_PROGRESS) {
+    if (typeof module !== 'undefined' && module.exports) module.exports = globalThis.PASI_RECOVERY_PROGRESS;
+    return;
+  }
+
 /*
  * P1-A core: progress-based recovery decision logic for automation/chromium/pasi-chatgpt/recovery.js.
  *
@@ -111,3 +118,4 @@ const PASI_RECOVERY_PROGRESS_API = Object.freeze({
 });
 if (typeof globalThis !== 'undefined') globalThis.PASI_RECOVERY_PROGRESS = PASI_RECOVERY_PROGRESS_API;
 if (typeof module !== 'undefined' && module.exports) module.exports = PASI_RECOVERY_PROGRESS_API;
+})();
