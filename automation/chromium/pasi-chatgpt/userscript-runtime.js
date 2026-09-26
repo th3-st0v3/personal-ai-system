@@ -299,10 +299,10 @@ function createBootstrap(script) {
     '  const menuCallbacks = Object.create(null);',
     '  const GM = {',
     '    info: INFO,',
-    '    getValue: async (key, fallback) => (await rpc("storage.get", {key, fallback})).value,',
-    '    setValue: async (key, value) => rpc("storage.set", {key, value}),',
-    '    deleteValue: async (key) => rpc("storage.delete", {key}),',
-    '    listValues: async () => (await rpc("storage.list")).keys,',
+    '    getValue: async (key, fallback) => { assertGrant("storage"); return (await rpc("storage.get", {key, fallback})).value; },',
+    '    setValue: async (key, value) => { assertGrant("storage"); return rpc("storage.set", {key, value}); },',
+    '    deleteValue: async (key) => { assertGrant("storage"); return rpc("storage.delete", {key}); },',
+    '    listValues: async () => { assertGrant("storage"); return (await rpc("storage.list")).keys; },'
     '    fetch: async (url, options) => { assertGrant("fetch"); return rpc("fetch", {url, options:options || {}}); },',
     '    webRequest: async (request) => { assertGrant("webRequest"); return rpc(request && (request.addRules || request.removeRuleIds) ? "webRequest.rules" : "fetch", request || {}); },',
     '    xmlHttpRequest: async (request) => { assertGrant("xmlhttprequest"); return rpc("fetch", request || {}); },',
@@ -681,6 +681,19 @@ async function applyNetworkRules(script, data) {
   return {ruleIds:normalized.map((rule) => Number(rule.id))};
 }
 
+async function requestCapabilitiesForScript(script) {
+  const permissions = requiredOptionalPermissions(script);
+  const origins = matchOrigins(script.matches);
+  if (!chrome.permissions || typeof chrome.permissions.request !== 'function') {
+    return {granted:false, permissions, origins, reason:'permissions API unavailable'};
+  }
+  const granted = await chrome.permissions.request({
+    permissions,
+    origins
+  });
+  return {granted:Boolean(granted), permissions, origins};
+}
+
 function requiredOptionalPermissions(script) {
   const permissions = new Set();
   if (script.grants.some((grant) => ['tabs', 'GM_openInTab'].includes(grant))) permissions.add('tabs');
@@ -910,6 +923,11 @@ if (chrome.runtime && chrome.runtime.onMessage) {
 
     if (message && message.source === 'pasi-userscript-management') {
       return sendRpcResponse(sendResponse, (async () => {
+        if (message.op === 'request-capabilities') {
+          const script = await scriptById(message.id);
+          if (!script) throw new Error('unknown userscript: ' + message.id);
+          return requestCapabilitiesForScript(script);
+        }
         if (message.op === 'install') {
           return managementInstall(message.sourceText, null, message.allowUnsafeWorld === true);
         }
@@ -956,6 +974,7 @@ globalThis.PASI_USERSCRIPT_RUNTIME = Object.freeze({
   managementInstall,
   managementRemove,
   managementSetEnabled,
+  requestCapabilitiesForScript,
   syncAll,
   publicState
 });
