@@ -560,7 +560,7 @@ async function rpc(script, op, data, sender) {
           'pasi-us-' + script.id + '-' + Date.now(),
           {
             type:'basic',
-            iconUrl:'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#111827"/><text x="64" y="78" text-anchor="middle" font-family="Arial" font-size="72" fill="#ffffff">P</text></svg>'),
+            iconUrl:chrome.runtime.getURL('userscript-notification.svg'),
             title:String(data && data.title || script.name),
             message:String(data && (data.text || data.message) || '').slice(0, 500)
           }
