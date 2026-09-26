@@ -120,7 +120,7 @@ class TestPasiChat(unittest.TestCase):
             "chat_exhausted": False,
             "github_attached": False,
         })
-        handoff = {
+        handoff: dict[str, object] = {
             "active_operation_id": "op-pending",
             "active_task_fingerprint": task_fingerprint(task),
             "chat_url": "https://chatgpt.com/c/current",
