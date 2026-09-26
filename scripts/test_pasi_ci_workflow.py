@@ -33,6 +33,8 @@ class TestPasiCIWorkflow(unittest.TestCase):
         self.assertIn("--outputjson", check_all)
         self.assertIn('"generalDiagnostics"', check_all)
         self.assertIn('"information"', check_all)
+        self.assertIn("git ls-files -z", check_all)
+        self.assertNotIn("find_expr=(find .)", check_all)
 
     def test_authoritative_fast_lane_does_not_duplicate_the_full_quality_sweep(self) -> None:
         script = (ROOT / "scripts" / "check_fast.sh").read_text(encoding="utf-8")
