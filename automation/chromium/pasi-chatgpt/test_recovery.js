@@ -187,7 +187,7 @@ test('recovery serializes inspection so a slow recovery cannot overlap and dupli
   assert.match(source, /inspecting = true/);
   assert.match(source, /finally \{/);
   assert.match(source, /inspecting = false/);
-  assert.match(source, /setInterval\(\(\) => \{ runInspection\(\)\.catch\(\(\) => \{\}\); \}, POLL_MS\)/);
+  assert.match(source, /inspectionTimerId = setInterval\(\(\) => \{/);\n  assert.match(source, /runInspection\(\)\.catch/);\n  assert.match(source, /\}, POLL_MS\);/);
   assert.match(source, /await runInspection\(\)/);
 });
 
