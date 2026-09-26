@@ -476,7 +476,7 @@ async function rpc(script, op, data, sender) {
       requireGrant(script, 'fetch');
       const url = String(data && data.url || '');
       if (!connectAllowed(script, url)) throw new Error('@connect denied for ' + url);
-      const options = (data && data.options) || {};
+      const options = (data && data.options) || data || {};
       const response = await fetch(url, {
         method:options.method || 'GET',
         headers:options.headers || {},
@@ -700,6 +700,8 @@ async function managementRemove(id) {
     const existing = current.find((script) => script.id === id);
     if (!existing) return false;
     await userScriptsCall('unregister', {ids:[id]}).catch(() => {});
+    await clearMenusForScript(id);
+    await clearNetworkRules(id);
     const next = current.filter((script) => script.id !== id);
     await writeScripts(next);
     await syncMainWorldBridge(next);
@@ -722,7 +724,11 @@ async function managementSetEnabled(id, enabled) {
     if (!updated) throw new Error('unknown userscript: ' + id);
     await writeScripts(next);
     if (updated.enabled) await registerOne(updated);
-    else await userScriptsCall('unregister', {ids:[id]}).catch(() => {});
+    else {
+      await userScriptsCall('unregister', {ids:[id]}).catch(() => {});
+      await clearMenusForScript(id);
+      await clearNetworkRules(id);
+    }
     await syncMainWorldBridge(next);
     return updated;
   });
