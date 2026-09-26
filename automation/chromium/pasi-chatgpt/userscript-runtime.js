@@ -265,9 +265,11 @@ function createBootstrap(script) {
     lines.push(
       '  const bridgeRpc = (op, data) => new Promise((resolve, reject) => {',
       '    const requestId = "pasi-us-" + Math.random().toString(36).slice(2);',
-      '    const listener = (event) => { const value = event.data; if (!value || value.source !== "pasi-userscript-main-response" || value.requestId !== requestId) return; window.removeEventListener("message", listener); if (value.ok) resolve(value.result); else reject(new Error(value.error || "userscript bridge request failed")); };',
+      '    let timeoutId;',
+      '    const listener = (event) => { const value = event.data; if (!value || value.source !== "pasi-userscript-main-response" || value.requestId !== requestId) return; clearTimeout(timeoutId); window.removeEventListener("message", listener); if (value.ok) resolve(value.result); else reject(new Error(value.error || "userscript bridge request failed")); };',
       '    window.addEventListener("message", listener);',
-      '    window.postMessage({source:"pasi-userscript-main", requestId, scriptId:SCRIPT_ID, token:AUTH, op, data}, location.origin);',
+      '    window.postMessage({source:"pasi-userscript-main", requestId, scriptId:SCRIPT_ID, token:AUTH, op, data}, "*");',
+      '    timeoutId = setTimeout(() => { window.removeEventListener("message", listener); reject(new Error("PASI userscript bridge timeout")); }, 10000);',
       '  });',
       '  const rpc = bridgeRpc;'
     );
@@ -283,7 +285,7 @@ function createBootstrap(script) {
       '          if (error) { if (attempt < 1 && /context invalidated|extension context|receiving end|disconnected/i.test(error.message || "")) { setTimeout(() => safeSendMessage(payload, attempt + 1).then(resolve, reject), 50); return; } reject(new Error(error.message || "userscript IPC failed")); return; }',
       '          resolve(response);',
       '        });',
-      '      } catch (error) { reject(error); }',
+      '      } catch (error) { if (attempt < 1 && /context invalidated|extension context|receiving end|disconnected/i.test(String(error && error.message || error))) { setTimeout(() => safeSendMessage(payload, attempt + 1).then(resolve, reject), 50); return; } reject(error); }',
       '    });',
       '  };',
       '  const rpc = (op, data) => safeSendMessage({op, data});'
@@ -444,12 +446,12 @@ async function rpc(script, op, data, sender) {
       requireGrant(script, 'storage');
       const key = storageKey(script.id, data && data.key);
       const stored = await chrome.storage.local.get(key);
-      return {value:stored ? stored[key] : undefined};
+      return {value:stored && Object.prototype.hasOwnProperty.call(stored, key) ? stored[key] : data && data.fallback};
     }
     case 'storage.set': {
       requireGrant(script, 'storage');
       const encoded = JSON.stringify(data && data.value);
-      if (encoded.length > MAX_RPC_TEXT_CHARS) throw new Error('userscript value is too large');
+      if (encoded && encoded.length > MAX_RPC_TEXT_CHARS) throw new Error('userscript value is too large');
       await chrome.storage.local.set({[storageKey(script.id, data && data.key)]:data && data.value});
       return {ok:true};
     }
@@ -529,6 +531,7 @@ async function rpc(script, op, data, sender) {
           'pasi-us-' + script.id + '-' + Date.now(),
           {
             type:'basic',
+            iconUrl:'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#111827"/><text x="64" y="78" text-anchor="middle" font-family="Arial" font-size="72" fill="#ffffff">P</text></svg>'),
             title:String(data && data.title || script.name),
             message:String(data && (data.text || data.message) || '').slice(0, 500)
           }
@@ -668,6 +671,26 @@ async function runMenuCallback(menuId, tab) {
   await chrome.userScripts.execute(injection);
 }
 
+function tabMatchesScript(url, script) {
+  try {
+    const parsed = new URL(url);
+    return script.matches.some((pattern) => {
+      if (pattern === '<all_urls>') return true;
+      const match = String(pattern).match(/^(\*|https?|file):\/\/([^/]+)(?:\/.*)?$/i);
+      if (!match) return false;
+      const schemeOk = match[1] === '*' || parsed.protocol === match[1] + ':';
+      const hostPattern = match[2].toLowerCase();
+      const host = parsed.hostname.toLowerCase();
+      const hostOk = hostPattern === '*' ||
+        (hostPattern.startsWith('*.') && host.endsWith(hostPattern.slice(1))) ||
+        host === hostPattern;
+      return schemeOk && hostOk;
+    });
+  } catch (_) {
+    return false;
+  }
+}
+
 async function reinstallIntoOpenTabs() {
   const scripts = await readScripts();
   for (const script of scripts) {
@@ -682,8 +705,7 @@ async function reinstallIntoOpenTabs() {
     if (!tab.id || !tab.url) continue;
     for (const script of scripts) {
       if (!script.enabled) continue;
-      const origins = matchOrigins(script.matches);
-      if (!origins.some((origin) => origin === '*://*/*' || tab.url.startsWith(origin.replace('/*', '')))) continue;
+      if (!tabMatchesScript(tab.url, script)) continue;
       const injection = {
         target:{tabId:tab.id},
         world:script.world,
