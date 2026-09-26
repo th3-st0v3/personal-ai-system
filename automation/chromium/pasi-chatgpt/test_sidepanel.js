@@ -112,3 +112,18 @@ test('side panel persists local refresh settings', () => {
   assert.match(script, /telemetryIntervalMs/);
   assert.match(script, /1000, 5000, 10000, 30000/);
 });
+
+
+test('side panel exposes native MV3 userscript management controls', () => {
+  assert.ok(manifest.permissions.includes('userScripts'));
+  assert.equal(manifest.version, '1.2.0');
+  assert.match(html, /id="userscript-list"/);
+  assert.match(html, /id="userscript-source"/);
+  assert.match(html, /id="userscript-remote-url"/);
+  assert.match(html, /id="userscript-unsafe"/);
+  assert.match(script, /pasi-userscript-management/);
+  assert.match(script, /request-capabilities/);
+  assert.match(script, /install-remote/);
+  assert.match(script, /data-us-action="permissions"/);
+});
+
