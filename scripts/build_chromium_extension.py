@@ -20,6 +20,7 @@ EXTENSION_FILES = (
     "background.js",
     "userscript-runtime.js",
     "userscript-bridge.js",
+    "userscript-notification.svg",
     "detectors.js",
     "content.js",
     "recovery_progress.js",
