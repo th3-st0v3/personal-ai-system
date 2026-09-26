@@ -1,8 +1,10 @@
 (() => {
   'use strict';
 
-  if (globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ === true) return;
-  globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = true;
+  const previousController = globalThis.__PASI_NATIVE_CONTROLLER_STARTED__;
+  if (previousController && typeof previousController.dispose === 'function') {
+    try { previousController.dispose(); } catch (_) {}
+  }
 
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
@@ -47,6 +49,8 @@
   const CONTROLLER_CLAIM_CACHE_MS = 2000;
   let pollTimerId = null;
   let healthTimerId = null;
+  let messageListener = null;
+  let visibilityChangeHandler = null;
   let healthReportInFlight = null;
   let pollInFlight = null;
   let lastStateReportAt = 0;
@@ -55,6 +59,34 @@
   let immediateOperationQueued = false;
   let lastCompletionAckAtMs = 0;
   let activeRecoveryState = null;
+
+  function disposeController() {
+    extensionContextInvalidated = true;
+    if (leaseTimerId !== null) {
+      clearInterval(leaseTimerId);
+      leaseTimerId = null;
+    }
+    if (pollTimerId !== null) {
+      clearInterval(pollTimerId);
+      pollTimerId = null;
+    }
+    if (healthTimerId !== null) {
+      clearInterval(healthTimerId);
+      healthTimerId = null;
+    }
+    if (messageListener) {
+      try { chrome.runtime?.onMessage?.removeListener?.(messageListener); } catch (_) {}
+      messageListener = null;
+    }
+    if (visibilityChangeHandler) {
+      try { document.removeEventListener('visibilitychange', visibilityChangeHandler); } catch (_) {}
+      visibilityChangeHandler = null;
+    }
+  }
+
+  globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = Object.freeze({
+    dispose: disposeController
+  });
 
   function scheduleImmediateOperation(operation) {
     if (immediateOperationQueued || extensionContextInvalidated || !operation?.operation_id) return;
@@ -1998,15 +2030,17 @@
     }
   }
 
-  chrome.runtime?.onMessage?.addListener?.((message) => {
+  messageListener = (message) => {
     if (message?.type === 'pasi-health-ping' && !extensionContextInvalidated) {
       void reportHealth();
     }
-  });
+  };
+  chrome.runtime?.onMessage?.addListener?.(messageListener);
 
-  document.addEventListener('visibilitychange', () => {
+  visibilityChangeHandler = () => {
     if (!extensionContextInvalidated) void reportHealth();
-  });
+  };
+  document.addEventListener('visibilitychange', visibilityChangeHandler);
 
   if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
     globalThis.PASI_NATIVE_TEST_API = Object.freeze({
