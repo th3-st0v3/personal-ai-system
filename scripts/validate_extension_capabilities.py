@@ -167,7 +167,7 @@ def validate_extension_capabilities(
             continue
         permission = contract.get("permission")
         if isinstance(permission, str) and permission not in declared_permissions:
-            errors.append(f"chrome.{api} requires declared manifest permission {permission!r}")
+            errors.append(f"chrome.{api} requires manifest permission {permission!r}")
         patterns = contract.get("host_patterns", [])
         if isinstance(patterns, list):
             for pattern in patterns:
