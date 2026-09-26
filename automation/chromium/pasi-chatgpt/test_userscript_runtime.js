@@ -163,13 +163,15 @@ test('MAIN world is blocked unless explicit confirmation is recorded', () => {
   assert.equal(script.unsafeConfirmed, false);
 });
 
-test('DNR-backed GM_webRequest is bounded and persisted per script', () => {
+test('DNR-backed GM_webRequest is bounded, persisted, and @connect constrained', () => {
   assert.match(runtimeSource, /MAX_NETWORK_RULES = 50/);
   assert.match(runtimeSource, /MAX_NETWORK_RULE_BYTES = 20 \* 1024/);
   assert.match(runtimeSource, /DNR_STORE_PREFIX/);
   assert.match(runtimeSource, /webRequest\.rules/);
   assert.match(runtimeSource, /clearNetworkRules/);
   assert.match(runtimeSource, /restoreNetworkRules/);
+  assert.match(runtimeSource, /validateDnrConnectPolicy/);
+  assert.match(runtimeSource, /requires @connect \*/);
 });
 
 test('bridge only forwards authenticated main-world RPCs to the extension', () => {
