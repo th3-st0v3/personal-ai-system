@@ -171,7 +171,44 @@ assert Browser is not None
 print(f"browser-use {version}: import compatibility OK")
 '
 
-run_check "Static type check" npx --yes pyright@1.1.411 "${PYTHON_FILES[@]}"
+run_pylance_check() {
+    local report
+    report="$(mktemp)"
+    if ! npx --yes pyright@1.1.411 --outputjson "${PYTHON_FILES[@]}" >"$report"; then
+        cat "$report"
+        rm -f "$report"
+        return 1
+    fi
+
+    python - "$report" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report_path = Path(sys.argv[1])
+payload = json.loads(report_path.read_text(encoding="utf-8"))
+diagnostics = payload.get("generalDiagnostics", [])
+counts = {"error": 0, "warning": 0, "information": 0}
+
+for diagnostic in diagnostics:
+    severity = diagnostic.get("severity")
+    if severity in counts:
+        counts[severity] += 1
+
+print(
+    "Pylance-compatible diagnostics: "
+    f"{counts['error']} errors, "
+    f"{counts['warning']} warnings, "
+    f"{counts['information']} informations"
+)
+
+if any(counts.values()):
+    raise SystemExit(1)
+PY
+    rm -f "$report"
+}
+
+run_check "Pylance-compatible static type check" run_pylance_check
 run_check "Markdown lint" npx --yes markdownlint-cli2@0.23.2 '**/*.md' \
     '#node_modules' '#**/.venv/**' '#**/venv/**' '#**/env/**' '#**/.git/**' \
     '#**/.tox/**' '#**/.nox/**' '#**/nox/**' '#**/.pytest_cache/**' '#**/.mypy_cache/**' \
