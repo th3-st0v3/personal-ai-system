@@ -90,6 +90,24 @@ test('native content and recovery scripts are safe to reinject', () => {
   assert.match(recovery, /__PASI_NATIVE_RECOVERY_STARTED__/);
 });
 
+test('native controller and recovery companion tear down stale page lifecycles before reinjection', () => {
+  assert.match(content, /const previousController = globalThis\.__PASI_NATIVE_CONTROLLER_STARTED__/);
+  assert.match(content, /function disposeController\(\)/);
+  assert.match(content, /clearInterval\(pollTimerId\)/);
+  assert.match(content, /clearInterval\(healthTimerId\)/);
+  assert.match(content, /removeEventListener\('visibilitychange', visibilityChangeHandler\)/);
+  assert.match(content, /messageListener = \(message\) =>/);
+  assert.match(content, /globalThis\.__PASI_NATIVE_CONTROLLER_STARTED__ = Object\.freeze\(\{/);
+  assert.doesNotMatch(content, /if \(globalThis\.__PASI_NATIVE_CONTROLLER_STARTED__ === true\) return/);
+
+  assert.match(recovery, /const previousRecovery = globalThis\.__PASI_NATIVE_RECOVERY_STARTED__/);
+  assert.match(recovery, /function disposeRecovery\(\)/);
+  assert.match(recovery, /inspectionTimerId = setInterval/);
+  assert.match(recovery, /progressObserverHandle\?\.detach/);
+  assert.match(recovery, /globalThis\.__PASI_NATIVE_RECOVERY_STARTED__ = Object\.freeze\(\{/);
+  assert.doesNotMatch(recovery, /if \(globalThis\.__PASI_NATIVE_RECOVERY_STARTED__ === true\) return/);
+});
+
 test('native recovery companion uses the shared long-response timeout policy', () => {
   assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
   assert.match(recovery, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
