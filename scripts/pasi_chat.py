@@ -545,6 +545,11 @@ def route_chat(
             known_url = None
         handoff.update({"chat_exhausted": False, "github_attached": False, "reasoning_mode": None})
         state = browser_state(adapter)
+        observed_replacement_url = valid_chat_url(state.get("chat_url"))
+        if known_url is None and observed_replacement_url:
+            record_chat_change(handoff, None, observed_replacement_url, "verified_new_chat_browser_observation")
+            handoff["chat_url"] = observed_replacement_url
+            known_url = observed_replacement_url
     else:
         print(f"Reusing ChatGPT conversation: {known_url}")
 
