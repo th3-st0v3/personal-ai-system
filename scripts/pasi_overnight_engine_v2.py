@@ -726,7 +726,9 @@ def choose_run_start_task(
             candidate = task
             break
     if candidate is None and candidate_text:
-        return candidate_text, False, 0
+        raise RuntimeError(
+            f"requested task is not present in roadmap {source}: {candidate_text[:MAX_TASK_TEXT_CHARS]}"
+        )
     if candidate is None:
         decision = hybrid_planner.select_task(
             tasks,
@@ -1282,7 +1284,18 @@ def invoke_chat(task: str, state: OvernightState, failure: str) -> tuple[int, st
         attempt=state.current_attempt,
     )
     code, output = command(
-        [sys.executable, str(control_script("pasi_chat_guard.py")), prompt, "--github", "public", "--timeout", str(TASK_TIMEOUT_SECONDS), "--repo", state.worktree],
+        [
+            sys.executable,
+            str(control_script("pasi_chat_guard.py")),
+            prompt,
+            "--github",
+            "public",
+            "--timeout",
+            str(TASK_TIMEOUT_SECONDS),
+            "--repo",
+            state.worktree,
+            "--overnight",
+        ],
         REPO_ROOT,
         TASK_TIMEOUT_SECONDS + 45.0,
     )
@@ -1408,6 +1421,11 @@ def continuation_directive(_state: OvernightState, _task: str | None = None) -> 
     )
 
 def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
+    previous_task = ""
+    if state.recent_tasks:
+        candidate = state.recent_tasks[-1].strip()
+        if candidate and candidate != task.strip():
+            previous_task = candidate
     return prompt_compiler.compile_task_prompt(
         task,
         run_id=state.run_id,
@@ -1418,8 +1436,13 @@ def build_prompt(task: str, state: OvernightState, failure: str = "") -> str:
         worktree=state.worktree,
         phase=state.phase,
         recent_tasks=state.recent_tasks,
-        roadmap_tasks=AUTOMATION_TASKS if state.phase == "automation" else ENGINEERING_TASKS,
+        roadmap_tasks=(),
         previous_failure=failure,
+        roadmap_name=Path(state.roadmap_path).name if state.roadmap_path.strip() else "repository project roadmap",
+        current_task_id=state.current_task_id,
+        completed_task_count=state.completed_tasks,
+        previous_task=previous_task,
+        previous_result=state.last_result if previous_task else "",
     )
 
 
