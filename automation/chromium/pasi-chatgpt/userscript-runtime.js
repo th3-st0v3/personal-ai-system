@@ -7,6 +7,9 @@ const MAIN_BRIDGE_ID = 'pasi-userscript-main-bridge';
 const MAX_SOURCE_CHARS = 2 * 1024 * 1024;
 const MAX_RPC_TEXT_CHARS = 5 * 1024 * 1024;
 const MAX_MENU_ITEMS = 500;
+const MAX_NETWORK_RULES = 50;
+const MAX_NETWORK_RULE_BYTES = 20 * 1024;
+const DNR_STORE_PREFIX = 'pasi:userscript:dnr:';
 const GRANT_ALIASES = Object.freeze({
   'GM_getValue': 'storage',
   'GM_setValue': 'storage',
@@ -301,7 +304,7 @@ function createBootstrap(script) {
     '    deleteValue: async (key) => rpc("storage.delete", {key}),',
     '    listValues: async () => (await rpc("storage.list")).keys,',
     '    fetch: async (url, options) => { assertGrant("fetch"); return rpc("fetch", {url, options:options || {}}); },',
-    '    webRequest: async (request) => { assertGrant("webRequest"); return rpc("fetch", request || {}); },',
+    '    webRequest: async (request) => { assertGrant("webRequest"); return rpc(request && (request.addRules || request.removeRuleIds) ? "webRequest.rules" : "fetch", request || {}); },',
     '    xmlHttpRequest: async (request) => { assertGrant("xmlhttprequest"); return rpc("fetch", request || {}); },',
     '    registerMenuCommand: async (caption, command, accessKey) => { assertGrant("menu"); const result = await rpc("menu.register", {caption, accessKey}); if (result && result.menuId && typeof command === "function") menuCallbacks[result.menuId] = command; return result ? result.menuId : undefined; },',
     '    unregisterMenuCommand: async (menuId) => { assertGrant("menu"); delete menuCallbacks[menuId]; return rpc("menu.unregister", {menuId}); },',
@@ -467,6 +470,8 @@ async function rpc(script, op, data, sender) {
         keys:Object.keys(all).filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length))
       };
     }
+    case 'webRequest.rules':
+      return applyNetworkRules(script, data || {});
     case 'fetch': {
       requireGrant(script, 'fetch');
       const url = String(data && data.url || '');
@@ -572,6 +577,83 @@ function sendRpcResponse(sendResponse, promise) {
     .then((result) => sendResponse({ok:true, result}))
     .catch((error) => sendResponse({ok:false, error:String(error && error.message ? error.message : error)}));
   return true;
+}
+
+async function clearNetworkRules(scriptId) {
+  if (!chrome.declarativeNetRequest || typeof chrome.declarativeNetRequest.updateDynamicRules !== 'function') return;
+  const key = DNR_STORE_PREFIX + scriptId;
+  const stored = await chrome.storage.local.get(key);
+  const ids = Array.isArray(stored && stored[key]) ? stored[key].map(Number).filter(Number.isInteger) : [];
+  if (ids.length) {
+    await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:ids});
+  }
+  await chrome.storage.local.remove(key);
+}
+
+function localDnrId(scriptId, localId, salt) {
+  let hash = 2166136261;
+  const text = scriptId + ':' + String(localId) + ':' + String(salt);
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 2000000000 + 1;
+}
+
+async function applyNetworkRules(script, data) {
+  requireGrant(script, 'webRequest');
+  if (!chrome.declarativeNetRequest || typeof chrome.declarativeNetRequest.updateDynamicRules !== 'function') {
+    throw new Error('declarativeNetRequestWithHostAccess permission is required for GM_webRequest rules');
+  }
+  const addRules = Array.isArray(data && data.addRules) ? data.addRules : [];
+  const removeLocalIds = Array.isArray(data && data.removeRuleIds) ? data.removeRuleIds.map(Number).filter(Number.isInteger) : [];
+  if (addRules.length > MAX_NETWORK_RULES) throw new Error('userscript DNR update exceeds the per-request rule limit');
+
+  const key = DNR_STORE_PREFIX + script.id;
+  const stored = await chrome.storage.local.get(key);
+  const existingMap = Array.isArray(stored && stored[key]) ? stored[key] : [];
+  const removeDnrIds = existingMap.filter((item) => removeLocalIds.includes(Number(item.localId))).map((item) => Number(item.dnrId));
+  const keepMap = existingMap.filter((item) => !removeLocalIds.includes(Number(item.localId)));
+
+  const dynamic = typeof chrome.declarativeNetRequest.getDynamicRules === 'function'
+    ? await chrome.declarativeNetRequest.getDynamicRules()
+    : [];
+  const occupied = new Set(dynamic.map((rule) => Number(rule.id)));
+
+  const normalized = [];
+  const newMap = keepMap.slice();
+  for (const input of addRules) {
+    const localId = Number(input && input.id);
+    if (!Number.isInteger(localId) || localId < 1) throw new Error('GM_webRequest rule id must be a positive integer');
+    const rule = {...input};
+    delete rule.id;
+    const bytes = JSON.stringify(rule).length;
+    if (bytes > MAX_NETWORK_RULE_BYTES) throw new Error('GM_webRequest rule exceeds 20 KiB');
+    if (!rule.condition || !rule.action || typeof rule.action.type !== 'string') {
+      throw new Error('GM_webRequest rule requires condition and action');
+    }
+    let dnrId = 0;
+    for (let salt = 0; salt < 100; salt += 1) {
+      const candidate = localDnrId(script.id, localId, salt);
+      if (!occupied.has(candidate) && !newMap.some((item) => Number(item.dnrId) === candidate)) {
+        dnrId = candidate;
+        break;
+      }
+    }
+    if (!dnrId) throw new Error('unable to allocate a unique DNR rule id');
+    normalized.push({...rule, id:dnrId});
+    newMap.push({localId, dnrId});
+  }
+
+  const allRuleIds = [...new Set([...removeDnrIds, ...normalized.map((rule) => rule.id)])];
+  if (allRuleIds.length > MAX_NETWORK_RULES * 2) throw new Error('userscript DNR state exceeds the bounded rule limit');
+
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds:[...new Set(removeDnrIds)],
+    addRules:normalized
+  });
+  await chrome.storage.local.set({[key]:newMap});
+  return {ruleIds:normalized.map((rule) => newMap.find((item) => item.localId === rule.id)?.dnrId || rule.id)};
 }
 
 async function managementInstall(source, existing, allowUnsafeWorld) {
