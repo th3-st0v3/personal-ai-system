@@ -311,7 +311,7 @@ function createBootstrap(script) {
     '    notification: async (details) => { assertGrant("notifications"); return rpc("notifications.create", details || {}); },',
     '    download: async (details) => { assertGrant("downloads"); return rpc("downloads.create", details || {}); },',
     '    openInTab: async (url, options) => { assertGrant("tabs"); return rpc("tabs.open", {url, options:options || {}}); },',
-    '    setClipboard,',
+    '    setClipboard: async (text, type) => { assertGrant("clipboard"); return rpc("clipboard.set", {text, type}); },',
     '    addStyle',
     '  };',
     mainWorld ? '  GM.unsafeWindow = globalThis;' : '',
@@ -473,6 +473,14 @@ async function rpc(script, op, data, sender) {
     }
     case 'webRequest.rules':
       return applyNetworkRules(script, data || {});
+    case 'clipboard.set':
+      requireGrant(script, 'clipboard');
+      if (!chrome.permissions || !chrome.permissions.contains || !(await chrome.permissions.contains({permissions:['clipboardWrite']}))) {
+        throw new Error('clipboardWrite permission is required for GM_setClipboard');
+      }
+      if (data && data.type && data.type !== 'text') throw new Error('PASI clipboard supports text only');
+      await navigator.clipboard.writeText(String(data && data.text || ''));
+      return {ok:true};
     case 'fetch': {
       requireGrant(script, 'fetch');
       const url = String(data && data.url || '');
