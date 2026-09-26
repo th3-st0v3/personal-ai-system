@@ -102,19 +102,19 @@ for file in "${TRACKED_FILES[@]}"; do
     case "$file" in
         *.py)
             PYTHON_FILES+=("./$file")
-            if [[ "$file" == */test_*.py || "$file" == *_test.py ]]; then
+            if [[ "$file" == test_*.py || "$file" == */test_*.py || "$file" == *_test.py ]]; then
                 PYTHON_TEST_FILES+=("./$file")
             fi
             ;;
         *.js|*.mjs|*.cjs)
             JAVASCRIPT_FILES+=("./$file")
-            if [[ "$file" == */test_*.js || "$file" == */*_test.js || "$file" == *.test.js || "$file" == *.spec.js ||
-                  "$file" == */test_*.mjs || "$file" == */*_test.mjs || "$file" == *.test.mjs || "$file" == *.spec.mjs ||
-                  "$file" == */test_*.cjs || "$file" == */*_test.cjs || "$file" == *.test.cjs || "$file" == *.spec.cjs ]]; then
+            if [[ "$file" == test_*.js || "$file" == */test_*.js || "$file" == */*_test.js || "$file" == *.test.js || "$file" == *.spec.js ||
+                  "$file" == test_*.mjs || "$file" == */test_*.mjs || "$file" == */*_test.mjs || "$file" == *.test.mjs || "$file" == *.spec.mjs ||
+                  "$file" == test_*.cjs || "$file" == */test_*.cjs || "$file" == */*_test.cjs || "$file" == *.test.cjs || "$file" == *.spec.cjs ]]; then
                 JAVASCRIPT_TEST_FILES+=("./$file")
             fi
             ;;
-        *.sh) JSON_FILES+=() ; SHELL_FILES+=("./$file") ;;
+        *.sh) SHELL_FILES+=("./$file") ;;
         *.json) JSON_FILES+=("./$file") ;;
     esac
 done
