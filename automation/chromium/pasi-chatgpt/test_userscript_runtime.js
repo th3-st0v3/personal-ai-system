@@ -56,8 +56,8 @@ test('metadata parser extracts matches, grants, connect rules, and unsafe-world 
     'console.log("ok");'
   ].join('\n'));
   assert.equal(metadata.name, 'Example');
-  assert.deepEqual(metadata.matches, ['https://example.com/*']);
-  assert.deepEqual(metadata.connects, ['api.example.com']);
+  assert.deepEqual(Array.from(metadata.matches), ['https://example.com/*']);
+  assert.deepEqual(Array.from(metadata.connects), ['api.example.com']);
   assert.ok(metadata.grants.includes('GM_getValue'));
   assert.ok(metadata.grants.includes('GM_fetch'));
   assert.ok(metadata.grants.includes('unsafeWindow'));
@@ -85,10 +85,10 @@ test('connect enforcement accepts exact and wildcard hosts but rejects unrelated
 test('host-origin translation stays bounded to the requested match patterns', () => {
   const {matchOrigins} = loadUtils();
   assert.deepEqual(
-    matchOrigins(['https://example.com/path/*', '*://*.trusted.test/*']),
+    Array.from(matchOrigins(['https://example.com/path/*', '*://*.trusted.test/*'])),
     ['https://example.com/*', '*://*.trusted.test/*']
   );
-  assert.deepEqual(matchOrigins(['<all_urls>']), ['*://*/*']);
+  assert.deepEqual(Array.from(matchOrigins(['<all_urls>'])), ['*://*/*']);
 });
 
 test('storage GM APIs are present in the bootstrap but remain grant-gated', () => {
