@@ -10,7 +10,7 @@ from scripts.pasi_chat_guard import classify_observation, observation_text
 
 class TestPasiChatGuard(unittest.TestCase):
 
-    def test_overnight_flag_is_forwarded_to_chat_launcher() -> None:
+    def test_overnight_flag_is_forwarded_to_chat_launcher(self) -> None:
         source = Path(guard.__file__).read_text(encoding="utf-8")
         self.assertIn('parser.add_argument("--overnight"', source)
         self.assertIn("if args.overnight:", source)
