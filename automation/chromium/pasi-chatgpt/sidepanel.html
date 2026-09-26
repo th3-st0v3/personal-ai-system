@@ -115,8 +115,28 @@
       <p class="muted"><a class="text-link" href="https://github.com/th3-st0v3/personal-ai-system/actions/workflows/pasi-development.yml" target="_blank" rel="noreferrer">Open GitHub runner controls</a></p>
     </section>
 
+    <section class="section userscript-section" aria-labelledby="userscript-heading">
+      <div class="section-head">
+        <div>
+          <p class="section-label">Userscripts</p>
+          <h2 id="userscript-heading">Native MV3 script manager</h2>
+        </div>
+        <span class="count-badge" id="userscript-count">0 scripts</span>
+      </div>
+      <div class="userscript-toolbar">
+        <input id="userscript-search" type="search" placeholder="Search scripts">
+        <button class="outline-button" id="btn-userscript-refresh" type="button">Refresh</button>
+      </div>
+      <div class="button-row">
+        <button class="primary-button" id="btn-userscript-new" type="button">New / edit script</button>
+        <button class="outline-button" id="btn-userscript-remote" type="button">Install from HTTPS</button>
+      </div>
+      <div class="userscript-list" id="userscript-list" aria-live="polite"></div>
+      <p class="muted" id="userscript-status">Loading native userscript runtime…</p>
+    </section>
+
     <footer class="panel-footer">
-      <span>PASI extension 1.1.2</span>
+      <span>PASI extension 1.2.0</span>
       <span id="footer-state">READYING</span>
     </footer>
   </main>
@@ -166,6 +186,48 @@
       <div class="button-row">
         <button class="outline-button" value="cancel" type="submit">Cancel</button>
         <button class="primary-button" id="btn-save-roadmap" value="default" type="button">Import</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="userscript-editor-dialog" aria-labelledby="userscript-editor-heading">
+    <form method="dialog" class="dialog-card" id="userscript-editor-form">
+      <div class="section-head">
+        <div>
+          <p class="section-label">Userscript editor</p>
+          <h2 id="userscript-editor-heading">Install or update script</h2>
+        </div>
+      </div>
+      <input id="userscript-edit-id" type="hidden">
+      <label class="field">
+        <span>Source</span>
+        <textarea id="userscript-source" rows="18" spellcheck="false" placeholder="// ==UserScript==&#10;// @name        Example&#10;// @match       https://example.com/*&#10;// @grant       GM_getValue&#10;// ==/UserScript==&#10;&#10;console.log('hello');"></textarea>
+      </label>
+      <label class="inline-check"><input id="userscript-unsafe" type="checkbox"> Explicitly allow MAIN / unsafeWindow execution</label>
+      <p class="muted">MAIN-world access is opt-in and exposes the page JavaScript world. Keep normal scripts in USER_SCRIPT isolation.</p>
+      <div class="button-row">
+        <button class="outline-button" value="cancel" type="submit">Cancel</button>
+        <button class="primary-button" id="btn-userscript-save" value="default" type="button">Save script</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="userscript-remote-dialog" aria-labelledby="userscript-remote-heading">
+    <form method="dialog" class="dialog-card" id="userscript-remote-form">
+      <div class="section-head">
+        <div>
+          <p class="section-label">Remote install</p>
+          <h2 id="userscript-remote-heading">Install userscript from HTTPS</h2>
+        </div>
+      </div>
+      <label class="field">
+        <span>HTTPS URL</span>
+        <input id="userscript-remote-url" type="url" placeholder="https://example.com/script.user.js">
+      </label>
+      <label class="inline-check"><input id="userscript-remote-unsafe" type="checkbox"> Permit MAIN / unsafeWindow for this install</label>
+      <div class="button-row">
+        <button class="outline-button" value="cancel" type="submit">Cancel</button>
+        <button class="primary-button" id="btn-userscript-remote-save" value="default" type="button">Install</button>
       </div>
     </form>
   </dialog>
