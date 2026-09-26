@@ -479,7 +479,18 @@ async function rpc(script, op, data, sender) {
         throw new Error('clipboardWrite permission is required for GM_setClipboard');
       }
       if (data && data.type && data.type !== 'text') throw new Error('PASI clipboard supports text only');
-      await navigator.clipboard.writeText(String(data && data.text || ''));
+      if (!sender || !sender.tab || !sender.tab.id || !chrome.scripting || !chrome.scripting.executeScript) {
+        throw new Error('clipboard write requires an active userscript tab');
+      }
+      await chrome.scripting.executeScript({
+        target:{tabId:sender.tab.id},
+        world:'ISOLATED',
+        func:(text) => {
+          if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('clipboard API unavailable');
+          return navigator.clipboard.writeText(text);
+        },
+        args:[String(data && data.text || '')]
+      });
       return {ok:true};
     case 'fetch': {
       requireGrant(script, 'fetch');
