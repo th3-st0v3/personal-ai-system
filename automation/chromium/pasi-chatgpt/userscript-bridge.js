@@ -12,7 +12,7 @@
       ok,
       result,
       error
-    }, location.origin);
+    }, '*');
   }
 
   function extensionAlive() {
