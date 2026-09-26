@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "minimum_chrome_version": "133",
+  "minimum_chrome_version": "135",
   "name": "PASI ChatGPT Controller",
   "version": "1.2.0",
   "description": "Native Chromium controller, watchdog, and MV3 userscript runtime for Personal AI System.",
