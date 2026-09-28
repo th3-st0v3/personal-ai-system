@@ -212,23 +212,7 @@ class GitHubProjectsV2:
 
     def get_field_value(self, project_number: int, item_id: str, field_name: str) -> Any:
         project = self.get_project(project_number)
-        query = """
-        query($projectId: ID!, $itemId: ID!, $fieldName: String!) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              item: item(id: $itemId) {
-                fieldValueByName(name: $fieldName) {
-                  ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
-                  ... on ProjectV2ItemFieldTextValue { text }
-                  ... on ProjectV2ItemFieldNumberValue { number }
-                  ... on ProjectV2ItemFieldDateValue { date }
-                  ... on ProjectV2ItemFieldIterationValue { title iterationId }
-                }
-              }
-            }
-          }
-        }
-        """
+        query = """\n        query($itemId: ID!, $fieldName: String!) {\n          node(id: $itemId) {\n            ... on ProjectV2Item {\n              fieldValueByName(name: $fieldName) {\n                ... on ProjectV2ItemFieldSingleSelectValue { name optionId }\n                ... on ProjectV2ItemFieldTextValue { text }\n                ... on ProjectV2ItemFieldNumberValue { number }\n                ... on ProjectV2ItemFieldDateValue { date }\n                ... on ProjectV2ItemFieldIterationValue { title iterationId }\n              }\n            }\n          }\n        }\n        """
         data = self._data(query, {"itemId": item_id, "fieldName": field_name})
         value = data.get("node", {}).get("fieldValueByName")
         if not isinstance(value, Mapping):
