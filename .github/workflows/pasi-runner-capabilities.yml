@@ -5,10 +5,6 @@ on:
     - cron: "47 4 * * *"
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Branch, tag, or commit to reconcile"
-        required: false
-        default: "main"
       apply:
         description: "Install allowlisted missing system/Python dependencies"
         required: true
@@ -48,7 +44,15 @@ jobs:
 
       - name: Verify detect-only result
         run: |
-          python3 -c 'import json, pathlib; p=pathlib.Path("$RUNNER_TEMP/pasi-capabilities/capabilities.json"); report=json.loads(p.read_text()); assert report.get("required_ok") is True, "runner capability health check failed"; print("Runner capability detect-only health check: PASS")'
+          REPORT_PATH="$RUNNER_TEMP/pasi-capabilities/capabilities.json" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          report = json.loads(Path(os.environ["REPORT_PATH"]).read_text())
+          if report.get("required_ok") is not True:
+              raise SystemExit("runner capability health check failed")
+          print("Runner capability detect-only health check: PASS")
+          PY
 
       - name: Upload health evidence
         uses: actions/upload-artifact@v6
@@ -61,16 +65,9 @@ jobs:
     runs-on: [self-hosted, linux, x64, pasi-desktop]
     timeout-minutes: 45
     steps:
-      - name: Resolve ref
-        id: ref
-        shell: bash
-        env:
-          REQUESTED_REF: ${{ inputs.ref }}
-        run: printf 'ref=%s\n' "${REQUESTED_REF:-main}" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@v7
         with:
-          ref: ${{ steps.ref.outputs.ref }}
+          ref: main
           fetch-depth: 1
 
       - name: Reconcile runner capabilities
