@@ -194,3 +194,10 @@ class TestPasiOvernightShellScripts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_m1_and_m2_live_acceptance_bootstrap_managed_runtime(self) -> None:
+        m1 = (ROOT / "scripts" / "run_m1_live_acceptance.py").read_text(encoding="utf-8")
+        m2 = (ROOT / "scripts" / "run_m2_live_acceptance.sh").read_text(encoding="utf-8")
+        self.assertIn('"scripts/start_pasi_168h.sh", "--resume"', m1)
+        self.assertIn('bash scripts/start_pasi_168h.sh --resume', m2)

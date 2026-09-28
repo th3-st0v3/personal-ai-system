@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -34,6 +36,17 @@ def main() -> int:
     args = parser.parse_args()
     if args.count != 20:
         parser.error("--count must be exactly 20")
+
+    runtime_preflight = subprocess.run(
+        ["bash", "scripts/start_pasi_168h.sh", "--resume"],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if runtime_preflight.returncode != 0:
+        detail = (runtime_preflight.stderr or runtime_preflight.stdout)[-4000:]
+        raise RuntimeError(f"PASI runtime preflight failed: {detail.strip()}")
 
     adapter = ChatGPTAdapter(
         transport=UrllibBridgeTransport(timeout_seconds=10.0),
@@ -98,14 +111,31 @@ def main() -> int:
     payload = {
         "gate": "M1",
         "status": "PASS",
+        "provider": "chatgpt_browser",
+        "task_id": "P0.2",
+        "run_id": adapter.session_id,
+        "session_id": adapter.session_id,
         "count": 20,
         "false_terminal_chat_verdicts": 0,
         "duplicate_message_deltas": 0,
+        "task_id": "P0.2",
+        "provider": "chatgpt_browser",
+        "runtime_preflight": "bash scripts/start_pasi_168h.sh --resume",
         "baseline": {"chat_url": chat_url, "user": baseline_counts[0], "assistant": baseline_counts[1]},
         "results": results,
         "completed_at": time.time(),
     }
     evidence_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    registry_output = Path.home() / ".pasi" / "acceptance" / "registry.json"
+    registry = subprocess.run(
+        [str(Path(sys.executable)), "scripts/pasi_acceptance_registry.py", "M1"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if registry.returncode != 0:
+        raise RuntimeError(f"acceptance evidence registry failed: {registry.stderr.strip()}")
+    print(f"Acceptance registry: {registry_output}")
     print("M1 PASS: 20 prompts; zero duplicate message deltas; zero terminal CHAT_* verdicts")
     print(f"Evidence: {evidence_path}")
     return 0
