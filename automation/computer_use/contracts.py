@@ -17,6 +17,8 @@ ActionKind: TypeAlias = Literal[
     "ide_search",
     "ide_command",
     "github_read",
+    "github_project_read",
+    "github_project_write",
     "github_ui",
     "web_search",
     "web_read",
@@ -56,12 +58,13 @@ SAFE_ACTIONS: frozenset[ActionKind] = frozenset(
         "ide_diagnostics",
         "ide_search",
         "github_read",
+        "github_project_read",
         "web_search",
         "web_read",
     }
 )
 APPROVAL_ACTIONS: frozenset[ActionKind] = frozenset(
-    {"ide_command", "github_ui", "browser_task", "desktop_ui"}
+    {"ide_command", "github_project_write", "github_ui", "browser_task", "desktop_ui"}
 )
 
 
