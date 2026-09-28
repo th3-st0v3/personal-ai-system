@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -106,6 +107,16 @@ def main() -> int:
         "completed_at": time.time(),
     }
     evidence_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    registry_output = Path.home() / ".pasi" / "acceptance" / "registry.json"
+    registry = __import__("subprocess").run(
+        [str(Path(sys.executable)), "scripts/pasi_acceptance_registry.py", str(evidence_path), "--output", str(registry_output)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if registry.returncode != 0:
+        raise RuntimeError(f"acceptance evidence registry failed: {registry.stderr.strip()}")
+    print(f"Acceptance registry: {registry_output}")
     print("M1 PASS: 20 prompts; zero duplicate message deltas; zero terminal CHAT_* verdicts")
     print(f"Evidence: {evidence_path}")
     return 0
