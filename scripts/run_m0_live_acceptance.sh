@@ -334,6 +334,8 @@ evidence.write_text(
             "gate": "M0",
             "status": "PASS",
             "provider": "chatgpt_browser",
+            "task_id": "P0.1",
+            "run_id": branch,
             "authenticated_live_dom_required": True,
             "authenticated_browser_chat_url": chat_url_match.group(1),
             "completion": completion_match.group(1).strip(),
