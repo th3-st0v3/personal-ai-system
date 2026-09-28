@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -108,7 +109,7 @@ def main() -> int:
     }
     evidence_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     registry_output = Path.home() / ".pasi" / "acceptance" / "registry.json"
-    registry = __import__("subprocess").run(
+    registry = subprocess.run(
         [str(Path(sys.executable)), "scripts/pasi_acceptance_registry.py", str(evidence_path), "--output", str(registry_output)],
         check=False,
         capture_output=True,
