@@ -9,13 +9,18 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from scripts.pasi_m2_metrics import compute as compute_m2
-from scripts.pasi_runtime_telemetry import analyze as analyze_runtime
-from scripts.pasi_runtime_telemetry import render_markdown
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from pasi_m2_metrics import compute as compute_m2
+from pasi_runtime_telemetry import analyze as analyze_runtime
+from pasi_runtime_telemetry import render_markdown
 
 
 BENCHMARK_VERSION = 1
