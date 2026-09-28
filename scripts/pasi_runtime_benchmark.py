@@ -173,7 +173,7 @@ def run() -> dict[str, Any]:
             "repeated_task_numbers": runtime.repeated_task_numbers,
             "browser_handoff_p95_ms": runtime.p95_browser_handoff_ms,
             "browser_ack_p95_ms": runtime.p95_browser_ack_ms,
-            "generation_p95_ms": max(runtime.browser_generation_samples)
+            "generation_max_ms": max(runtime.browser_generation_samples)
             if runtime.browser_generation_samples
             else None,
             "recovery_events": runtime.recovery_events,
@@ -220,6 +220,7 @@ def write_outputs(result: dict[str, Any]) -> None:
             f"- Repeated task numbers: {runtime.repeated_task_numbers}",
             f"- Browser handoff P95: {runtime.p95_browser_handoff_ms:.1f} ms",
             f"- Browser acknowledgment P95: {runtime.p95_browser_ack_ms:.1f} ms",
+            f"- Generation maximum: {max(runtime.browser_generation_samples):.1f} ms",
             f"- Recovery events: {runtime.recovery_events}",
             "",
             "## Interpretation boundary",
