@@ -21,6 +21,12 @@ API_CONTRACT: dict[str, dict[str, object]] = {
     "storage": {"permission": "storage"},
     "sidePanel": {"permission": "sidePanel"},
     "scripting": {"permission": "scripting"},
+    "userScripts": {"permission": "userScripts"},
+    "permissions": {"permission": None},
+    "contextMenus": {"permission": "contextMenus"},
+    "notifications": {"permission": "notifications"},
+    "downloads": {"permission": "downloads"},
+    "declarativeNetRequest": {"permission": "declarativeNetRequestWithHostAccess"},
     "tabs": {
         "permission": None,
         "host_patterns": [
@@ -29,7 +35,7 @@ API_CONTRACT: dict[str, dict[str, object]] = {
         ],
     },
 }
-PERMISSIONLESS_APIS = frozenset({"runtime", "action"})
+PERMISSIONLESS_APIS = frozenset({"runtime", "action", "permissions"})
 LOCAL_BRIDGE_HOST_PATTERN = "http://127.0.0.1:8765/*"
 CHROME_API_RE = re.compile(r"\bchrome\.([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\b")
 URL_RE = re.compile(r"""https?://[^\s'"<>)}\]]+""")
@@ -110,6 +116,12 @@ def validate_extension_capabilities(
         if isinstance(manifest.get("permissions"), list)
         else set()
     )
+    optional_permissions = (
+        set(manifest.get("optional_permissions", []))
+        if isinstance(manifest.get("optional_permissions"), list)
+        else set()
+    )
+    declared_permissions = permissions | optional_permissions
     host_permissions = (
         [item for item in manifest.get("host_permissions", []) if isinstance(item, str)]
         if isinstance(manifest.get("host_permissions"), list)
@@ -154,7 +166,7 @@ def validate_extension_capabilities(
             errors.append(f"chrome.{api} is used but has no declared capability contract")
             continue
         permission = contract.get("permission")
-        if isinstance(permission, str) and permission not in permissions:
+        if isinstance(permission, str) and permission not in declared_permissions:
             errors.append(f"chrome.{api} requires manifest permission {permission!r}")
         patterns = contract.get("host_patterns", [])
         if isinstance(patterns, list):

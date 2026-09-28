@@ -675,6 +675,35 @@ def test_completed_operation_repairs_late_browser_response_observation(tmp_path:
     assert repaired["chat_url"] == "https://chatgpt.com/c/late"
 
 
+def test_browser_response_observation_preserves_conversation_signature(tmp_path: Path) -> None:
+    bridge = make_bridge(tmp_path)
+    operation = bridge.queue_operation("prompt", "signature evidence")
+    claimed = bridge.claim_next_operation()
+    assert claimed is not None
+
+    bridge.save_browser_observation(
+        {
+            "schema_version": "pasi-native-chromium-v2",
+            "captured_at": "2026-09-24T03:10:00Z",
+            "data": {
+                "kind": "chatgpt_response",
+                "operation_id": operation.operation_id,
+                "active_operation_id": operation.operation_id,
+                "chat_url": "https://chatgpt.com/c/signature",
+                "conversation_signature": "12:13:unique assistant fingerprint",
+                "response_text": "PASI_M1_ACCEPTANCE_01_abcd1234",
+                "response_text_available": True,
+            },
+        }
+    )
+
+    durable = bridge.get_browser_response()
+    assert durable is not None
+    assert durable["data"]["active_operation_id"] == operation.operation_id
+    assert durable["data"]["conversation_signature"] == "12:13:unique assistant fingerprint"
+    assert durable["data"]["response_text"] == "PASI_M1_ACCEPTANCE_01_abcd1234"
+
+
 def test_authoritative_completion_response_is_not_overwritten_by_late_observation(tmp_path: Path) -> None:
     bridge = make_bridge(tmp_path)
     operation = bridge.queue_operation("prompt", "keep authoritative response")

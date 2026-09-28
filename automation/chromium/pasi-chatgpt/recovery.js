@@ -1,10 +1,13 @@
 (() => {
   'use strict';
 
-  if (globalThis.__PASI_NATIVE_RECOVERY_STARTED__ === true) return;
-  globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = true;
+  const previousRecovery = globalThis.__PASI_NATIVE_RECOVERY_STARTED__;
+  if (previousRecovery && typeof previousRecovery.dispose === 'function') {
+    try { previousRecovery.dispose(); } catch (_) {}
+  }
 
   const ACTIVE_KEY = 'pasi:active-operation';
+  const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
@@ -25,6 +28,8 @@
   const RECOVERY_VERSION = '1.0.6';
   const MAX_RESPONSE_TEXT_CHARS = 120_000;
   let inspecting = false;
+  let recoveryContextInvalidated = false;
+  let inspectionTimerId = null;
   let progressTracker = null;
   let progressOperationId = null;
   let progressObserverHandle = null;
@@ -36,7 +41,28 @@
   const compact = (value) => String(value || '').replace(/\s+/g, ' ').trim();
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function isExtensionContextInvalidatedError(error) {
+    return /extension context invalidated|context invalidated/i.test(String(error?.message || error));
+  }
+
+  function disposeRecovery() {
+    recoveryContextInvalidated = true;
+    if (inspectionTimerId !== null) {
+      clearInterval(inspectionTimerId);
+      inspectionTimerId = null;
+    }
+    try { progressObserverHandle?.detach?.(); } catch (_) {}
+    progressObserverHandle = null;
+  }
+
+  globalThis.__PASI_NATIVE_RECOVERY_STARTED__ = Object.freeze({
+    dispose: disposeRecovery
+  });
+
   async function bridge(path, options = {}) {
+    if (recoveryContextInvalidated) {
+      throw new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page');
+    }
     if (!globalThis.chrome?.runtime?.sendMessage) {
       throw new Error('PASI_NATIVE: extension messaging API unavailable');
     }
@@ -60,7 +86,17 @@
           clearTimeout(timerId);
           const runtimeError = chrome.runtime.lastError;
           if (runtimeError) {
-            reject(new Error('PASI_NATIVE: extension bridge error: ' + runtimeError.message));
+            const message = String(runtimeError.message || '');
+            if (/extension context invalidated|context invalidated/i.test(message)) {
+              recoveryContextInvalidated = true;
+              if (inspectionTimerId !== null) {
+                clearInterval(inspectionTimerId);
+                inspectionTimerId = null;
+              }
+              reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
+              return;
+            }
+            reject(new Error('PASI_NATIVE: extension bridge error: ' + message));
             return;
           }
           if (!response || typeof response !== 'object') {
@@ -81,6 +117,15 @@
         if (settled) return;
         settled = true;
         clearTimeout(timerId);
+        if (isExtensionContextInvalidatedError(error)) {
+          recoveryContextInvalidated = true;
+          if (inspectionTimerId !== null) {
+            clearInterval(inspectionTimerId);
+            inspectionTimerId = null;
+          }
+          reject(new Error('PASI_NATIVE: extension context invalidated; reload the ChatGPT page'));
+          return;
+        }
         reject(error);
       }
     });
@@ -226,6 +271,55 @@
     const text = normalize(node.innerText || node.textContent || '');
     const { head, tail } = promptFingerprints(prompt);
     return Boolean((head && text.includes(head)) || (tail && text.includes(tail)));
+  }
+
+  function conversationSignatureState() {
+    const currentUrl = location.href;
+    try {
+      const stored = JSON.parse(localStorage.getItem(CONVERSATION_SIGNATURE_KEY) || 'null');
+      if (
+        stored &&
+        stored.chat_url === currentUrl &&
+        Number.isInteger(stored.user_count) &&
+        stored.user_count >= 0 &&
+        Number.isInteger(stored.assistant_count) &&
+        stored.assistant_count >= 0 &&
+        Array.isArray(stored.completed_operation_ids)
+      ) {
+        return {
+          chat_url: currentUrl,
+          user_count: stored.user_count,
+          assistant_count: stored.assistant_count,
+          completed_operation_ids: stored.completed_operation_ids.slice(-256)
+        };
+      }
+    } catch (_) {}
+
+    const seeded = {
+      chat_url: currentUrl,
+      user_count: userMessages().length,
+      assistant_count: assistants().length,
+      completed_operation_ids: []
+    };
+    try {
+      localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(seeded));
+    } catch (_) {}
+    return seeded;
+  }
+
+  function advanceConversationSignature(operationId, responseText) {
+    const state = conversationSignatureState();
+    const responseFingerprint = compact(responseText).slice(-4000);
+    if (!state || !operationId || !responseFingerprint) return `0:0:${responseFingerprint}`;
+    if (!state.completed_operation_ids.includes(operationId)) {
+      state.user_count += 1;
+      state.assistant_count += 1;
+      state.completed_operation_ids = [...state.completed_operation_ids, operationId].slice(-256);
+      try {
+        localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(state));
+      } catch (_) {}
+    }
+    return `${state.user_count}:${state.assistant_count}:${responseFingerprint}`;
   }
 
   function latestAssistantForOperation(operation) {
@@ -414,9 +508,12 @@
     const bounded = String(responseText || '').slice(0, MAX_RESPONSE_TEXT_CHARS);
     const available = Boolean(bounded.trim());
     if (!available) return false;
+    const conversationSignature = advanceConversationSignature(operationId, bounded);
 
     await report('chatgpt_response', {
+      operation_id: operationId,
       active_operation_id: operationId,
+      conversation_signature: conversationSignature,
       response_text: bounded,
       response_text_available: true,
       chat_exhausted: contextExhausted(),
@@ -431,6 +528,7 @@
           body: {
             operation_id: operationId,
             chat_url: location.href,
+            conversation_signature: conversationSignature,
             response_text: bounded,
             response_text_available: true
           }
@@ -985,6 +1083,7 @@
   }
 
   async function start() {
+    if (recoveryContextInvalidated) return;
     await report('chatgpt_recovery', {
       phase: 'started',
       recovery_action: 'monitor',
@@ -1011,9 +1110,23 @@
         });
       }
     }
-    setInterval(() => { runInspection().catch(() => {}); }, POLL_MS);
+    if (recoveryContextInvalidated) return;
+    inspectionTimerId = setInterval(() => {
+      if (recoveryContextInvalidated) return;
+      runInspection().catch((error) => {
+        if (isExtensionContextInvalidatedError(error)) {
+          recoveryContextInvalidated = true;
+          disposeRecovery();
+        }
+      });
+    }, POLL_MS);
     await runInspection();
   }
 
-  start().catch(() => {});
+  start().catch((error) => {
+    if (isExtensionContextInvalidatedError(error)) {
+      recoveryContextInvalidated = true;
+      disposeRecovery();
+    }
+  });
 })();

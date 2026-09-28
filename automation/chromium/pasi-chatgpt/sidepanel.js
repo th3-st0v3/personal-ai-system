@@ -408,6 +408,207 @@
     void refreshTelemetry();
   }
 
+
+  let userscriptState = { apiAvailable: false, apiError: null, scripts: [], registered: [] };
+
+  function userscriptSend(message) {
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage({ source: 'pasi-userscript-management', ...message }, (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          if (runtimeError) { reject(new Error(runtimeError.message || 'userscript IPC failed')); return; }
+          if (!response || response.ok !== true) {
+            reject(new Error(response?.error || 'userscript operation failed'));
+            return;
+          }
+          resolve(response.result);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function userscriptMatchesFilter(script, query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return true;
+    return [script.name, script.namespace, script.version, script.id, ...(script.matches || [])]
+      .some((value) => String(value || '').toLowerCase().includes(q));
+  }
+
+  function renderUserscripts() {
+    const list = byId('userscript-list');
+    const query = byId('userscript-search')?.value || '';
+    const scripts = (userscriptState.scripts || []).filter((script) => userscriptMatchesFilter(script, query));
+    byId('userscript-count').textContent = (userscriptState.scripts || []).length + ' ' + ((userscriptState.scripts || []).length === 1 ? 'script' : 'scripts');
+
+    if (!scripts.length) {
+      list.innerHTML = '<div class="empty-state">No userscripts match the current filter.</div>';
+      return;
+    }
+
+    list.innerHTML = scripts.map((script) => {
+      const registered = (userscriptState.registered || []).some((entry) => entry.id === script.id);
+      const grants = Array.isArray(script.grants) && script.grants.length ? script.grants.slice(0, 5).join(', ') : 'no grants';
+      const matches = Array.isArray(script.matches) && script.matches.length ? script.matches.slice(0, 2).join(', ') : 'no matches';
+      return '<article class="userscript-card" data-script-id="' + escapeHtml(script.id) + '">' +
+        '<div class="userscript-head"><div><strong>' + escapeHtml(script.name) + '</strong><span class="muted">' + escapeHtml(script.namespace || 'pasi') + '@' + escapeHtml(script.version) + '</span></div>' +
+        '<span class="badge">' + (registered ? 'REGISTERED' : script.enabled ? 'PENDING' : 'DISABLED') + '</span></div>' +
+        '<p class="muted">' + escapeHtml(compact(matches, 180)) + '</p>' +
+        '<p class="muted">Grants: ' + escapeHtml(grants) + '</p>' +
+        '<div class="task-actions">' +
+        '<button class="icon-button" type="button" data-us-action="edit">Edit</button>' +
+        '<button class="icon-button" type="button" data-us-action="toggle">' + (script.enabled ? 'Disable' : 'Enable') + '</button>' +
+        '<button class="icon-button" type="button" data-us-action="permissions">Permissions</button>' +
+        '<button class="icon-button" type="button" data-us-action="remove">Delete</button>' +
+        '</div></article>';
+    }).join('');
+
+    list.querySelectorAll('[data-us-action]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const card = button.closest('[data-script-id]');
+        const script = (userscriptState.scripts || []).find((item) => item.id === card?.dataset?.scriptId);
+        if (!script) return;
+        void handleUserscriptAction(button.dataset.usAction, script);
+      });
+    });
+  }
+
+  async function refreshUserscripts() {
+    try {
+      userscriptState = await userscriptSend({ op: 'state' });
+      const status = userscriptState.apiAvailable
+        ? (userscriptState.apiError ? 'Native runtime available with API warning: ' + userscriptState.apiError : 'Native MV3 userscript runtime ready.')
+        : 'Enable Allow User Scripts in the extension details to activate the runtime.';
+      byId('userscript-status').textContent = status;
+      renderUserscripts();
+    } catch (error) {
+      byId('userscript-status').textContent = compact(error?.message || error, 180);
+      renderUserscripts();
+    }
+  }
+
+
+  function extractUserscriptCapabilities(source) {
+    const text = String(source || '');
+    const origins = [...text.matchAll(/^\s*\/\/\s*@match\s+(\S+)/gm)].map((match) => match[1]).filter(Boolean);
+    const grants = [...text.matchAll(/^\s*\/\/\s*@grant\s+(\S+)/gm)].map((match) => match[1]).filter(Boolean);
+    const permissions = new Set();
+    for (const grant of grants) {
+      if (grant === 'GM_openInTab' || grant === 'tabs') permissions.add('tabs');
+      if (grant === 'GM_registerMenuCommand' || grant === 'GM_unregisterMenuCommand' || grant === 'menu') permissions.add('contextMenus');
+      if (grant === 'GM_notification' || grant === 'notifications') permissions.add('notifications');
+      if (grant === 'GM_download' || grant === 'downloads') permissions.add('downloads');
+      if (grant === 'GM_webRequest' || grant === 'webRequest') permissions.add('declarativeNetRequestWithHostAccess');
+      if (grant === 'GM_setClipboard' || grant === 'clipboard') permissions.add('clipboardWrite');
+    }
+    return { origins: [...new Set(origins)], permissions: [...permissions] };
+  }
+
+  async function requestUserscriptCapabilities(source) {
+    if (!chrome.permissions || typeof chrome.permissions.request !== 'function') return true;
+    const requested = extractUserscriptCapabilities(source);
+    const origins = requested.origins.length ? requested.origins : [];
+    if (!origins.length && !requested.permissions.length) return true;
+    const granted = await chrome.permissions.request({ origins, permissions: requested.permissions });
+    return Boolean(granted);
+  }
+
+  function openUserscriptEditor(script = null) {
+    byId('userscript-edit-id').value = script?.id || '';
+    byId('userscript-source').value = script?.source || '';
+    byId('userscript-unsafe').checked = script?.world === 'MAIN' || script?.unsafeConfirmed === true;
+    byId('userscript-editor-dialog').showModal();
+  }
+
+  async function saveUserscript() {
+    const source = byId('userscript-source').value;
+    if (!source.trim()) return;
+    const id = byId('userscript-edit-id').value.trim();
+    try {
+      if (!(await requestUserscriptCapabilities(source))) {
+        byId('userscript-status').textContent = 'Required permissions were not granted.';
+        return;
+      }
+      const result = await userscriptSend({
+        op: id ? 'update' : 'install',
+        id: id || undefined,
+        sourceText: source,
+        allowUnsafeWorld: byId('userscript-unsafe').checked
+      });
+      byId('userscript-editor-dialog').close();
+      await refreshUserscripts();
+      if (Array.isArray(result?.requiredOrigins) || Array.isArray(result?.requiredOptionalPermissions)) {
+        byId('userscript-status').textContent = 'Saved. Use Permissions on the script to grant required host/API access.';
+      }
+    } catch (error) {
+      byId('userscript-status').textContent = compact(error?.message || error, 180);
+    }
+  }
+
+  async function installRemoteUserscript() {
+    const url = byId('userscript-remote-url').value.trim();
+    if (!url) return;
+    try {
+      const remoteOrigin = new URL(url).origin + '/*';
+      if (chrome.permissions && typeof chrome.permissions.request === 'function') {
+        const granted = await chrome.permissions.request({ origins: [remoteOrigin] });
+        if (!granted) {
+          byId('userscript-status').textContent = 'Remote host permission was not granted.';
+          return;
+        }
+      }
+      await userscriptSend({
+        op: 'install-remote',
+        url,
+        allowUnsafeWorld: byId('userscript-remote-unsafe').checked
+      });
+      byId('userscript-remote-dialog').close();
+      byId('userscript-remote-url').value = '';
+      await refreshUserscripts();
+    } catch (error) {
+      byId('userscript-status').textContent = compact(error?.message || error, 180);
+    }
+  }
+
+  async function handleUserscriptAction(action, script) {
+    try {
+      if (action === 'edit') {
+        openUserscriptEditor(script);
+        return;
+      }
+      if (action === 'toggle') {
+        await userscriptSend({ op: script.enabled ? 'disable' : 'enable', id: script.id });
+        await refreshUserscripts();
+        return;
+      }
+      if (action === 'remove') {
+        if (!globalThis.confirm('Delete ' + script.name + '? This removes its isolated values and dynamic network rules.')) return;
+        await userscriptSend({ op: 'remove', id: script.id });
+        await refreshUserscripts();
+        return;
+      }
+      if (action === 'permissions') {
+        const result = await userscriptSend({ op: 'request-capabilities', id: script.id });
+        byId('userscript-status').textContent = result?.granted
+          ? 'Permissions granted for ' + script.name + '.'
+          : 'Some permissions were not granted for ' + script.name + '.';
+        await refreshUserscripts();
+      }
+    } catch (error) {
+      byId('userscript-status').textContent = compact(error?.message || error, 180);
+    }
+  }
+
+  function wireUserscriptEvents() {
+    byId('btn-userscript-refresh').addEventListener('click', () => { void refreshUserscripts(); });
+    byId('btn-userscript-new').addEventListener('click', () => openUserscriptEditor());
+    byId('btn-userscript-remote').addEventListener('click', () => byId('userscript-remote-dialog').showModal());
+    byId('btn-userscript-save').addEventListener('click', () => { void saveUserscript(); });
+    byId('btn-userscript-remote-save').addEventListener('click', () => { void installRemoteUserscript(); });
+    byId('userscript-search').addEventListener('input', renderUserscripts);
+  }
+
   function wireEvents() {
     byId('btn-import').addEventListener('click', openImportDialog);
     byId('btn-save-roadmap').addEventListener('click', () => { void importRoadmap(); });
@@ -416,6 +617,7 @@
     if (byId('btn-save-settings')) byId('btn-save-settings').addEventListener('click', () => { void saveSettings(); });
     if (byId('btn-retry-current')) byId('btn-retry-current').addEventListener('click', () => { void controlRunner('retry_current'); });
     if (byId('btn-panic-stop')) byId('btn-panic-stop').addEventListener('click', () => { void controlRunner('stop'); });
+    wireUserscriptEvents();
     byId('hardware-profile').addEventListener('change', (event) => {
       state.hardwareProfile = event.target.value;
       void persistState();
@@ -427,6 +629,7 @@
     renderAll();
     wireEvents();
     await refreshTelemetry();
+    await refreshUserscripts();
     telemetryTimer = setInterval(() => { void refreshTelemetry(); }, state.settings.telemetryIntervalMs || TELEMETRY_INTERVAL_MS);
     window.addEventListener('pagehide', () => {
       if (telemetryTimer !== null) clearInterval(telemetryTimer);

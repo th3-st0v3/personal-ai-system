@@ -1,8 +1,10 @@
 (() => {
   'use strict';
 
-  if (globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ === true) return;
-  globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = true;
+  const previousController = globalThis.__PASI_NATIVE_CONTROLLER_STARTED__;
+  if (previousController && typeof previousController.dispose === 'function') {
+    try { previousController.dispose(); } catch (_) {}
+  }
 
   const CONTROLLER_VERSION = '2.4.11';
   const TIMEOUT_POLICY = globalThis.PASI_TIMEOUT_POLICY?.get?.() || {};
@@ -28,6 +30,7 @@
     generation: TIMEOUT_POLICY.generationMs || 60 * 60 * 1000
   };
   const ACTIVE_KEY = 'pasi:active-operation';
+  const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature';
   const RECOVERY_KEY = 'pasi:chatgpt-recovery';
   const RECOVERY_OPERATION_KEY = 'recovery_operation_id';
   const RECOVERY_RESUME_OPERATION_KEY = 'resume_operation_id';
@@ -46,6 +49,8 @@
   const CONTROLLER_CLAIM_CACHE_MS = 2000;
   let pollTimerId = null;
   let healthTimerId = null;
+  let messageListener = null;
+  let visibilityChangeHandler = null;
   let healthReportInFlight = null;
   let pollInFlight = null;
   let lastStateReportAt = 0;
@@ -54,6 +59,34 @@
   let immediateOperationQueued = false;
   let lastCompletionAckAtMs = 0;
   let activeRecoveryState = null;
+
+  function disposeController() {
+    extensionContextInvalidated = true;
+    if (leaseTimerId !== null) {
+      clearInterval(leaseTimerId);
+      leaseTimerId = null;
+    }
+    if (pollTimerId !== null) {
+      clearInterval(pollTimerId);
+      pollTimerId = null;
+    }
+    if (healthTimerId !== null) {
+      clearInterval(healthTimerId);
+      healthTimerId = null;
+    }
+    if (messageListener) {
+      try { chrome.runtime?.onMessage?.removeListener?.(messageListener); } catch (_) {}
+      messageListener = null;
+    }
+    if (visibilityChangeHandler) {
+      try { document.removeEventListener('visibilitychange', visibilityChangeHandler); } catch (_) {}
+      visibilityChangeHandler = null;
+    }
+  }
+
+  globalThis.__PASI_NATIVE_CONTROLLER_STARTED__ = Object.freeze({
+    dispose: disposeController
+  });
 
   function scheduleImmediateOperation(operation) {
     if (immediateOperationQueued || extensionContextInvalidated || !operation?.operation_id) return;
@@ -622,8 +655,65 @@
     } catch (_) {}
   }
 
-  function conversationSignature() {
-    return `${userMessages().length}:${assistantMessages().length}:${fingerprint()}`;
+  function conversationSignatureState() {
+    const currentUrl = chatUrl();
+    if (!currentUrl) return null;
+    try {
+      const stored = JSON.parse(localStorage.getItem(CONVERSATION_SIGNATURE_KEY) || 'null');
+      if (
+        stored &&
+        stored.chat_url === currentUrl &&
+        Number.isInteger(stored.user_count) &&
+        stored.user_count >= 0 &&
+        Number.isInteger(stored.assistant_count) &&
+        stored.assistant_count >= 0 &&
+        Array.isArray(stored.completed_operation_ids)
+      ) {
+        return {
+          chat_url: currentUrl,
+          user_count: stored.user_count,
+          assistant_count: stored.assistant_count,
+          completed_operation_ids: stored.completed_operation_ids.slice(-256)
+        };
+      }
+    } catch (_) {}
+
+    const seeded = {
+      chat_url: currentUrl,
+      user_count: userMessages().length,
+      assistant_count: assistantMessages().length,
+      completed_operation_ids: []
+    };
+    try {
+      localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(seeded));
+    } catch (_) {}
+    return seeded;
+  }
+
+  function conversationSignature(responseText = null) {
+    const state = conversationSignatureState();
+    const assistantFingerprint = (
+      typeof responseText === 'string' && responseText.trim()
+    )
+      ? fingerprintFromText(responseText)
+      : fingerprint();
+    if (!state) return `0:0:${assistantFingerprint}`;
+    return `${state.user_count}:${state.assistant_count}:${assistantFingerprint}`;
+  }
+
+  function advanceConversationSignature(operationId, responseText) {
+    const state = conversationSignatureState();
+    const assistantFingerprint = fingerprintFromText(responseText);
+    if (!state || !operationId || !assistantFingerprint) return conversationSignature(responseText);
+    if (!state.completed_operation_ids.includes(operationId)) {
+      state.user_count += 1;
+      state.assistant_count += 1;
+      state.completed_operation_ids = [...state.completed_operation_ids, operationId].slice(-256);
+      try {
+        localStorage.setItem(CONVERSATION_SIGNATURE_KEY, JSON.stringify(state));
+      } catch (_) {}
+    }
+    return `${state.user_count}:${state.assistant_count}:${assistantFingerprint}`;
   }
 
   function recoveryContext() {
@@ -657,7 +747,13 @@
   function reportHealth() {
     if (healthReportInFlight) return healthReportInFlight;
     healthReportInFlight = (async () => {
-      const currentUrl = chatUrl();
+      let currentUrl = null;
+      try {
+        currentUrl = chatUrl();
+      } catch (error) {
+        console.warn('[PASI native health] chat URL detector failed', error);
+      }
+
       if (currentUrl !== lastKnownChatUrl) {
         if (lastKnownChatUrl !== null || currentUrl !== null) {
           void reportObservation('chatgpt_chat_changed', {
@@ -677,15 +773,40 @@
 
       // One detector pass per heartbeat. Repeated DOM scans here are
       // unnecessary and can compete with the prompt/response hot path.
-      const detected = detectorState();
+      let detected = {};
+      try {
+        detected = detectorState() || {};
+      } catch (error) {
+        console.warn('[PASI native health] detector state failed', error);
+      }
       const exhausted = detected.context_exhausted === true;
       const limited = !exhausted && detected.usage_limited === true;
       const auth = detected.auth_required === true;
-      const thinking = thinkingEnabled();
-      const composerPresent = Boolean(composer());
+
+      let thinking = null;
+      try {
+        thinking = thinkingEnabled();
+      } catch (error) {
+        // A ChatGPT UI/model-selector change must never suppress the heartbeat.
+        console.warn('[PASI native health] thinking detector failed', error);
+      }
+
+      let composerPresent = false;
+      try {
+        composerPresent = Boolean(composer());
+      } catch (error) {
+        console.warn('[PASI native health] composer detector failed', error);
+      }
+
+      let signature = '';
+      try {
+        signature = conversationSignature();
+      } catch (error) {
+        console.warn('[PASI native health] conversation signature failed', error);
+      }
 
       // Health is the freshness signal used by the launcher/watchdog. Keep it
-      // lightweight and bounded so DOM/state telemetry cannot delay it.
+      // publishable even when one optional UI detector breaks.
       await reportObservation('chatgpt_health', {
         chat_url: currentUrl,
         provider_usage_limited: limited,
@@ -695,6 +816,7 @@
         thinking_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
         page_visible: document.visibilityState !== 'hidden',
         composer_present: composerPresent,
+        conversation_signature: signature,
         native_controller: true,
         active_operation_id: activeOperationId
       }, 2000);
@@ -711,7 +833,7 @@
           github_attached: githubAttached,
           reasoning_mode: reasoningMode,
           reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinking === true ? 'available' : 'unknown'),
-          conversation_signature: conversationSignature(),
+          conversation_signature: signature,
           active_operation_id: activeOperationId,
           native_controller: true
         });
@@ -1374,10 +1496,7 @@
           .map((marker) => marker.trim())
       : [];
     if (!configured.length) return true;
-    const lines = text.split(/\r?\n/).map((line) => line.trim());
-    return configured.some((marker) =>
-      lines.some((line) => line === marker || line.startsWith(marker + ':'))
-    );
+    return configured.some((marker) => text.includes(marker));
   }
 
   async function waitForResponse(baseline, completionMarkers = [], evidenceContext = null) {
@@ -1500,6 +1619,7 @@
     const body = {
       operation_id: operationId,
       chat_url: chatUrl(),
+      conversation_signature: advanceConversationSignature(operationId, responseText),
       response_text: responseText.slice(0, MAX_RESPONSE_TEXT_CHARS),
       response_text_available: typeof responseText === 'string' && Boolean(responseText.trim()),
       ack_only: true
@@ -1508,15 +1628,17 @@
     if (typeof responseText === 'string') Object.assign(body, completionProgress(responseText));
     const publishResponseTelemetry = () => {
       void reportObservation('chatgpt_response', {
+        operation_id: body.operation_id,
+        active_operation_id: operationId,
         chat_url: body.chat_url,
+        conversation_signature: body.conversation_signature,
         response_text: body.response_text,
         response_text_available: body.response_text_available,
         ...(typeof responseText === 'string' ? completionProgress(responseText) : {}),
         ...(body.timing ? { timing: body.timing } : {}),
         conversation_context_exhausted: contextExhausted(),
         chat_exhausted: contextExhausted(),
-        provider_usage_limited: usageLimited(),
-        active_operation_id: operationId
+        provider_usage_limited: usageLimited()
       }).catch(() => {});
 
       void reportObservation('chat_response_received', {
@@ -1524,6 +1646,21 @@
         phase: 'response_complete',
         captured_at: new Date().toISOString()
       });
+
+      // Publish the post-completion conversation signature immediately instead of
+      // making consumers wait for the next periodic health-state cadence.
+      void reportObservation('chatgpt_state', {
+        chat_url: body.chat_url,
+        conversation_context_exhausted: contextExhausted(),
+        chat_exhausted: contextExhausted(),
+        provider_usage_limited: usageLimited(),
+        github_attached: githubAttached,
+        reasoning_mode: reasoningMode,
+        reasoning_capability: reasoningMode === 'unavailable' ? 'unavailable' : (thinkingEnabled() === true ? 'available' : 'unknown'),
+        conversation_signature: body.conversation_signature,
+        active_operation_id: operationId,
+        native_controller: true
+      }, 2000);
     };
     // The durable /chat/finished record already contains the authoritative response.
     // Keep duplicate telemetry out of the completion -> next-operation critical path.
@@ -1924,15 +2061,17 @@
     }
   }
 
-  chrome.runtime?.onMessage?.addListener?.((message) => {
+  messageListener = (message) => {
     if (message?.type === 'pasi-health-ping' && !extensionContextInvalidated) {
       void reportHealth();
     }
-  });
+  };
+  chrome.runtime?.onMessage?.addListener?.(messageListener);
 
-  document.addEventListener('visibilitychange', () => {
+  visibilityChangeHandler = () => {
     if (!extensionContextInvalidated) void reportHealth();
-  });
+  };
+  document.addEventListener('visibilitychange', visibilityChangeHandler);
 
   if (globalThis.PASI_NATIVE_TEST_HOOKS === true) {
     globalThis.PASI_NATIVE_TEST_API = Object.freeze({
@@ -1945,6 +2084,7 @@
       snapshotAssistantMessages,
       assistantResponseEvidence,
       conversationSignature,
+      advanceConversationSignature,
       operationPrompt,
       findNewChatControl,
       detectorState,

@@ -90,6 +90,24 @@ test('native content and recovery scripts are safe to reinject', () => {
   assert.match(recovery, /__PASI_NATIVE_RECOVERY_STARTED__/);
 });
 
+test('native controller and recovery companion tear down stale page lifecycles before reinjection', () => {
+  assert.match(content, /const previousController = globalThis\.__PASI_NATIVE_CONTROLLER_STARTED__/);
+  assert.match(content, /function disposeController\(\)/);
+  assert.match(content, /clearInterval\(pollTimerId\)/);
+  assert.match(content, /clearInterval\(healthTimerId\)/);
+  assert.match(content, /removeEventListener\('visibilitychange', visibilityChangeHandler\)/);
+  assert.match(content, /messageListener = \(message\) =>/);
+  assert.match(content, /globalThis\.__PASI_NATIVE_CONTROLLER_STARTED__ = Object\.freeze\(\{/);
+  assert.doesNotMatch(content, /if \(globalThis\.__PASI_NATIVE_CONTROLLER_STARTED__ === true\) return/);
+
+  assert.match(recovery, /const previousRecovery = globalThis\.__PASI_NATIVE_RECOVERY_STARTED__/);
+  assert.match(recovery, /function disposeRecovery\(\)/);
+  assert.match(recovery, /inspectionTimerId = setInterval/);
+  assert.match(recovery, /progressObserverHandle\?\.detach/);
+  assert.match(recovery, /globalThis\.__PASI_NATIVE_RECOVERY_STARTED__ = Object\.freeze\(\{/);
+  assert.doesNotMatch(recovery, /if \(globalThis\.__PASI_NATIVE_RECOVERY_STARTED__ === true\) return/);
+});
+
 test('native recovery companion uses the shared long-response timeout policy', () => {
   assert.match(recovery, /const GENERATION_TIMEOUT_MS = TIMEOUT_POLICY\.generationMs \|\| 60 \* 60 \* 1000/);
   assert.match(recovery, /const RECOVERY_TRIGGER_MS = TIMEOUT_POLICY\.recoveryTriggerMs \|\| GENERATION_TIMEOUT_MS/);
@@ -127,7 +145,7 @@ test('native existing-tab injection probes for a live controller before reinject
 });
 
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
-  assert.equal(manifest.version, '1.1.2');
+  assert.equal(manifest.version, '1.2.0');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.ok(manifest.permissions.includes('alarms'));
@@ -141,8 +159,21 @@ test('native extension is Manifest V3 with least-privilege required permissions'
 
 test('native controller keeps response telemetry off the completion critical path', () => {
   assert.match(content, /void reportObservation\('chatgpt_response'/);
+  assert.match(content, /operation_id: body\.operation_id/);
+  assert.match(content, /conversation_signature: body\.conversation_signature/);
+  assert.match(content, /void reportObservation\('chatgpt_state'/);
+  assert.match(content, /conversation_signature: body\.conversation_signature/);
   assert.ok(content.includes('}).catch(() => {});'));
   assert.doesNotMatch(content, /await reportObservation\('chatgpt_response'/);
+});
+
+test('native completion signature uses the durable per-operation conversation ledger', () => {
+  assert.match(content, /function conversationSignature\(responseText = null\)/);
+  assert.match(content, /function conversationSignatureState\(\)/);
+  assert.match(content, /function advanceConversationSignature\(operationId, responseText\)/);
+  assert.match(content, /typeof responseText === 'string' && responseText\.trim\(\)/);
+  assert.match(content, /fingerprintFromText\(responseText\)/);
+  assert.match(content, /conversation_signature: advanceConversationSignature\(operationId, responseText\)/);
 });
 
 test('native controller chains the next queued operation immediately after terminal completion', () => {
@@ -188,6 +219,16 @@ test('native controller reconciles completed interrupted operations before clear
   assert.match(content, /Keep the active marker so the next controller start can reconcile again/);
 });
 
+test('native conversation signature persists exact per-chat progression outside DOM virtualization', () => {
+  assert.match(content, /const CONVERSATION_SIGNATURE_KEY = 'pasi:conversation-signature'/);
+  assert.match(content, /function conversationSignatureState\(\)/);
+  assert.match(content, /stored\.chat_url === currentUrl/);
+  assert.match(content, /state\.user_count \+= 1/);
+  assert.match(content, /state\.assistant_count \+= 1/);
+  assert.match(content, /completed_operation_ids/);
+  assert.match(content, /advanceConversationSignature\(operationId, responseText\)/);
+});
+
 test('native controller keeps browser health on a fast bounded cadence separate from state telemetry', () => {
   assert.match(content, /const HEALTH_MS = TIMEOUT_POLICY\.heartbeatMs \|\| 15000/);
   assert.match(content, /const STATE_REPORT_MS = 10000;/);
@@ -197,6 +238,17 @@ test('native controller keeps browser health on a fast bounded cadence separate 
   assert.match(content, /void reportObservation\('chatgpt_state',[\s\S]*conversation_signature/);
   assert.match(content, /healthReportInFlight = null;/);
   assert.match(content, /timeout: timeoutMs/);
+});
+
+test('native browser health heartbeat survives optional UI detector exceptions', () => {
+  const start = content.indexOf('  function reportHealth() {');
+  const end = content.indexOf('\n  async function waitFor(', start);
+  const source = content.slice(start, end);
+  assert.match(source, /let currentUrl = null;[\s\S]*try \{[\s\S]*currentUrl = chatUrl\(\);[\s\S]*catch \(error\)/);
+  assert.match(source, /let thinking = null;[\s\S]*try \{[\s\S]*thinking = thinkingEnabled\(\);[\s\S]*catch \(error\)/);
+  assert.match(source, /let composerPresent = false;[\s\S]*try \{[\s\S]*composerPresent = Boolean\(composer\(\)\);[\s\S]*catch \(error\)/);
+  assert.match(source, /await reportObservation\('chatgpt_health'/);
+  assert.match(source, /conversation_signature: signature/);
 });
 
 test('native controller starts heartbeat and polling timers before recovery or queue work can block startup', () => {
@@ -320,6 +372,7 @@ test('native completion captures responses through the event-driven waiter and b
   assert.match(content, /finishOperation\(operation\.operation_id, response, true, browserTiming\)/);
   assert.match(content, /\/chat\/finished/);
   assert.match(content, /response_text_available: typeof responseText === 'string' && Boolean\(responseText\.trim\(\)\)/);
+  assert.match(content, /return configured\.some\(\(marker\) => text\.includes\(marker\)\)/);
   assert.match(content, /void reportObservation\('chatgpt_response'/);
   assert.match(content, /for \(let attempt = 1; attempt <= 3; attempt \+= 1\)/);
   assert.match(content, /\/operation\?operation_id=/);
@@ -356,6 +409,7 @@ test('native recovery companion preserves response text without blocking complet
   assert.match(recovery, /CHAT_RECOVERED_RETRY/);
   assert.match(recovery, /operation_type: 'new_chat'/);
   assert.match(recovery, /response_text: bounded/);
+  assert.match(recovery, /conversation_signature: conversationSignature/);
   assert.match(recovery, /await report\('chatgpt_response'/);
   assert.match(recovery, /current\.status === 'failed'/);
 });
