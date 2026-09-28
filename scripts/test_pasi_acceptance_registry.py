@@ -51,7 +51,7 @@ class AcceptanceRegistryTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 output = root / "registry.json"
-                entry = registry.record_gate("M1", output=output, repo_root=root)
+                entry = registry.record_gate("M1", output=output)
 
             self.assertEqual(entry["gate"], "M1")
             self.assertEqual(entry["status"], "PASS")
@@ -76,8 +76,8 @@ class AcceptanceRegistryTests(unittest.TestCase):
                      "_run",
                      side_effect=lambda cwd, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "pasi/test",
                  ):
-                first = registry.record_gate("M0", output=output, repo_root=root)
-                second = registry.record_gate("M0", output=output, repo_root=root)
+                first = registry.record_gate("M0", output=output)
+                second = registry.record_gate("M0", output=output)
 
             self.assertEqual(first, second)
             stored = json.loads(output.read_text(encoding="utf-8"))
