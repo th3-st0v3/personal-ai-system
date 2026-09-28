@@ -165,21 +165,16 @@ def _resolve_gate_artifact(root: Path, gate: str) -> Path:
     raise ValueError(f"unsupported live acceptance gate: {gate}")
 
 
-def record_artifact(
+def _record_artifact(
     artifact: Path,
     output: Path,
-    repo_root: Path | None = None,
+    root: Path,
 ) -> dict[str, Any]:
-    root = (repo_root or _repo_root(Path.cwd())).resolve()
-    trusted_artifact = _resolve_gate_artifact(root, artifact.name if artifact.name in {"m0-live.json", "m1-live.json"} else "M2")
-    artifact_root = trusted_artifact.resolve()
-    if artifact_root.parent != (root / ".runtime" / "acceptance").resolve():
-        raise RuntimeError("acceptance artifact must remain under the repository acceptance directory")
-    payload = json.loads(artifact_root.read_text(encoding="utf-8"))
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("acceptance artifact must contain a JSON object")
 
-    entry = build_entry(artifact_root, root, payload)
+    entry = build_entry(artifact, root, payload)
     entries = load_registry(output)
 
     key = (entry["artifact"]["sha256"], entry["artifact"]["path"])
@@ -204,7 +199,7 @@ def record_gate(
     root = (repo_root or _repo_root(Path.cwd())).resolve()
     artifact = _resolve_gate_artifact(root, gate)
     registry = output or (Path.home() / ".pasi" / "acceptance" / "registry.json")
-    return record_artifact(artifact, registry, root)
+    return _record_artifact(artifact.resolve(), registry, root)
 
 
 def main() -> int:
