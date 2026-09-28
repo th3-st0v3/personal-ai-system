@@ -1,6 +1,8 @@
 name: pasi-runner-capabilities
 
 on:
+  schedule:
+    - cron: "47 4 * * *"
   workflow_dispatch:
     inputs:
       ref:
@@ -26,6 +28,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  detect-health:
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: [self-hosted, linux, x64, pasi-desktop]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Detect runner capabilities
+        run: |
+          mkdir -p "$RUNNER_TEMP/pasi-capabilities"
+          python3 scripts/reconcile_runner_capabilities.py \
+            --spec config/runner/capabilities.json \
+            --report "$RUNNER_TEMP/pasi-capabilities/capabilities.json" \
+            --json
+
+      - name: Verify detect-only result
+        run: |
+          python3 -c 'import json, pathlib; p=pathlib.Path("$RUNNER_TEMP/pasi-capabilities/capabilities.json"); report=json.loads(p.read_text()); assert report.get("required_ok") is True, "runner capability health check failed"; print("Runner capability detect-only health check: PASS")'
+
+      - name: Upload health evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: pasi-runner-health-detect
+          path: ${{ runner.temp }}/pasi-capabilities/capabilities.json
+          if-no-files-found: error
+
   reconcile:
     runs-on: [self-hosted, linux, x64, pasi-desktop]
     timeout-minutes: 45
