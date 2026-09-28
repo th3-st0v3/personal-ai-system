@@ -1,0 +1,107 @@
+name: PASI controller release gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Controller @version to verify and prepare"
+        required: true
+        type: string
+      reason:
+        description: "Release reason"
+        required: false
+        default: "Human-approved PASI controller release gate."
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pasi-controller-release-gate
+  cancel-in-progress: false
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout canonical main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run fast repository validation
+        run: bash scripts/check_fast.sh
+
+      - name: Verify release publisher and distribution contracts
+        run: |
+          python -m pytest -q \
+            scripts/test_publish_controller_release.py \
+            automation/legacy/test_pasi_controller_server.py
+          node --test automation/legacy/tampermonkey/chatgpt-controller-loader.test.js
+
+      - name: Prepare verified release manifest
+        env:
+          VERSION: ${{ inputs.version }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          python scripts/publish_controller_release.py \
+            --version "$VERSION" \
+            --reason "$REASON"
+
+      - name: Enforce release diff boundary
+        run: |
+          mapfile -t changed < <(git diff --name-only)
+          if (( ${#changed[@]} > 1 )); then
+            printf 'Unexpected release-gate changes:\n'
+            printf '  %s\n' "${changed[@]}"
+            exit 1
+          fi
+          if (( ${#changed[@]} == 1 )) && [[ "${changed[0]}" != "automation/legacy/tampermonkey/controller-sync.json" ]]; then
+            printf 'Unexpected release-gate path: %s\n' "${changed[0]}"
+            exit 1
+          fi
+          printf 'Release gate diff boundary: PASS\n'
+
+      - name: Validate prepared manifest
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          controller = Path("automation/legacy/tampermonkey/chatgpt-controller.user.js").read_bytes()
+          recovery = Path("automation/chromium/pasi-chatgpt/recovery.js").read_bytes()
+          manifest = json.loads(Path("automation/legacy/tampermonkey/controller-sync.json").read_text(encoding="utf-8"))
+
+          def blob_sha(data: bytes) -> str:
+              return hashlib.sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+
+          assert manifest["enabled"] is True
+          assert manifest["git_blob_sha"] == blob_sha(controller)
+          assert manifest["recovery_git_blob_sha"] == blob_sha(recovery)
+          assert manifest["source_url"].endswith("/main/automation/legacy/tampermonkey/chatgpt-controller.user.js")
+          assert manifest["recovery_source_url"].endswith("/main/automation/chromium/pasi-chatgpt/recovery.js")
+          print("Prepared controller/recovery release manifest: PASS")
+          PY
+
+      - name: Upload release-gate evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: pasi-controller-release-gate
+          path: |
+            automation/legacy/tampermonkey/controller-sync.json
+            automation/legacy/tampermonkey/chatgpt-controller.user.js
+            automation/chromium/pasi-chatgpt/recovery.js
+          if-no-files-found: error
