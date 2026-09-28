@@ -100,6 +100,10 @@ def main() -> int:
     payload = {
         "gate": "M1",
         "status": "PASS",
+        "provider": "chatgpt_browser",
+        "task_id": "P0.2",
+        "run_id": adapter.session_id,
+        "session_id": adapter.session_id,
         "count": 20,
         "false_terminal_chat_verdicts": 0,
         "duplicate_message_deltas": 0,
