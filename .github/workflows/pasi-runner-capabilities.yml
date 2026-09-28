@@ -69,7 +69,7 @@ jobs:
           cp "$HOME/.pasi/runner/capabilities.json" "$RUNNER_TEMP/pasi-capabilities/capabilities.json"
 
       - name: Upload capability evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: pasi-runner-capabilities
           path: ${{ runner.temp }}/pasi-capabilities/capabilities.json
