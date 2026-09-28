@@ -37,7 +37,7 @@ before_url = data.get("chat_url") if isinstance(data, dict) else None
 queued = request("POST", "/queue", {"operation_type":"prompt","prompt":prompt,"idempotency_key":"m2-"+str(time.time_ns())})
 operation = queued["operation"]
 Path(out).write_text(json.dumps({
-    "gate":"M2","status":"STARTED","operation_id":operation["operation_id"],
+    "gate":"M2","status":"STARTED","provider":"chatgpt_browser","task_id":"P0.3","run_id":os.path.basename(out).removeprefix("m2-live-").removesuffix(".json"),"operation_id":operation["operation_id"],
     "prompt":prompt,"started_at":time.time(),
     "pre_restart_signature":before_sig,"pre_restart_chat_url":before_url
 }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
