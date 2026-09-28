@@ -50,7 +50,7 @@ class AcceptanceRegistryTests(unittest.TestCase):
             self.assertEqual(entry["provider"], "chatgpt_browser")
             self.assertEqual(entry["code"]["head_commit"], "a" * 40)
             self.assertEqual(entry["code"]["branch"], "pasi/test")
-            self.assertEqual(entry["code"]["repository"], "https://github.com/th3-st0v3/personal-ai-system.git")
+            self.assertEqual(entry["code"]["repository"], "th3-st0v3/personal-ai-system")
             self.assertEqual(entry["controller"]["content_version"], "2.4.11")
             self.assertEqual(entry["controller"]["manifest_version"], "1.2.0")
             self.assertEqual(entry["identity"]["operation_ids"], ["op-1", "op-2"])
