@@ -353,6 +353,17 @@ evidence.write_text(
     encoding="utf-8",
 )
 print("M0 PASS: authenticated ChatGPT response -> contract parsing -> git apply -> canonical validation -> committed proof -> clean worktree")
+registry_output = Path.home() / ".pasi" / "acceptance" / "registry.json"
+registry_result = subprocess.run(
+    [sys.executable, "scripts/pasi_acceptance_registry.py", str(evidence), "--output", str(registry_output)],
+    cwd=worktree,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+if registry_result.returncode != 0:
+    raise SystemExit(f"error: acceptance evidence registry failed: {registry_result.stderr.strip()}")
+print(f"Acceptance registry: {registry_output}")
 print(f"Evidence: {evidence}")
 print(f"Commit: {commit}")
 PY
