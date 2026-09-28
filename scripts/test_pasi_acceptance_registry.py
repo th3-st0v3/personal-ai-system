@@ -50,7 +50,7 @@ class AcceptanceRegistryTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 output = root / "registry.json"
-                entry = registry.record_gate("M1", output=output)
+                entry = registry.record_gate("M1", output=output, _root_for_test=root)
 
             self.assertEqual(entry["gate"], "M1")
             self.assertEqual(entry["status"], "PASS")
@@ -78,7 +78,7 @@ class AcceptanceRegistryTests(unittest.TestCase):
                 },
                 clear=False,
             ):
-                first = registry.record_gate("M0", output=output)
+                first = registry.record_gate("M0", output=output, _root_for_test=root)
                 second = registry.record_gate("M0", output=output)
 
             self.assertEqual(first, second)
