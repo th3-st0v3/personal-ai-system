@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +33,7 @@ def read_version() -> str:
 
 def read_recovery_version() -> str:
     source = RECOVERY_PATH.read_text(encoding="utf-8")
-    match = __import__("re").search(r"RECOVERY_VERSION\s*=\s*['\"](\d+\.\d+\.\d+)['\"]", source)
+    match = re.search(r"RECOVERY_VERSION\s*=\s*['\"](\d+\.\d+\.\d+)['\"]", source)
     if not match:
         raise ValueError("recovery RECOVERY_VERSION was not found")
     return match.group(1)
