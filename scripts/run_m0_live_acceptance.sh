@@ -358,7 +358,6 @@ print("M0 PASS: authenticated ChatGPT response -> contract parsing -> git apply 
 registry_output = Path.home() / ".pasi" / "acceptance" / "registry.json"
 registry_result = subprocess.run(
     [sys.executable, "scripts/pasi_acceptance_registry.py", "M0"],
-    cwd=worktree,
     capture_output=True,
     text=True,
     check=False,
