@@ -56,3 +56,14 @@ class RunnerCapabilitiesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_scheduled_health_check_is_detect_only() -> None:
+    workflow = Path(".github/workflows/pasi-runner-capabilities.yml").read_text(encoding="utf-8")
+    assert "schedule:" in workflow
+    assert 'cron: "47 4 * * *"' in workflow
+    assert "if: ${{ github.event_name == 'schedule' }}" in workflow
+    detect = workflow[workflow.index("  detect-health:"):workflow.index("  reconcile:")]
+    assert "Detect runner capabilities" in detect
+    assert "--apply" not in detect
+    assert "--apply-optional" not in detect
