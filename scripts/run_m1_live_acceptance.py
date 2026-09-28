@@ -114,7 +114,7 @@ def main() -> int:
     evidence_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     registry_output = Path.home() / ".pasi" / "acceptance" / "registry.json"
     registry = subprocess.run(
-        [str(Path(sys.executable)), "scripts/pasi_acceptance_registry.py", str(evidence_path), "--output", str(registry_output)],
+        [str(Path(sys.executable)), "scripts/pasi_acceptance_registry.py", "M1"],
         check=False,
         capture_output=True,
         text=True,
