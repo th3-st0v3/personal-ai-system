@@ -225,3 +225,5 @@ Path(path).write_text(json.dumps(p,indent=2,ensure_ascii=False)+"\n",encoding="u
 print("M2 PASS: exact operation survived tab, bridge, and runner restart without duplicate prompt")
 print("Evidence: "+path)
 PY
+"$PYTHON" scripts/pasi_acceptance_registry.py "$OUT"
+echo "Acceptance registry: $HOME/.pasi/acceptance/registry.json"
