@@ -151,14 +151,14 @@ def write_registry(path: Path, entries: list[dict[str, Any]]) -> None:
     temp.replace(path)
 
 
-def record_artifact(artifact: Path, output: Path) -> dict[str, Any]:
+def record_artifact(artifact: Path, output: Path, repo_root: Path | None = None) -> dict[str, Any]:
     if not artifact.is_file():
         raise FileNotFoundError(f"acceptance artifact not found: {artifact}")
     payload = json.loads(artifact.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("acceptance artifact must contain a JSON object")
 
-    root = _repo_root(artifact.parent)
+    root = (repo_root or _repo_root(artifact.parent)).resolve()
     entry = build_entry(artifact, root, payload)
     entries = load_registry(output)
 
@@ -180,13 +180,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Record a durable PASI live-acceptance evidence artifact.")
     parser.add_argument("artifact", type=Path)
     parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="Repository/worktree whose exact code head should be recorded.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=Path(os.environ.get("PASI_ACCEPTANCE_REGISTRY", "~/.pasi/acceptance/registry.json")).expanduser(),
     )
     args = parser.parse_args()
 
-    entry = record_artifact(args.artifact, args.output)
+    entry = record_artifact(args.artifact, args.output, args.repo_root)
     print(json.dumps(entry, indent=2, ensure_ascii=False))
     return 0
 
