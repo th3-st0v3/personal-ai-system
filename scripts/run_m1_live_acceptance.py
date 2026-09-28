@@ -37,6 +37,17 @@ def main() -> int:
     if args.count != 20:
         parser.error("--count must be exactly 20")
 
+    runtime_preflight = subprocess.run(
+        ["bash", "scripts/start_pasi_168h.sh", "--resume"],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if runtime_preflight.returncode != 0:
+        detail = (runtime_preflight.stderr or runtime_preflight.stdout)[-4000:]
+        raise RuntimeError(f"PASI runtime preflight failed: {detail.strip()}")
+
     adapter = ChatGPTAdapter(
         transport=UrllibBridgeTransport(timeout_seconds=10.0),
         session_id=args.session_id.strip() or f"m1-{uuid.uuid4().hex}",
@@ -107,6 +118,9 @@ def main() -> int:
         "count": 20,
         "false_terminal_chat_verdicts": 0,
         "duplicate_message_deltas": 0,
+        "task_id": "P0.2",
+        "provider": "chatgpt_browser",
+        "runtime_preflight": "bash scripts/start_pasi_168h.sh --resume",
         "baseline": {"chat_url": chat_url, "user": baseline_counts[0], "assistant": baseline_counts[1]},
         "results": results,
         "completed_at": time.time(),
