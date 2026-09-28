@@ -12,8 +12,11 @@ RUNNER_PID_FILE="$RUNTIME_DIR/runner.pid"
 mkdir -p "$EVIDENCE_DIR"
 export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 
+echo "Ensuring the managed 168-hour PASI runtime is healthy..."
+bash scripts/start_pasi_168h.sh --resume
+
 TOKEN_FILE="$HOME/.pasi/bridge-token"
-[[ -s "$TOKEN_FILE" ]] || { echo "error: bridge token is missing: $TOKEN_FILE" >&2; exit 1; }
+[[ -s "$TOKEN_FILE" ]] || { echo "error: bridge token is missing after runtime preflight: $TOKEN_FILE" >&2; exit 1; }
 export PASI_BRIDGE_TOKEN="$(cat "$TOKEN_FILE")"
 
 STAMP="$(date -u +%Y%m%d-%H%M%S-%N)"
