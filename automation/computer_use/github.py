@@ -10,6 +10,8 @@ from urllib.request import Request, urlopen
 
 from .adapters import ComputerAdapter, GitHubAdapter
 from .contracts import ActionProposal, Observation
+from .github_graphql import UrllibGitHubGraphQLTransport
+from .github_projects import GitHubProjectError, GitHubProjectsV2
 
 
 class GitHubAdapterError(RuntimeError):
@@ -93,13 +95,14 @@ class UrllibGitHubTransport:
 
 @dataclass
 class GitHubControlAdapter(GitHubAdapter):
-    """Provider-neutral GitHub boundary with API reads and an explicit UI fallback."""
+    """Provider-neutral GitHub boundary with REST reads, Projects V2 GraphQL, and UI fallback."""
 
     owner: str
     repository: str
     transport: GitHubTransport
     ui_adapter: ComputerAdapter | None = None
     session_id: str = "github"
+    project_client: GitHubProjectsV2 | None = None
 
     def __post_init__(self) -> None:
         if not self.owner.strip() or not self.repository.strip():
@@ -134,6 +137,12 @@ class GitHubControlAdapter(GitHubAdapter):
                 data=result,
             )
 
+        if action.action == "github_project_read":
+            return self._execute_project_action(action, write=False)
+
+        if action.action == "github_project_write":
+            return self._execute_project_action(action, write=True)
+
         if action.action == "github_ui":
             if self.ui_adapter is None:
                 raise GitHubAdapterError("GitHub UI fallback is not configured")
@@ -142,6 +151,164 @@ class GitHubControlAdapter(GitHubAdapter):
             return self.ui_adapter.execute(action)
 
         raise GitHubAdapterError(f"unsupported GitHub action: {action.action}")
+
+    def _execute_project_action(self, action: ActionProposal, *, write: bool) -> Observation:
+        if action.target not in {"github", "github.com"} and not action.target.startswith("github.com/"):
+            raise GitHubAdapterError("GitHub Project action target is invalid")
+        if write and action.effective_risk() != "approval_required":
+            raise GitHubAdapterError("GitHub Project writes require approval_required risk")
+
+        operation = action.parameters.get("operation")
+        parameters = action.parameters.get("parameters", {})
+        if not isinstance(operation, str) or not operation.strip():
+            raise ValueError("GitHub Project operation is required")
+        if not isinstance(parameters, Mapping):
+            raise ValueError("GitHub Project operation parameters must be an object")
+
+        client = self._project_client()
+        try:
+            result = self._run_project_operation(client, operation, parameters, write=write)
+        except GitHubProjectError as exc:
+            raise GitHubAdapterError(str(exc)) from exc
+
+        return Observation(
+            observation_id=f"github-{action.action_id}",
+            session_id=action.session_id,
+            source="github-api-graphql",
+            kind=f"github.project.{operation}",
+            data=dict(result),
+        )
+
+    def _project_client(self) -> GitHubProjectsV2:
+        if self.project_client is not None:
+            return self.project_client
+        return GitHubProjectsV2(
+            UrllibGitHubGraphQLTransport(
+                token=getattr(self.transport, "token", None),
+            ),
+            owner=self.owner,
+        )
+
+    def _run_project_operation(
+        self,
+        client: GitHubProjectsV2,
+        operation: str,
+        parameters: Mapping[str, Any],
+        *,
+        write: bool,
+    ) -> Mapping[str, Any]:
+        project_number = parameters.get("project_number")
+        repository = parameters.get("repository", f"{self.owner}/{self.repository}")
+        issue_number = parameters.get("issue_number")
+        if (
+            isinstance(project_number, bool)
+            or not isinstance(project_number, int)
+            or project_number < 1
+        ):
+            raise ValueError("project_number must be a positive integer")
+        if not isinstance(repository, str) or repository.count("/") != 1:
+            raise ValueError("repository must be owner/name")
+        if repository.split("/", 1)[0] != self.owner:
+            raise GitHubAdapterError("GitHub Project action repository must belong to the adapter owner")
+        if (
+            isinstance(issue_number, bool)
+            or not isinstance(issue_number, int)
+            or issue_number < 1
+        ):
+            raise ValueError("issue_number must be a positive integer")
+
+        if operation == "get_item":
+            if write:
+                raise GitHubAdapterError("get_item is a read operation")
+            item_id = client.get_item_id(project_number, repository, issue_number)
+            return {
+                "project_number": project_number,
+                "repository": repository,
+                "issue_number": issue_number,
+                "item_id": item_id,
+            }
+
+        if operation == "get_field":
+            if write:
+                raise GitHubAdapterError("get_field is a read operation")
+            field_name = parameters.get("field_name")
+            if not isinstance(field_name, str) or not field_name.strip():
+                raise ValueError("field_name is required for get_field")
+            item_id = client.get_item_id(project_number, repository, issue_number)
+            return {
+                "project_number": project_number,
+                "repository": repository,
+                "issue_number": issue_number,
+                "item_id": item_id,
+                "field_name": field_name,
+                "value": client.get_field_value(item_id, field_name) if item_id else None,
+            }
+
+        if operation in {
+            "set_field",
+            "set_status",
+            "set_team",
+            "set_iteration",
+            "set_quarter",
+            "clear_field",
+            "add_item",
+        } and not write:
+            raise GitHubAdapterError(f"{operation} is a write operation")
+
+        if operation == "set_field":
+            field_name = parameters.get("field_name")
+            if not isinstance(field_name, str) or not field_name.strip():
+                raise ValueError("field_name is required for set_field")
+            return dict(
+                client.set_field(
+                    project_number,
+                    repository,
+                    issue_number,
+                    field_name,
+                    parameters.get("value"),
+                )
+            )
+
+        if operation == "set_status":
+            status = parameters.get("status")
+            if not isinstance(status, str) or not status.strip():
+                raise ValueError("status is required for set_status")
+            return dict(client.set_status(project_number, repository, issue_number, status))
+
+        if operation == "set_team":
+            team = parameters.get("team")
+            if not isinstance(team, str) or not team.strip():
+                raise ValueError("team is required for set_team")
+            return dict(client.set_team(project_number, repository, issue_number, team))
+
+        if operation == "set_iteration":
+            iteration = parameters.get("iteration")
+            if not isinstance(iteration, str) or not iteration.strip():
+                raise ValueError("iteration is required for set_iteration")
+            return dict(client.set_iteration(project_number, repository, issue_number, iteration))
+
+        if operation == "set_quarter":
+            quarter = parameters.get("quarter")
+            if not isinstance(quarter, str) or not quarter.strip():
+                raise ValueError("quarter is required for set_quarter")
+            return dict(client.set_quarter(project_number, repository, issue_number, quarter))
+
+        if operation == "clear_field":
+            field_name = parameters.get("field_name")
+            if not isinstance(field_name, str) or not field_name.strip():
+                raise ValueError("field_name is required for clear_field")
+            return dict(client.clear_field(project_number, repository, issue_number, field_name))
+
+        if operation == "add_item":
+            item_id = client.ensure_item(project_number, repository, issue_number)
+            return {
+                "project_number": project_number,
+                "repository": repository,
+                "issue_number": issue_number,
+                "item_id": item_id,
+            }
+
+        raise GitHubAdapterError(f"unsupported GitHub Project operation: {operation}")
 
     def _read(self, operation: str, parameters: Mapping[str, Any]) -> dict[str, Any]:
         path = self._path_for_operation(operation, parameters)
