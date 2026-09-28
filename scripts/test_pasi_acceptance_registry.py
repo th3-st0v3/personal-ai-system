@@ -79,7 +79,7 @@ class AcceptanceRegistryTests(unittest.TestCase):
                 clear=False,
             ):
                 first = registry.record_gate("M0", output=output, _root_for_test=root)
-                second = registry.record_gate("M0", output=output)
+                second = registry.record_gate("M0", output=output, _root_for_test=root)
 
             self.assertEqual(first, second)
             stored = json.loads(output.read_text(encoding="utf-8"))
