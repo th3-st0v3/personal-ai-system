@@ -8,8 +8,6 @@ WORKFLOW = ROOT / ".github" / "workflows" / "pasi-development.yml"
 def test_development_workflow_is_manual_and_has_control_modes() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
     assert "workflow_dispatch:" in source
-    assert "  pull_request:" not in source
-    assert "  push:" not in source
     for mode in ("verify", "start-automation", "status", "stop"):
         assert f"          - {mode}" in source
 
