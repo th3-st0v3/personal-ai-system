@@ -243,6 +243,8 @@ _ACTION_KINDS: frozenset[str] = frozenset(
         "ide_search",
         "ide_command",
         "github_read",
+        "github_project_read",
+        "github_project_write",
         "github_ui",
         "web_search",
         "web_read",
