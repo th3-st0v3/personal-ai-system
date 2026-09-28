@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from http.client import HTTPConnection
-from http.server import ThreadingHTTPServer
-
-from .local_api import LocalProviderAPI
+from .local_api import LocalProviderAPI, LocalProviderServer
 from .protocol import ProviderResponse
 
 
@@ -20,7 +18,7 @@ class FakeProvider:
 
 
 def test_local_api_health_and_completion():
-    server = ThreadingHTTPServer(("127.0.0.1", 0), LocalProviderAPI)
+    server = LocalProviderServer(("127.0.0.1", 0), LocalProviderAPI)
     server.provider = FakeProvider()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
