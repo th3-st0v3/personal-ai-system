@@ -151,15 +151,35 @@ def write_registry(path: Path, entries: list[dict[str, Any]]) -> None:
     temp.replace(path)
 
 
-def record_artifact(artifact: Path, output: Path, repo_root: Path | None = None) -> dict[str, Any]:
-    if not artifact.is_file():
-        raise FileNotFoundError(f"acceptance artifact not found: {artifact}")
-    payload = json.loads(artifact.read_text(encoding="utf-8"))
+def _resolve_gate_artifact(root: Path, gate: str) -> Path:
+    acceptance_dir = root / ".runtime" / "acceptance"
+    if gate == "M0":
+        return acceptance_dir / "m0-live.json"
+    if gate == "M1":
+        return acceptance_dir / "m1-live.json"
+    if gate == "M2":
+        candidates = sorted(acceptance_dir.glob("m2-live-*.json"))
+        if not candidates:
+            raise FileNotFoundError("no M2 acceptance artifact exists")
+        return candidates[-1]
+    raise ValueError(f"unsupported live acceptance gate: {gate}")
+
+
+def record_artifact(
+    artifact: Path,
+    output: Path,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    root = (repo_root or _repo_root(Path.cwd())).resolve()
+    trusted_artifact = _resolve_gate_artifact(root, artifact.name if artifact.name in {"m0-live.json", "m1-live.json"} else "M2")
+    artifact_root = trusted_artifact.resolve()
+    if artifact_root.parent != (root / ".runtime" / "acceptance").resolve():
+        raise RuntimeError("acceptance artifact must remain under the repository acceptance directory")
+    payload = json.loads(artifact_root.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("acceptance artifact must contain a JSON object")
 
-    root = (repo_root or _repo_root(artifact.parent)).resolve()
-    entry = build_entry(artifact, root, payload)
+    entry = build_entry(artifact_root, root, payload)
     entries = load_registry(output)
 
     key = (entry["artifact"]["sha256"], entry["artifact"]["path"])
@@ -176,23 +196,23 @@ def record_artifact(artifact: Path, output: Path, repo_root: Path | None = None)
     return entry
 
 
+def record_gate(
+    gate: str,
+    output: Path | None = None,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    root = (repo_root or _repo_root(Path.cwd())).resolve()
+    artifact = _resolve_gate_artifact(root, gate)
+    registry = output or (Path.home() / ".pasi" / "acceptance" / "registry.json")
+    return record_artifact(artifact, registry, root)
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Record a durable PASI live-acceptance evidence artifact.")
-    parser.add_argument("artifact", type=Path)
-    parser.add_argument(
-        "--repo-root",
-        type=Path,
-        default=None,
-        help="Repository/worktree whose exact code head should be recorded.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path(os.environ.get("PASI_ACCEPTANCE_REGISTRY", "~/.pasi/acceptance/registry.json")).expanduser(),
-    )
+    parser = argparse.ArgumentParser(description="Record durable PASI live-acceptance evidence.")
+    parser.add_argument("gate", choices=("M0", "M1", "M2"))
     args = parser.parse_args()
 
-    entry = record_artifact(args.artifact, args.output, args.repo_root)
+    entry = record_gate(args.gate)
     print(json.dumps(entry, indent=2, ensure_ascii=False))
     return 0
 
