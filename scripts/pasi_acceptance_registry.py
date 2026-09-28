@@ -97,8 +97,18 @@ def _artifact_identity(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_entry(artifact: Path, root: Path, payload: dict[str, Any]) -> dict[str, Any]:
-    commit = _run(root, "rev-parse", "HEAD")
-    branch = _run(root, "branch", "--show-current") or "DETACHED"
+    recorded_commit = payload.get("commit")
+    commit = (
+        recorded_commit
+        if isinstance(recorded_commit, str) and re.fullmatch(r"[0-9a-f]{40}", recorded_commit)
+        else _run(root, "rev-parse", "HEAD")
+    )
+    recorded_branch = payload.get("branch")
+    branch = (
+        str(recorded_branch)
+        if isinstance(recorded_branch, str) and recorded_branch.strip()
+        else _run(root, "branch", "--show-current") or "DETACHED"
+    )
     provider = payload.get("provider")
     completed_at = payload.get("completed_at")
 
@@ -191,12 +201,8 @@ def _record_artifact(
     return entry
 
 
-def record_gate(
-    gate: str,
-    output: Path | None = None,
-    repo_root: Path | None = None,
-) -> dict[str, Any]:
-    root = (repo_root or _repo_root(Path.cwd())).resolve()
+def record_gate(gate: str, output: Path | None = None) -> dict[str, Any]:
+    root = _repo_root(Path.cwd())
     artifact = _resolve_gate_artifact(root, gate)
     registry = output or (Path.home() / ".pasi" / "acceptance" / "registry.json")
     return _record_artifact(artifact.resolve(), registry, root)
