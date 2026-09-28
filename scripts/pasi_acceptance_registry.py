@@ -184,8 +184,13 @@ def _record_artifact(
     return entry
 
 
-def record_gate(gate: str, output: Path | None = None) -> dict[str, Any]:
-    root = Path(__file__).resolve().parents[1]
+def record_gate(
+    gate: str,
+    output: Path | None = None,
+    *,
+    _root_for_test: Path | None = None,
+) -> dict[str, Any]:
+    root = (_root_for_test or Path(__file__).resolve().parents[1]).resolve()
     artifact = _resolve_gate_artifact(root, gate)
     registry = output or (Path.home() / ".pasi" / "acceptance" / "registry.json")
     return _record_artifact(artifact.resolve(), registry, root)
