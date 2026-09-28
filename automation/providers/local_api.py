@@ -10,6 +10,10 @@ from .ollama import OllamaProvider
 from .protocol import ChatMessage
 
 
+class LocalProviderServer(ThreadingHTTPServer):
+    provider: Any
+
+
 class LocalProviderAPI(BaseHTTPRequestHandler):
     """Local PASI model API. Bound to loopback by default; never exposed publicly."""
 
@@ -64,8 +68,8 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     bind_host = host or os.environ.get("PASI_PROVIDER_HOST", "127.0.0.1")
     bind_port = int(port if port is not None else os.environ.get("PASI_PROVIDER_PORT", "8787"))
     provider = OllamaProvider()
-    server = ThreadingHTTPServer((bind_host, bind_port), LocalProviderAPI)
-    server.provider = provider  # type: ignore[attr-defined]
+    server = LocalProviderServer((bind_host, bind_port), LocalProviderAPI)
+    server.provider = provider
     print(f"PASI local provider API listening on http://{bind_host}:{bind_port}", flush=True)
     server.serve_forever()
 
