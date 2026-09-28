@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CONTROLLER_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "chatgpt-controller.user.js"
+RECOVERY_PATH = REPOSITORY_ROOT / "automation" / "chromium" / "pasi-chatgpt" / "recovery.js"
 MANIFEST_PATH = REPOSITORY_ROOT / "automation" / "legacy" / "tampermonkey" / "controller-sync.json"
 REQUEST_PATH = REPOSITORY_ROOT / ".runtime" / "chatgpt" / "controller-update-request.json"
 
@@ -27,6 +28,14 @@ def read_version() -> str:
             if len(parts) == 3 and parts[2]:
                 return parts[2]
     raise ValueError("controller @version was not found")
+
+
+def read_recovery_version() -> str:
+    source = RECOVERY_PATH.read_text(encoding="utf-8")
+    match = __import__("re").search(r"RECOVERY_VERSION\s*=\s*['\"](\d+\.\d+\.\d+)['\"]", source)
+    if not match:
+        raise ValueError("recovery RECOVERY_VERSION was not found")
+    return match.group(1)
 
 
 def load_request(request_path: Path) -> tuple[str, str]:
@@ -60,6 +69,8 @@ def main() -> int:
 
     if not CONTROLLER_PATH.is_file():
         raise SystemExit("error: controller source is missing")
+    if not RECOVERY_PATH.is_file():
+        raise SystemExit("error: recovery companion is missing")
     if not args.allow_non_main and run(["git", "branch", "--show-current"]) != "main":
         raise SystemExit("error: controller release must be prepared from main after the controller change is merged")
     if run(["git", "status", "--short"]):
@@ -78,17 +89,32 @@ def main() -> int:
         raise SystemExit("error: requested version does not match controller source version")
 
     git_blob_sha = git_blob_sha1(CONTROLLER_PATH)
+    recovery_blob_sha = git_blob_sha1(RECOVERY_PATH)
+    recovery_version = read_recovery_version()
     commit = run(["git", "rev-parse", "HEAD"])
 
-    manifest = {
+    previous: dict[str, object] = {}
+    if MANIFEST_PATH.is_file():
+        try:
+            payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                previous = payload
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            previous = {}
+
+    manifest = dict(previous)
+    manifest.update({
         "schema_version": "1",
         "enabled": True,
         "version": version,
-        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/main/automation/legacy/tampermonkey/chatgpt-controller.user.js",
+        "source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/legacy/tampermonkey/chatgpt-controller.user.js",
         "git_blob_sha": git_blob_sha,
         "release_commit": commit,
+        "recovery_version": recovery_version,
+        "recovery_source_url": "https://raw.githubusercontent.com/th3-st0v3/personal-ai-system/refs/heads/main/automation/chromium/pasi-chatgpt/recovery.js",
+        "recovery_git_blob_sha": recovery_blob_sha,
         "reason": reason,
-    }
+    })
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
     print(f"READY_TO_COMMIT: {MANIFEST_PATH}")
