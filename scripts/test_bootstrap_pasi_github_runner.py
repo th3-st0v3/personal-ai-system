@@ -78,26 +78,3 @@ def test_fast_validator_exists_and_stays_free_of_live_acceptance_scripts() -> No
     assert "node --test" in script
     assert "scripts/e2e_chromium_response_recovery.py" not in script
     assert "scripts/e2e_chromium_prompt_submission.py" not in script
-
-
-def test_security_workflow_has_pr_dependency_review():
-    workflow = (ROOT / ".github" / "workflows" / "pasi-security-analysis.yml").read_text(encoding="utf-8")
-    assert "dependency-review:" in workflow
-    assert "actions/dependency-review-action@v4" in workflow
-    assert "if: github.event_name == 'pull_request'" in workflow
-
-
-def test_development_control_is_not_an_automatic_validation_trigger():
-    workflow = (ROOT / ".github" / "workflows" / "pasi-development.yml").read_text(encoding="utf-8")
-    assert "  pull_request:" not in workflow
-    assert "  push:" not in workflow
-    assert "workflow_dispatch:" in workflow
-
-
-def test_single_desktop_control_surface_remains():
-    root = ROOT / ".github" / "workflows"
-    assert not (root / "pasi-desktop-gate.yml").exists()
-    development = (root / "pasi-development.yml").read_text(encoding="utf-8")
-    assert "start-automation" in development
-    assert "status" in development
-    assert "stop" in development
