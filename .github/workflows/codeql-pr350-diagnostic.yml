@@ -1,0 +1,45 @@
+name: temporary CodeQL PR350 diagnostic
+
+on:
+  push:
+    branches:
+      - tmp/codeql-pr350-diagnostic
+
+permissions:
+  contents: read
+  security-events: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List open CodeQL alerts for the P0 hardening ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const ref = "refs/heads/pasi/p0-runtime-feature-hardening-20260928";
+            const { data } = await github.rest.codeScanning.listAlertsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              ref,
+              per_page: 100,
+            });
+            const codeql = data.filter(alert => alert.tool?.name === "CodeQL");
+            core.info(JSON.stringify(codeql, null, 2));
+            for (const alert of codeql) {
+              const loc = alert.most_recent_instance?.location;
+              core.info([
+                "ALERT",
+                alert.number,
+                alert.rule?.id,
+                alert.rule?.description,
+                alert.rule?.security_severity_level,
+                loc?.path,
+                loc?.start_line,
+                loc?.end_line,
+                loc?.start_column,
+                loc?.end_column,
+                alert.html_url,
+              ].join(" | "));
+            }
