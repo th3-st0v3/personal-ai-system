@@ -1,6 +1,8 @@
 name: PASI runtime contract benchmark
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "17 5 * * 1"
