@@ -92,3 +92,12 @@ def test_development_control_is_not_an_automatic_validation_trigger():
     assert "  pull_request:" not in workflow
     assert "  push:" not in workflow
     assert "workflow_dispatch:" in workflow
+
+
+def test_single_desktop_control_surface_remains():
+    root = ROOT / ".github" / "workflows"
+    assert not (root / "pasi-desktop-gate.yml").exists()
+    development = (root / "pasi-development.yml").read_text(encoding="utf-8")
+    assert "start-automation" in development
+    assert "status" in development
+    assert "stop" in development
