@@ -4,6 +4,7 @@ import unittest
 from typing import Any, Mapping
 
 from automation.computer_use.contracts import ActionProposal, Observation
+from automation.computer_use.github_projects import GitHubProjectsV2
 from automation.computer_use.github import (
     GitHubAdapterError,
     GitHubControlAdapter,
@@ -24,6 +25,29 @@ class FakeGitHubTransport:
     ) -> Any:
         self.requests.append((method, path, payload))
         return self.response
+
+
+class FakeProjectClient(GitHubProjectsV2):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    def get_item_id(self, project_number: int, repository: str, issue_number: int) -> str:
+        self.calls.append(("get_item_id", (project_number, repository, issue_number)))
+        return "PVTI_1"
+
+    def get_field_value(self, item_id: str, field_name: str) -> Any:
+        self.calls.append(("get_field_value", (item_id, field_name)))
+        return "In progress"
+
+    def set_status(self, project_number: int, repository: str, issue_number: int, status: str) -> Mapping[str, Any]:
+        self.calls.append(("set_status", (project_number, repository, issue_number, status)))
+        return {
+            "project_id": "PVT_1",
+            "item_id": "PVTI_1",
+            "field_id": "PVTSSF_1",
+            "field_name": "Status",
+            "value": status,
+        }
 
 
 class FakeComputerAdapter:
@@ -94,6 +118,117 @@ class GitHubControlAdapterTests(unittest.TestCase):
         adapter = GitHubControlAdapter("owner", "repo", transport)
         action = ActionProposal("a1", "s1", "github", "github_read", {"operation": "pulls", "parameters": {"state": "pending"}})
         with self.assertRaises(ValueError):
+            adapter.execute(action)
+
+    def test_project_read_is_safe_and_resolves_item(self) -> None:
+        project = FakeProjectClient()
+        adapter = GitHubControlAdapter(
+            "owner",
+            "repo",
+            FakeGitHubTransport(),
+            project_client=project,
+            session_id="s1",
+        )
+        action = ActionProposal(
+            "a1",
+            "s1",
+            "github.com",
+            "github_project_read",
+            {
+                "operation": "get_item",
+                "parameters": {
+                    "project_number": 1,
+                    "repository": "owner/roadmap",
+                    "issue_number": 108,
+                },
+            },
+        )
+        self.assertEqual(action.effective_risk(), "safe")
+        result = adapter.execute(action)
+        self.assertEqual(result.kind, "github.project.get_item")
+        self.assertEqual(result.data["item_id"], "PVTI_1")
+
+    def test_project_write_requires_approval_and_dispatches(self) -> None:
+        project = FakeProjectClient()
+        adapter = GitHubControlAdapter(
+            "owner",
+            "repo",
+            FakeGitHubTransport(),
+            project_client=project,
+            session_id="s1",
+        )
+        action = ActionProposal(
+            "a1",
+            "s1",
+            "github.com",
+            "github_project_write",
+            {
+                "operation": "set_status",
+                "parameters": {
+                    "project_number": 1,
+                    "repository": "owner/roadmap",
+                    "issue_number": 108,
+                    "status": "In progress",
+                },
+            },
+        )
+        self.assertEqual(action.effective_risk(), "approval_required")
+        result = adapter.execute(action)
+        self.assertEqual(result.data["value"], "In progress")
+        self.assertEqual(
+            project.calls[-1],
+            ("set_status", (1, "owner/roadmap", 108, "In progress")),
+        )
+
+    def test_project_write_rejects_declared_safe_risk(self) -> None:
+        project = FakeProjectClient()
+        adapter = GitHubControlAdapter(
+            "owner",
+            "repo",
+            FakeGitHubTransport(),
+            project_client=project,
+        )
+        action = ActionProposal(
+            "a1",
+            "s1",
+            "github.com",
+            "github_project_write",
+            {
+                "operation": "set_status",
+                "parameters": {
+                    "project_number": 1,
+                    "issue_number": 108,
+                    "status": "Done",
+                },
+            },
+            risk="safe",
+        )
+        with self.assertRaises(ValueError):
+            adapter.execute(action)
+
+    def test_project_action_rejects_foreign_repository_owner(self) -> None:
+        project = FakeProjectClient()
+        adapter = GitHubControlAdapter(
+            "owner",
+            "repo",
+            FakeGitHubTransport(),
+            project_client=project,
+        )
+        action = ActionProposal(
+            "a1",
+            "s1",
+            "github.com",
+            "github_project_read",
+            {
+                "operation": "get_item",
+                "parameters": {
+                    "project_number": 1,
+                    "repository": "other/roadmap",
+                    "issue_number": 108,
+                },
+            },
+        )
+        with self.assertRaises(GitHubAdapterError):
             adapter.execute(action)
 
     def test_ui_fallback_is_explicit(self) -> None:
