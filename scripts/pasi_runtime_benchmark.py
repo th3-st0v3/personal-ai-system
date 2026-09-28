@@ -37,7 +37,7 @@ def build_events() -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for index in range(1, 21):
         task_id = f"benchmark-task-{index:02d}"
-        start = REFERENCE + timedelta(milliseconds=(index - 1) * 60500)
+        start = REFERENCE + timedelta(milliseconds=(index - 1) * 60100)
         dispatch = start
         queued = start + timedelta(milliseconds=50)
         injection = start + timedelta(milliseconds=400)
@@ -110,7 +110,7 @@ def build_events() -> list[dict[str, Any]]:
             ]
         )
 
-    recovery_time = REFERENCE + timedelta(milliseconds=20 * 60500 + 1000)
+    recovery_time = REFERENCE + timedelta(milliseconds=20 * 60100 + 1000)
     events.append(
         {
             "timestamp": iso(recovery_time),
