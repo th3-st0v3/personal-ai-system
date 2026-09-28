@@ -25,15 +25,14 @@ class AcceptanceRegistryTests(unittest.TestCase):
     def test_record_captures_code_controller_environment_and_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._fixture_root(temp_dir)
-            with mock.patch.object(
-                registry,
-                "_run",
-                side_effect=lambda cwd, *args: {
-                    ("rev-parse", "--show-toplevel"): str(root),
-                    ("rev-parse", "HEAD"): "a" * 40,
-                    ("branch", "--show-current"): "pasi/test",
-                    ("config", "--get", "remote.origin.url"): "https://github.com/th3-st0v3/personal-ai-system.git",
-                }.get(args, ""),
+            with mock.patch.dict(
+                registry.os.environ,
+                {
+                    "GITHUB_SHA": "a" * 40,
+                    "GITHUB_REF_NAME": "pasi/test",
+                    "GITHUB_REPOSITORY": "th3-st0v3/personal-ai-system",
+                },
+                clear=False,
             ):
                 artifact = root / ".runtime" / "acceptance" / "m1-live.json"
                 artifact.write_text(
@@ -70,12 +69,15 @@ class AcceptanceRegistryTests(unittest.TestCase):
             artifact = root / ".runtime" / "acceptance" / "m0-live.json"
             artifact.write_text(json.dumps({"gate": "M0", "status": "PASS"}), encoding="utf-8")
             output = root / "registry.json"
-            with mock.patch.object(registry, "_repo_root", return_value=root), \
-                 mock.patch.object(
-                     registry,
-                     "_run",
-                     side_effect=lambda cwd, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "pasi/test",
-                 ):
+            with mock.patch.dict(
+                registry.os.environ,
+                {
+                    "GITHUB_SHA": "a" * 40,
+                    "GITHUB_REF_NAME": "pasi/test",
+                    "GITHUB_REPOSITORY": "th3-st0v3/personal-ai-system",
+                },
+                clear=False,
+            ):
                 first = registry.record_gate("M0", output=output)
                 second = registry.record_gate("M0", output=output)
 
