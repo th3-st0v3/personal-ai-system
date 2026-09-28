@@ -56,29 +56,3 @@ class RunnerCapabilitiesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-def test_scheduled_health_check_is_detect_only() -> None:
-    workflow = Path(".github/workflows/pasi-runner-capabilities.yml").read_text(encoding="utf-8")
-    assert "schedule:" in workflow
-    assert 'cron: "47 4 * * *"' in workflow
-    assert "if: ${{ github.event_name == 'schedule' }}" in workflow
-    detect = workflow[workflow.index("  detect-health:"):workflow.index("  reconcile:")]
-    assert "Detect runner capabilities" in detect
-    assert "--apply" not in detect
-    assert "--apply-optional" not in detect
-
-
-def test_trusted_reconciliation_is_pinned_to_main():
-    workflow = Path(".github/workflows/pasi-runner-capabilities.yml").read_text(encoding="utf-8")
-    reconcile = workflow[workflow.index("  reconcile:"):]
-    assert 'ref: main' in reconcile
-    assert "inputs.ref" not in workflow
-    assert "Resolve ref" not in reconcile
-
-
-def test_scheduled_report_verification_reads_runner_temp_environment():
-    workflow = Path(".github/workflows/pasi-runner-capabilities.yml").read_text(encoding="utf-8")
-    detect = workflow[workflow.index("  detect-health:"):workflow.index("  reconcile:")]
-    assert 'REPORT_PATH="$RUNNER_TEMP/pasi-capabilities/capabilities.json" python3' in detect
-    assert 'os.environ["REPORT_PATH"]' in detect

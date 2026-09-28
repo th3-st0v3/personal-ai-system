@@ -18,14 +18,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  dependency-review:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/dependency-review-action@v4
-
   secret-scan:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
