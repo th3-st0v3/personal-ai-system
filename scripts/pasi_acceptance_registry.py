@@ -7,33 +7,12 @@ import json
 import os
 import platform
 import re
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
-
-
-def _run(root: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return ""
-    return result.stdout.strip()
-
-
-def _repo_root(start: Path) -> Path:
-    raw = _run(start, "rev-parse", "--show-toplevel")
-    if not raw:
-        raise RuntimeError("acceptance registry requires a Git repository")
-    return Path(raw).resolve()
 
 
 def _controller_version(root: Path) -> str | None:
@@ -101,13 +80,13 @@ def build_entry(artifact: Path, root: Path, payload: dict[str, Any]) -> dict[str
     commit = (
         recorded_commit
         if isinstance(recorded_commit, str) and re.fullmatch(r"[0-9a-f]{40}", recorded_commit)
-        else _run(root, "rev-parse", "HEAD")
+        else os.environ.get("GITHUB_SHA") or "unknown"
     )
     recorded_branch = payload.get("branch")
     branch = (
         str(recorded_branch)
         if isinstance(recorded_branch, str) and recorded_branch.strip()
-        else _run(root, "branch", "--show-current") or "DETACHED"
+        else os.environ.get("GITHUB_REF_NAME") or "unknown"
     )
     provider = payload.get("provider")
     completed_at = payload.get("completed_at")
@@ -122,7 +101,11 @@ def build_entry(artifact: Path, root: Path, payload: dict[str, Any]) -> dict[str
         "gate": str(payload.get("gate") or "unknown"),
         "status": str(payload.get("status") or "unknown"),
         "code": {
-            "repository": os.environ.get("GITHUB_REPOSITORY") or _run(root, "config", "--get", "remote.origin.url"),
+            "repository": (
+                str(payload.get("repository")).strip()
+                if isinstance(payload.get("repository"), str) and str(payload.get("repository")).strip()
+                else os.environ.get("GITHUB_REPOSITORY") or "unknown"
+            ),
             "head_commit": commit,
             "branch": branch,
         },
@@ -202,7 +185,7 @@ def _record_artifact(
 
 
 def record_gate(gate: str, output: Path | None = None) -> dict[str, Any]:
-    root = _repo_root(Path.cwd())
+    root = Path(__file__).resolve().parents[1]
     artifact = _resolve_gate_artifact(root, gate)
     registry = output or (Path.home() / ".pasi" / "acceptance" / "registry.json")
     return _record_artifact(artifact.resolve(), registry, root)
