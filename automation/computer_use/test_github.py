@@ -27,7 +27,7 @@ class FakeGitHubTransport:
         return self.response
 
 
-class FakeProjectClient:
+class FakeProjectClient(GitHubProjectsV2):
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
