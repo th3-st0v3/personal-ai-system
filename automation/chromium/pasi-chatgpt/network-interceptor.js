@@ -195,7 +195,7 @@
 
           if (result.done) {
             bufferedText += decoder.decode();
-            parseStreamLines(bufferedText, raw => {
+            parseStreamLines(bufferedText + '\n', raw => {
               if (!trackingState.isTerminal) markPayloadFailure(raw, trackingState);
             });
             if (!trackingState.isTerminal) {
