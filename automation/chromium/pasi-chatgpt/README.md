@@ -49,3 +49,31 @@ The first panel milestone is intentionally read-only with respect to privileged 
 - a Satellite/local-workstation/beast preference that does not claim to apply host limits from inside the browser.
 
 Cloud roadmap dissection, runner start/stop/force-skip commands, and network-stream interception remain separate milestones with explicit contracts.
+
+## Phase 1 — Network interceptor test path
+
+Phase 1 adds a **read-only transport observer** for ChatGPT generation requests. It runs in the page's `MAIN` JavaScript world so it can wrap the page's native `fetch()`; the existing DOM controller remains responsible for production operation handling during this phase.
+
+The interceptor is deliberately isolated from the PASI bridge. It emits bounded lifecycle events through `PASI_NETWORK_LIFECYCLE` and exposes `window.__PASI_NETWORK_INTERCEPTOR_HEALTH__()`.
+
+Run the deterministic Phase 1 tests locally:
+
+`node --test automation/chromium/pasi-chatgpt/test_network_interceptor.js`
+
+For a live browser smoke check, load the built extension, open ChatGPT, then use the page console:
+
+```js
+const events = [];
+window.addEventListener('PASI_NETWORK_LIFECYCLE', event => {
+  events.push(JSON.parse(event.detail));
+  console.log(events.at(-1));
+});
+window.dispatchEvent(new CustomEvent('PASI_NETWORK_BIND_OPERATION', {
+  detail: 'phase1-manual-operation'
+}));
+window.__PASI_NETWORK_INTERCEPTOR_HEALTH__();
+```
+
+The first Phase 1 acceptance target is transport truth: a real generation request must produce exactly one `STARTED` event and one terminal event (`COMPLETED`, `INTERRUPTED`, or `FAILED`) without changing the response delivered to ChatGPT.
+
+Phase 1 does **not** yet route interceptor events into the bridge and does **not** remove the DOM controller. Those changes belong only after the transport observer is independently validated.
