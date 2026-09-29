@@ -57,6 +57,22 @@ test('parses SSE data lines incrementally and preserves an incomplete tail', () 
   assert.equal(tail, 'data: {"ok":2}');
 });
 
+test('classifies a terminal provider error even when the final SSE line has no trailing newline', async () => {
+  const events = [];
+  const target = {
+    fetch: async () =>
+      responseFromChunks([
+        'data: {"error":{"code":"context_length_exceeded"}}'
+      ])
+  };
+  const interceptor = createPasiNetworkInterceptor({ target, emit: event => events.push(event) });
+  interceptor.install();
+  await target.fetch('https://chatgpt.com/backend-api/conversation', { method: 'POST' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events.map(event => event.eventType), ['STARTED', 'INTERRUPTED']);
+  assert.equal(events.at(-1).reason, 'CONTEXT_EXHAUSTED');
+});
+
 test('intercepts generation traffic non-invasively and reports STARTED then COMPLETED', async () => {
   const events = [];
   const target = { fetch: async () => responseFromChunks(['data: {"delta":"hi"}\n\n', 'data: [DONE]\n\n']) };
