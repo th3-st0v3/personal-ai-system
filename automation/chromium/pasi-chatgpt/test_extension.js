@@ -141,7 +141,10 @@ test('phase-1 network interception is packaged in the main page world', () => {
   assert.deepEqual(network.js, ['network-interceptor.js']);
   assert.match(background, /world: 'MAIN'/);
   assert.match(background, /files: \['network-interceptor\.js'\]/);
-  assert.ok(background.indexOf("files: ['network-interceptor.js']") < background.indexOf("'timeout-config.js'"));
+  const injectStart = background.indexOf('async function injectExistingChatTabs()');
+  const injectEnd = background.indexOf('async function inspect()', injectStart);
+  const injectSource = background.slice(injectStart, injectEnd);
+  assert.ok(injectSource.indexOf("files: ['network-interceptor.js']") < injectSource.indexOf("'timeout-config.js'"));
   assert.doesNotMatch(networkInterceptor, /MutationObserver/);
   assert.match(networkInterceptor, /target\.fetch = interceptedFetch/);
   assert.match(networkInterceptor, /PASI_NETWORK_LIFECYCLE/);
