@@ -243,6 +243,17 @@ async function injectExistingChatTabs() {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
+        world: 'MAIN',
+        files: ['network-interceptor.js']
+      });
+    } catch (_) {
+      // Retry the interceptor independently so a failure never blocks
+      // the existing controller injection.
+    }
+
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
         files: [
           'timeout-config.js',
           'detectors.js',
