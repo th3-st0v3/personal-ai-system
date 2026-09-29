@@ -14,6 +14,7 @@ const root = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const content = fs.readFileSync(path.join(root, 'content.js'), 'utf8');
 const recovery = fs.readFileSync(path.join(root, 'recovery.js'), 'utf8');
+const networkInterceptor = fs.readFileSync(path.join(root, 'network-interceptor.js'), 'utf8');
 const background = fs.readFileSync(path.join(root, 'background.js'), 'utf8');
 
 
@@ -102,6 +103,12 @@ test('native controller and recovery companion have unique recovery declarations
   assert.equal((recovery.match(/function usageLimited\(\)/g) || []).length, 1);
 });
 
+test('native extension injects the main-world interceptor into already-open ChatGPT tabs', () => {
+  assert.match(background, /world: 'MAIN'/);
+  assert.match(background, /files: \['network-interceptor\\.js'\]/);
+  assert.match(background, /Retry the interceptor independently/);
+});
+
 test('native extension injects into already-open ChatGPT tabs', () => {
   assert.ok(manifest.permissions.includes('scripting'));
   assert.match(background, /async function injectExistingChatTabs\(\)/);
@@ -126,8 +133,23 @@ test('native existing-tab injection probes for a live controller before reinject
   assert.match(source, /continue;/);
 });
 
+test('phase-1 network interception is packaged in the main page world', () => {
+  const network = manifest.content_scripts.find(script => script.js.includes('network-interceptor.js'));
+  assert.ok(network);
+  assert.equal(network.world, 'MAIN');
+  assert.equal(network.run_at, 'document_start');
+  assert.deepEqual(network.js, ['network-interceptor.js']);
+  assert.match(background, /world: 'MAIN'/);
+  assert.match(background, /files: \['network-interceptor\\.js'\]/);
+  assert.ok(background.indexOf("files: ['network-interceptor.js']") < background.indexOf("'timeout-config.js'"));
+  assert.doesNotMatch(networkInterceptor, /MutationObserver/);
+  assert.match(networkInterceptor, /target\.fetch = interceptedFetch/);
+  assert.match(networkInterceptor, /PASI_NETWORK_LIFECYCLE/);
+  assert.match(networkInterceptor, /__PASI_NETWORK_INTERCEPTOR_HEALTH__/);
+});
+
 test('native extension is Manifest V3 with least-privilege required permissions', () => {
-  assert.equal(manifest.version, '1.1.2');
+  assert.equal(manifest.version, '1.2.0');
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.ok(manifest.permissions.includes('alarms'));
@@ -136,7 +158,7 @@ test('native extension is Manifest V3 with least-privilege required permissions'
   assert.ok(manifest.host_permissions.includes('http://127.0.0.1:8765/*'));
   assert.ok(manifest.host_permissions.includes('https://chatgpt.com/*'));
   assert.ok(manifest.host_permissions.includes('https://www.chatgpt.com/*'));
-  assert.deepEqual(manifest.content_scripts[0].js, ['timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
+  assert.deepEqual(manifest.content_scripts[1].js, ['timeout-config.js', 'detectors.js', 'recovery_progress.js', 'content.js', 'recovery.js']);
 });
 
 test('native controller keeps response telemetry off the completion critical path', () => {
