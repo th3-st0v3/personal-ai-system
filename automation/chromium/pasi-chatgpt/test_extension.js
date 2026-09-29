@@ -105,7 +105,7 @@ test('native controller and recovery companion have unique recovery declarations
 
 test('native extension injects the main-world interceptor into already-open ChatGPT tabs', () => {
   assert.match(background, /world: 'MAIN'/);
-  assert.match(background, /files: \['network-interceptor\\.js'\]/);
+  assert.match(background, /files: \['network-interceptor\.js'\]/);
   assert.match(background, /Retry the interceptor independently/);
 });
 
@@ -140,7 +140,7 @@ test('phase-1 network interception is packaged in the main page world', () => {
   assert.equal(network.run_at, 'document_start');
   assert.deepEqual(network.js, ['network-interceptor.js']);
   assert.match(background, /world: 'MAIN'/);
-  assert.match(background, /files: \['network-interceptor\\.js'\]/);
+  assert.match(background, /files: \['network-interceptor\.js'\]/);
   assert.ok(background.indexOf("files: ['network-interceptor.js']") < background.indexOf("'timeout-config.js'"));
   assert.doesNotMatch(networkInterceptor, /MutationObserver/);
   assert.match(networkInterceptor, /target\.fetch = interceptedFetch/);
